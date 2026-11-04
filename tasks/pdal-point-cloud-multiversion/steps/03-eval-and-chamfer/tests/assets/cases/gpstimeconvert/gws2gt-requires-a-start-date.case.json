@@ -1,0 +1,68 @@
+{
+ "doc": "stages/filters.gpstimeconvert.rst: '_`start_date`  When the input times are in GPS week seconds, the date on which the data collection started must be supplied in the GMT time zone. Must be in \"YYYY-MM-DD\" format. [Required for the \"gws2gt\" and \"gws2gst\" conversions]'",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "bad.json": {
+   "text": "{\n \"pipeline\": [\n  \"in.las\",\n  {\n   \"type\": \"filters.gpstimeconvert\",\n   \"conversion\": \"gws2gt\"\n  },\n  \"bad.las\"\n ]\n}"
+  },
+  "good.json": {
+   "text": "{\n \"pipeline\": [\n  \"in.las\",\n  {\n   \"type\": \"filters.gpstimeconvert\",\n   \"conversion\": \"gws2gt\",\n   \"start_date\": \"1980-01-06\"\n  },\n  \"good.las\"\n ]\n}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "good.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "start_date"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad.las"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "good.las",
+   "header": {
+    "point_count": 1000
+   },
+   "dims": {
+    "GpsTime": {
+     "min": {
+      "approx": 0.0,
+      "tol": 0.001
+     },
+     "max": {
+      "approx": 499.5,
+      "tol": 0.001
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,759 @@
+diff --git a/mldsa/mldsa_native.c b/mldsa/mldsa_native.c
+--- a/mldsa/mldsa_native.c
++++ b/mldsa/mldsa_native.c
+@@ -687,7 +687,9 @@
+ #undef MLD_USE_NATIVE_POLY_CADDQ
+ #undef MLD_USE_NATIVE_POLY_CHKNORM
+ #undef MLD_USE_NATIVE_POLY_DECOMPOSE_32
++#undef MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_32
++#undef MLD_USE_NATIVE_POLY_USE_HINT_88
+ #endif /* MLD_SYS_AARCH64 */
+ #if defined(MLD_SYS_X86_64)
+ /*
+@@ -706,7 +708,9 @@
+ #undef MLD_USE_NATIVE_POLY_CADDQ
+ #undef MLD_USE_NATIVE_POLY_CHKNORM
+ #undef MLD_USE_NATIVE_POLY_DECOMPOSE_32
++#undef MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_32
++#undef MLD_USE_NATIVE_POLY_USE_HINT_88
+ #undef MLD_AVX2_REJ_UNIFORM_BUFLEN
+ #undef MLD_AVX2_REJ_UNIFORM_ETA2_BUFLEN
+ #undef MLD_AVX2_REJ_UNIFORM_ETA4_BUFLEN
+@@ -721,7 +725,9 @@
+ #undef mld_poly_caddq_avx2_asm
+ #undef mld_poly_chknorm_avx2_asm
+ #undef mld_poly_decompose_32_avx2_asm
++#undef mld_poly_decompose_88_avx2_asm
+ #undef mld_poly_use_hint_32_avx2_asm
++#undef mld_poly_use_hint_88_avx2_asm
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XDIV
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XDIV_QINV
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XQ
+diff --git a/mldsa/mldsa_native_asm.S b/mldsa/mldsa_native_asm.S
+--- a/mldsa/mldsa_native_asm.S
++++ b/mldsa/mldsa_native_asm.S
+@@ -685,7 +685,9 @@
+ #undef MLD_USE_NATIVE_POLY_CADDQ
+ #undef MLD_USE_NATIVE_POLY_CHKNORM
+ #undef MLD_USE_NATIVE_POLY_DECOMPOSE_32
++#undef MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_32
++#undef MLD_USE_NATIVE_POLY_USE_HINT_88
+ #endif /* MLD_SYS_AARCH64 */
+ #if defined(MLD_SYS_X86_64)
+ /*
+@@ -704,7 +706,9 @@
+ #undef MLD_USE_NATIVE_POLY_CADDQ
+ #undef MLD_USE_NATIVE_POLY_CHKNORM
+ #undef MLD_USE_NATIVE_POLY_DECOMPOSE_32
++#undef MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_32
++#undef MLD_USE_NATIVE_POLY_USE_HINT_88
+ #undef MLD_AVX2_REJ_UNIFORM_BUFLEN
+ #undef MLD_AVX2_REJ_UNIFORM_ETA2_BUFLEN
+ #undef MLD_AVX2_REJ_UNIFORM_ETA4_BUFLEN
+@@ -719,7 +723,9 @@
+ #undef mld_poly_caddq_avx2_asm
+ #undef mld_poly_chknorm_avx2_asm
+ #undef mld_poly_decompose_32_avx2_asm
++#undef mld_poly_decompose_88_avx2_asm
+ #undef mld_poly_use_hint_32_avx2_asm
++#undef mld_poly_use_hint_88_avx2_asm
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XDIV
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XDIV_QINV
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XQ
+diff --git a/mldsa/src/native/x86_64/meta.h b/mldsa/src/native/x86_64/meta.h
+--- a/mldsa/src/native/x86_64/meta.h
++++ b/mldsa/src/native/x86_64/meta.h
+@@ -15,8 +15,10 @@
+ #define MLD_USE_NATIVE_NTT
+ #define MLD_USE_NATIVE_INTT
+ #define MLD_USE_NATIVE_POLY_DECOMPOSE_32
++#define MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #define MLD_USE_NATIVE_POLY_CADDQ
+ #define MLD_USE_NATIVE_POLY_USE_HINT_32
++#define MLD_USE_NATIVE_POLY_USE_HINT_88
+ #define MLD_USE_NATIVE_POLY_CHKNORM
+ #define MLD_USE_NATIVE_POINTWISE_MONTGOMERY
+ #define MLD_USE_NATIVE_POLYVECL_POINTWISE_ACC_MONTGOMERY_L4
+@@ -86,6 +88,16 @@
+           || MLD_CONFIG_PARAMETER_SET == 87 */
+ 
+ #if defined(MLD_CONFIG_MULTILEVEL_WITH_SHARED) || MLD_CONFIG_PARAMETER_SET == 44
++MLD_MUST_CHECK_RETURN_VALUE
++static MLD_INLINE int mld_poly_decompose_88_native(int32_t *a1, int32_t *a0)
++{
++  if (!mld_sys_check_capability(MLD_SYS_CAP_X86_64_AVX2))
++  {
++    return MLD_NATIVE_FUNC_FALLBACK;
++  }
++  mld_poly_decompose_88_avx2_asm(a1, a0);
++  return MLD_NATIVE_FUNC_SUCCESS;
++}
+ #endif /* MLD_CONFIG_MULTILEVEL_WITH_SHARED || MLD_CONFIG_PARAMETER_SET == 44 \
+         */
+ #endif /* !MLD_CONFIG_NO_SIGN_API */
+@@ -118,6 +130,16 @@
+           || MLD_CONFIG_PARAMETER_SET == 87 */
+ 
+ #if defined(MLD_CONFIG_MULTILEVEL_WITH_SHARED) || MLD_CONFIG_PARAMETER_SET == 44
++MLD_MUST_CHECK_RETURN_VALUE
++static MLD_INLINE int mld_poly_use_hint_88_native(int32_t *a, const int32_t *h)
++{
++  if (!mld_sys_check_capability(MLD_SYS_CAP_X86_64_AVX2))
++  {
++    return MLD_NATIVE_FUNC_FALLBACK;
++  }
++  mld_poly_use_hint_88_avx2_asm(a, h);
++  return MLD_NATIVE_FUNC_SUCCESS;
++}
+ #endif /* MLD_CONFIG_MULTILEVEL_WITH_SHARED || MLD_CONFIG_PARAMETER_SET == 44 \
+         */
+ #endif /* !MLD_CONFIG_NO_VERIFY_API */
+diff --git a/mldsa/src/native/x86_64/src/mldsa_poly_decompose_88_avx2_asm.S b/mldsa/src/native/x86_64/src/mldsa_poly_decompose_88_avx2_asm.S
+--- /dev/null
++++ b/mldsa/src/native/x86_64/src/mldsa_poly_decompose_88_avx2_asm.S
+@@ -0,0 +1,489 @@
++/*
++ * Copyright (c) The mldsa-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Dilithium optimized AVX2 implementation
++ *   Bai, Ducas, Kiltz, Lepoint, Lyubashevsky, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/dilithium/tree/master/avx2
++ */
++
++/*
++ * This file is derived from the public domain
++ * AVX2 Dilithium implementation @[REF_AVX2].
++ *
++ * The algorithm for Decompose(r) (more specifically the handling for the
++ * wrap-around cases) is modified. See the AVX2 intrinsics version
++ * (poly_decompose_88_avx2.c, predecessor of this file) for a more detailed
++ * comparison.
++ */
++
++
++/*yaml
++  Name: poly_decompose_88_avx2_asm
++  Description: x86_64 AVX2 coefficient decomposition (alpha = 2*(Q-1)/88).
++    For all coefficients c of the input polynomial, compute high and low bits
++    c0, c1 such that c = c1*ALPHA + c0 with -ALPHA/2 < c0 <= ALPHA/2, except if
++    c1 = (Q-1)/ALPHA where we set c1 = 0 and -ALPHA/2 <= c0 = c - Q < 0.
++    Assumes coefficients to be standard (unsigned canonical) representatives,
++    i.e. 0 <= c < Q. For ML-DSA-44 (gamma2 = (Q-1)/88, alpha = 2*gamma2).
++  Signature: void mld_poly_decompose_88_avx2_asm(int32_t *a1, int32_t *a0)
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 1024
++      permissions: write-only
++      c_parameter: int32_t *a1
++      description: Output high-part polynomial (256 x int32_t)
++    rsi:
++      type: buffer
++      size_bytes: 1024
++      permissions: read/write
++      c_parameter: int32_t *a0
++      description: Input polynomial / output low-part (256 x int32_t)
++*/
++
++#include "../../../common.h"
++
++#if defined(MLD_ARITH_BACKEND_X86_64_DEFAULT) &&   \
++    !defined(MLD_CONFIG_NO_SIGN_API) &&            \
++    !defined(MLD_CONFIG_MULTILEVEL_NO_SHARED) &&   \
++    (defined(MLD_CONFIG_MULTILEVEL_WITH_SHARED) || \
++     MLD_CONFIG_PARAMETER_SET == 44)
++
++
++/*
++ * WARNING: This file is auto-derived from the mldsa-native source file
++ *   dev/x86_64/src/mldsa_poly_decompose_88_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLD_ASM_NAMESPACE(poly_decompose_88_avx2_asm)
++MLD_ASM_FN_SYMBOL(poly_decompose_88_avx2_asm)
++
++        .cfi_startproc
++        movl $0x7f, %eax
++        vmovd %eax, %xmm10
++        vpbroadcastd %xmm10, %ymm10
++        movl $0x2c0b, %eax           # imm = 0x2C0B
++        vmovd %eax, %xmm11
++        vpbroadcastd %xmm11, %ymm11
++        movl $0x80, %eax
++        vmovd %eax, %xmm12
++        vpbroadcastd %xmm12, %ymm12
++        movl $0x7e6c00, %eax         # imm = 0x7E6C00
++        vmovd %eax, %xmm13
++        vpbroadcastd %xmm13, %ymm13
++        movl $0x2e800, %eax          # imm = 0x2E800
++        vmovd %eax, %xmm14
++        vpbroadcastd %xmm14, %ymm14
++        vmovdqa (%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, (%rdi)
++        vmovdqa %ymm2, (%rsi)
++        vmovdqa 0x20(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x20(%rdi)
++        vmovdqa %ymm2, 0x20(%rsi)
++        vmovdqa 0x40(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x40(%rdi)
++        vmovdqa %ymm2, 0x40(%rsi)
++        vmovdqa 0x60(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x60(%rdi)
++        vmovdqa %ymm2, 0x60(%rsi)
++        vmovdqa 0x80(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x80(%rdi)
++        vmovdqa %ymm2, 0x80(%rsi)
++        vmovdqa 0xa0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0xa0(%rdi)
++        vmovdqa %ymm2, 0xa0(%rsi)
++        vmovdqa 0xc0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0xc0(%rdi)
++        vmovdqa %ymm2, 0xc0(%rsi)
++        vmovdqa 0xe0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0xe0(%rdi)
++        vmovdqa %ymm2, 0xe0(%rsi)
++        vmovdqa 0x100(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x100(%rdi)
++        vmovdqa %ymm2, 0x100(%rsi)
++        vmovdqa 0x120(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x120(%rdi)
++        vmovdqa %ymm2, 0x120(%rsi)
++        vmovdqa 0x140(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x140(%rdi)
++        vmovdqa %ymm2, 0x140(%rsi)
++        vmovdqa 0x160(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x160(%rdi)
++        vmovdqa %ymm2, 0x160(%rsi)
++        vmovdqa 0x180(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x180(%rdi)
++        vmovdqa %ymm2, 0x180(%rsi)
++        vmovdqa 0x1a0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x1a0(%rdi)
++        vmovdqa %ymm2, 0x1a0(%rsi)
++        vmovdqa 0x1c0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x1c0(%rdi)
++        vmovdqa %ymm2, 0x1c0(%rsi)
++        vmovdqa 0x1e0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x1e0(%rdi)
++        vmovdqa %ymm2, 0x1e0(%rsi)
++        vmovdqa 0x200(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x200(%rdi)
++        vmovdqa %ymm2, 0x200(%rsi)
++        vmovdqa 0x220(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x220(%rdi)
++        vmovdqa %ymm2, 0x220(%rsi)
++        vmovdqa 0x240(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x240(%rdi)
++        vmovdqa %ymm2, 0x240(%rsi)
++        vmovdqa 0x260(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x260(%rdi)
++        vmovdqa %ymm2, 0x260(%rsi)
++        vmovdqa 0x280(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x280(%rdi)
++        vmovdqa %ymm2, 0x280(%rsi)
++        vmovdqa 0x2a0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x2a0(%rdi)
++        vmovdqa %ymm2, 0x2a0(%rsi)
++        vmovdqa 0x2c0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x2c0(%rdi)
++        vmovdqa %ymm2, 0x2c0(%rsi)
++        vmovdqa 0x2e0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x2e0(%rdi)
++        vmovdqa %ymm2, 0x2e0(%rsi)
++        vmovdqa 0x300(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x300(%rdi)
++        vmovdqa %ymm2, 0x300(%rsi)
++        vmovdqa 0x320(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x320(%rdi)
++        vmovdqa %ymm2, 0x320(%rsi)
++        vmovdqa 0x340(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x340(%rdi)
++        vmovdqa %ymm2, 0x340(%rsi)
++        vmovdqa 0x360(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x360(%rdi)
++        vmovdqa %ymm2, 0x360(%rsi)
++        vmovdqa 0x380(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x380(%rdi)
++        vmovdqa %ymm2, 0x380(%rsi)
++        vmovdqa 0x3a0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x3a0(%rdi)
++        vmovdqa %ymm2, 0x3a0(%rsi)
++        vmovdqa 0x3c0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x3c0(%rdi)
++        vmovdqa %ymm2, 0x3c0(%rsi)
++        vmovdqa 0x3e0(%rsi), %ymm0
++        vpaddd %ymm10, %ymm0, %ymm1
++        vpsrld $0x7, %ymm1, %ymm1
++        vpmulhuw %ymm11, %ymm1, %ymm1
++        vpmulhrsw %ymm12, %ymm1, %ymm1
++        vpcmpgtd %ymm13, %ymm0, %ymm3
++        vpmulld %ymm14, %ymm1, %ymm2
++        vpsubd %ymm2, %ymm0, %ymm2
++        vpandn %ymm1, %ymm3, %ymm1
++        vpaddd %ymm3, %ymm2, %ymm2
++        vmovdqa %ymm1, 0x3e0(%rdi)
++        vmovdqa %ymm2, 0x3e0(%rsi)
++        retq
++        .cfi_endproc
++
++MLD_ASM_FN_SIZE(poly_decompose_88_avx2_asm)
++
++
++#endif /* MLD_ARITH_BACKEND_X86_64_DEFAULT && !MLD_CONFIG_NO_SIGN_API && \
++          !MLD_CONFIG_MULTILEVEL_NO_SHARED && \
++          (MLD_CONFIG_MULTILEVEL_WITH_SHARED || MLD_CONFIG_PARAMETER_SET == 44) \
++        */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif
+diff --git a/mldsa/src/native/x86_64/src/mldsa_poly_use_hint_88_avx2_asm.S b/mldsa/src/native/x86_64/src/mldsa_poly_use_hint_88_avx2_asm.S
+--- /dev/null
++++ b/mldsa/src/native/x86_64/src/mldsa_poly_use_hint_88_avx2_asm.S
+@@ -0,0 +1,125 @@
++/*
++ * Copyright (c) The mldsa-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Dilithium optimized AVX2 implementation
++ *   Bai, Ducas, Kiltz, Lepoint, Lyubashevsky, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/dilithium/tree/master/avx2
++ */
++
++/*
++ * This file is derived from the public domain
++ * AVX2 Dilithium implementation @[REF_AVX2].
++ */
++
++
++/*yaml
++  Name: poly_use_hint_88_avx2_asm
++  Description: x86_64 AVX2 hint application (alpha = (Q-1)/88).
++    Use the hint polynomial h to correct the high bits of the polynomial a,
++    in place. Variant for parameter set ML-DSA-44 (GAMMA2 = (Q-1)/88).
++  Signature: void mld_poly_use_hint_88_avx2_asm(int32_t *a, const int32_t *h)
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 1024
++      permissions: read/write
++      c_parameter: int32_t *a
++      description: Input/output polynomial (256 x int32_t)
++    rsi:
++      type: buffer
++      size_bytes: 1024
++      permissions: read-only
++      c_parameter: const int32_t *h
++      description: Hint polynomial (256 x int32_t)
++*/
++
++#include "../../../common.h"
++
++#if defined(MLD_ARITH_BACKEND_X86_64_DEFAULT) &&   \
++    !defined(MLD_CONFIG_NO_VERIFY_API) &&          \
++    !defined(MLD_CONFIG_MULTILEVEL_NO_SHARED) &&   \
++    (defined(MLD_CONFIG_MULTILEVEL_WITH_SHARED) || \
++    MLD_CONFIG_PARAMETER_SET == 44)
++
++/*
++ * WARNING: This file is auto-derived from the mldsa-native source file
++ *   dev/x86_64/src/mldsa_poly_use_hint_88_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLD_ASM_NAMESPACE(poly_use_hint_88_avx2_asm)
++MLD_ASM_FN_SYMBOL(poly_use_hint_88_avx2_asm)
++
++        .cfi_startproc
++        movl $0x7f, %ecx
++        xorl %eax, %eax
++        vpxor %xmm5, %xmm5, %xmm5
++        movl $0x2c0b, %r8d           # imm = 0x2C0B
++        vmovd %r8d, %xmm8
++        vpbroadcastd %xmm8, %ymm8
++        vmovd %ecx, %xmm4
++        movl $0x7e6c00, %ecx         # imm = 0x7E6C00
++        movl $0x80, %r9d
++        vmovd %r9d, %xmm7
++        vpbroadcastd %xmm7, %ymm7
++        movl $0x2b, %r10d
++        vmovd %r10d, %xmm6
++        vpbroadcastd %xmm6, %ymm6
++        vmovd %ecx, %xmm3
++        vpbroadcastd %xmm4, %ymm4
++        vpbroadcastd %xmm3, %ymm3
++
++Lmld_poly_use_hint_88_avx2_asm_loop:
++        vmovdqa (%rdi), %ymm0
++        vmovdqa (%rsi), %ymm1
++        vpaddd %ymm0, %ymm4, %ymm10
++        vpsrld $0x7, %ymm10, %ymm10
++        vpmulhuw %ymm8, %ymm10, %ymm10
++        vpmulhrsw %ymm7, %ymm10, %ymm10
++        vpcmpgtd %ymm3, %ymm0, %ymm11
++        vpandn %ymm10, %ymm11, %ymm9
++        vpslld $0x1, %ymm10, %ymm12
++        vpaddd %ymm10, %ymm12, %ymm12
++        vpslld $0x5, %ymm12, %ymm10
++        vpsubd %ymm12, %ymm10, %ymm10
++        vpslld $0xb, %ymm10, %ymm10
++        vpsubd %ymm10, %ymm0, %ymm0
++        vpaddd %ymm11, %ymm0, %ymm0
++        vpcmpgtd %ymm5, %ymm0, %ymm0
++        vpandn %ymm1, %ymm0, %ymm0
++        vpslld $0x1, %ymm0, %ymm0
++        vpsubd %ymm0, %ymm1, %ymm0
++        vpaddd %ymm9, %ymm0, %ymm0
++        vpblendvb %ymm0, %ymm6, %ymm0, %ymm0
++        vpcmpgtd %ymm6, %ymm0, %ymm1
++        vpandn %ymm0, %ymm1, %ymm0
++        vmovdqa %ymm0, (%rdi)
++        addq $0x20, %rdi
++        addq $0x20, %rsi
++        addq $0x20, %rax
++        cmpq $0x400, %rax            # imm = 0x400
++        jne Lmld_poly_use_hint_88_avx2_asm_loop
++        retq
++        .cfi_endproc
++
++MLD_ASM_FN_SIZE(poly_use_hint_88_avx2_asm)
++
++
++#endif /* MLD_ARITH_BACKEND_X86_64_DEFAULT && !MLD_CONFIG_NO_VERIFY_API && \
++          !MLD_CONFIG_MULTILEVEL_NO_SHARED && \
++          (MLD_CONFIG_MULTILEVEL_WITH_SHARED || MLD_CONFIG_PARAMETER_SET == 44) \
++        */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif
+diff --git a/test/abicheck/x86_64/checks_x86_64_all.h b/test/abicheck/x86_64/checks_x86_64_all.h
+--- a/test/abicheck/x86_64/checks_x86_64_all.h
++++ b/test/abicheck/x86_64/checks_x86_64_all.h
+@@ -31,7 +31,9 @@
+ int check_poly_caddq_avx2_asm(void);
+ int check_poly_chknorm_avx2_asm(void);
+ int check_poly_decompose_32_avx2_asm(void);
++int check_poly_decompose_88_avx2_asm(void);
+ int check_poly_use_hint_32_avx2_asm(void);
++int check_poly_use_hint_88_avx2_asm(void);
+ #endif /* __AVX2__ */
+ #endif /* MLD_SYSV_ABI_SUPPORTED */
+ 
+@@ -49,7 +51,9 @@
+     {"poly_caddq_avx2_asm", check_poly_caddq_avx2_asm},
+     {"poly_chknorm_avx2_asm", check_poly_chknorm_avx2_asm},
+     {"poly_decompose_32_avx2_asm", check_poly_decompose_32_avx2_asm},
++    {"poly_decompose_88_avx2_asm", check_poly_decompose_88_avx2_asm},
+     {"poly_use_hint_32_avx2_asm", check_poly_use_hint_32_avx2_asm},
++    {"poly_use_hint_88_avx2_asm", check_poly_use_hint_88_avx2_asm},
+ #endif           /* __AVX2__ */
+ #endif           /* MLD_SYSV_ABI_SUPPORTED */
+     {NULL, NULL} /* Sentinel */

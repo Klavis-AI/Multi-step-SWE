@@ -1,0 +1,8 @@
+CREATE TABLE t(a INTEGER PRIMARY KEY, b TEXT);
+WITH v(k, w) AS (VALUES(1,'p'),(2,'q'),(3,'r')) INSERT INTO t(a, b) SELECT k, w FROM v;
+SELECT a, b FROM t ORDER BY a;
+WITH v(k, w) AS (VALUES(2,'Q'))
+  UPDATE t SET b = (SELECT w FROM v WHERE k = t.a) WHERE a IN (SELECT k FROM v);
+SELECT a, b FROM t ORDER BY a;
+WITH v(k) AS (VALUES(1),(3)) DELETE FROM t WHERE a IN (SELECT k FROM v);
+SELECT a, b FROM t ORDER BY a;

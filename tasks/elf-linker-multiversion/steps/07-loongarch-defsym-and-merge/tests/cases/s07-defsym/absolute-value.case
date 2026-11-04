@@ -1,0 +1,22 @@
+# arch: x86_64
+# --defsym=NAME=NUMBER must define NAME as an SHN_ABS symbol holding exactly
+# that value, and the value must be what a reference to NAME resolves to.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+extern char ext_marker[];
+int entry(void) { putdec((long)ext_marker); print("\n"); return 4; }
+C
+cc_obj m.o m.c
+want_has "the reference really is undefined in the input" "$(symbols m.o)" 'UND ext_marker'
+link_ok out --defsym=ext_marker=0x4321 --no-gc-sections rt.o m.o
+want "ext_marker has the requested value" "$(sym_value out ext_marker)" "0000000000004321"
+want_has "ext_marker is SHN_ABS" "$(symbols out)" 'GLOBAL DEFAULT +ABS ext_marker'
+# 17185 == 0x4321: the relocation against the reference used the same value.
+run_expect out "17185" 4
+# A second, decimal definition in the same link.
+link_ok out2 --defsym=ext_marker=0x4321 --defsym=other=999 --no-gc-sections rt.o m.o
+want "a decimal --defsym value" "$(( 0x$(sym_value out2 other) ))" "999"
+run_expect out2 "17185" 4
+
+asserts_at_least 4

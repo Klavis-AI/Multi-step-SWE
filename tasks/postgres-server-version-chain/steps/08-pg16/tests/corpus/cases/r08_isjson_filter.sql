@@ -1,0 +1,7 @@
+CREATE TABLE r08ij2(id int, doc text);
+INSERT INTO r08ij2 VALUES (1,'{"a":1}'),(2,'[1,2]'),(3,'nope'),(4,'"s"'),(5,'{"a":1,"a":2}');
+SELECT id FROM r08ij2 WHERE doc IS JSON ORDER BY id;
+SELECT id FROM r08ij2 WHERE doc IS JSON OBJECT ORDER BY id;
+SELECT id FROM r08ij2 WHERE doc IS JSON WITH UNIQUE KEYS ORDER BY id;
+SELECT count(*) FILTER (WHERE doc IS JSON SCALAR) FROM r08ij2;
+DROP TABLE r08ij2;

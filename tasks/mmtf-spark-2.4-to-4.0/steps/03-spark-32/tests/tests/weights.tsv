@@ -1,0 +1,126 @@
+# Step 3 (03-spark-32): what each scored family is worth.
+#
+# Since 2026-10-13 (user decision, product scoring) the two families are
+# multiplied, not added: reward = T1 x T2, where T1 is the migrated family's
+# points over its total weight below and T2 is the behavior family's points
+# over its total weight below (score.py, product_reward). The weights still
+# sum to 1; they now set the proportions inside each factor. Where the prose
+# below speaks of a family's share of the reward, read it as that family's
+# share before this change.
+#
+# Two families, as rule 5 requires, and neither below ~30%:
+#
+#   behavior   0.34   the tree still does what it did      replay + the repo's own tests
+#   migrated   0.66   the build resolves Spark 3.2.4 and the twelve describe()
+#                     sites name the statistics they print
+#
+# Step 2 split .70/.30; this is the same balance re-split inside itself.
+#
+# --- why there are two requirements here and not four ------------------------
+#
+# The first draft of this file had four, and priced them m2 .26 / m1 .20 /
+# m3 .12 / m4 .08 -- m3 being "adaptive query execution is on and acting" and m4
+# "3.1 statistical-aggregate semantics are in force". Walked against a tree that
+# edits one line of pom.xml, that draft paid 0.74: the census says c02 -> c04 is
+# 138 SAME / 2 VALUE / 0 RC, so such a tree replays 140/140 and passes 142/142
+# tests, and 3.2 turns adaptive execution on and 3.1 turns the statistical
+# aggregate over by default. Rubric R4 makes "answerable by editing pom.xml
+# alone" an automatic Blocker, and that is what 0.74 was.
+#
+# The first fix was to reprice: m2 .40 and the three cheap facts sharing .26,
+# with behaviour gated on m2 having happened. Pom-only then came to 0.26.
+#
+# Item 4.3 then measured the thing the repricing had assumed, and it was wrong
+# in a way repricing could not reach (NOTES 6.3.11). At this step the replay
+# runs the *verifier image's* Spark: spark-core is `provided`, the shaded jar
+# does not carry it, and the replay's spark-submit is /opt/spark/bin/spark-submit
+# -- 3.2.4 in step 3's image whatever `<spark.version>` says. So the handed tree,
+# rebuilt against 3.0.3 and replayed unchanged, reported spark.version=3.2.4,
+# adaptive.enabled=true, adaptiveUpdate 2/6/0/2/2 and statisticalAggregate=false:
+# every fact m3 and m4 asked for, on a tree that did nothing. They were not cheap
+# requirements, they were requirements nobody could fail, and a tree that changed
+# nothing was collecting 0.14 for the image's version number.
+#
+# So the five rules were demoted to standing rules in gates/rules/rung3.tsv --
+# same facts, same counterexample fixtures, priced as a void rather than as a
+# share -- and their weight went to the two requirements a candidate can
+# actually earn. The 3.1 semantics are still graded: stddev over a single-row
+# group renders NaN at 3.0.3 and null at 3.2.4, and the c04 reference carries
+# the 3.2.4 value, so a tree that switched them back off loses the replay family
+# on its own output. The step stopped paying twice for one fact.
+#
+# Where that leaves the three calibrations, each one measured rather than
+# reasoned (NOTES 6.3.11):
+#
+#   the tree the agent is handed   0.00   m1 red on the pom, m2 red, gate shut
+#   pom.xml edited and nothing else 0.16  m1 only; inside 4.3's "<= ~30%"
+#   the golden solution            1.00
+#
+# --- the graded predicate ----------------------------------------------------
+#
+# Step 2 gates its behaviour family on `dataset_terminal_reached`, because a
+# tree that did not make the move preserves behaviour trivially and the marks
+# are for a tree that made it. Step 3 needs the same thing at its own milestone
+# and needs it harder, because here the untouched-but-bumped tree reproduces
+# *all* 140 recordings rather than most of them.
+#
+# `describe_replaced` in score.py is this step's version: true when the built
+# jar makes no call to Dataset.describe **and** at least one of the two affected
+# classes calls an API that takes a statistic list. Both halves read the same
+# gate report the m1 and m2 rules are scored from, and the class names and
+# member patterns are parsed out of m03.tsv rather than kept as a second list
+# here, so that "m2 happened" cannot come to mean two different things in two
+# files.
+#
+# Why the conjunction rather than either half. `-no-describe-jar` alone is
+# bought by deleting the twelve lines, which loses the replay but would keep the
+# .34 if behaviour were ungated -- and deleting output is the one edit this
+# whole task exists to catch. `-named-stats` alone is bought by calling summary()
+# once somewhere and leaving the describes in place. Neither half is the claim.
+#
+# What it costs, stated rather than hidden: the item-6 floor -- step 2's
+# finished solution scored by this verifier -- reports 0.0 rather than the .34 an
+# ungated behaviour family would pay it. Both satisfy item 6's "<=0.5", and 0.0
+# is right for the same reason it was right at step 2: step 3 is not paid for
+# step 2's work at all, which is what `hold m02.tsv` means.
+#
+# --- within the families -----------------------------------------------------
+#
+# Within `migrated`, a requirement scores all or nothing: every rule carrying
+# its prefix must be PASS. For m1 that is trivially right -- "mostly at 3.2.4"
+# is not a state a build can be in. For m2 it is the substantive choice, and it
+# is deliberate: eleven of the twelve sites migrated is not eleven twelfths of
+# the move, because the one left behind is the one that still prints a statistic
+# set the engine chose. The eleven sites in AnalyzeWaterInteractions4 are not
+# eleven copies of one edit either -- five of them are on datasets derived by
+# select/union/filter with the column aliased first, so the migrator has to
+# carry the alias through rather than pattern-match the line.
+#
+# m1 stays worth something rather than being demoted with m3 and m4, and the
+# difference is that a candidate can fail it: the pom rules read what Maven
+# resolved for *this* tree, which no image supplies. Its two session rules are
+# the ones the image answers, and they are kept because they cost nothing and
+# would still catch a tree that forced a different Spark onto the submit line.
+#
+# Within `behavior`, credit is proportional and the unit is rule 7's scored
+# input. The recordings are the c04 census: the same tree at Spark 3.2.4, JDK 8,
+# Scala 2.12 -- this step's own rung, because a step that moves the runtime must
+# be graded against recordings made on the runtime it runs on.
+#
+# --- what it costs to score, measured -------------------------------------
+#
+# 28m49s end to end, on 7 vCPU, from this step's first phase header to its
+# reward.json: the oracle run of 2026-09-18 (jobs dir m27-s3-oracle, job
+# 27-spark24-to-4.0__k7shaVo), taken while another agent's jobs shared the
+# box, so it is an upper reading rather than a clean one. Rule 10 aims at
+# ~30 minutes a step and caps at 60. The 140-job replay is the bulk of it:
+# the inherited suite does not open until 24m53s;
+# neither the replay's 140 jobs nor the suite's 142 tests is reducible
+# without asking a smaller question, and rule 10's own instruction is not
+# to shrink a fixture set to fit a clock.
+#
+# family	key	weight	what it is a claim about
+behavior	replay	0.24	the 140 recorded jobs of the c04 census answer the same way, compared after norm.py and projection.tsv
+behavior	tests	0.10	the repository's own 47 test classes / 142 tests still pass, run from a pristine copy
+migrated	m1	0.16	the build resolves Spark 3.2.4 for Scala 2.12 and nothing else, and the sessions the jar actually ran in were 3.2.4
+migrated	m2	0.50	the twelve describe() sites are gone and the statistics they printed are produced by a set the program names

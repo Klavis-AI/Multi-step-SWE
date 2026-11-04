@@ -1,0 +1,40 @@
+# arch: x86_64
+# Bitcode, ordinary ELF objects and an archive of bitcode members resolve
+# against each other in one link.
+rt_obj rt.o
+plugin=""
+for p in /usr/lib/llvm-16/lib/LLVMgold.so /usr/lib/bfd-plugins/LLVMgold-16.so \
+         /usr/lib/bfd-plugins/LLVMgold.so; do
+  [ -f "$p" ] && { plugin=$p; break; }
+done
+[ -n "$plugin" ] || die "no LLVMgold.so in this image (llvm-16-linker-tools)"
+
+cat > a1.c <<'C'
+int am1(int x) { return x * 2; }
+C
+cat > a2.c <<'C'
+int am2_unused(int x) { return x * 5; }
+C
+cat > u.c <<'C'
+int am1(int);
+int elf_side(int);
+int entry(void) { return am1(4) + elf_side(1); }
+C
+cat > e.c <<'C'
+int elf_side(int x) { return x + 9; }
+C
+cc_obj a1.o a1.c -flto
+cc_obj a2.o a2.c -flto
+cc_obj u.o u.c -flto
+cc_obj e.o e.c
+mkar liba.a a1.o a2.o
+
+link_ok out --plugin "$plugin" rt.o u.o e.o liba.a --no-gc-sections
+sym=$(symbols out)
+want_has "the ELF-side definition survives"        "$sym" 'FUNC +GLOBAL +DEFAULT +[0-9]+ elf_side'
+want_not "the unreferenced archive member is gone" "$sym" ' am2_unused$'
+run_expect out "" 18
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 2

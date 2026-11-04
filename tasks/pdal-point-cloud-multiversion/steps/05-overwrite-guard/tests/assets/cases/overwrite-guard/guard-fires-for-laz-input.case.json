@@ -1,0 +1,54 @@
+{
+  "doc": "PROFILE.md 5.2: 'pdal translate f.las f.las now refuses. Exit status 255, the diagnostic `PDAL: Input and output filenames are equal and no --overwrite option was provided!`' -- the guard compares the filenames the command was given, so it fires for a LAZ pair too. The LAS read-back afterwards is what makes this case LAZ-specific: at 2.4.0 the same command truncates the file to 0 bytes and reports 'PDAL: Unexpected end of file.', so 2.5.0 is the only anchor where the file still reads back as 1000 points.",
+  "files": {
+    "f.laz": {
+      "fixture": "grid.laz"
+    }
+  },
+  "run": [
+    {
+      "argv": [
+        "translate",
+        "f.laz",
+        "f.laz"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "kind": "exit",
+      "run": 0,
+      "equals": 255
+    },
+    {
+      "kind": "stderr_regex",
+      "run": 0,
+      "regex": "PDAL: Input and output filenames are equal and no --overwrite option was provided!"
+    },
+    {
+      "kind": "las",
+      "file": "f.laz",
+      "header": {
+        "point_count": 1000
+      },
+      "dims": {
+        "X": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "equals": 9.0
+          }
+        },
+        "Z": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "equals": 9.0
+          }
+        }
+      }
+    }
+  ]
+}

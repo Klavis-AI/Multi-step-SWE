@@ -1,0 +1,10 @@
+CREATE TABLE q2_pas(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q2_pas_wide(a int, b text, extra int);
+CREATE TABLE q2_pas_narrow(a int);
+CREATE TABLE q2_pas_type(a text, b text);
+ALTER TABLE q2_pas ATTACH PARTITION q2_pas_wide FOR VALUES FROM (1) TO (10);
+ALTER TABLE q2_pas ATTACH PARTITION q2_pas_narrow FOR VALUES FROM (1) TO (10);
+ALTER TABLE q2_pas ATTACH PARTITION q2_pas_type FOR VALUES FROM (1) TO (10);
+SELECT count(*) FROM pg_inherits WHERE inhparent = 'q2_pas'::regclass;
+DROP TABLE IF EXISTS q2_pas;
+DROP TABLE IF EXISTS q2_pas_wide, q2_pas_narrow, q2_pas_type;

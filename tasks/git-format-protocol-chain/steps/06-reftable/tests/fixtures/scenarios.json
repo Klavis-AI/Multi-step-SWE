@@ -1,0 +1,119 @@
+[
+ {
+  "name": "reftable-init",
+  "setup": "git init -q --ref-format=reftable . \n",
+  "probes": [
+   "git config core.repositoryformatversion",
+   "git config extensions.refStorage",
+   "git rev-parse --show-ref-format",
+   "cat .git/HEAD",
+   "cat .git/refs/heads",
+   "test -f .git/reftable/tables.list && echo tables.list-present",
+   "git symbolic-ref HEAD",
+   "git show-ref; echo exit=$?",
+   "git for-each-ref"
+  ]
+ },
+ {
+  "name": "reftable-commit-branch-tag",
+  "setup": "git init -q --ref-format=reftable . &&\nprintf 'a\\n' > a && git add a && git commit -q -m one &&\nprintf 'b\\n' > b && git add b && git commit -q -m two &&\ngit branch dev &&\ngit tag light &&\ngit tag -a annot -m 'annotated tag'\n",
+  "probes": [
+   "git show-ref",
+   "git rev-parse HEAD",
+   "git rev-parse dev",
+   "git rev-parse refs/tags/light",
+   "git for-each-ref --format='%(refname) %(objecttype) %(objectname)'",
+   "git symbolic-ref HEAD",
+   "git branch",
+   "git tag -l",
+   "git cat-file -t $(git rev-parse annot)"
+  ]
+ },
+ {
+  "name": "reftable-update-ref-stdin",
+  "setup": "git init -q --ref-format=reftable . &&\nprintf 'x\\n' > x && git add x && git commit -q -m c1 &&\nC=$(git rev-parse HEAD) &&\nprintf 'create refs/heads/a %s\\ncreate refs/heads/b %s\\n' \"$C\" \"$C\" | git update-ref --stdin\n",
+  "probes": [
+   "git show-ref",
+   "git update-ref refs/heads/c $(git rev-parse HEAD) && git rev-parse refs/heads/c",
+   "printf 'delete refs/heads/a\\n' | git update-ref --stdin && git show-ref refs/heads/a; echo exit=$?",
+   "git for-each-ref --count=3 --sort=refname"
+  ]
+ },
+ {
+  "name": "reftable-symbolic-and-delete",
+  "setup": "git init -q --ref-format=reftable . &&\nprintf 'x\\n' > x && git add x && git commit -q -m c1 &&\ngit branch topic && git tag t1\n",
+  "probes": [
+   "git symbolic-ref refs/heads/link refs/heads/topic && git symbolic-ref refs/heads/link",
+   "git branch -d topic; echo exit=$?",
+   "git update-ref -d refs/heads/link && git show-ref refs/heads/link; echo exit=$?",
+   "git tag -d t1 && git tag -l",
+   "git show-ref"
+  ]
+ },
+ {
+  "name": "reftable-reflog",
+  "setup": "git init -q --ref-format=reftable . &&\nprintf '1\\n' > f && git add f && git commit -q -m c1 &&\nprintf '2\\n' > f && git add f && git commit -q -m c2 &&\nprintf '3\\n' > f && git add f && git commit -q -m c3\n",
+  "probes": [
+   "git rev-parse 'master@{0}'",
+   "git rev-parse 'master@{2}'",
+   "git rev-parse HEAD~2"
+  ]
+ },
+ {
+  "name": "reftable-pack-refs-compact",
+  "setup": "git init -q --ref-format=reftable . &&\nprintf 'x\\n' > x && git add x && git commit -q -m c1 &&\nfor i in 1 2 3 4 5 6 7 8; do git branch b$i; done\n",
+  "probes": [
+   "git show-ref | wc -l",
+   "git pack-refs --all && git show-ref | wc -l",
+   "ls .git/reftable/*.ref | wc -l",
+   "git for-each-ref --format='%(refname)' | sort"
+  ]
+ },
+ {
+  "name": "reftable-for-each-ref-formats",
+  "setup": "git init -q --ref-format=reftable . &&\nprintf 'x\\n' > x && git add x && git commit -q -m c1 &&\ngit branch feature && git tag -a v1 -m v1\n",
+  "probes": [
+   "git for-each-ref --sort=-refname --format='%(refname:short)'",
+   "git for-each-ref --points-at HEAD --format='%(refname)'",
+   "git for-each-ref --count=2 --format='%(objecttype) %(refname)'",
+   "git for-each-ref --format='%(HEAD) %(refname:short)'",
+   "git branch --list 'f*'"
+  ]
+ },
+ {
+  "name": "migrate-files-to-reftable",
+  "setup": "git init -q . &&\nprintf '1\\n' > f && git add f && git commit -q -m c1 &&\ngit branch dev && git tag -a rel -m rel &&\nprintf '2\\n' > f && git add f && git commit -q -m c2 &&\ngit for-each-ref > /tmp/before-fer && git show-ref > /tmp/before-sr &&\ngit reflog show refs/heads/master > /tmp/before-rl &&\ngit refs migrate --ref-format=reftable\n",
+  "probes": [
+   "git config extensions.refStorage",
+   "git config core.repositoryformatversion",
+   "cat .git/HEAD",
+   "git for-each-ref > /tmp/after-fer && diff /tmp/before-fer /tmp/after-fer && echo FER-MATCH",
+   "git show-ref > /tmp/after-sr && diff /tmp/before-sr /tmp/after-sr && echo SR-MATCH",
+   "git reflog show refs/heads/master > /tmp/after-rl && diff /tmp/before-rl /tmp/after-rl && echo RL-MATCH",
+   "test -f .git/reftable/tables.list && echo reftable-present",
+   "test -e .git/packed-refs && echo packed-refs-STILL-THERE || echo packed-refs-gone"
+  ]
+ },
+ {
+  "name": "migrate-reftable-to-files",
+  "setup": "git init -q --ref-format=reftable . &&\nprintf '1\\n' > f && git add f && git commit -q -m c1 &&\ngit branch dev && git tag -a rel -m rel &&\ngit for-each-ref > /tmp/before-fer &&\ngit refs migrate --ref-format=files\n",
+  "probes": [
+   "git config core.repositoryformatversion",
+   "git config extensions.refStorage; echo exit=$?",
+   "cat .git/HEAD",
+   "git for-each-ref > /tmp/after-fer && diff /tmp/before-fer /tmp/after-fer && echo FER-MATCH",
+   "test -d .git/reftable && echo reftable-STILL-THERE || echo reftable-gone",
+   "git rev-parse dev"
+  ]
+ },
+ {
+  "name": "reftable-branch-rename",
+  "setup": "git init -q --ref-format=reftable . &&\nprintf 'x\\n' > x && git add x && git commit -q -m c1 &&\ngit branch old\n",
+  "probes": [
+   "git branch -m old new && git show-ref",
+   "git branch -m master main && git symbolic-ref HEAD",
+   "git branch",
+   "git rev-parse main"
+  ]
+ }
+]

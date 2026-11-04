@@ -1,0 +1,61 @@
+# arch: x86_64
+# The script expression functions ADDR, LOADADDR, ALIGNOF, SIZEOF,
+# SEGMENT_START, MIN and MAX evaluate against the real output layout, and the
+# values they compute reach the symbol table.
+rt_obj rt.o
+cat > e.c <<'C'
+extern char e_addr[], e_align[], e_load[], e_size[], e_seg[];
+int entry(void) {
+  unsigned long s = (unsigned long)e_addr | (unsigned long)e_align
+                  | (unsigned long)e_load | (unsigned long)e_size
+                  | (unsigned long)e_seg;
+  return s ? 23 : 0;
+}
+C
+cc_obj e.o e.c
+cat > e.ld <<'L'
+PROVIDE(e_addr  = ADDR(.text));
+PROVIDE(e_load  = LOADADDR(.text));
+PROVIDE(e_align = ALIGNOF(.text));
+PROVIDE(e_size  = SIZEOF(.text));
+PROVIDE(e_seg   = SEGMENT_START("text-segment", 0x400000));
+ASSERT(ALIGNOF(.text) >= 4, "text alignment is too small");
+ASSERT((ADDR(.text) & (ALIGNOF(.text) - 1)) == 0, "text is not aligned to ALIGNOF(.text)");
+ASSERT(LOADADDR(.text) == ADDR(.text), "load address differs from virtual address");
+ASSERT(MAX(SIZEOF(.text), 1) > 0, "MAX evaluated wrongly");
+ASSERT(MIN(ALIGNOF(.text), 4) == 4, "MIN evaluated wrongly");
+L
+link_ok out -T e.ld rt.o e.o --no-gc-sections
+
+# Every hex string is captured and checked before it is read as a number, so a
+# symbol the linker failed to provide fails the case instead of aborting the
+# assertion's own command during word expansion.
+ta_hex=$(sec_addr out .text); ts_hex=$(sec_size out .text)
+ea_hex=$(sym_value out e_addr); el_hex=$(sym_value out e_load)
+es_hex=$(sym_value out e_size); eg_hex=$(sym_value out e_seg)
+al_hex=$(sym_value out e_align)
+for v in ta_hex ts_hex ea_hex el_hex es_hex eg_hex al_hex; do
+  [ -n "${!v}" ] || die "$v is empty: the script expression it comes from produced no value"
+done
+ta=$((16#$ta_hex))
+ts=$((16#$ts_hex))
+[ "$ta" -gt 0 ] || die "no .text address in the output"
+want "ADDR(.text) reaches the symbol table" "$((16#$ea_hex))" "$ta"
+want "LOADADDR(.text) equals ADDR(.text)"   "$((16#$el_hex))" "$ta"
+want "SIZEOF(.text) reaches the symbol table" "$((16#$es_hex))" "$ts"
+want "SEGMENT_START uses its default" "$((16#$eg_hex))" "$((0x400000))"
+al=$((16#$al_hex))
+[ "$al" -ge 4 ] && [ $((al & (al - 1))) -eq 0 ] \
+  || die "ALIGNOF(.text) is $al, not a power of two of at least 4"
+run_expect out "" 23
+
+# An expression assertion that does not hold stops the link and says so.
+cat > bad.ld <<'L'
+ASSERT(SIZEOF(.text) == 0, "the text section must not be empty");
+L
+link_fails nope -T bad.ld rt.o e.o --no-gc-sections
+want_has "a false expression assertion reports its message" "$LINK_OUT" 'the text section must not be empty'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 5

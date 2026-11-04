@@ -1,0 +1,69 @@
+{
+ "doc": "stages/filters.faceraster.rst: 'Each raster cell is given a value that is an interpolation of the known values of containing triangle.  If the raster cell center is outside of the triangulation, it is assigned the nodata_ value.  Use `writers.raster` to write the output.' and stages/writers.raster.rst: 'The **Raster Writer** writes an existing raster to a file.  Output is produced using `GDAL`_ and can use any `driver that supports creation of rasters`_.'",
+ "files": {
+  "plane.txt": {
+   "text": "X,Y,Z\n0,0,0\n4,0,4\n0,4,0\n4,4,4\n"
+  },
+  "w.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"plane.txt\"}, {\"type\": \"filters.delaunay\"}, {\"type\": \"filters.faceraster\", \"resolution\": 1, \"origin_x\": 0.5, \"origin_y\": 0.5, \"width\": 4, \"height\": 4}, {\"type\": \"writers.raster\", \"filename\": \"r.tif\", \"data_type\": \"double\"}]}"
+  },
+  "r.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.gdal\", \"filename\": \"r.tif\", \"header\": \"Z\"}, {\"type\": \"writers.las\", \"filename\": \"r.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "w.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "r.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "file_exists",
+   "file": "r.tif"
+  },
+  {
+   "kind": "las",
+   "file": "r.las",
+   "header": {
+    "point_count": 16
+   },
+   "dims": {
+    "Z": {
+     "unique": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "sum": {
+      "approx": 40,
+      "tol": 0.01
+     },
+     "count_equal": {
+      "1": 4,
+      "4": 4
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+<div class="row">
+  <div class="small-12 medium-7 columns">
+    <%= render layout: 'landing/info_block', locals: {title: @location.name,html_class: 'learn'} do %>
+      <%= @location.description %>
+      <%= render partial: 'map' %>
+    <% end %>
+
+    <%= render partial: 'email_notifications', locals: {location: @location} %>
+  </div>
+
+  <div class="small-12 medium-5  columns">
+    <%= render layout: 'landing/info_block', locals: {title: 'Call'} do %>
+      <h4><%= @content.app_phone_number %></h4>
+      <h5>Call-in Code: <%= @location.property_code %></h5>
+    <% end %>
+
+    <% @location.numerical_responses.each do |numerical_response| %>
+      <%= render partial: 'numerical_response', locals: {numerical_response: numerical_response} %>
+    <% end %>
+
+    <%= render layout: 'landing/info_block', locals: {title: 'Voice Messages', html_class: 'answer'} do %>
+      <% @location.answers.voice_messages.each do |voice_message| %>
+        <%= render partial: 'locations/voice_message', locals: {answer: voice_message} %>
+      <% end %>
+    <% end %>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    var locationGeoJson = <%= render(partial: 'locations/feature_collection', locals: {locations: [@location]}).html_safe %>;
+    var locations = new Cityvoice.Collections.Locations();
+
+    locations.reset(locations.parse(locationGeoJson));
+
+    new Cityvoice.Views.Map({
+      collection: locations,
+      tileLayerUrl: "<%= Leaflet.tile_layer %>",
+      attributionText: '<%= Leaflet.attribution.html_safe %>',
+      maxZoom: "<%= Leaflet.max_zoom %>"
+    }).render();
+  });
+</script>

@@ -1,0 +1,34 @@
+# arch: x86_64
+# `[^abc]` and `[!abc]` must mean the same thing -- the POSIX spelling and the
+# extension spelling of the same negated set -- on both the global: and the
+# local: side of a version node.
+cat > s.c <<'C'
+int fooa(void) { return 1; }
+int foob(void) { return 2; }
+int fooc(void) { return 3; }
+int food(void) { return 4; }
+int other(void) { return 5; }
+C
+cc_obj s.o s.c -fPIC
+exported() { dynsyms "$1" > ds.txt; awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' '; }
+emit() { # emit <file> <pattern-line>
+  printf '%s\n' "$2" > "$1"
+}
+emit bang.map '{ global: foo[!ab]; local: *; };'
+emit caret.map '{ global: foo[^ab]; local: *; };'
+link_ok bang.so  -shared --no-gc-sections --version-script=bang.map  s.o
+link_ok caret.so -shared --no-gc-sections --version-script=caret.map s.o
+b=$(exported bang.so); c=$(exported caret.so)
+want "the POSIX spelling still works" "$b" "fooc food "
+want "the caret spelling agrees with it" "$c" "$b"
+# Same equivalence on the local: side, where the pattern hides rather than
+# exports.
+emit lbang.map '{ global: *; local: foo[!ab]; };'
+emit lcaret.map '{ global: *; local: foo[^ab]; };'
+link_ok lbang.so  -shared --no-gc-sections --version-script=lbang.map  s.o
+link_ok lcaret.so -shared --no-gc-sections --version-script=lcaret.map s.o
+lb=$(exported lbang.so)
+want "local: [!ab] hides c and d" "$lb" "fooa foob other "
+want "local: [^ab] agrees with it" "$(exported lcaret.so)" "$lb"
+
+asserts_at_least 4

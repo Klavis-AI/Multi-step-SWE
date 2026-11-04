@@ -1,0 +1,126 @@
+diff -ruN a/src/bmavx2.h b/src/bmavx2.h
+--- a/src/bmavx2.h	2026-09-23 19:20:49.975754936 +0000
++++ b/src/bmavx2.h	2026-09-23 19:21:25.710826632 +0000
+@@ -1221,6 +1221,113 @@
+ 
+ 
+ 
++/**
++    Convert bit block to GAP block
++    @ingroup AVX2
++    \internal
++*/
++inline
++unsigned avx2_bit_to_gap(gap_word_t* BMRESTRICT dest,
++                          const unsigned* BMRESTRICT block,
++                          unsigned dest_len)
++{
++    const unsigned* BMRESTRICT block_end = block + bm::set_block_size;
++    gap_word_t* BMRESTRICT pcurr = dest;
++    gap_word_t* BMRESTRICT end = dest + dest_len; (void)end;
++
++    unsigned bitval = (*block) & 1u;
++    *pcurr++ = bm::gap_word_t(bitval);
++    *pcurr = 0;
++    unsigned bit_idx = 0;
++    
++    const unsigned vCAP = 64; // 64-bit system
++    __m256i maskZ = _mm256_set1_epi32(0);
++
++    for (; block < block_end; block += 8)
++    {
++        unsigned k = 0;
++        if (!bitval)
++        {
++            // check number of trailing 64-bit words using AVX compare
++            __m256i accA = _mm256_load_si256((__m256i*)block); // 4x u64s
++            __m256i cmpA = _mm256_cmpeq_epi8(accA, maskZ);
++            unsigned  mask = ~_mm256_movemask_epi8(cmpA);
++            if (!mask)
++            {
++                bit_idx += 256;
++                continue;
++            }
++            unsigned w64_idx = _tzcnt_u32(mask);
++            k = w64_idx / 8; // 8 byte word offset
++            bit_idx += k * vCAP;
++        }
++
++        for (; k < 4; ++k)
++        {
++            bm::id64_t val = (((bm::id64_t*)block)[k]);
++            
++            if (!val || val == ~0ull)
++            {
++                // branchless if
++                bool cmp = (bool(bitval) != bool(val));
++                unsigned mask = ~(cmp - 1u);
++                *pcurr = mask & (gap_word_t)(bit_idx-cmp);
++                bitval ^= unsigned(cmp);
++                unsigned long long pcu = reinterpret_cast<unsigned long long>(pcurr);
++                pcu += mask & sizeof(gap_word_t);
++                pcurr = reinterpret_cast<gap_word_t*>(pcu);
++                bit_idx += vCAP;
++                continue;
++            } // while
++            
++
++            // process "0100011" word
++            //
++            unsigned bits_consumed = 0;
++            do
++            {
++                unsigned tz = 1u;
++                if (bitval != (val & tz))
++                {
++                    bitval ^= tz;
++                    *pcurr++ = (gap_word_t)(bit_idx-tz);
++                    
++                    BM_ASSERT((pcurr-1) == (dest+1) || *(pcurr-1) > *(pcurr-2));
++                    BM_ASSERT(pcurr != end);
++                }
++                else // match, find the next idx
++                {
++                    tz = (unsigned)_tzcnt_u64(bitval ? ~val : val);
++                }
++                
++                bool cmp = ((bits_consumed+=tz) < vCAP);
++                bit_idx += tz;
++                val >>= tz;
++                
++                if (!val)
++                {
++                    tz = ~(cmp - 1u); // generate 0xFFFF or 0x0000 mask
++                    *pcurr = tz & (gap_word_t)(bit_idx-cmp);
++                    bitval ^= unsigned(cmp);
++                    bit_idx += tz & (vCAP - bits_consumed);
++                    unsigned long long pcu = reinterpret_cast<unsigned long long>(pcurr);
++                    pcu += tz & sizeof(gap_word_t);
++                    pcurr = reinterpret_cast<gap_word_t*>(pcu);
++
++                    BM_ASSERT((pcurr-1) == (dest+1) || *(pcurr-1) > *(pcurr-2));
++                    BM_ASSERT(pcurr != end);
++                    break;
++                }
++            }  while (1);
++        } // for k
++
++    } // for block < end
++
++    *pcurr = (gap_word_t)(bit_idx-1);
++    unsigned len = (unsigned)(pcurr - dest);
++    *dest = (gap_word_t)((*dest & 7) + (len << 3));
++    return len;
++}
+ 
+ 
+ 
+@@ -1321,6 +1428,8 @@
+ 
+ 
+ 
++#define VECT_BIT_TO_GAP(dest, src, dest_len) \
++    avx2_bit_to_gap(dest, src, dest_len)
+ 
+ 
+ 

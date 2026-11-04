@@ -1,0 +1,56 @@
+# Step 07 -- C-2's frozen population: for each prefix that MOVES from javax to
+# jakarta, the <file>#<method> buckets that hold a reference to it. Package
+# first, bucket second -- see below, it is load bearing.
+#
+# Two packages and two only, and the boundary is the reason this file is short
+# where the migration line's "jakarta namespace" bullet sounds long:
+#
+#   javax.annotation -> jakarta.annotation   17 references in 3 buckets
+#   javax.ejb        -> jakarta.ejb           5 references in 1 bucket
+#
+# Those two have a jakarta-namespace API jar this verifier can put on the
+# scorer's classpath at a version that compiles against the rest of the 2011
+# tree: jakarta.annotation-api 2.0.0 and jakarta.ejb-api 4.0.0, both staged
+# under assets/testlib. The other six javax prefixes on this tree do NOT, and
+# C-3 holds them where they are rather than asking for a move that would not
+# compile -- see nshold.txt, which is the other half of this pair and the half
+# that stops "delete the enrichers" from scoring this leg.
+#
+# javax.inject is the one that looks like it belongs here and does not:
+# jakarta.inject-api exists, but the three references are Weld 1.1's, Weld 1.1
+# is a javax-era container, and moving the annotation without moving the
+# container is a tree that does not run. It is deferred to the rung that
+# retires Weld, and it is held by C-3 until then.
+#
+# Buckets, not line numbers, so an edit above a reference does not move a
+# frozen expectation. One bucket is `#-`: ResourceInjectionEnricherTestCase's
+# eleven `@Resource` FIELD annotations have no enclosing method, and `-` is
+# what SourceScan writes for that. It is a bucket like any other.
+#
+# THE PACKAGE IS THE FIRST COLUMN AND THAT IS NOT A PRESENTATION CHOICE. Both
+# halves of the pair are read by the same nswant() in test.sh, which joins
+# `$1 "|" $2` and compares the result against nsbuckets()'s `pkg|file#method`
+# with comm. This file was first written bucket-first, which made every line of
+# cov-want-jx.txt unmatchable: C-2's departure half read 6 of 6 -- full -- on a
+# tree that had moved nothing, and its arrival half read 0 on the golden. Both
+# errors point the same way, towards "the candidate did the work", which is the
+# direction a broken gate must never fail in. nshold.txt has always been
+# package-first; the two files are read by one function and must be one shape.
+#
+# The `sed 's/^javax\./jakarta./'` in C-2 that derives the arrival set from the
+# departure set is the second thing that requires it: it rewrites the START of
+# the line, which is the package only in this order.
+#
+# Derived:
+#
+#   sed -n 's/^ns\[[0-9]*\]=//p' baseline-step07-source.txt \
+#     | awk '{ p = substr($2, 5) } p == "javax.annotation" || p == "javax.ejb" {
+#                split($1, f, ":"); m = ""
+#                for (i = 2; i <= NF; i++) if (substr($i, 1, 3) == "in=") m = substr($i, 4)
+#                print p, f[1] "#" m }' | LC_ALL=C sort -u
+javax.annotation testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricher.java#getResourceName
+javax.annotation testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricher.java#resolveResource
+javax.annotation testenrichers/resource/src/test/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricherTestCase.java#-
+javax.annotation testenrichers/resource/src/test/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricherTestCase.java#setObject2
+javax.annotation testenrichers/resource/src/test/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricherTestCase.java#setPrimitive2
+javax.ejb testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/EJBInjectionEnricher.java#injectClass

@@ -1,0 +1,41 @@
+class ScratchPad
+  def self.record(v); @v = v; end
+  def self.recorded; @v; end
+  def self.<<(x); @v << x; end
+  def self.clear; @v = nil; end
+end
+def suppress_warning; yield; end
+class IncludesMath
+  include Math
+end
+
+module MathSpecs
+  class Float < Numeric
+    def initialize(value=1.0)
+      @value = value
+    end
+
+    def to_f
+      @value
+    end
+  end
+
+  class Integer
+    def to_int
+      2
+    end
+  end
+
+  class UserClass
+  end
+
+  class StringSubClass < String
+  end
+
+end
+
+p(Math.log10(0.0001))
+    p(Math.log10(0.000000000001e-15))
+    p(Math.log10(1))
+    p(Math.log10(10))
+    p(Math.log10(10e15))

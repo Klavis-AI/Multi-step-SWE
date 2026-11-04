@@ -1,0 +1,67 @@
+{
+ "doc": "PROFILE.md 5.1, normative entry for this step's spatial-reference change: 'PROJJSON in SRS metadata -- `pdal info --metadata` grows a `srs.json` member carrying the PROJJSON description of the file's coordinate system. At this release it is an escaped JSON string; it becomes a nested object later.' -- the new member is an ADDITION, not a replacement. Measured on the real anchors with this fixture: at 2.4.0 `metadata.srs` has ten keys and no `json`; at 2.5.0 it has eleven, the new one being `json`, and `wkt` and `proj4` are still there beside it with the same values (`wkt` still opens with PROJCS[\"NAD83 / UTM zone 17N\" and still closes on the EPSG 26917 authority at both anchors). The `exists` check on `metadata.srs.json` is what makes the case move: the three surviving-member assertions hold at both anchors by design -- they are what 'the other members remain' means -- so without it the case would pass at 2.4.0 as well. The `wkt` member is asserted by what it SAYS -- the CRS name at the front and the EPSG authority at the back -- and not by its character count. An exact length is a GDAL/PROJ serialization artefact: it is byte-identical at 2.4.0 and 2.5.0, so it discriminates nothing, and it can only ever fail for a reason that has nothing to do with this step.",
+ "files": {
+  "utm17.las": {
+   "fixture": "utm17.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"utm17.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "info",
+    "--metadata",
+    "utm17.las"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "stdout_json",
+   "run": 0,
+   "path": [
+    "metadata",
+    "srs",
+    "wkt"
+   ],
+   "regex": "^PROJCS\\[\"NAD83 / UTM zone 17N\""
+  },
+  {
+   "kind": "stdout_json",
+   "run": 0,
+   "path": [
+    "metadata",
+    "srs",
+    "json"
+   ],
+   "exists": true
+  },
+  {
+   "kind": "stdout_json",
+   "run": 0,
+   "path": [
+    "metadata",
+    "srs",
+    "proj4"
+   ],
+   "regex": "^\\+proj=utm \\+zone=17"
+  },
+  {
+   "kind": "stdout_json",
+   "run": 0,
+   "path": [
+    "metadata",
+    "srs",
+    "wkt"
+   ],
+   "regex": "AUTHORITY\\s*\\[\\s*\\\"EPSG\\\"\\s*,\\s*\\\"26917\\\"\\s*\\]"
+  }
+ ]
+}

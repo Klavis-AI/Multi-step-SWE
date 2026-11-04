@@ -1,0 +1,36 @@
+# arch: x86_64
+# -m accepts a fixed set of emulation names; anything else fails the link with
+# the rejected name on stderr. What is graded is the status, the token, the fact
+# that the diagnostic reached stderr rather than stdout, and that the rejection
+# left nothing at the -o path -- never the wording around the token.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { return 0; }
+C
+cc_obj m.o m.c
+
+# The two x86-64 spellings are both accepted.
+link_ok linux -m elf_x86_64 rt.o m.o
+run_expect linux "" 0
+link_ok sol2 -m elf_x86_64_sol2 rt.o m.o
+want "the Solaris emulation still produces an x86-64 object" \
+     "$(hdr sol2 | awk '/^ *Machine:/{ $1=""; sub(/^ */,""); print }')" \
+     "Advanced Micro Devices X86-64"
+
+# A name that is not in the table is rejected, and the message names it.
+link_fails bogus1 -m elf_x86_64_bogus rt.o m.o
+want_has "the rejected emulation name is reported" "$LINK_ERR" 'elf_x86_64_bogus'
+
+# So is a well-known name for a target this linker does not support.
+link_fails bogus2 -m i386linux rt.o m.o
+want_has "the second rejected name is reported" "$LINK_ERR" 'i386linux'
+
+# An empty emulation name is not silently accepted either. There is no name to
+# report, so only the routing and the artifact are graded, never the wording.
+link_fails bogus3 -m '' rt.o m.o
+want_has "the empty emulation name is diagnosed on stderr" "$LINK_ERR" '.'
+want "the rejected -m leaves no output at the -o path" \
+     "$([ -e bogus3 ] && echo present || echo absent)" absent
+
+asserts_at_least 5

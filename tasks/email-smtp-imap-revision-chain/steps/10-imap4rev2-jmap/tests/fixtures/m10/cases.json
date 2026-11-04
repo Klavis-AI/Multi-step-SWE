@@ -1,0 +1,606 @@
+[
+  {
+    "id": "jmap.well-known",
+    "kind": "jmap",
+    "stratum": "core",
+    "gate": true,
+    "port": 8080,
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "imap.rev2.cap",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 CAPABILITY\r\n",
+      "a2 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": [
+      "IMAP4rev2",
+      "IMAP4rev1"
+    ]
+  },
+  {
+    "id": "imap.rev1.compat",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "smtp.7bit.helo.compat",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "HELO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "imap.enable.utf8.still",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 ENABLE UTF8=ACCEPT\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.fetch.empty.still.bad",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 FETCH 1 RFC822\r\n",
+      "a4 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "BAD",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.uid.star.empty.ok",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 UID FETCH 1:* (UID)\r\n",
+      "a4 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.create.inbox.still.no",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 CREATE INBOX\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "NO",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.append.fetch.gate",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 APPEND INBOX {77}\r\n",
+      "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: seed\r\n\r\nhello seed\r\n",
+      "a3 SELECT INBOX\r\n",
+      "a4 FETCH 1 (FLAGS UID RFC822.SIZE)\r\n",
+      "a5 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.rev2.after.login",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 CAPABILITY\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": [
+      "IMAP4rev2"
+    ]
+  },
+  {
+    "id": "imap.namespace.still",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 NAMESPACE\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.list.inbox",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 LIST \"\" *\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "smtp.ehlo.starttls.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_smtp_contains": [
+      "STARTTLS"
+    ]
+  },
+  {
+    "id": "smtp.auth.plain.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "AUTH PLAIN AGFsaWNlAGFsaWNlLXNlY3JldA==\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "235",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "smtp.help.still.500",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "HELP\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "500",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "smtp.source.route.still.501",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<@r:alice@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "501",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "smtp.smtputf8.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_smtp_contains": [
+      "SMTPUTF8"
+    ]
+  },
+  {
+    "id": "smtp.requiretls.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test> REQUIRETLS\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "smtp.nested.mail.still.503",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "MAIL FROM:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "503",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "smtp.rcpt.unknown.still.550",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<nobody@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "550",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "sts.policy.still",
+    "kind": "sts",
+    "stratum": "core",
+    "gate": false,
+    "port": 8080,
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    }
+  },
+  {
+    "id": "imap.status.inbox",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 STATUS INBOX (MESSAGES UIDNEXT)\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.logout.unauth",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.login.badpass",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob wrong\r\n",
+      "a2 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "NO",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.select.unauth.still.bad",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 SELECT INBOX\r\n",
+      "a2 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "BAD",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 CAPABILITY token; RFC 8620 JMAP session resource /.well-known/jmap",
+      "recorded_at": "2026-09-04T05:02:40.927434+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "jmap.email.query",
+    "kind": "jmap_query",
+    "stratum": "core",
+    "gate": true,
+    "port": 8080,
+    "provenance": {
+      "oracle": "RFC 8621 Email/query"
+    }
+  },
+  {
+    "id": "imap.rev2.enable",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 ENABLE IMAP4rev2\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "expect_capability": [],
+    "expect_untagged": [
+      "ENABLED",
+      "IMAP4rev2"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 ENABLE + SEARCH CHARSET removed; RFC 8620 session resource; RFC 8621 Email/query over POST /jmap"
+    }
+  },
+  {
+    "id": "imap.rev2.search.charset.bad",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 ENABLE IMAP4rev2\r\n",
+      "a3 SELECT INBOX\r\n",
+      "a4 SEARCH CHARSET US-ASCII ALL\r\n",
+      "a5 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK",
+      "BAD",
+      "OK"
+    ],
+    "expect_capability": [],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 ENABLE + SEARCH CHARSET removed; RFC 8620 session resource; RFC 8621 Email/query over POST /jmap"
+    }
+  },
+  {
+    "id": "jmap.email.query.ids",
+    "kind": "jmap_query",
+    "stratum": "core",
+    "gate": false,
+    "port": 8080,
+    "expect_jmap_ids": true,
+    "seed_smtp": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "DATA\r\n",
+      "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: jmap TOKEN-JMAP-001\r\n\r\nbody\r\n.\r\n",
+      "QUIT\r\n"
+    ],
+    "provenance": {
+      "oracle": "RFC 9051 IMAP4rev2 ENABLE + SEARCH CHARSET removed; RFC 8620 session resource; RFC 8621 Email/query over POST /jmap"
+    }
+  },
+  {
+    "id": "jmap.blob.roundtrip",
+    "kind": "jmap_blob",
+    "stratum": "core",
+    "gate": true,
+    "blob": "jmap-blob-TOKEN-001",
+    "provenance": {
+      "oracle": "RFC 8620 blob upload/download URLs"
+    }
+  },
+  {
+    "id": "jmap.eventsource",
+    "kind": "jmap_eventsource",
+    "stratum": "core",
+    "gate": true,
+    "provenance": {
+      "oracle": "RFC 8620 EventSource event: state"
+    }
+  }
+]

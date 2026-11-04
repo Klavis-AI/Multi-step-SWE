@@ -1,0 +1,50 @@
+# arch: x86_64
+# An object that names its export with `.symver impl, api@@LIB_2` must produce
+# byte-identical version records and dynamic symbols to an object that simply
+# defines `api` and is versioned by --version-script alone.
+cat > alias.s <<'S'
+        .text
+        .globl impl
+impl:   mov     $7, %eax
+        ret
+        .symver impl, api@@LIB_2
+        .section .note.GNU-stack,"",@progbits
+S
+cat > plain.s <<'S'
+        .text
+        .globl api
+api:    mov     $7, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj alias.o alias.s
+as_obj plain.o plain.s
+cat > vs.txt <<'V'
+LIB_2 { global: api; local: *; };
+V
+link_ok fromsymver.so -shared -soname libeq.so.1 --version-script=vs.txt alias.o
+link_ok fromscript.so -shared -soname libeq.so.1 --version-script=vs.txt plain.o
+
+# Drop the file offsets/addresses that legitimately differ between two links.
+norm_ver() { vernum "$1" | grep -v '^ Addr:' ; }
+norm_dyn() { dynsyms "$1" | awk '{ $2 = "-"; print }' ; }
+
+a=$(norm_ver fromsymver.so); b=$(norm_ver fromscript.so)
+[ -n "$a" ] || die "no version records at all: $(vernum fromsymver.so)"
+want_has "symver build defines LIB_2" "$a" 'Name: LIB_2'
+[ "$a" = "$b" ] || die "version records differ:
+--- .symver ---
+$a
+--- version script ---
+$b"
+
+a=$(norm_dyn fromsymver.so); b=$(norm_dyn fromscript.so)
+want_has "symver build exports api@@LIB_2" "$a" 'api@@LIB_2'
+[ "$a" = "$b" ] || die "dynamic symbols differ:
+--- .symver ---
+$a
+--- version script ---
+$b"
+want_not "impl leaked into .dynsym" "$a" ' impl'
+
+asserts_at_least 3

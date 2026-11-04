@@ -1,0 +1,13 @@
+class ScratchPad
+  def self.record(v); @v = v; end
+  def self.recorded; @v; end
+  def self.<<(x); @v << x; end
+  def self.clear; @v = nil; end
+end
+def suppress_warning; yield; end
+module SymbolSpecs
+  class MyRange < Range; end
+end
+
+range = SymbolSpecs::MyRange.new(1, 4)
+      p(:symbol[range])

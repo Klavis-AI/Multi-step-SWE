@@ -1,0 +1,39 @@
+# arch: x86_64
+# Under -z now the whole GOT is relocated eagerly, so PT_GNU_RELRO must cover
+# every GOT section -- .got and, if the linker emits one, .got.plt -- and
+# DT_FLAGS/DT_FLAGS_1 must record BIND_NOW.
+rt_obj rt.o
+cat > lib.c <<'C'
+long shared_data[4] = {11, 22, 33, 44};
+long libfn(void) { return shared_data[0]; }
+long libfn2(void) { return shared_data[1]; }
+C
+cc_obj lib.o lib.c -fPIC
+ld -shared -soname liby.so.1 -o liby.so lib.o 2> ld.err || die "fixture ld failed: $(tail -2 ld.err)"
+cat > m.c <<'C'
+extern long shared_data[4];
+long libfn(void); long libfn2(void);
+long mydata[4] = {1, 2, 3, 4};
+int entry(void) { return (int)(libfn() + libfn2() + shared_data[2] + mydata[0]); }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o liby.so -dynamic-linker /lib64/ld-linux-x86-64.so.2 -z relro -z now
+dynamic out > dyn.txt; segments out > seg.txt
+grep -qE '\(FLAGS\).*BIND_NOW' dyn.txt || die "DT_FLAGS lacks BIND_NOW: $(cat dyn.txt)"
+grep -qE '\(FLAGS_1\).*NOW'    dyn.txt || die "DT_FLAGS_1 lacks NOW: $(cat dyn.txt)"
+set -- $(awk '$1 == "GNU_RELRO" { print $3, $6; exit }' seg.txt)
+[ $# -eq 2 ] || die "no PT_GNU_RELRO segment: $(cat seg.txt)"
+rs=$(($1)); re=$((rs + $2))
+n=0
+for s in .got .got.plt; do
+  a=$(sec_addr out $s); [ -n "$a" ] || continue
+  n=$((n + 1)); z=$(sec_size out $s)
+  [ $((0x$a)) -ge $rs ] && [ $((0x$a + 0x$z)) -le $re ] \
+    || die "$s [0x$a +0x$z) is not inside RELRO [$rs, $re) under -z now"
+done
+[ $n -ge 1 ] || die "the link produced no GOT at all, so the test is vacuous"
+relocs out > r.txt
+grep -q 'R_X86_64_GLOB_DAT' r.txt || die "no GOT relocations to protect: $(cat r.txt)"
+o=$(awk '/R_X86_64_GLOB_DAT/ { print $1; exit }' r.txt)
+[ $((0x$o)) -ge $rs ] && [ $((0x$o)) -lt $re ] \
+  || die "GLOB_DAT slot 0x$o lies outside RELRO [$rs, $re)"

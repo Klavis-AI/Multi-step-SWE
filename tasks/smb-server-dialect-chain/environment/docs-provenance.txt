@@ -1,0 +1,30 @@
+How environment/docs/ is produced: the build stage below fetches each
+document from its official source, checks it against the pinned sha256,
+and makes the text conversions. The results are stored in docs/ and copied
+into the image directly; re-run these steps to refresh a document.
+
+# Documentation for the offline agent, fetched from the official sources
+# listed in docs-manifest.txt, each pinned by sha256; every PDF also gets a
+# `pdftotext -layout` text edition beside it. poppler-utils
+# lives only in this stage; the final image receives /opt/docs and nothing else.
+FROM debian:bookworm-slim AS docs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+COPY docs-manifest.txt /opt/docs/SOURCES.txt
+RUN set -eu; \
+    cd /opt/docs; \
+    re='^[0-9a-f]\{64\}  '; \
+    : > /tmp/docs.sha256; \
+    grep "$re" SOURCES.txt | while read -r sum path url; do \
+      mkdir -p "$(dirname "$path")"; \
+      curl -fsSL --retry 5 --retry-delay 3 -o "$path" "$url"; \
+      printf '%s  %s\n' "$sum" "$path" >> /tmp/docs.sha256; \
+    done; \
+    test "$(wc -l < /tmp/docs.sha256)" -eq "$(grep -c "$re" SOURCES.txt)"; \
+    sha256sum -c --strict --quiet /tmp/docs.sha256; \
+    for pdf in $(find /opt/docs -name '*.pdf'); do \
+      pdftotext -layout "$pdf" "${pdf%.pdf}.txt"; \
+      test "$(wc -c < "${pdf%.pdf}.txt")" -gt 10000; \
+    done; \
+    chmod -R a+rX /opt/docs

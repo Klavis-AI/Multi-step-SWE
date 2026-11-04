@@ -1,0 +1,34 @@
+CREATE TABLE ct1(a int primary key, b text not null default 'x', c numeric(5,2), d timestamptz);
+CREATE INDEX ct1_b_idx ON ct1(b);
+SELECT relname, relkind FROM pg_class WHERE relname LIKE 'ct1%' ORDER BY relname;
+  relname  | relkind 
+-----------+---------
+ ct1       | r
+ ct1_b_idx | i
+ ct1_pkey  | i
+(3 rows)
+
+SELECT attname, atttypid::regtype::text, attnotnull, atthasdef, attnum
+  FROM pg_attribute WHERE attrelid='ct1'::regclass AND attnum>0 ORDER BY attnum;
+ attname |         atttypid         | attnotnull | atthasdef | attnum 
+---------+--------------------------+------------+-----------+--------
+ a       | integer                  | t          | f         |      1
+ b       | text                     | t          | t         |      2
+ c       | numeric                  | f          | f         |      3
+ d       | timestamp with time zone | f          | f         |      4
+(4 rows)
+
+SELECT conname, contype FROM pg_constraint WHERE conrelid='ct1'::regclass AND contype IN ('p','u','f','c') ORDER BY conname;
+ conname  | contype 
+----------+---------
+ ct1_pkey | p
+(1 row)
+
+SELECT c.relname, n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE c.relname='ct1';
+ relname | nspname 
+---------+---------
+ ct1     | public
+(1 row)
+
+DROP TABLE ct1;

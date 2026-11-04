@@ -1,0 +1,279 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of the thirteen steps' `reward` values, and each
+# step's reward is `gate x score`:
+#
+#   gate  in {0, 1}   every GATE group passed, or the step scores zero
+#   score in [0, 1]   weighted pass fraction over the SCORED groups only
+#
+# The GATE groups are proof of life (the workspace builds, the shim runs) plus
+# the inherited regression path carried forward from earlier milestones. They
+# are worth nothing on their own: a candidate that only keeps them passing
+# scores 0, because a step is paid for the capability it ADDS. What they can do
+# is veto, so breaking a predecessor forfeits the step outright. The SCORED
+# groups are this step's new capability plus its peripheral breadth, and their
+# weights sum to 1.0 among themselves. Which tier a group is in, and what it
+# weighs, is declared per step in `tests/data/groups.tsv`.
+#
+# There is no min_reward anywhere, so a zero does not abort the trial: every
+# step still runs, and every verifier still reports its OWN milestone in
+# [0, 1], never a running total and never literal credit for a predecessor.
+# BoGo conformance is carved into scored groups by case family
+# (`bogo-tls13core-new`, `bogo-resumption-new`, and so on), each weighted
+# inside the scored fraction like any other group.
+multi_step_reward_strategy = "mean"
+
+# A separate verifier receives the cumulative source only through this declared
+# artifact. The verifier rebuilds from source, so no agent build output is
+# required in the snapshot, and `target/` would otherwise dominate it: a rustls
+# debug build tree is several gigabytes.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "target", "target/**"] },
+]
+
+[task]
+name = "harbor/tls13-protocol-stack-multiversion"
+version = "1.0.0"
+description = "Implement a TLS 1.2 + TLS 1.3 protocol stack in Rust across thirteen cumulative upstream rustls releases, from the complete 0.19 stack through the cryptographic-provider split, ClientHello randomisation, the deframer rewrite, hybrid post-quantum key exchange and the 0.23.45 encryption-level alignment fix. Graded entirely at the wire: the BoringSSL BoGo conformance suite, ClientHello observation and OpenSSL interoperation."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["tls", "tls13", "rustls", "rust", "multi-step", "conformance", "bogo"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["tls", "rustls", "rust", "cryptography", "protocol", "multi-step"]
+
+[environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# The agent may use the network for official documentation and dependencies.
+network_mode = "public"
+
+# Grade each step in an isolated verifier container built from that step's
+# tests/Dockerfile. The cumulative /app artifact is restored into the image
+# before /tests/test.sh runs.
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# The verifier image carries its own pinned Rust and Go toolchains, a Cargo
+# registry cache pre-populated from this step's own lockfile, a pre-built
+# BoringSSL BoGo runner and a pinned OpenSSL, so grading does not depend on a
+# live network for anything the task ships. Building that image compiles the Go
+# runner and warms the dependency graph, which is why the build ceiling is
+# large. Without this section Harbor silently reuses a copy of [environment].
+build_timeout_sec = 5400.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-tls12-and-tls13-stack"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "02-connection-enum-and-strict-eof"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "03-deframer-hardening"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "04-ip-peers-and-ticket-store"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "05-validation-tightening"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "06-crypto-provider-split"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "07-provider-ecosystem-settle"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "08-default-provider-and-hello-randomisation"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "09-close-notify-and-sni-ip"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "10-deframer-rewrite-and-early-data"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "11-post-quantum-key-share"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "12-nonblocking-complete-io"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "13-encryption-level-alignment"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case measured author-side: a cold debug build of the whole rustls
+# workspace with all targets (<= 2400 s enforced inside test.sh), the BoGo
+# conformance run and its delta replay (<= 1800 s), the ClientHello listener
+# cases and the OpenSSL differential matrix (<= 900 s), plus fixed overhead.
+# The ceiling is deliberately well above that sum: a verifier that runs out of
+# time reports a partial scorecard, which is indistinguishable from a candidate
+# failure.
+timeout_sec = 7200.0

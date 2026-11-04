@@ -1,0 +1,359 @@
+# 05.23 -- a workspace member that declares no [build-system] is a virtual
+# member: `uv sync --package m2` resolves the workspace and installs m2's
+# dependencies without building m2 itself.  The root depends on `m` and m2 on
+# `m3`, so the environment that results names which project's dependencies were
+# synced: syncing the root would install `m` (and `root`), syncing m2 installs
+# `m3` alone, and m2 itself is unpackaged so it is never installed.  Before
+# 0.4.0 the member had to be built with the legacy setuptools backend, which
+# cannot be fetched with the network disabled.
+id = "s05-workspace-virtual-member-sync"
+step = 5
+group = "virtual-workspace-root"
+python = "3.12"
+mode = "bare"
+argv = ["sync", "--offline", "--package", "m2"]
+observe = ["status", "glob:.venv/lib/python*/site-packages/*.dist-info"]
+
+[files]
+"pkgs/m/pyproject.toml" = '''
+[project]
+name = "m"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = []
+build-backend = "tinybk"
+backend-path = ["."]
+'''
+"pkgs/m/src/m/__init__.py" = '''
+def main():
+    print("m-main")
+'''
+"pkgs/m/tinybk.py" = '''
+"""In-tree PEP 517 backend: needs no third-party build requirement."""
+import base64, hashlib, io, os, tarfile, zipfile
+
+NAME = "m"
+VERSION = "0.1.0"
+HERE = os.path.dirname(os.path.abspath(__file__))
+META = (
+    "Metadata-Version: 2.1\n"
+    "Name: " + NAME + "\n"
+    "Version: " + VERSION + "\n"
+    "Summary: probe fixture\n"
+)
+EPOCH = (1980, 1, 1, 0, 0, 0)
+
+
+def _add(zf, arc, data, records):
+    info = zipfile.ZipInfo(arc, date_time=EPOCH)
+    info.external_attr = 0o644 << 16
+    zf.writestr(info, data)
+    b64 = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+    records.append("%s,sha256=%s,%d" % (arc, b64, len(data)))
+
+
+def _finish(zf, distinfo, records):
+    _add(zf, "%s/METADATA" % distinfo, META.encode(), records)
+    _add(zf, "%s/WHEEL" % distinfo,
+         b"Wheel-Version: 1.0\nGenerator: tinybk\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+         records)
+    _add(zf, "%s/entry_points.txt" % distinfo,
+         ("[console_scripts]\n%s-cli = %s:main\n" % (NAME, NAME)).encode(), records)
+    records.append("%s/RECORD,," % distinfo)
+    _add(zf, "%s/RECORD" % distinfo, ("\n".join(sorted(records)) + "\n").encode(), [])
+
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    distinfo = "%s-%s.dist-info" % (NAME, VERSION)
+    fname = "%s-%s-py3-none-any.whl" % (NAME, VERSION)
+    records = []
+    with zipfile.ZipFile(os.path.join(wheel_directory, fname), "w") as zf:
+        with open(os.path.join(HERE, "src", NAME, "__init__.py"), "rb") as fh:
+            _add(zf, "%s/__init__.py" % NAME, fh.read(), records)
+        _finish(zf, distinfo, records)
+    return fname
+
+
+def build_editable(wheel_directory, config_settings=None, metadata_directory=None):
+    distinfo = "%s-%s.dist-info" % (NAME, VERSION)
+    fname = "%s-%s-py3-none-any.whl" % (NAME, VERSION)
+    records = []
+    with zipfile.ZipFile(os.path.join(wheel_directory, fname), "w") as zf:
+        _add(zf, "_%s_editable.pth" % NAME, (os.path.join(HERE, "src") + "\n").encode(), records)
+        _finish(zf, distinfo, records)
+    return fname
+
+
+def build_sdist(sdist_directory, config_settings=None):
+    root = "%s-%s" % (NAME, VERSION)
+    fname = root + ".tar.gz"
+    members = {root + "/PKG-INFO": META.encode()}
+    for rel in ("pyproject.toml", "tinybk.py", os.path.join("src", NAME, "__init__.py")):
+        with open(os.path.join(HERE, rel), "rb") as fh:
+            members[root + "/" + rel.replace(os.sep, "/")] = fh.read()
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tf:
+        for arc in sorted(members):
+            data = members[arc]
+            info = tarfile.TarInfo(arc)
+            info.size = len(data)
+            info.mtime = 0
+            info.mode = 0o644
+            info.uid = info.gid = 0
+            info.uname = info.gname = "root"
+            tf.addfile(info, io.BytesIO(data))
+    import gzip
+    with open(os.path.join(sdist_directory, fname), "wb") as out:
+        gz = gzip.GzipFile(filename="", mode="wb", fileobj=out, mtime=0)
+        gz.write(raw.getvalue())
+        gz.close()
+    return fname
+
+
+def get_requires_for_build_wheel(config_settings=None):
+    return []
+
+
+def get_requires_for_build_editable(config_settings=None):
+    return []
+
+
+def get_requires_for_build_sdist(config_settings=None):
+    return []
+'''
+"pkgs/m2/pyproject.toml" = '''
+[project]
+name = "m2"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["m3"]
+
+[tool.uv.sources]
+m3 = { workspace = true }
+'''
+"pkgs/m3/pyproject.toml" = '''
+[project]
+name = "m3"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = []
+build-backend = "tinybk"
+backend-path = ["."]
+'''
+"pkgs/m3/src/m3/__init__.py" = '''
+def main():
+    print("m3-main")
+'''
+"pkgs/m3/tinybk.py" = '''"""In-tree PEP 517 backend: needs no third-party build requirement."""
+import base64, hashlib, io, os, tarfile, zipfile
+
+NAME = "m3"
+VERSION = "0.1.0"
+HERE = os.path.dirname(os.path.abspath(__file__))
+META = (
+    "Metadata-Version: 2.1\n"
+    "Name: " + NAME + "\n"
+    "Version: " + VERSION + "\n"
+    "Summary: probe fixture\n"
+)
+EPOCH = (1980, 1, 1, 0, 0, 0)
+
+
+def _add(zf, arc, data, records):
+    info = zipfile.ZipInfo(arc, date_time=EPOCH)
+    info.external_attr = 0o644 << 16
+    zf.writestr(info, data)
+    b64 = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+    records.append("%s,sha256=%s,%d" % (arc, b64, len(data)))
+
+
+def _finish(zf, distinfo, records):
+    _add(zf, "%s/METADATA" % distinfo, META.encode(), records)
+    _add(zf, "%s/WHEEL" % distinfo,
+         b"Wheel-Version: 1.0\nGenerator: tinybk\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+         records)
+    _add(zf, "%s/entry_points.txt" % distinfo,
+         ("[console_scripts]\n%s-cli = %s:main\n" % (NAME, NAME)).encode(), records)
+    records.append("%s/RECORD,," % distinfo)
+    _add(zf, "%s/RECORD" % distinfo, ("\n".join(sorted(records)) + "\n").encode(), [])
+
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    distinfo = "%s-%s.dist-info" % (NAME, VERSION)
+    fname = "%s-%s-py3-none-any.whl" % (NAME, VERSION)
+    records = []
+    with zipfile.ZipFile(os.path.join(wheel_directory, fname), "w") as zf:
+        with open(os.path.join(HERE, "src", NAME, "__init__.py"), "rb") as fh:
+            _add(zf, "%s/__init__.py" % NAME, fh.read(), records)
+        _finish(zf, distinfo, records)
+    return fname
+
+
+def build_editable(wheel_directory, config_settings=None, metadata_directory=None):
+    distinfo = "%s-%s.dist-info" % (NAME, VERSION)
+    fname = "%s-%s-py3-none-any.whl" % (NAME, VERSION)
+    records = []
+    with zipfile.ZipFile(os.path.join(wheel_directory, fname), "w") as zf:
+        _add(zf, "_%s_editable.pth" % NAME, (os.path.join(HERE, "src") + "\n").encode(), records)
+        _finish(zf, distinfo, records)
+    return fname
+
+
+def build_sdist(sdist_directory, config_settings=None):
+    root = "%s-%s" % (NAME, VERSION)
+    fname = root + ".tar.gz"
+    members = {root + "/PKG-INFO": META.encode()}
+    for rel in ("pyproject.toml", "tinybk.py", os.path.join("src", NAME, "__init__.py")):
+        with open(os.path.join(HERE, rel), "rb") as fh:
+            members[root + "/" + rel.replace(os.sep, "/")] = fh.read()
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tf:
+        for arc in sorted(members):
+            data = members[arc]
+            info = tarfile.TarInfo(arc)
+            info.size = len(data)
+            info.mtime = 0
+            info.mode = 0o644
+            info.uid = info.gid = 0
+            info.uname = info.gname = "root"
+            tf.addfile(info, io.BytesIO(data))
+    import gzip
+    with open(os.path.join(sdist_directory, fname), "wb") as out:
+        gz = gzip.GzipFile(filename="", mode="wb", fileobj=out, mtime=0)
+        gz.write(raw.getvalue())
+        gz.close()
+    return fname
+
+
+def get_requires_for_build_wheel(config_settings=None):
+    return []
+
+
+def get_requires_for_build_editable(config_settings=None):
+    return []
+
+
+def get_requires_for_build_sdist(config_settings=None):
+    return []
+'''
+"pyproject.toml" = '''
+[project]
+name = "root"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["m"]
+
+[build-system]
+requires = []
+build-backend = "tinybk"
+backend-path = ["."]
+
+[tool.uv.workspace]
+members = ["pkgs/*"]
+
+[tool.uv.sources]
+m = { workspace = true }
+'''
+"src/root/__init__.py" = '''
+def main():
+    print("root-main")
+'''
+"tinybk.py" = '''
+"""In-tree PEP 517 backend: needs no third-party build requirement."""
+import base64, hashlib, io, os, tarfile, zipfile
+
+NAME = "root"
+VERSION = "0.1.0"
+HERE = os.path.dirname(os.path.abspath(__file__))
+META = (
+    "Metadata-Version: 2.1\n"
+    "Name: " + NAME + "\n"
+    "Version: " + VERSION + "\n"
+    "Summary: probe fixture\n"
+)
+EPOCH = (1980, 1, 1, 0, 0, 0)
+
+
+def _add(zf, arc, data, records):
+    info = zipfile.ZipInfo(arc, date_time=EPOCH)
+    info.external_attr = 0o644 << 16
+    zf.writestr(info, data)
+    b64 = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+    records.append("%s,sha256=%s,%d" % (arc, b64, len(data)))
+
+
+def _finish(zf, distinfo, records):
+    _add(zf, "%s/METADATA" % distinfo, META.encode(), records)
+    _add(zf, "%s/WHEEL" % distinfo,
+         b"Wheel-Version: 1.0\nGenerator: tinybk\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+         records)
+    _add(zf, "%s/entry_points.txt" % distinfo,
+         ("[console_scripts]\n%s-cli = %s:main\n" % (NAME, NAME)).encode(), records)
+    records.append("%s/RECORD,," % distinfo)
+    _add(zf, "%s/RECORD" % distinfo, ("\n".join(sorted(records)) + "\n").encode(), [])
+
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    distinfo = "%s-%s.dist-info" % (NAME, VERSION)
+    fname = "%s-%s-py3-none-any.whl" % (NAME, VERSION)
+    records = []
+    with zipfile.ZipFile(os.path.join(wheel_directory, fname), "w") as zf:
+        with open(os.path.join(HERE, "src", NAME, "__init__.py"), "rb") as fh:
+            _add(zf, "%s/__init__.py" % NAME, fh.read(), records)
+        _finish(zf, distinfo, records)
+    return fname
+
+
+def build_editable(wheel_directory, config_settings=None, metadata_directory=None):
+    distinfo = "%s-%s.dist-info" % (NAME, VERSION)
+    fname = "%s-%s-py3-none-any.whl" % (NAME, VERSION)
+    records = []
+    with zipfile.ZipFile(os.path.join(wheel_directory, fname), "w") as zf:
+        _add(zf, "_%s_editable.pth" % NAME, (os.path.join(HERE, "src") + "\n").encode(), records)
+        _finish(zf, distinfo, records)
+    return fname
+
+
+def build_sdist(sdist_directory, config_settings=None):
+    root = "%s-%s" % (NAME, VERSION)
+    fname = root + ".tar.gz"
+    members = {root + "/PKG-INFO": META.encode()}
+    for rel in ("pyproject.toml", "tinybk.py", os.path.join("src", NAME, "__init__.py")):
+        with open(os.path.join(HERE, rel), "rb") as fh:
+            members[root + "/" + rel.replace(os.sep, "/")] = fh.read()
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tf:
+        for arc in sorted(members):
+            data = members[arc]
+            info = tarfile.TarInfo(arc)
+            info.size = len(data)
+            info.mtime = 0
+            info.mode = 0o644
+            info.uid = info.gid = 0
+            info.uname = info.gname = "root"
+            tf.addfile(info, io.BytesIO(data))
+    import gzip
+    with open(os.path.join(sdist_directory, fname), "wb") as out:
+        gz = gzip.GzipFile(filename="", mode="wb", fileobj=out, mtime=0)
+        gz.write(raw.getvalue())
+        gz.close()
+    return fname
+
+
+def get_requires_for_build_wheel(config_settings=None):
+    return []
+
+
+def get_requires_for_build_editable(config_settings=None):
+    return []
+
+
+def get_requires_for_build_sdist(config_settings=None):
+    return []
+'''

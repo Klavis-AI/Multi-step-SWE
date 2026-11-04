@@ -1,0 +1,21 @@
+CREATE TABLE q3_cvu(a int, b int, c text);
+CREATE UNIQUE INDEX q3_cvu_i ON q3_cvu (a) INCLUDE (b);
+INSERT INTO q3_cvu VALUES (1,10,'x');
+INSERT INTO q3_cvu VALUES (1,20,'y');
+ERROR:  duplicate key value violates unique constraint "q3_cvu_i"
+DETAIL:  Key (a)=(1) already exists.
+INSERT INTO q3_cvu VALUES (2,20,'y');
+SELECT a, b, c FROM q3_cvu ORDER BY a;
+ a | b  | c 
+---+----+---
+ 1 | 10 | x
+ 2 | 20 | y
+(2 rows)
+
+SELECT indisunique, indnkeyatts FROM pg_index WHERE indexrelid = 'q3_cvu_i'::regclass;
+ indisunique | indnkeyatts 
+-------------+-------------
+ t           |           1
+(1 row)
+
+DROP TABLE q3_cvu;

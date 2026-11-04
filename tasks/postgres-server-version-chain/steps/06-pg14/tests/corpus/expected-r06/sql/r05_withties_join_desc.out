@@ -1,0 +1,35 @@
+CREATE TABLE x05_09a(i int, v int);
+CREATE TABLE x05_09b(v int, t text);
+INSERT INTO x05_09a SELECT g, g/3 FROM generate_series(1,9) g;
+INSERT INTO x05_09b VALUES (0,'zero'),(1,'one'),(2,'two'),(3,'three');
+SELECT a.i, b.t FROM x05_09a a JOIN x05_09b b USING (v)
+  ORDER BY b.t, a.i FETCH FIRST 2 ROWS WITH TIES;
+ i |  t  
+---+-----
+ 3 | one
+ 4 | one
+(2 rows)
+
+SELECT * FROM x05_09a ORDER BY v DESC FETCH FIRST 2 ROWS WITH TIES;
+ i | v 
+---+---
+ 9 | 3
+ 8 | 2
+ 6 | 2
+ 7 | 2
+(4 rows)
+
+SELECT v, count(*) FROM x05_09a GROUP BY v ORDER BY count(*) FETCH FIRST 1 ROWS WITH TIES;
+ v | count 
+---+-------
+ 3 |     1
+(1 row)
+
+SELECT i FROM x05_09a ORDER BY v FETCH FIRST 2 ROWS WITH TIES FOR UPDATE;
+ i 
+---
+ 1
+ 2
+(2 rows)
+
+DROP TABLE x05_09a, x05_09b;

@@ -1,0 +1,32 @@
+# arch: x86_64
+# PROVIDE only fills a hole: an input object that defines the symbol wins, and
+# the definition keeps its own section and address.
+rt_obj rt.o
+cat > m.c <<'C'
+int already = 7;
+extern char already_sym[];
+int entry(void) { return already + already_sym[0]; }
+C
+cat > p.c <<'C'
+char already_sym[1] = { 3 };
+C
+cc_obj m.o m.c
+cc_obj p.o p.c
+cat > s.ld <<'L'
+PROVIDE(already_sym = 0x2a);
+L
+
+link_ok both -T s.ld rt.o m.o p.o --no-gc-sections
+sym=$(symbols both)
+want_has "object definition wins" "$sym" 'OBJECT +GLOBAL +DEFAULT +[0-9]+ already_sym'
+want_not "not the script value"   "$sym" '000000000000002a +[0-9]+ .* already_sym'
+run_expect both "" 10
+
+# Drop the defining object and the script value is used instead.
+link_ok only -T s.ld rt.o m.o --no-gc-sections
+want_has "script value used when nothing defines it" "$(symbols only)" 'GLOBAL +DEFAULT +ABS already_sym'
+want "script value" "$(sym_value only already_sym)" "000000000000002a"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 4

@@ -1,0 +1,63 @@
+# arch: x86_64
+# One PT_LOAD declared in PHDRS can hold code, rodata and data at once: all
+# three output sections must map to the same segment and it must carry the
+# RWE flags the script asked for.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char msg[] = "one-seg";
+int g = 6;
+int entry(void) { print(msg); print("\n"); return g; }
+C
+cc_obj m.o m.c
+cat > t.ld <<'L'
+PHDRS { all PT_LOAD FLAGS(7); }
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }     :all
+  .rodata : { *(.rodata .rodata.*) } :all
+  .data   : { *(.data .data.*) }     :all
+}
+L
+# Control: the same SECTIONS with no PHDRS command and no ':all' suffixes.
+# It links at every tag, so a failure in the arm below is the PHDRS command.
+cat > c.ld <<'L'
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  .data   : { *(.data .data.*) }
+}
+L
+link_ok ctl -T c.ld rt.o m.o
+run_expect ctl "one-seg" 6
+
+link_ok out -T t.ld rt.o m.o
+
+# Inline helpers (caselib has none for segments). Since 0.9.0 wild emits a
+# second writable PT_LOAD for RELRO, so a segment is always located by the
+# address it covers, never by its ordinal or its permission bits.
+loads() { local t; t=$(segments "$1"); awk '/^ *LOAD /{f=""; for(i=7;i<NF;i++) f=f $i; print $3, $4, $6, f}' <<<"$t"; }
+seg_of() { # seg_of <file> <hex-addr> -> "<index> <vaddr> <paddr> <flags>"
+  local a=$((16#$2)) i=0 v p m f
+  while read -r v p m f; do
+    [ -n "$v" ] || continue
+    if [ "$a" -ge "$((v))" ] && [ "$a" -lt "$((v + m))" ]; then echo "$i $v $p $f"; return 0; fi
+    i=$((i + 1))
+  done <<<"$(loads "$1")"
+  return 1
+}
+
+ts=$(seg_of out "$(sec_addr out .text)")   || die ".text is in no PT_LOAD"
+rs=$(seg_of out "$(sec_addr out .rodata)") || die ".rodata is in no PT_LOAD"
+ds=$(seg_of out "$(sec_addr out .data)")   || die ".data is in no PT_LOAD"
+want "rodata shares the segment" "${rs%% *}" "${ts%% *}"
+want "data shares the segment"   "${ds%% *}" "${ts%% *}"
+want "the segment is RWE"        "${ts##* }" "RWE"
+run_expect out "one-seg" 6
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

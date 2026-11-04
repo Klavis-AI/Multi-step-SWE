@@ -1,0 +1,64 @@
+# arch: x86_64
+# Section-to-segment mapping is deterministic and driven by permissions: every
+# allocated section sits inside a PT_LOAD whose p_flags match its sh_flags, the
+# PT_LOADs are page-aligned, and they are laid out in ascending, non-overlapping
+# address order with read-only, executable and writable regions all present.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char romsg[] = "L\n";
+int rwvar = 11;
+int bssvar;
+int entry(void) { print(romsg); bssvar = rwvar; return bssvar - 4; }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o
+# vaddr filesz memsz flags align, one line per PT_LOAD, in file order.
+loads=$(segments out | awk '$1=="LOAD"{f=""; for(i=7;i<NF;i++) f=f $i; print $3, $5, $6, f, $NF}')
+n=$(printf '%s\n' "$loads" | grep -c .)
+[ "$n" -ge 3 ] || die "only $n PT_LOAD segments, want at least 3"
+want "every PT_LOAD is page-aligned" \
+     "$(printf '%s\n' "$loads" | awk '$5!="0x1000"{print $5}' | tr '\n' ' ')" ""
+# All three permission classes must exist. How many segments each class is split
+# into is a layout choice -- later releases carve an extra RELRO PT_LOAD out of
+# the writable one -- so assert on the classes present, not on the count.
+for want_f in R RE RW; do
+  printf '%s\n' "$loads" | awk -v f="$want_f" '$4==f{n++} END{exit !n}' \
+    || die "no PT_LOAD with permissions $want_f"
+done
+prev=0
+while read -r v _ m _ _; do
+  [ -n "$v" ] || continue
+  [ $((v)) -ge "$prev" ] || die "PT_LOAD at $v overlaps the segment before it"
+  prev=$(( $((v)) + $((m)) ))
+done <<<"$loads"
+# Find the containing segment by address instead of looking up "the RW one":
+# from 0.9.0 on there is more than one writable PT_LOAD, so permissions alone no
+# longer name a unique segment, and the property is about which one holds it.
+seg_flags_of() {
+  local a z v m f
+  a=$(sec_addr out "$1"); z=$(sec_size out "$1")
+  [ -n "$a" ] || die "no section $1 in the output"
+  a=$((0x$a)); z=$((0x$z))
+  while read -r v _ m f _; do
+    [ -n "$v" ] || continue
+    [ "$a" -ge $((v)) ] && [ $((a + z)) -le $(( $((v)) + $((m)) )) ] \
+      && { printf '%s' "$f"; return; }
+  done <<<"$loads"
+}
+want ".text is in an executable PT_LOAD" "$(seg_flags_of .text)"   "RE"
+want ".rodata is in a read-only PT_LOAD" "$(seg_flags_of .rodata)" "R"
+want ".bss is in a writable PT_LOAD"     "$(seg_flags_of .bss)"    "RW"
+# sh_flags column, read positionally so a section with no flags cannot shift it
+secflags() { sections out | sed -n 's/^ *\[ *[0-9][0-9]*\] \(.*\)$/\1/p' \
+               | awk -v n="$1" '$1==n{f=""; for (i=7; i<=NF-3; i++) f = f $i; print f; exit}'; }
+want ".text sh_flags"   "$(secflags .text)"   "AX"
+want ".rodata sh_flags" "$(secflags .rodata)" "A"
+want ".bss sh_flags"    "$(secflags .bss)"    "WA"
+run_expect out "L" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 7

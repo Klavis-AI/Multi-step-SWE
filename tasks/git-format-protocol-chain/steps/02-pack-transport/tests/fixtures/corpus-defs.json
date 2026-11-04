@@ -1,0 +1,79 @@
+{
+ "builds": {
+  "keep-pack": "\ngit init -q -b main . &&\nprintf 'x\\n' > f && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'c1' &&\ngit repack -a -d -q && for p in .git/objects/pack/pack-*.pack; do : > \"${p%.pack}.keep\"; done &&\nprintf 'y\\n' > g && git add -A && GIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m 'c2'\n",
+  "multi-pack": "\ngit init -q -b main . &&\nprintf 'one\\n' > f1 && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'c1' &&\ngit repack -a -d -q &&\nprintf 'two\\n' > f2 && git add -A && GIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m 'c2' &&\ngit repack -d -q &&\nprintf 'three\\n' > f3 && git add -A && GIT_AUTHOR_DATE='@1112912100 +0000' GIT_COMMITTER_DATE='@1112912100 +0000' git commit -q -m 'c3'\n",
+  "packed-and-loose": "\ngit init -q -b main . &&\nseq 1 100 > f && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'packed part' &&\ngit repack -a -d -q &&\nprintf 'loose\\n' > g && git add -A && GIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m 'loose part' &&\ngit pack-refs --all\n",
+  "packed-deltas": "\ngit init -q -b main . &&\nseq 1 400 > data.txt && printf 'a\\n' > a.txt && mkdir -p d && seq 1 40 > d/x &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'first' &&\nfor i in 1 2 3 4 5; do\n  printf 'line %s\\n' \"$i\" >> data.txt && git add -A &&\n  GIT_AUTHOR_DATE=\"@111291200$i +0000\" GIT_COMMITTER_DATE=\"@111291200$i +0000\" git commit -q -m \"change $i\"\ndone &&\ngit tag -a v1 -m release && git branch topic HEAD~2 &&\ngit repack -a -d -q --window=50 --depth=50\n",
+  "thin-fetch-result": "\ngit init -q -b main . &&\nseq 1 200 > f && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'base' &&\ngit repack -a -d -q &&\ngit clone -q --bare . ../up.git &&\nprintf 'more\\n' >> f && git add -A && GIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m 'more' &&\ngit push -q ../up.git main:refs/heads/main &&\ngit init -q -b main ../dl && git -C ../dl remote add origin ../up.git &&\ngit -C ../dl fetch -q origin && git -C ../dl repack -a -d -q\n"
+ },
+ "corruptions": {
+  "pack-flipped": "pack_mutate",
+  "pack-truncated": "pack_truncate"
+ },
+ "probes": [
+  {
+   "clean_only": true,
+   "cmd": "git rev-parse --show-object-format"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git log --format='%H %T %P %s'"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git cat-file --batch-all-objects --batch-check='%(objectname) %(objecttype) %(objectsize)' | sort"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git rev-list --objects --all 2>/dev/null | sort"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git ls-tree -r HEAD 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git cat-file -p HEAD 2>&1 | head -3; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git count-objects -v | grep -E '^count:|^in-pack:|^packs:'"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git verify-pack -v .git/objects/pack/*.idx 2>&1 | awk '/^[0-9a-f]{40}/ {print $1, $2}' | sort; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "for p in .git/objects/pack/*.pack; do git index-pack --verify \"$p\" >/dev/null 2>&1; echo \"$(basename $p .pack | sed 's/[0-9a-f]\\{40\\}/HASH/') verify=$?\"; done"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git fsck 2>&1 | sed 's/[0-9a-f]\\{40\\}/OID/g' | sort; echo exit=${PIPESTATUS[0]}"
+  },
+  {
+   "cmd": "git show-ref >../sr.out 2>../sr.err; rc=$?; sort ../sr.out; test -s ../sr.err && echo 'error reported' || echo 'no error'; test $rc -eq 0 && echo 'exit ok' || echo 'exit nonzero'"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git status --porcelain 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git ls-files -s | head -5"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git clone -q . ../reclone 2>&1; echo clone=$?; git -C ../reclone log --oneline 2>&1 | head -3"
+  },
+  {
+   "cmd": "git fsck >/dev/null 2>&1 && echo 'fsck clean' || echo 'fsck reports a problem'"
+  },
+  {
+   "cmd": "bad=0; for p in .git/objects/pack/*.pack; do git index-pack --verify \"$p\" >/dev/null 2>&1 || bad=$((bad+1)); done; test $bad -eq 0 && echo 'every pack verifies' || echo 'a pack fails verification'"
+  },
+  {
+   "cmd": "git rev-parse --show-object-format"
+  }
+ ]
+}

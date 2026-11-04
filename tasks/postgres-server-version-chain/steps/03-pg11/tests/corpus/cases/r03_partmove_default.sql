@@ -1,0 +1,8 @@
+CREATE TABLE q3_pmd(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q3_pmd_1 PARTITION OF q3_pmd FOR VALUES FROM (1) TO (10);
+CREATE TABLE q3_pmd_d PARTITION OF q3_pmd DEFAULT;
+INSERT INTO q3_pmd VALUES (5,'in'),(500,'out');
+UPDATE q3_pmd SET a = 900 WHERE a = 5;
+UPDATE q3_pmd SET a = 2 WHERE a = 500;
+SELECT tableoid::regclass::text AS part, a, b FROM q3_pmd ORDER BY a;
+DROP TABLE q3_pmd;

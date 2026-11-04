@@ -1,0 +1,255 @@
+[
+ {
+  "name": "interop-basic",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nprintf 'alpha\\n' > a.txt && mkdir -p dir/sub && printf 'beta\\n' > dir/sub/b.txt &&\nprintf 'run\\n' > run.sh && chmod +x run.sh && ln -s a.txt link.txt &&\nprintf '*.log\\n' > .gitignore &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'initial import' &&\nprintf 'alpha2\\n' >> a.txt && git add a.txt &&\nGIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m 'second commit' &&\ngit tag -a v1.0 -m 'release 1.0' && git tag light HEAD~1 &&\ngit branch topic HEAD~1\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git log --format='%H %T %P %an %ae %ad %s'",
+   "git --git-dir=@REPO@/.git ls-tree -r -t HEAD",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "git --git-dir=@REPO@/.git rev-list --all --count",
+   "git --git-dir=@REPO@/.git show-ref | sort",
+   "git --git-dir=@REPO@/.git for-each-ref --format='%(refname) %(objecttype) %(objectname)' | sort",
+   "git --git-dir=@REPO@/.git cat-file -p HEAD^{tree}",
+   "git --git-dir=@REPO@/.git rev-parse HEAD HEAD^{tree}",
+   "git -C @REPO@ status --porcelain; echo exit=$?",
+   "git -C @REPO@ diff --stat HEAD; echo exit=$?",
+   "git clone -q @REPO@ @WORK@/clone 2>&1; echo exit=$?; git -C @WORK@/clone log --format='%H %s'; git -C @WORK@/clone status --porcelain; git -C @WORK@/clone fsck; echo fsck=$?",
+   "git -C @REPO@ ls-files -s"
+  ]
+ },
+ {
+  "name": "interop-merge",
+  "peers": [
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nprintf 'common\\n1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n' > f && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m base &&\ngit checkout -q -b topic &&\nprintf 'common\\n1\\n2\\n3\\n4\\n5\\n6\\nTOPIC\\n8\\n' > f && printf 'extra\\n' > t && git add -A &&\nGIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m topic &&\ngit checkout -q main &&\nprintf 'MAIN\\n1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n' > f && git add -A && GIT_AUTHOR_DATE='@1112912100 +0000' GIT_COMMITTER_DATE='@1112912100 +0000' git commit -q -m main &&\nGIT_AUTHOR_DATE='@1112912200 +0000' GIT_COMMITTER_DATE='@1112912200 +0000' git merge -m 'merge topic' topic &&\ngit pack-refs --all\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git log --format='%H %T %P %an %ae %ad %s'",
+   "git --git-dir=@REPO@/.git ls-tree -r -t HEAD",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "git --git-dir=@REPO@/.git rev-list --all --count",
+   "git --git-dir=@REPO@/.git show-ref | sort",
+   "git --git-dir=@REPO@/.git for-each-ref --format='%(refname) %(objecttype) %(objectname)' | sort",
+   "git --git-dir=@REPO@/.git cat-file -p HEAD^{tree}",
+   "git --git-dir=@REPO@/.git rev-parse HEAD HEAD^{tree}",
+   "git -C @REPO@ status --porcelain; echo exit=$?",
+   "git -C @REPO@ diff --stat HEAD; echo exit=$?",
+   "git clone -q @REPO@ @WORK@/clone 2>&1; echo exit=$?; git -C @WORK@/clone log --format='%H %s'; git -C @WORK@/clone status --porcelain; git -C @WORK@/clone fsck; echo fsck=$?",
+   "git -C @REPO@ ls-files -s"
+  ]
+ },
+ {
+  "name": "interop-names",
+  "peers": [
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nmkdir -p 'dir with space/inner' &&\nprintf '1\\n' > 'dir with space/inner/file one' &&\nprintf '2\\n' > 'quote\"name' &&\nprintf '3\\n' > 'utf8-\\303\\244\\303\\266' &&\nprintf '4\\n' > empty && : > truly-empty &&\nmkdir -p nested/a/b/c/d && printf '5\\n' > nested/a/b/c/d/deep &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'unusual names'\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git log --format='%H %T %P %an %ae %ad %s'",
+   "git --git-dir=@REPO@/.git ls-tree -r -t HEAD",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "git --git-dir=@REPO@/.git rev-list --all --count",
+   "git --git-dir=@REPO@/.git show-ref | sort",
+   "git --git-dir=@REPO@/.git for-each-ref --format='%(refname) %(objecttype) %(objectname)' | sort",
+   "git --git-dir=@REPO@/.git cat-file -p HEAD^{tree}",
+   "git --git-dir=@REPO@/.git rev-parse HEAD HEAD^{tree}",
+   "git -C @REPO@ status --porcelain; echo exit=$?",
+   "git -C @REPO@ diff --stat HEAD; echo exit=$?",
+   "git clone -q @REPO@ @WORK@/clone 2>&1; echo exit=$?; git -C @WORK@/clone log --format='%H %s'; git -C @WORK@/clone status --porcelain; git -C @WORK@/clone fsck; echo fsck=$?",
+   "git -C @REPO@ ls-files -s"
+  ]
+ },
+ {
+  "name": "interop-packed-repo",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nfor i in 1 2 3 4 5 6 7 8; do\n  printf 'line %s\\n' $(seq 1 $((i * 40))) > big$i.txt\n  printf 'small %s\\n' \"$i\" > s$i.txt\n  mkdir -p d$i/sub && printf 'nested %s\\n' \"$i\" > d$i/sub/n.txt\n  git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m \"commit $i\"\ndone &&\ngit tag -a v1.0 -m 'release 1.0' && git tag light HEAD~3 &&\ngit branch topic HEAD~2 &&\ngit repack -a -d &&\ngit pack-refs --all\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "git --git-dir=@REPO@/.git rev-list --objects --all | sort",
+   "git --git-dir=@REPO@/.git log --format='%H %T %P %s'",
+   "git --git-dir=@REPO@/.git show-ref | sort",
+   "git --git-dir=@REPO@/.git count-objects -v 2>&1 | grep -v '^size' | sed 's/pack-[0-9a-f]\\{40\\}/pack-OID/'",
+   "for p in @REPO@/.git/objects/pack/*.idx; do git verify-pack -v \"$p\" > @WORK@/vp.txt; echo verify=$?; awk '$2 ~ /^(blob|commit|tag|tree)$/ {print $2}' @WORK@/vp.txt | sort | uniq -c; done",
+   "for p in @REPO@/.git/objects/pack/*.pack; do git index-pack --strict -o @WORK@/copy.idx \"$p\" >/dev/null && echo idx-ok; done",
+   "git clone -q @REPO@ @WORK@/clone1 && git --git-dir=@WORK@/clone1/.git fsck --strict && git --git-dir=@WORK@/clone1/.git log --format='%H %s' | head -3; echo exit=$?",
+   "git clone -q --no-local @REPO@ @WORK@/clone2 && git --git-dir=@WORK@/clone2/.git rev-list --all --count; echo exit=$?",
+   "git clone -q --bare @REPO@ @WORK@/bare.git && git --git-dir=@WORK@/bare.git show-ref | sort; echo exit=$?",
+   "mkdir -p @WORK@/unp && cd @WORK@/unp && git init -q . && for p in @REPO@/.git/objects/pack/*.pack; do git unpack-objects < \"$p\" >/dev/null; done && git cat-file --batch-all-objects --batch-check | sort | wc -l"
+  ]
+ },
+ {
+  "name": "interop-multi-pack",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nprintf 'one\\n' > a.txt && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m first &&\ngit repack -a -d &&\nprintf 'two\\n' > b.txt && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m second &&\ngit repack -d &&\nprintf 'three\\n' > c.txt && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m third &&\ngit gc -q --no-prune 2>/dev/null || git repack -d\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "git --git-dir=@REPO@/.git rev-list --objects --all | sort",
+   "git clone -q @REPO@ @WORK@/c && git --git-dir=@WORK@/c/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git repack -a -d >/dev/null 2>&1; git --git-dir=@REPO@/.git fsck --strict; echo repacked=$?"
+  ]
+ },
+ {
+  "name": "interop-deltified-pack",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nseq 1 400 > base.txt && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m base &&\nfor i in 1 2 3 4 5 6; do\n  seq 1 $((400 + i * 3)) > base.txt\n  git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m \"grow $i\"\ndone &&\ngit repack -a -d -f --window=50 --depth=20\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "for p in @REPO@/.git/objects/pack/*.idx; do git verify-pack -s \"$p\" >/dev/null && echo stat-ok; done",
+   "for p in @REPO@/.git/objects/pack/*.pack; do git index-pack --strict -o @WORK@/d.idx \"$p\" >/dev/null && echo idx-ok; done",
+   "git --git-dir=@REPO@/.git cat-file -p HEAD:base.txt | md5sum",
+   "git clone -q @REPO@ @WORK@/c && cd @WORK@/c && git log --format='%H %s' | tail -2 && md5sum base.txt; echo exit=$?"
+  ]
+ },
+ {
+  "name": "interop-fetch-from-us",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nfor i in 1 2 3 4 5 6 7 8; do\n  printf 'line %s\\n' $(seq 1 $((i * 40))) > big$i.txt\n  printf 'small %s\\n' \"$i\" > s$i.txt\n  mkdir -p d$i/sub && printf 'nested %s\\n' \"$i\" > d$i/sub/n.txt\n  git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m \"commit $i\"\ndone &&\ngit tag -a v1.0 -m 'release 1.0' && git tag light HEAD~3 &&\ngit branch topic HEAD~2 &&\ngit repack -a -d &&\ngit pack-refs --all\n",
+  "probes": [
+   "git init -q @WORK@/f && git -C @WORK@/f fetch -q @REPO@ 'refs/heads/*:refs/remotes/o/*' && git -C @WORK@/f for-each-ref --format='%(refname) %(objectname)' | sort; echo exit=$?",
+   "git init -q @WORK@/g && git -C @WORK@/g fetch -q --no-tags @REPO@ main && git -C @WORK@/g rev-parse FETCH_HEAD; echo exit=$?",
+   "git init -q @WORK@/h && git -C @WORK@/h fetch -q @REPO@ --depth=1 main 2>&1 | sed 's/[0-9a-f]\\{40\\}/OID/g'; echo exit=$?",
+   "git ls-remote @REPO@ | sort; echo exit=$?",
+   "git init -q @WORK@/i && git -C @WORK@/i fetch -q @REPO@ 'refs/tags/*:refs/tags/*' && git -C @WORK@/i for-each-ref refs/tags --format='%(refname) %(objecttype)' | sort; echo exit=$?"
+  ]
+ },
+ {
+  "name": "interop-push-into-us",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "git init -q --bare .\n",
+  "probes": [
+   "git init -q @WORK@/src && cd @WORK@/src && printf 'x\\n' > x.txt && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m pushed && git branch -M main && git push -q @REPO@ main 2>&1; echo exit=$?",
+   "git --git-dir=@REPO@ show-ref | sed 's/[0-9a-f]\\{40\\}/OID/g' | sort",
+   "cd @WORK@/src && printf 'y\\n' > y.txt && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m second && git push @REPO@ main 2>&1 | sed 's/[0-9a-f]\\{7,40\\}/OID/g'; echo exit=$?",
+   "git --git-dir=@REPO@ fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@ rev-list --all --count"
+  ]
+ },
+ {
+  "name": "interop-v2-serving",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nfor i in 1 2 3 4; do\n  seq 1 $((i * 40)) > f$i.txt\n  mkdir -p d$i && printf 'nested %s\\n' \"$i\" > d$i/n.txt\n  git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m \"commit $i\"\ndone &&\ngit tag -a v1 -m release && git branch topic HEAD~1 &&\ngit config uploadpack.allowFilter true &&\ngit repack -a -d\n",
+  "probes": [
+   "git -c protocol.version=2 ls-remote --upload-pack=\"@EXEC@/git-upload-pack\" @REPO@ | sort",
+   "git -c protocol.version=2 clone -q --no-local --upload-pack=\"@EXEC@/git-upload-pack\" @REPO@ @WORK@/c1 && git --git-dir=@WORK@/c1/.git fsck --strict && git --git-dir=@WORK@/c1/.git log --format='%H %s' | head -2; echo exit=$?",
+   "git --git-dir=@WORK@/c1/.git cat-file --batch-all-objects --batch-check | sort | md5sum",
+   "git init -q @WORK@/f1 && git -C @WORK@/f1 -c protocol.version=2 fetch -q --upload-pack=\"@EXEC@/git-upload-pack\" @REPO@ 'refs/heads/*:refs/remotes/o/*' && git -C @WORK@/f1 for-each-ref --format='%(refname) %(objectname)' | sort; echo exit=$?",
+   "git -c protocol.version=0 clone -q --no-local --upload-pack=\"@EXEC@/git-upload-pack\" @REPO@ @WORK@/c0 && git --git-dir=@WORK@/c0/.git rev-list --all --count; echo exit=$?",
+   "test \"$(git --git-dir=@WORK@/c1/.git rev-parse HEAD)\" = \"$(git --git-dir=@WORK@/c0/.git rev-parse HEAD)\" && echo 'v0 and v2 clones agree'"
+  ]
+ },
+ {
+  "name": "interop-v2-partial",
+  "peers": [
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nfor i in 1 2 3 4; do\n  seq 1 $((i * 40)) > f$i.txt\n  mkdir -p d$i && printf 'nested %s\\n' \"$i\" > d$i/n.txt\n  git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m \"commit $i\"\ndone &&\ngit tag -a v1 -m release && git branch topic HEAD~1 &&\ngit config uploadpack.allowFilter true &&\ngit repack -a -d\n",
+  "probes": [
+   "git -c protocol.version=2 clone -q --no-local --filter=blob:none --upload-pack=\"@EXEC@/git-upload-pack\" @REPO@ @WORK@/p1 2>&1; echo exit=$?",
+   "git --git-dir=@WORK@/p1/.git config --get remote.origin.promisor",
+   "git --git-dir=@WORK@/p1/.git config --get remote.origin.partialclonefilter",
+   "git --git-dir=@WORK@/p1/.git log --format='%H %s' | head -2",
+   "git -C @WORK@/p1 cat-file -p HEAD:f1.txt | head -2; echo exit=$?",
+   "git --git-dir=@WORK@/p1/.git rev-list --objects --all --missing=allow-any 2>/dev/null | wc -l"
+  ]
+ },
+ {
+  "name": "interop-bundles",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nfor i in 1 2 3 4; do\n  seq 1 $((i * 40)) > f$i.txt\n  mkdir -p d$i && printf 'nested %s\\n' \"$i\" > d$i/n.txt\n  git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m \"commit $i\"\ndone &&\ngit tag -a v1 -m release && git branch topic HEAD~1 &&\ngit config uploadpack.allowFilter true &&\ngit repack -a -d\n &&\ngit bundle create ../ours.bdl --all 2>/dev/null",
+  "probes": [
+   "git bundle list-heads @REPO@/../ours.bdl | sort",
+   "git bundle verify @REPO@/../ours.bdl 2>&1 | sed 's/[0-9a-f]\\{40\\}/OID/'",
+   "git clone -q @REPO@/../ours.bdl @WORK@/fromb && git --git-dir=@WORK@/fromb/.git fsck --strict && git --git-dir=@WORK@/fromb/.git log --format='%H %s' | head -2; echo exit=$?",
+   "git init -q @WORK@/unb && git -C @WORK@/unb bundle unbundle @REPO@/../ours.bdl | sort; echo exit=$?",
+   "git -C @WORK@/unb cat-file --batch-all-objects --batch-check | wc -l"
+  ]
+ },
+ {
+  "name": "interop-index-v4",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nmkdir -p a/x b/y c/z deep/nested &&\nprintf 'one\\n' > a/x/f1 && printf 'two\\n' > b/y/f2 && printf 'three\\n' > c/z/f3 &&\nprintf 'deep\\n' > deep/nested/f4 && printf 'top\\n' > top.txt &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m initial &&\ngit update-index --index-version 4",
+  "probes": [
+   "git --git-dir=@REPO@/.git --work-tree=@REPO@ ls-files -s | sort",
+   "cd @REPO@ && git status --porcelain",
+   "printf 'v %s\\n' \"$(od -An -N4 -j4 -tu4 @REPO@/.git/index | tr -d ' ')\"",
+   "cd @REPO@ && git fsck 2>&1 | grep -vi checking | head -2; echo fsck=$?",
+   "cd @REPO@ && git diff --cached --stat | tail -1"
+  ]
+ },
+ {
+  "name": "interop-index-v3-skipworktree",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nmkdir -p a/x b/y c/z deep/nested &&\nprintf 'one\\n' > a/x/f1 && printf 'two\\n' > b/y/f2 && printf 'three\\n' > c/z/f3 &&\nprintf 'deep\\n' > deep/nested/f4 && printf 'top\\n' > top.txt &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m initial &&\ngit update-index --skip-worktree a/x/f1",
+  "probes": [
+   "cd @REPO@ && git ls-files -t | sort",
+   "printf 'v %s\\n' \"$(od -An -N4 -j4 -tu4 @REPO@/.git/index | tr -d ' ')\"",
+   "cd @REPO@ && git status --porcelain"
+  ]
+ },
+ {
+  "name": "interop-sparse-cone",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nmkdir -p a/x b/y c/z deep/nested &&\nprintf 'one\\n' > a/x/f1 && printf 'two\\n' > b/y/f2 && printf 'three\\n' > c/z/f3 &&\nprintf 'deep\\n' > deep/nested/f4 && printf 'top\\n' > top.txt &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m initial &&\ngit sparse-checkout init --cone && git sparse-checkout set a",
+  "probes": [
+   "cd @REPO@ && git sparse-checkout list | sort",
+   "cd @REPO@ && git ls-files -t | sort",
+   "cd @REPO@ && git status --porcelain",
+   "cd @REPO@ && find . -path ./.git -prune -o -type f -print | sort",
+   "cd @REPO@ && git sparse-checkout disable && find . -path ./.git -prune -o -type f -print | sort"
+  ]
+ }
+]

@@ -1,0 +1,31 @@
+# arch: x86_64
+# Extraction is driven by the undefined set read through the archive symbol
+# index, not by command-line position: an archive listed before the object
+# that needs it is still searched, and a member nothing needs stays out.
+rt_obj rt.o
+cat > wanted.c <<'C'
+#include "rt.h"
+int wanted_fn(void) { print("W"); return 5; }
+C
+cat > spare.c <<'C'
+#include "rt.h"
+int spare_member_fn(void) { print("S"); return 6; }
+C
+cat > m.c <<'C'
+int wanted_fn(void);
+int entry(void) { return wanted_fn() + 2; }
+C
+cc_obj wanted.o wanted.c; cc_obj spare.o spare.c; cc_obj m.o m.c
+mkar libx.a wanted.o spare.o
+want "archive really carries a symbol index" \
+     "$($NM --print-armap libx.a | grep -c 'wanted_fn in wanted.o')" "1"
+# archive first, the object that references it last
+link_ok out rt.o libx.a m.o
+run_expect out "W" 7
+want_not "unreferenced member not extracted" "$(symbols out)" "spare_member_fn"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

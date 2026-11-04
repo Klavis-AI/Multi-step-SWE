@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Verifier-owned scenario, deliberately catalog-free. It is the control for
+     instruction requirement 7's last sentence - "an entity that does have a
+     route still follows its route" - on the same four-way junction (id 4) of
+     fabriksgatan.xodr that junction_crossing.xosc uses.
+
+     Two vehicles drive into the junction from the SAME incoming road, road 2,
+     which has the junction as its SUCCESSOR, so lane -1 drives toward s = 304:
+
+       Routed   starts on road 2, lane -1, s = 250, and is explicitly routed
+                to road 1 - NOT the road the straight-ahead heuristic picks
+                from road 2, which is road 0 (road 2 arrives at the junction
+                heading -79.4 degrees and road 14 continues it at -79.6,
+                while the road 1 connection turns 90 degrees away). A route
+                that agreed with the heuristic would prove nothing, so this
+                one deliberately disagrees with it.
+
+       Free     starts on road 2, lane -1, s = 250, with no Route at all, and
+                must leave on road 0 - the straight-ahead continuation.
+
+     The two start at the same s, so the pair is an A/B of one variable: the
+     only thing that differs between them is the presence of a route, and the
+     exit road is what that variable has to move. Neither blocks the other:
+     they take different connecting roads inside the junction and end on
+     different outgoing roads.
+
+     Road 2 is 304 m long, so at 10 m/s the junction is reached at about
+     t = 5.4 s and both have settled on an outgoing road well before the 20 s
+     stop trigger. -->
+<OpenSCENARIO>
+    <FileHeader revMajor="1" revMinor="2" date="2026-01-01T00:00:00" description="taskgen fixture" author="taskgen"/>
+    <ParameterDeclarations/>
+    <CatalogLocations/>
+    <RoadNetwork>
+        <LogicFile filepath="fabriksgatan.xodr"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Routed">
+            <Vehicle name="fixture_car" vehicleCategory="car">
+                <ParameterDeclarations/>
+                <Performance maxSpeed="69" maxAcceleration="10" maxDeceleration="10"/>
+                <BoundingBox>
+                    <Center x="1.4" y="0.0" z="0.75"/>
+                    <Dimensions width="2.0" length="5.0" height="1.5"/>
+                </BoundingBox>
+                <Axles>
+                    <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="2.98" positionZ="0.3"/>
+                    <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
+                </Axles>
+                <Properties/>
+            </Vehicle>
+        </ScenarioObject>
+        <ScenarioObject name="Free">
+            <Vehicle name="fixture_car2" vehicleCategory="car">
+                <ParameterDeclarations/>
+                <Performance maxSpeed="69" maxAcceleration="10" maxDeceleration="10"/>
+                <BoundingBox>
+                    <Center x="1.4" y="0.0" z="0.75"/>
+                    <Dimensions width="2.0" length="5.0" height="1.5"/>
+                </BoundingBox>
+                <Axles>
+                    <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="2.98" positionZ="0.3"/>
+                    <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
+                </Axles>
+                <Properties/>
+            </Vehicle>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <Private entityRef="Routed">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position><LanePosition roadId="2" laneId="-1" offset="0" s="250"/></Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <RoutingAction>
+                            <AssignRouteAction>
+                                <Route name="RoutedExit" closed="false">
+                                    <Waypoint routeStrategy="shortest">
+                                        <Position><LanePosition roadId="2" laneId="-1" offset="0" s="280"/></Position>
+                                    </Waypoint>
+                                    <Waypoint routeStrategy="shortest">
+                                        <Position><LanePosition roadId="1" laneId="-1" offset="0" s="5"/></Position>
+                                    </Waypoint>
+                                </Route>
+                            </AssignRouteAction>
+                        </RoutingAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0"/>
+                                <SpeedActionTarget><AbsoluteTargetSpeed value="10"/></SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+                <Private entityRef="Free">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position><LanePosition roadId="2" laneId="-1" offset="0" s="250"/></Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0"/>
+                                <SpeedActionTarget><AbsoluteTargetSpeed value="10"/></SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <StopTrigger>
+            <ConditionGroup>
+                <Condition name="StoryboardStop" delay="0" conditionEdge="none">
+                    <ByValueCondition><SimulationTimeCondition value="20" rule="greaterThan"/></ByValueCondition>
+                </Condition>
+            </ConditionGroup>
+        </StopTrigger>
+    </Storyboard>
+</OpenSCENARIO>

@@ -1,0 +1,37 @@
+# arch: x86_64
+# Two objects with the same tentative definition get one allocation, not two:
+# a store through one object's view is visible through the other's.
+rt_obj rt.o
+cat > a.c <<'C'
+int shared_tentative;
+void set_it(int v) { shared_tentative = v; }
+C
+cat > b.c <<'C'
+int shared_tentative;
+int get_it(void) { return shared_tentative; }
+C
+cat > m.c <<'C'
+#include "rt.h"
+void set_it(int); int get_it(void);
+extern int shared_tentative;
+int entry(void) {
+  set_it(41);
+  if (get_it() != 41) { print("split\n"); return 1; }
+  if (shared_tentative != 41) { print("third view split\n"); return 2; }
+  print("shared\n");
+  return get_it() + 1;
+}
+C
+cc_obj a.o a.c -fcommon; cc_obj b.o b.c -fcommon; cc_obj m.o m.c
+link_ok out rt.o a.o b.o m.o
+want "exactly one shared_tentative in .symtab" \
+     "$(symbols out | awk '$8=="shared_tentative"' | grep -c .)" "1"
+want "shared_tentative size" \
+     "$(symbols out | awk '$8=="shared_tentative"{print $3}')" "4"
+run_expect out "shared" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

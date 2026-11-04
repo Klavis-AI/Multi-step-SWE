@@ -1,0 +1,49 @@
+<div class="row">
+  <%= render layout: 'landing/info_block', locals: {title: 'Learn'} do %>
+    <%= @content.learn_text %>
+  <% end %>
+
+  <%= render layout: 'landing/info_block', locals: {title: 'Call'} do %>
+    <%= @content.call_text %>
+  <% end %>
+
+  <%= render layout: 'landing/info_block', locals: {title: 'Listen'} do %>
+    <%= @content.listen_text %>
+    <hr>
+    <h6><%= @content.message_from %></h6>
+    <audio controls>
+      <source src="<%= @content.message_url %>" type="audio/mpeg">
+    </audio>
+  <% end %>
+</div>
+
+<div class="row">
+  <div class="small-12 columns"><hr></div>
+</div>
+
+<div class="row">
+  <%= render layout: 'landing/info_block', locals: {html_class: 'recent-messages'} do %>
+    <h3>Recent Messages</h3>
+    <% @most_recent_messages.each do |answer| %>
+      <%= render partial: 'landing/answer', locals: {answer: answer} %>
+    <% end %>
+  <% end %>
+
+  <%= render partial: 'map' %>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    var locationGeoJson = <%= render(partial: 'locations/feature_collection', locals: {locations: Location.all}).html_safe %>;
+    var locations = new Cityvoice.Collections.Locations();
+
+    locations.reset(locations.parse(locationGeoJson));
+
+    new Cityvoice.Views.Map({
+      collection: locations,
+      tileLayerUrl: "<%= Leaflet.tile_layer %>",
+      attributionText: '<%= Leaflet.attribution.html_safe %>',
+      maxZoom: "<%= Leaflet.max_zoom %>"
+    }).render();
+  });
+</script>

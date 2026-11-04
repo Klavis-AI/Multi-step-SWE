@@ -1,0 +1,214 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of the fifteen steps' own rewards. There is no
+# min_reward on any step, so no step can stop the trial and no step inherits
+# or pads credit for another: each verifier reports only its own milestone, as
+# the fraction of that step's scored groups which passed.
+multi_step_reward_strategy = "mean"
+
+# A separate verifier receives the cumulative source only through this declared
+# artifact. The verifier rebuilds the workspace from source, so no agent build
+# output and no vendored crypto checkout belongs in the snapshot.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "target", "target/**", "*/target", "*/target/**", "deps/boringssl/**", "quiche/deps/boringssl/**"] },
+]
+
+[task]
+name = "harbor/quic-http3-stack-multiversion"
+version = "1.0.0"
+description = "Implement a QUIC transport and HTTP/3 stack across fifteen public release milestones of cloudflare/quiche, graded against RFC 9000/9001/9002/9114/9204/9218/9221/9297 and the candidate's own client and server binaries over a real UDP process boundary."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["quic", "http3", "qpack", "transport", "multi-step", "conformance"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["quic", "http3", "rust", "protocol", "conformance", "multi-step"]
+
+[environment]
+# The image compiles a pinned BoringSSL and pre-populates the cargo registry,
+# which is the whole of the build cost; size the build timeout for that.
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# The agent may use the network for official documentation and dependencies.
+network_mode = "public"
+
+# Grade each step in an isolated verifier container built from that step's
+# tests/Dockerfile. The cumulative /app artifact is restored at /app inside the
+# image before /tests/test.sh runs. Every verifier writes
+# {"reward": <step-local 0-1>} and exits 0; reward_details.json carries the
+# per-group breakdown.
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# The image build compiles the pinned BoringSSL and the pinned dependency
+# graph so that grading itself runs offline; size the timeout for that build,
+# not for the test run.
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+# Declared public to match the template and the agent environment. Grading does
+# not use it: CARGO_NET_OFFLINE=true is set in every verifier image, BoringSSL
+# is prebuilt into the image, and every fixture is vendored and checksummed.
+network_mode = "public"
+
+# SIZING `[steps.verifier].timeout_sec`, derived from this task's own test.sh:
+#
+#   restore artifact + verify fixtures                         ~   30 s
+#   CANDIDATE_BUILD_TIMEOUT   one `cargo build` of the whole
+#                             candidate workspace, cold           1000 s
+#   EXAMPLES_BUILD_TIMEOUT    the best-effort examples pass, for
+#                             the releases where the client and
+#                             server are examples/ rather than
+#                             their own package                     300 s
+#   HARNESS_BUILD_TIMEOUT     one `cargo test --no-run` of the
+#                             verifier-owned harness crate          800 s
+#   CASE_BUDGET_TOTAL         every gate check and every scored
+#                             group together, PER_CASE_MAX 120 s   1200 s
+#   write reward.json / reward_details.json                    ~    5 s
+#                                                     worst case  3335 s
+#
+# Both build timeouts are sized for the candidate's own code only: BoringSSL
+# and the release's whole dependency graph are compiled into the verifier image
+# at build time, so nothing in that hour is spent on third-party C or crates.
+#
+# 3600 s leaves ~265 s for Harbor's artifact round trip and log readback. The
+# ceiling is reachable only by a pathological candidate; measured Oracle wall
+# time per step is far below it and is recorded in misc/<task-id>/README.md.
+
+[[steps]]
+name = "01-draft23-transport-and-h3"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-version-negotiation-and-pluggable-cc"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-draft29-contraction-and-cubic"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-datagrams-and-error-enum"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-rfc9000-and-pacing-descriptors"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-workspace-and-qlog-crate"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-octets-crate-and-priority-update"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-migration-and-bbr"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "09-draft-removal-and-key-update"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "10-bbr2-and-ffi-expansion"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "11-pmtud-and-recovery-rebuild"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "12-h3i-and-live-idle-timeout"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "13-tokio-quiche-and-generic-connection"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "14-netlog-and-huffman-inversion"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "15-qlog-schema-jump-and-boring-crate"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

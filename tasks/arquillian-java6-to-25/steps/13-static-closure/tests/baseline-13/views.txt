@@ -1,0 +1,34 @@
+# Step 06 -- C-5's HOLD half: the 7 `Collections.unmodifiable*` calls whose
+# argument is a FIELD, as <file>#<method> buckets.
+#
+# These publish a live window over state the object keeps mutating. A factory
+# call copies, so converting them changes behaviour -- and this is measured,
+# not argued. EXP-06D converted all eight `unmodifiable*` sites in src/main and
+# one of 935 recorded transcripts moved: `svc.sl-two`, because
+# ServiceLoader.providers is a LinkedHashSet whose iteration order is the
+# META-INF/services file order and `Set.copyOf` salts it. The follow-up showed
+# the salt is PER-JVM: the same jars printed Beta,Alpha once and Alpha,Beta
+# twice across three fresh JVMs, while the control was stable all three times.
+# A solution making that edit scores 935/935 or 934/935 depending on the seed.
+#
+# That is the tenth trap in a different coat, and it is why this half exists:
+# the naive way to satisfy "hand-built immutable collections become factory
+# calls" is a codemod over every Collections.* call, which converts these seven
+# too. C-5 charges for it here rather than leaving it to family A's dice.
+#
+# Note what is NOT in this list: DeploymentScenario#getStartupDeploymentsFor,
+# which is spelled `Collections.unmodifiableList(...)` and is in builds.txt.
+# Its argument is a LOCAL the method has just built by streaming and sorting --
+# a construction wearing a view's spelling. The gate separates the two by
+# resolving the wrapped expression's element kind (arg=field vs arg=local), not
+# by the call's name, which is why this file can be derived rather than judged:
+#
+#   sed -n 's/^legacycoll\[[0-9]*\]=//p' baseline-step06-source.txt \
+#     | awk '$0 ~ /src\/main/ && $0 ~ /kind=view/ && $0 ~ /arg=field/ { ... }'
+impl-base/src/main/java/org/jboss/arquillian/impl/client/container/ContainerOperationResult.java#getOperations
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ExtensionImpl.java#getEventPoints
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ExtensionImpl.java#getInjectionPoints
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ExtensionImpl.java#getObservers
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ContainerRegistry.java#getContainers
+spi/src/main/java/org/jboss/arquillian/spi/client/deployment/DeploymentScenario.java#getDeployments
+spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java#getProviders

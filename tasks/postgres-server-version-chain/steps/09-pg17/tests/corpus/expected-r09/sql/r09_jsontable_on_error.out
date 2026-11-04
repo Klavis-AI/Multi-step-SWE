@@ -1,0 +1,24 @@
+SELECT * FROM JSON_TABLE('[{"a":"zz"}]'::jsonb, '$[*]'
+       COLUMNS (a int PATH '$.a' DEFAULT -1 ON ERROR)) ORDER BY a;
+ a  
+----
+ -1
+(1 row)
+
+SELECT * FROM JSON_TABLE('[{"a":"zz"}]'::jsonb, '$[*]'
+       COLUMNS (a int PATH '$.a' NULL ON ERROR)) ORDER BY a NULLS LAST;
+ a 
+---
+  
+(1 row)
+
+SELECT * FROM JSON_TABLE('[{"a":"zz"}]'::jsonb, '$[*]'
+       COLUMNS (a int PATH '$.a' ERROR ON ERROR));
+ERROR:  invalid input syntax for type integer: "zz"
+SELECT * FROM JSON_TABLE('{"a":1}'::jsonb, 'strict $.nope' COLUMNS (x int PATH '$') EMPTY ON ERROR);
+ x 
+---
+(0 rows)
+
+SELECT * FROM JSON_TABLE('{"a":1}'::jsonb, 'strict $.nope' COLUMNS (x int PATH '$') ERROR ON ERROR);
+ERROR:  JSON object does not contain key "nope"

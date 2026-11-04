@@ -1,0 +1,66 @@
+# arch: x86_64
+# A shared object that references undefined global symbols gets one GOT slot
+# per symbol, each fixed up by an R_X86_64_GLOB_DAT dynamic relocation naming
+# that symbol, with DT_PLTGOT addressing the PLT's GOT section.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+dv()  { dynamic "$1" | sed -n "s/.*($2)[ \t]*//p" | sed -n 1p | awk '{print $1}'; }
+cat > p.c <<'C'
+extern int extfn(int);
+extern int extvar;
+int callit(int x) { return extfn(x) + extvar; }
+C
+cc_obj p.o p.c -fPIC
+link_ok libp.so -shared p.o
+REL=$(relocs libp.so)
+want "two GLOB_DAT relocations" "$(grep -cE 'R_X86_64_GLOB_DAT' <<<"$REL")" "2"
+wre "GLOB_DAT for extfn"  "$REL" 'R_X86_64_GLOB_DAT +0+ extfn \+ 0$'
+wre "GLOB_DAT for extvar" "$REL" 'R_X86_64_GLOB_DAT +0+ extvar \+ 0$'
+wre "GLOB_DATs live in .rela.dyn" "$REL" "Relocation section '\.rela\.dyn'"
+# Every GLOB_DAT offset must land inside the GOT. spec/05 section 7 names the
+# table `.got` and allows a linker to keep the PLT's slots in `.got.plt`
+# instead; both layouts are conforming, so accept a slot in whichever GOT
+# section the linker emitted and require at least one of them to exist.
+got_ranges=""
+for gs in .got .got.plt; do
+  ga=$(sec_addr libp.so "$gs"); gz=$(sec_size libp.so "$gs")
+  [ -n "$ga" ] && [ -n "$gz" ] && got_ranges="$got_ranges $(( 16#$ga )):$(( $(( 16#$ga )) + $(( 16#$gz )) ))"
+done
+[ -n "$got_ranges" ] || die "no GOT section (.got/.got.plt) in the output"
+for off in $(grep -E 'R_X86_64_GLOB_DAT' <<<"$REL" | awk '{print $1}'); do
+  v=$(( 16#$off )); in_got=0
+  for r in $got_ranges; do
+    lo=${r%%:*}; hi=${r##*:}
+    [ "$v" -ge "$lo" ] && [ "$v" -lt "$hi" ] && in_got=1
+  done
+  [ "$in_got" = 1 ] || die "GLOB_DAT offset 0x$off outside the GOT sections ($got_ranges)"
+done
+# DT_PLTGOT must equal the address of the section that holds the PLT's GOT slots:
+# .got.plt where the linker splits the GOT, .got otherwise (spec §7).
+# The reference does not split .got, so it points at .got; a correct split-GOT
+# layout pointing at .got.plt is equally conforming, and the GLOB_DAT check
+# above accepts a slot in either section.
+gplt_addr=$(sec_addr libp.so .got.plt)
+if [ -n "$gplt_addr" ]; then
+  expected_pltgot=$(( 16#$gplt_addr ))
+else
+  got_addr=$(sec_addr libp.so .got)
+  [ -n "$got_addr" ] || die "the output has neither .got nor .got.plt"
+  expected_pltgot=$(( 16#$got_addr ))
+fi
+want "DT_PLTGOT == addr of PLT's GOT section" "$(( $(dv libp.so PLTGOT) ))" "$expected_pltgot"
+# DT_RELA/DT_RELASZ/DT_RELAENT must agree with .rela.dyn itself.
+rbeg=$(( 16#$(sec_addr libp.so .rela.dyn) ))
+rsz=$(( 16#$(sec_size libp.so .rela.dyn) ))
+want "DT_RELA == addr(.rela.dyn)"   "$(( $(dv libp.so RELA) ))"   "$rbeg"
+want "DT_RELASZ == size(.rela.dyn)" "$(( $(dv libp.so RELASZ) ))" "$rsz"
+want "DT_RELAENT is 24"             "$(( $(dv libp.so RELAENT) ))" "24"
+# Both symbols must be undefined entries of .dynsym so the loader can bind them.
+DS=$(dynsyms libp.so)
+wre "extfn is UND in .dynsym"  "$DS" 'GLOBAL DEFAULT +UND extfn'
+wre "extvar is UND in .dynsym" "$DS" 'GLOBAL DEFAULT +UND extvar'
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 10

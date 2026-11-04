@@ -1,0 +1,44 @@
+# Which recipe made which set of recordings.
+#
+# rederive-ref.sh reads this file, keyed by the census named in ../step.tsv, and
+# builds the pinned command from the row. It is a table rather than a constant
+# in the script because the three steps authored so far are graded against three
+# different sets of recordings, taken on three different trees at two different
+# rungs, and a script that pinned one of them shipped beside the other two would
+# be a recipe that cannot produce the answers it sits next to.
+#
+# Columns:
+#
+#   census   the directory name under build/ the recordings came from, and the
+#            value of the `census` row in the payload's step.tsv.
+#   rung     the row of build/pkg/verifier/rungs.tsv the recordings were taken
+#            at. Not necessarily the step's own rung: step 1 grades at rung 02
+#            and is compared against recordings taken at rung 00, because
+#            nothing it is scored on moves between the two.
+#   spark    the Spark *distribution* in that image -- what $SPARK_HOME holds,
+#            which is what actually runs a job. It is not the pom's
+#            <spark.version>: spark-core is `provided` scope here, so the jar is
+#            shaded without it and the engine comes from the image whatever the
+#            pom says. rederive-ref.sh asserts this inside the container, off
+#            $SPARK_HOME/jars/spark-core_<scala>-<spark>.jar, before it runs a
+#            single job. That assertion is the whole reason this file exists:
+#            the same 140 jobs at the wrong rung produce 140 plausible
+#            recordings that differ from these in two places.
+#   scala    the Scala binary version of that distribution, from the same name.
+#   jdk      the JDK major version in the image.
+#   ladder   the steps whose solution/solve.sh, applied to the baseline commit
+#            in order, produce the tree the recordings come back off. `-` means
+#            the untouched baseline.
+#   image    the authoring tag the recordings were actually taken in. Any image
+#            at the same rung will do -- the step's own verifier image is one,
+#            and is the one a reader of the package can build, from the tests/
+#            directory this file ships inside -- so this is a default for IMAGE
+#            rather than a requirement. The requirement is the rung, and the
+#            rung is asserted.
+#   note     what the row is, in one line.
+#
+# census	rung	spark	scala	jdk	ladder	image	note
+r23	00	2.4.8	2.11	8	-	mmtf-record:3	the untouched baseline's own answers, at the rung the recordings are made at
+p02	02	3.0.3	2.12	8	01	mmtf-rung-r02:1	the step-1 golden tree's own answers at step 2's rung; not a census -- one tree, one comparison (build/p02/README.md)
+c04	03	3.2.4	2.12	8	01 02 03	mmtf-rung-r04:1	the 140-job version census at step 3's rung; recorded off the rung tree rather than off a step's solution, and the golden ladder is what reproduces it from the package
+c05b	04	3.3.4	2.12	8	01 02 03 04	mmtf-rung-r05:1	the 140-job version census at step 4's rung; ANSI is on in the ladder tree and off in these recordings, and c05b vs c05ansi is SAME=140 after projection (NOTES 6.4.1), so the ladder reproduces what is compared and moves two raw lines that determinism.tsv already declares

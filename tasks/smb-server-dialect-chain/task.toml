@@ -1,0 +1,93 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/smb-server-dialect-chain"
+version = "1.0.0"
+description = "Carry one SMB file server from the SMB1/CIFS dialect to SMB 3.1.1, one dialect generation per step, graded with Samba's own smbtorture and smbclient."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["smb", "cifs", "smb2", "smb3", "protocol", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["smb", "cifs", "file-server", "protocol", "multi-step", "javascript"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-smb1-cifs"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3300.0
+
+[[steps]]
+name = "02-smb2-0-2-and-2-1"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3300.0
+
+[[steps]]
+name = "03-smb3-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3300.0
+
+[[steps]]
+name = "04-smb3-0-2-witness-acls"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3300.0
+
+[[steps]]
+name = "05-smb3-1-1"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3300.0
+
+[[steps]]
+name = "06-policy-quirks"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3300.0

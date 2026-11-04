@@ -1,0 +1,56 @@
+{
+ "doc": "stages/filters.voxeldownsize.rst: 'The input point cloud is divided into 3D voxels at the given cell size. For each populated voxel, either first point entering in the voxel or center of a voxel (depending on mode argument) is accepted and voxel is marked as populated. All other points entering in the same voxel are filtered out.' The page does not say where the lattice sits; /app/spec/PROFILE.md 1.1 `filters.voxeldownsize`: 'the grid is anchored on the first point of the view, positioned so that point falls at the centre of its own voxel. The origin is `first - cell/2`, taken per axis from that same first point, so a coordinate `v` falls in voxel `k = floor((v - first + cell/2) / cell)` and the voxel centre that `mode: center` writes back is `first + k * cell`.' With cell 5 and a first point of (0,0,0) the origin is -2.5, so coordinate v lands in voxel floor((v+2.5)/5): {0,1,2} -> 0, {3..7} -> 1, {8,9} -> 2, three voxels per axis, 27 survivors with first-entry coordinates 0,3,8.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\": [\"in.las\", {\"type\": \"filters.voxeldownsize\", \"cell\": 5.0, \"mode\": \"first\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": 27
+   },
+   "dims": {
+    "X": {
+     "unique": [
+      0,
+      3,
+      8
+     ]
+    },
+    "Y": {
+     "unique": [
+      0,
+      3,
+      8
+     ]
+    },
+    "Z": {
+     "unique": [
+      0,
+      3,
+      8
+     ]
+    }
+   }
+  }
+ ]
+}

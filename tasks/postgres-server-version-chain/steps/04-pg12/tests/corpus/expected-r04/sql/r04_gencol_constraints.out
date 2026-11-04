@@ -1,0 +1,18 @@
+CREATE TABLE q4_gcc(a int, b int GENERATED ALWAYS AS (a * 2) STORED CHECK (b < 100),
+                    c int GENERATED ALWAYS AS (a + 1) STORED UNIQUE);
+INSERT INTO q4_gcc(a) VALUES (1);
+INSERT INTO q4_gcc(a) VALUES (1);
+ERROR:  duplicate key value violates unique constraint "q4_gcc_c_key"
+DETAIL:  Key (c)=(2) already exists.
+INSERT INTO q4_gcc(a) VALUES (60);
+ERROR:  new row for relation "q4_gcc" violates check constraint "q4_gcc_b_check"
+DETAIL:  Failing row contains (60, 120, 61).
+INSERT INTO q4_gcc(a) VALUES (2);
+SELECT a, b, c FROM q4_gcc ORDER BY a;
+ a | b | c 
+---+---+---
+ 1 | 2 | 2
+ 2 | 4 | 3
+(2 rows)
+
+DROP TABLE q4_gcc;

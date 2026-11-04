@@ -1,0 +1,46 @@
+# PCRE2_EXTENDED_MORE does everything PCRE2_EXTENDED does and also ignores an
+# unescaped space or horizontal tab inside a character class.  /xx is its short
+# spelling, (?xx) sets it and (?-xx) unsets it, and (?x) does not imply it.
+# ChangeLog 10.30 item 29; pcre2pattern.3, "INTERNAL OPTION SETTING";
+# pcre2test.1, "Setting compilation options".
+
+/a b[c d]e/xx,info
+Capturing subpattern count = 0
+Options: extended_more
+First code unit = 'a'
+Last code unit = 'e'
+Subject length lower bound = 4
+    abce
+ 0: abce
+    abde
+ 0: abde
+    ab e
+No match
+
+/a b[c d]e/x,info
+Capturing subpattern count = 0
+Options: extended
+First code unit = 'a'
+Last code unit = 'e'
+Subject length lower bound = 4
+    abce
+ 0: abce
+    ab e
+ 0: ab e
+
+/^a(?xx) b[c d]e$/
+    abce
+ 0: abce
+    ab e
+No match
+
+/^(?xx)a b[c d](?-xx)f g$/
+    abcf g
+ 0: abcf g
+    abcfg
+No match
+
+# A space in a class can still be matched when it is escaped or in a range.
+/^[a\ b]+$/xx
+    a b
+ 0: a b

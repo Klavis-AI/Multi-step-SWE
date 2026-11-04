@@ -1,0 +1,10 @@
+CREATE TABLE r09mr7_t(id int primary key, v int, t text);
+INSERT INTO r09mr7_t VALUES (1,10,'a');
+WITH m AS (
+  MERGE INTO r09mr7_t t USING (VALUES (1,11),(2,22)) s(id,v) ON t.id = s.id
+    WHEN MATCHED THEN UPDATE SET v = s.v
+    WHEN NOT MATCHED THEN INSERT (id,v,t) VALUES (s.id, s.v, 'new')
+    RETURNING t.id AS id, t.v AS v, t.t AS t, merge_action() AS act
+) SELECT id, v, t, act FROM m ORDER BY id;
+SELECT id, v, t FROM r09mr7_t ORDER BY id;
+DROP TABLE r09mr7_t;

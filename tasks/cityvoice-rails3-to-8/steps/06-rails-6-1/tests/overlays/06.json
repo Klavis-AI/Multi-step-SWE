@@ -1,0 +1,3819 @@
+{
+ "cases": {
+  "http_edges/host_header_odd": {
+   "cite": "actionpack-6.1.7.10 lib/action_dispatch/middleware/host_authorization.rb:96-101, `DefaultResponseApp#response_body`: `return \"\" unless request.get_header(\"action_dispatch.show_detailed_exceptions\")`.  The class comment at :17-19 states it: \"The body of the response contains debug info if +config.consider_all_requests_local+ is set to true, otherwise the body is empty.\"  actionpack-6.0.6.1's DEFAULT_RESPONSE_APP (:77-88) has no such branch.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": null,
+     "data": [],
+     "forms": [],
+     "headings": [],
+     "images": [],
+     "kind": "html",
+     "links": [],
+     "tables": [],
+     "text": "",
+     "title": null
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/"
+    },
+    "status": 403
+   },
+   "why": "Rails 6.1 changed what `ActionDispatch::HostAuthorization` puts in the body of the 403 it answers a request with an unrecognised `Host` header.  6.0's default response app always rendered the `rescues/blocked_host` debug template, so the recorded body carried the \"Action Controller: Exception caught\" title, its two headings and the \"Blocked host: evil.example.com\" text; 6.1's returns an empty body unless the request has `action_dispatch.show_detailed_exceptions`, which production does not.  The status is 403 on both, which is the requirement step 05 introduced and this step keeps -- what moved is how much the refusal says to the caller, and it says less, which is the direction the change was made in."
+  },
+  "ivr_adversarial/after_abuse.location_1": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE11.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE11.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE11",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 1 Disagree 1 Voice Messages date: <TS:1> Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "ivr_adversarial/after_abuse.location_2": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "ivr_adversarial/after_abuse.location_3": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "ivr_happy/after_calls.location_1": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02.wav",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02",
+       "Click here to play voice message"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 2 Disagree 0 Voice Messages date: <TS:1> from: 510-XXX-XX02 Click here to play voice message date: <TS:1> from: 510-XXX-XX01 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "ivr_happy/after_calls.location_2": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 1 Voice Messages date: <TS:1> from: 510-XXX-XX03 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "ivr_happy/after_calls.location_3": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "ivr_happy/after_playback_call.location_1": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE04.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE04.wav",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02.wav",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE04",
+       "Click here to play voice message"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02",
+       "Click here to play voice message"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 2 Disagree 1 Voice Messages date: <TS:1> from: 510-XXX-XX04 Click here to play voice message date: <TS:1> from: 510-XXX-XX02 Click here to play voice message date: <TS:1> from: 510-XXX-XX01 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "ivr_happy/after_playback_call.location_2": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 1 Voice Messages date: <TS:1> from: 510-XXX-XX03 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "ivr_happy/after_playback_call.location_3": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "migrate/migrate.location_1": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE40.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE40.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE40",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 1 Disagree 0 Voice Messages date: <TS:1> from: 510-XXX-XX40 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "migrate/migrate.location_2": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "migrate/migrate.location_3": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "migrate/migrate.up": {
+   "cite": "(1) activerecord-6.1.7.10 lib/active_record/migration.rb:915-918 (`arg_list = arguments.map(&:inspect) * \", \"`), identical to activerecord-6.0.6.1's; lib/active_record/migration/compatibility.rb:206 `V4_2#add_column(table_name, column_name, type, **options)`.  Ruby 3.0 release notes: \"Arguments delegation known as `def foo(...)` ... keyword arguments are separated from positional arguments.\"\n(2) activerecord-6.1.7.10 lib/active_record/migration/compatibility.rb:18 `class V6_0 < V6_1` and :57-62 `V6_0#add_reference`, which sets `options[:_uses_legacy_reference_index_name] = true`.  No such class exists in activerecord-6.0.6.1, whose chain starts at `V5_2 < V6_0` with `V6_0` being `Current`.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": {
+     "events": [
+      [
+       "migrating",
+       "CreateVoiceTranscriptions"
+      ],
+      [
+       "op",
+       "create_table(:voice_transcriptions, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateVoiceTranscriptions"
+      ],
+      [
+       "migrating",
+       "CreateSubjects"
+      ],
+      [
+       "op",
+       "create_table(:subjects, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateSubjects"
+      ],
+      [
+       "migrating",
+       "CreateFeedbackInputs"
+      ],
+      [
+       "op",
+       "create_table(:feedback_inputs, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateFeedbackInputs"
+      ],
+      [
+       "migrating",
+       "CreateQuestions"
+      ],
+      [
+       "op",
+       "create_table(:questions, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateQuestions"
+      ],
+      [
+       "migrating",
+       "AddPropertyCodeToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :property_code, :integer)"
+      ],
+      [
+       "migrated",
+       "AddPropertyCodeToSubjects"
+      ],
+      [
+       "migrating",
+       "CreateVoiceFiles"
+      ],
+      [
+       "op",
+       "create_table(:voice_files, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateVoiceFiles"
+      ],
+      [
+       "migrating",
+       "AddVoiceFileToQuestion"
+      ],
+      [
+       "op",
+       "add_reference(:questions, :voice_file, {:type=>:integer, :index=>false, :_uses_legacy_reference_index_name=>true})"
+      ],
+      [
+       "migrated",
+       "AddVoiceFileToQuestion"
+      ],
+      [
+       "migrating",
+       "AddShortNameToVoiceFile"
+      ],
+      [
+       "op",
+       "add_column(:voice_files, :short_name, :string)"
+      ],
+      [
+       "migrated",
+       "AddShortNameToVoiceFile"
+      ],
+      [
+       "migrating",
+       "CreatePropertyInfoSets"
+      ],
+      [
+       "op",
+       "create_table(:property_info_sets, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreatePropertyInfoSets"
+      ],
+      [
+       "migrating",
+       "AddParcelIdToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :parcel_id, :string)"
+      ],
+      [
+       "migrated",
+       "AddParcelIdToSubjects"
+      ],
+      [
+       "migrating",
+       "AddLatLongToPropertyInfoSet"
+      ],
+      [
+       "op",
+       "add_column(:property_info_sets, :lat, :string)"
+      ],
+      [
+       "op",
+       "add_column(:property_info_sets, :long, :string)"
+      ],
+      [
+       "migrated",
+       "AddLatLongToPropertyInfoSet"
+      ],
+      [
+       "migrating",
+       "AddCallSourceToFeedbackInputs"
+      ],
+      [
+       "op",
+       "add_column(:feedback_inputs, :call_source, :string)"
+      ],
+      [
+       "migrated",
+       "AddCallSourceToFeedbackInputs"
+      ],
+      [
+       "migrating",
+       "ChangePropertyCodeToString"
+      ],
+      [
+       "op",
+       "change_column(:subjects, :property_code, :string)"
+      ],
+      [
+       "migrated",
+       "ChangePropertyCodeToString"
+      ],
+      [
+       "migrating",
+       "CreateNotificationSubscriptions"
+      ],
+      [
+       "op",
+       "create_table(:notification_subscriptions, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateNotificationSubscriptions"
+      ],
+      [
+       "migrating",
+       "AddMostRecentActivityToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :most_recent_activity, :datetime)"
+      ],
+      [
+       "migrated",
+       "AddMostRecentActivityToSubjects"
+      ],
+      [
+       "migrating",
+       "AddLastEmailSentAtToNotificationSubscriptions"
+      ],
+      [
+       "op",
+       "add_column(:notification_subscriptions, :last_email_sent_at, :datetime)"
+      ],
+      [
+       "migrated",
+       "AddLastEmailSentAtToNotificationSubscriptions"
+      ],
+      [
+       "migrating",
+       "CreateAppContentSets"
+      ],
+      [
+       "op",
+       "create_table(:app_content_sets, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateAppContentSets"
+      ],
+      [
+       "migrating",
+       "AddLatAndLongToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :lat, :string)"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :long, :string)"
+      ],
+      [
+       "migrated",
+       "AddLatAndLongToSubjects"
+      ],
+      [
+       "migrating",
+       "AddHeaderColorAndShortTitleToAppContentSet"
+      ],
+      [
+       "op",
+       "add_column(:app_content_sets, :header_color, :string)"
+      ],
+      [
+       "op",
+       "add_column(:app_content_sets, :short_title, :string)"
+      ],
+      [
+       "migrated",
+       "AddHeaderColorAndShortTitleToAppContentSet"
+      ],
+      [
+       "migrating",
+       "AddDescriptionToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :description, :text)"
+      ],
+      [
+       "migrated",
+       "AddDescriptionToSubjects"
+      ],
+      [
+       "migrating",
+       "AllCallInCodeDigitsToAppContentSet"
+      ],
+      [
+       "op",
+       "add_column(:app_content_sets, :call_in_code_digits, :string, {:limit=>1})"
+      ],
+      [
+       "migrated",
+       "AllCallInCodeDigitsToAppContentSet"
+      ],
+      [
+       "migrating",
+       "AddFeedbackFormUrlToAppContentSet"
+      ],
+      [
+       "op",
+       "add_column(:app_content_sets, :feedback_form_url, :string)"
+      ],
+      [
+       "migrated",
+       "AddFeedbackFormUrlToAppContentSet"
+      ],
+      [
+       "migrating",
+       "ChangeLearnTextFromStringToText"
+      ],
+      [
+       "op",
+       "change_column(:app_content_sets, :learn_text, :text, {:limit=>400})"
+      ],
+      [
+       "migrated",
+       "ChangeLearnTextFromStringToText"
+      ],
+      [
+       "migrating",
+       "CreateCallers"
+      ],
+      [
+       "op",
+       "create_table(:callers, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateCallers"
+      ],
+      [
+       "migrating",
+       "AddBulkAddedToNotificationSubscription"
+      ],
+      [
+       "op",
+       "add_column(:notification_subscriptions, :bulk_added, :boolean)"
+      ],
+      [
+       "migrated",
+       "AddBulkAddedToNotificationSubscription"
+      ],
+      [
+       "migrating",
+       "RemovePropertyCode"
+      ],
+      [
+       "op",
+       "remove_column(:subjects, :property_code)"
+      ],
+      [
+       "migrated",
+       "RemovePropertyCode"
+      ],
+      [
+       "migrating",
+       "RemoveNeighborhoodAndParcelFromSubject"
+      ],
+      [
+       "op",
+       "remove_column(:subjects, :neighborhood_id)"
+      ],
+      [
+       "op",
+       "remove_column(:subjects, :parcel_id)"
+      ],
+      [
+       "migrated",
+       "RemoveNeighborhoodAndParcelFromSubject"
+      ],
+      [
+       "migrating",
+       "DropAppContentSets"
+      ],
+      [
+       "op",
+       "drop_table(:app_content_sets)"
+      ],
+      [
+       "migrated",
+       "DropAppContentSets"
+      ],
+      [
+       "migrating",
+       "DropVoiceTextFromQuestions"
+      ],
+      [
+       "op",
+       "remove_column(:questions, :voice_text)"
+      ],
+      [
+       "migrated",
+       "DropVoiceTextFromQuestions"
+      ],
+      [
+       "migrating",
+       "RemoveVoiceTranscriptions"
+      ],
+      [
+       "op",
+       "drop_table(:voice_transcriptions)"
+      ],
+      [
+       "migrated",
+       "RemoveVoiceTranscriptions"
+      ],
+      [
+       "migrating",
+       "RemoveNeighborhoodFromFeedbackInputs"
+      ],
+      [
+       "op",
+       "remove_column(:feedback_inputs, :neighborhood_id)"
+      ],
+      [
+       "migrated",
+       "RemoveNeighborhoodFromFeedbackInputs"
+      ],
+      [
+       "migrating",
+       "RemoveTypeFromSubject"
+      ],
+      [
+       "op",
+       "remove_column(:subjects, :type)"
+      ],
+      [
+       "migrated",
+       "RemoveTypeFromSubject"
+      ],
+      [
+       "migrating",
+       "RemovePropertyFromFeedbackInput"
+      ],
+      [
+       "op",
+       "remove_column(:feedback_inputs, :property_id)"
+      ],
+      [
+       "migrated",
+       "RemovePropertyFromFeedbackInput"
+      ],
+      [
+       "migrating",
+       "RemovePropertyInfoSets"
+      ],
+      [
+       "op",
+       "drop_table(:property_info_sets)"
+      ],
+      [
+       "migrated",
+       "RemovePropertyInfoSets"
+      ],
+      [
+       "migrating",
+       "RenameNotificationSubscriptionPropertyIdToSubjectId"
+      ],
+      [
+       "op",
+       "rename_column(:notification_subscriptions, :property_id, :subject_id)"
+      ],
+      [
+       "migrated",
+       "RenameNotificationSubscriptionPropertyIdToSubjectId"
+      ],
+      [
+       "migrating",
+       "RemoveVoiceFileIdFromQuestions"
+      ],
+      [
+       "op",
+       "remove_column(:questions, :voice_file_id)"
+      ],
+      [
+       "migrated",
+       "RemoveVoiceFileIdFromQuestions"
+      ],
+      [
+       "migrating",
+       "RemoveVoiceFiles"
+      ],
+      [
+       "op",
+       "drop_table(:voice_files)"
+      ],
+      [
+       "migrated",
+       "RemoveVoiceFiles"
+      ],
+      [
+       "migrating",
+       "RenameSubjectsToLocations"
+      ],
+      [
+       "op",
+       "rename_table(:subjects, :locations)"
+      ],
+      [
+       "op",
+       "rename_column(:feedback_inputs, :subject_id, :location_id)"
+      ],
+      [
+       "op",
+       "rename_column(:notification_subscriptions, :subject_id, :location_id)"
+      ],
+      [
+       "migrated",
+       "RenameSubjectsToLocations"
+      ],
+      [
+       "migrating",
+       "RenameFeedbackInputsToAnswers"
+      ],
+      [
+       "op",
+       "rename_table(:feedback_inputs, :answers)"
+      ],
+      [
+       "migrated",
+       "RenameFeedbackInputsToAnswers"
+      ],
+      [
+       "migrating",
+       "CreateSubscribersFromNotificationSubscriptions"
+      ],
+      [
+       "op",
+       "create_table(:subscribers, {:id=>:integer})"
+      ],
+      [
+       "op",
+       "add_column(:notification_subscriptions, :subscriber_id, :integer)"
+      ],
+      [
+       "op",
+       "remove_columns(:notification_subscriptions, :email)"
+      ],
+      [
+       "migrated",
+       "CreateSubscribersFromNotificationSubscriptions"
+      ],
+      [
+       "migrating",
+       "RenameNotificationSubscriptionsToLocationSubscriptions"
+      ],
+      [
+       "op",
+       "rename_table(:notification_subscriptions, :location_subscriptions)"
+      ],
+      [
+       "migrated",
+       "RenameNotificationSubscriptionsToLocationSubscriptions"
+      ],
+      [
+       "migrating",
+       "CreateCalls"
+      ],
+      [
+       "op",
+       "create_table(:calls, {:id=>:integer})"
+      ],
+      [
+       "migrated",
+       "CreateCalls"
+      ],
+      [
+       "migrating",
+       "NormalizeAnswersAndCallersToCalls"
+      ],
+      [
+       "op",
+       "add_column(:answers, :call_id, :integer)"
+      ],
+      [
+       "op",
+       "remove_columns(:answers, :location_id, :call_source, :phone_number)"
+      ],
+      [
+       "op",
+       "remove_columns(:callers, :consented_to_callback)"
+      ],
+      [
+       "migrated",
+       "NormalizeAnswersAndCallersToCalls"
+      ]
+     ]
+    },
+    "task": "db:migrate"
+   },
+   "why": "Two changes in one recorded stream, both in the lines `rake db:migrate` prints for the application's own migrations, and neither touching the schema they produce -- `pkdrift` reads the same 7 tables before and after and agrees.\n  (1) Eleven `add_column`/`change_column` lines lose a trailing `{}`.  `Migration#method_missing` logs `arguments.map(&:inspect)`, and the compatibility layer these migrations run under declares `add_column(table, column, type, **options)` and calls `super`.  On Ruby 2.7 an empty `**options` still arrived at `method_missing(*arguments)` as a positional `{}`; on Ruby 3.0, with keyword arguments separated, it arrives as nothing at all.  This one is the interpreter's, not the framework's -- the logging code is character for character the same in 6.0 and 6.1.\n  (2) One `add_reference` line gains `:_uses_legacy_reference_index_name=>true`.  That is the framework's: 6.1 adds a `V6_0` compatibility layer below `Current`, and every migration declared for an older release now inherits from it, so the flag 6.1 uses to keep pre-6.1 index naming is set on the options hash before the line is logged."
+  },
+  "seeded/after_seed.location_1": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "seeded/after_seed.location_2": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "seeded/after_seed.location_3": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "seeded/slug_correct": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1-eli-s-mile-high-club"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "seeded/slug_wrong": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1-completely-wrong-slug"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "subscriptions/after_subscriptions.location_1": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE21.mp3",
+      "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE21.wav",
+      "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE20.mp3",
+      "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE20.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE21",
+       "Click here to play voice message"
+      ],
+      [
+       "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE20",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 1 Disagree 1 Voice Messages date: <TS:0> from: 510-XXX-XX21 Click here to play voice message date: <TS:0> from: 510-XXX-XX20 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "subscriptions/after_subscriptions.location_2": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "subscriptions/after_subscriptions.location_3": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "subscriptions/notify.after_answers": {
+   "cite": "actionview-6.1.7.10 lib/action_view/log_subscriber.rb:92-93, `log_rendering_start` opening with `debug do`; actionview-6.0.6.1's same method at :85-86 opens with `info do`.  Rails 6.1 release notes, Action View: the render-start and partial-render log lines move to the debug level.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendered notification_mailer/weekly_activity.html.erb (Duration: <MS> | Allocations: <ALLOC>)",
+     "Delivered mail <MID> (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "Action View 6.1 logs the line it prints when a template starts rendering at `debug` where 6.0 logged it at `info`.  The mail world records this application's own log at info, so the \"  Rendering notification_mailer/weekly_activity.html.erb\" line that opened the recorded stream is gone and the \"  Rendered ... (Duration: | Allocations:)\" line that closed it is now first.  Three lines become two; no mail changes.  The companion `*_mail` cases still record the envelope, the recipients and the parts, and spec/mailers/notification_mailer_spec.rb still asserts the recipient, so nothing about what was delivered stops being checked -- exactly the argument step 05 made when the same three cases flipped for the mailer's own log line."
+  },
+  "subscriptions/notify.again": {
+   "cite": "actionview-6.1.7.10 lib/action_view/log_subscriber.rb:92-93, `log_rendering_start` opening with `debug do`; actionview-6.0.6.1's same method at :85-86 opens with `info do`.  Rails 6.1 release notes, Action View: the render-start and partial-render log lines move to the debug level.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendered notification_mailer/weekly_activity.html.erb (Duration: <MS> | Allocations: <ALLOC>)",
+     "Delivered mail <MID> (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "Action View 6.1 logs the line it prints when a template starts rendering at `debug` where 6.0 logged it at `info`.  The mail world records this application's own log at info, so the \"  Rendering notification_mailer/weekly_activity.html.erb\" line that opened the recorded stream is gone and the \"  Rendered ... (Duration: | Allocations:)\" line that closed it is now first.  Three lines become two; no mail changes.  The companion `*_mail` cases still record the envelope, the recipients and the parts, and spec/mailers/notification_mailer_spec.rb still asserts the recipient, so nothing about what was delivered stops being checked -- exactly the argument step 05 made when the same three cases flipped for the mailer's own log line."
+  },
+  "subscriptions/notify.new_activity": {
+   "cite": "actionview-6.1.7.10 lib/action_view/log_subscriber.rb:92-93, `log_rendering_start` opening with `debug do`; actionview-6.0.6.1's same method at :85-86 opens with `info do`.  Rails 6.1 release notes, Action View: the render-start and partial-render log lines move to the debug level.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendered notification_mailer/weekly_activity.html.erb (Duration: <MS> | Allocations: <ALLOC>)",
+     "Delivered mail <MID> (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "Action View 6.1 logs the line it prints when a template starts rendering at `debug` where 6.0 logged it at `info`.  The mail world records this application's own log at info, so the \"  Rendering notification_mailer/weekly_activity.html.erb\" line that opened the recorded stream is gone and the \"  Rendered ... (Duration: | Allocations:)\" line that closed it is now first.  Three lines become two; no mail changes.  The companion `*_mail` cases still record the envelope, the recipients and the parts, and spec/mailers/notification_mailer_spec.rb still asserts the recipient, so nothing about what was delivered stops being checked -- exactly the argument step 05 made when the same three cases flipped for the mailer's own log line."
+  },
+  "subscriptions/sub.location_after_confirm": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  },
+  "subscriptions/sub.location_page": {
+   "cite": "railties-6.1.7.10 lib/rails/application/configuration.rb, the `when \"6.1\"` branch: `action_view.form_with_generates_remote_forms = false`.  Rails 6.1 release notes, Action View: \"`form_with` generates non-remote forms by default\".  Measured on the golden with build/probe06/hdr.rb: `data_remote_count` 1 at `load_defaults 6.0` and 0 at 6.1 on /locations/1.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "`config.load_defaults 6.1` sets `action_view.form_with_generates_remote_forms = false`, so the subscription form a location page renders is an ordinary form rather than a remote one: the `data-remote=\"true\"` attribute step 03 recorded when the page moved to `form_with` is no longer emitted, and the recorded list of elements carrying a data attribute drops from three to two.  Nothing else about the form changes -- same action, same method, same fields, same response -- and the attribute was never acted on: this application ships no handler for a remote form submission, which is why 5.1's `form_with` default was a change in the markup and not in the behaviour either time.  The answer this restores is the one steps 01 and 02 recorded, so the case reads `stale` against step 03's fragment rather than against the repository's baseline."
+  }
+ },
+ "step": "06-rails-6-1"
+}

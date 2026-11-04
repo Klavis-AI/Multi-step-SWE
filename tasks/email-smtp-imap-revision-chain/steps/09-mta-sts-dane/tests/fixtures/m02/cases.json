@@ -1,0 +1,163 @@
+[
+  {
+    "id": "smtp.source.route.rcpt.flip",
+    "kind": "smtp",
+    "stratum": "revision-flip",
+    "gate": true,
+    "script": [
+      "HELO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<@relay.example.test:bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "501",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 2821 \u00a74.1.2; flip of step-1 accept"
+    }
+  },
+  {
+    "id": "smtp.source.route.mail.flip",
+    "kind": "smtp",
+    "stratum": "revision-flip",
+    "gate": true,
+    "script": [
+      "HELO c.test\r\n",
+      "MAIL FROM:<@origin.example.test:alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "501",
+      "503",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 2821 \u00a74.1.2; flip of step-1 accept"
+    }
+  },
+  {
+    "id": "smtp.ehlo.2821",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO client.example.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO"
+    }
+  },
+  {
+    "id": "smtp.helo.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "HELO client.example.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11"
+    }
+  },
+  {
+    "id": "imap.login.still",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "dovecot-2.3.19.1"
+    }
+  },
+  {
+    "id": "smtp.source.route.multi.rcpt.flip",
+    "kind": "smtp",
+    "stratum": "boundary",
+    "gate": false,
+    "script": [
+      "HELO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<@relay.example.test,@relay2.example.test:bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "501",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 2821 4.1.2, the @host,@host:user@domain form; same derivation as smtp.source.route.rcpt.flip (flip of the step-1 postfix-3.7.11 accept)",
+      "derivation": "this ticket already requires 501 for both source-route forms; only the single-hop form was scored"
+    }
+  },
+  {
+    "id": "smtp.source.route.multi.mail.flip",
+    "kind": "smtp",
+    "stratum": "boundary",
+    "gate": false,
+    "script": [
+      "HELO c.test\r\n",
+      "MAIL FROM:<@origin.example.test,@origin2.example.test:alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "501",
+      "503",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 2821 4.1.2, the @host,@host:user@domain form; same derivation as smtp.source.route.mail.flip, including the recorded follow-on 503 for RCPT with no accepted MAIL",
+      "derivation": "this ticket already requires 501 for both source-route forms; only the single-hop form was scored"
+    }
+  },
+  {
+    "id": "smtp.source.route.rcpt.then.valid",
+    "kind": "smtp",
+    "stratum": "interaction",
+    "gate": false,
+    "script": [
+      "HELO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<@relay.example.test:bob@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "501",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "source-route 501 as in smtp.source.route.rcpt.flip, then the recorded postfix-3.7.11 RCPT TO:<bob@example.test> 250 (m01 smtp.rcpt.bob, recorded 2026-09-04T00:01:49Z)",
+      "derivation": "RFC 2821 4.1.1.3: a rejected RCPT does not end the mail transaction, so the following valid RCPT still gets its recorded 250"
+    }
+  }
+]

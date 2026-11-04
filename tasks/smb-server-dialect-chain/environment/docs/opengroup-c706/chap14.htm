@@ -1,0 +1,1522 @@
+<!-- Copyright 1997 The Open Group, All rights reserved -->
+<html><head>
+
+
+<title>DCE 1.1: Remote Procedure Call - Transfer Syntax NDR</title>
+</head><body><center><a href="chap13.htm">Previous section.</a></center>
+<p>
+<basefont size=3>
+<!-- CDE 1.1: Remote Procedure Call -->
+<basefont size=3>
+<center>
+<font size=2>
+CDE 1.1: Remote Procedure Call
+<br>
+Copyright &copy; 1997 The Open Group
+</center>
+</font>
+<hr size=2 noshade>
+<h2><a name = "tagcjh_19"></a>Transfer Syntax NDR</h2>
+<xref type="1" name="chap14"></xref>
+<index term="NDR"></index>
+<index term="transfer syntax"></index>
+<index term="Network Data Representation"></index>
+Most application programs treat procedure call inputs and outputs as
+values of structured data types such as integers, arrays and
+pointers. One role of IDL is to provide syntax for describing these
+structured data types and values. However, the RPC protocol
+specifies that inputs and outputs be passed in octet streams. The role
+of NDR is to provide a mapping of IDL data types onto octet streams.
+NDR defines primitive data types, constructed data types and
+representations for these types in an octet stream.
+<p>
+For some primitive data types, NDR defines several data
+representations. For example, NDR defines ASCII and EBCDIC formats
+for characters. When a client or server sends an RPC PDU, the formats
+used are identified in the format label of the PDU. The data
+representation formats and the format label support the NDR
+<i>multi-canonical</i> approach to data conversion; that is, there is a
+fixed set of alternate representations for data types.
+<p>
+This chapter describes:
+<ul>
+<p>
+<li>
+the NDR format label
+<p>
+<li>
+the set of NDR primitive data types and the supported
+data representation formats for these types
+<p>
+<li>
+the set of NDR constructed data types and their representations.
+<p>
+</ul>
+<h3><a name = "tagcjh_19_01"></a>Data Representation Format Label</h3>
+<index term="data representation format labels"></index>
+<index term="NDR format label"></index>
+The NDR format label is a vector of 4 octets that identifies
+the particular data representation formats used to represent primitive
+values both in the header and in the body of an RPC PDU. The
+format label is itself part of the PDU header. (See
+<xref href=chap12><a href="chap12.htm#tagcjh_17">
+RPC PDU Encodings
+</a></xref>
+for definitions of RPC PDUs.)
+<p>
+<xref href=fig14-1><a href="#tagfcjh_14">
+NDR Format Label
+</a></xref>
+illustrates the NDR format label. The four
+most significant bits of octet 0 indicate integer format and
+endian type of the floating-point representation. The four
+least significant bits of octet 0 indicate character format. Octet 1
+indicates floating-point representation format. Octets 2 and 3 are
+reserved for future use and must be zero octets.
+<center>
+<img src="c7061401.gif" border="2" align="center">
+</center>
+<b><center><xref figure="NDR Format Label"><a name="tagfcjh_14"></a></xref>Figure: NDR Format Label</center></b>
+<xref type="6" name="fig14-1"></xref>
+<xref href=tbl14-1><a href="#tagtcjh_32">
+NDR Format Label Values
+</a></xref>
+lists the values associated with integer, character and
+floating-point formats. The values are represented in the format label
+in unsigned integer binary format.
+<pre>
+<basefont size=2>
+</pre>
+<p><center><p><table  bordercolor=#000000 border=1 cellpadding=3 align=center>
+<tr valign=top><th align=center><b>Data Type</b>
+<th align=center><b>Value in Label</b>
+<th align=center><b>Format</b>
+<tr valign=top><th align=left>Character
+<th align=center>0
+<th align=left>ASCII
+<tr valign=top><td align=left>&nbsp;
+<td align=center>1
+<td align=left>EBCDIC
+<tr valign=top><td align=left>Integer and floating-point byte order
+<td align=center>0
+<td align=left>Big-endian
+<tr valign=top><td align=left>&nbsp;
+<td align=center>1
+<td align=left>Little-endian
+<tr valign=top><td align=left>Floating-point representation
+<td align=center>0
+<td align=left>IEEE
+<tr valign=top><td align=left>&nbsp;
+<td align=center>1
+<td align=left>VAX
+<tr valign=top><td align=left>&nbsp;
+<td align=center>2
+<td align=left>Cray
+<tr valign=top><td align=left>&nbsp;
+<td align=center>3
+<td align=left>IBM
+</table>
+</center>
+<pre>
+<basefont size=3>
+</pre>
+<b><center><xref table="NDR Format Label Values"><a name="tagtcjh_32"></a></xref>Table: NDR Format Label Values</center></b>
+<xref type="7" name="tbl14-1"></xref>
+<h3><a name = "tagcjh_19_02"></a>NDR Primitive Types</h3>
+<index term="NDR primitive types"></index>
+<p>
+NDR defines a set of 13 primitive data types to represent Boolean
+values, characters, four sizes of signed and unsigned integers, two
+sizes of floating-point numbers, and uninterpreted octets.
+<p>
+For characters, integers and floating-point numbers, NDR defines
+more than one representation format. The formats used in an RPC
+PDU are identified in the NDR format label.
+<p>
+All NDR primitive data types are multiples of octets in length. A octet
+is 8 bits. A bit can take the values 0 and 1.
+<h4><a name = "tagcjh_19_02_01"></a>Representation Conventions</h4>
+<index term="NDR primitive types, representation conventions"></index>
+<p>
+The figures representing NDR primitive types adopt the following
+conventions:
+<ul>
+<p>
+<li>
+Each octet is represented by a rectangular box.
+<p>
+<li>
+When the figure refers to individual bits or groups of bits within an
+octet, the octet box is divided by vertical lines into one or more
+smaller rectangles that represent the individual bits or groups of
+bits.
+<p>
+<li>
+Within octets, bits and groups of bits are represented with the
+most significant bit at the left and the least significant bit at the
+right.
+<p>
+<li>
+Most significant bit is abbreviated MSB, and least significant
+bit is abbreviated LSB.
+<p>
+<li>
+Data types larger than one octet are depicted as a series of octet
+boxes arranged vertically to form a larger rectangle. The octets are
+ordered from top to bottom: the topmost octet appears first in the
+octet stream and the bottommost octet appears last.
+<p>
+<li>
+Bit and octet numbering, for reference purposes, begins with 0.
+<p>
+<li>
+Diagrams do not depict the specified alignment gaps, which can appear in
+the octet stream before an item (see
+<xref href=align_prim_types><a href="#tagcjh_19_02_02">
+Alignment of Primitive Types
+</a></xref>.)
+<p>
+<li>
+When a bit is <i>set</i>, it has the value 1. When a bit is
+<i>reset</i>, it has the value 0.
+<p>
+</ul>
+<p>
+Following the preceding rules, the order of octets, as they occur in an
+octet stream, can be read by reading vertically from the top octet box
+down to the bottom octet box. The order of bits and groups of bits in
+an octet, from most significant to least significant, can be read
+beginning at the leftmost end of an octet box and reading across to
+the right end. The order of bits and groups of bits in the octets of
+a data type can therefore be read by reading the bits from left to
+right in each octet, beginning with the top octet and ending with the
+bottom octet.
+<basefont size=2>
+<dl><dt><b>Note:</b>
+<dd>Although NDR specifies the order of bits and groups of bits within the
+octet stream of some data types, it specifies an octet stream
+representation of data rather than a bit stream representation of
+data. NDR does not specify how a given octet stream is represented as
+a bit stream, which is typically the province of underlying network
+layers.
+</dl>
+<basefont size=3>
+<h4><a name = "tagcjh_19_02_02"></a>Alignment of Primitive Types</h4>
+<xref type="3" name="align_prim_types"></xref>
+<index term="NDR primitive types, alignment"></index>
+<p>
+NDR enforces <i>NDR alignment</i> of primitive data; that is, any
+primitive of size <i>n</i> octets is aligned at a octet stream index
+that is a multiple of <i>n</i>. (In this version of NDR, <i>n</i> is
+one of {1, 2, 4, 8}.) An octet stream index indicates the number of an
+octet in an octet stream when octets are numbered, beginning with 0,
+from the first octet in the stream. Where necessary, an alignment
+gap, consisting of octets of unspecified value, precedes the
+representation of a primitive. The gap is of the smallest size
+sufficient to align the primitive.
+<h4><a name = "tagcjh_19_02_03"></a>Booleans</h4>
+<index term="NDR primitive types, Booleans"></index>
+<p>
+A Boolean is a logical quantity that assumes one of two values: TRUE
+or FALSE. NDR represents a Boolean as one octet. It represents
+a value of FALSE as a <i>zero octet</i>, an octet in which every bit is
+reset. It represents a value of TRUE as a <i>non-zero octet</i>, an octet in
+which one or more bits are set.
+<p>
+<xref href=fig14-2><a href="#tagfcjh_15">
+The Boolean Data Type
+</a></xref>
+illustrates the boolean data type as it appears in the octet stream.
+<center>
+<img src="c7061402.gif" border="2" align="center">
+</center>
+<b><center><xref figure="The Boolean Data Type"><a name="tagfcjh_15"></a></xref>Figure: The Boolean Data Type</center></b>
+<xref type="6" name="fig14-2"></xref>
+<h4><a name = "tagcjh_19_02_04"></a>Characters</h4>
+<index term="NDR primitive types, characters"></index>
+<p>
+NDR represents a character as one octet. Characters have two
+representation formats: ASCII and EBCDIC.
+<p>
+<xref href=fig14-3><a href="#tagfcjh_16">
+Character Data Type
+</a></xref>
+illustrates the character type as it appears in the octet stream.
+<center>
+<img src="c7061403.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Character Data Type"><a name="tagfcjh_16"></a></xref>Figure: Character Data Type</center></b>
+<xref type="6" name="fig14-3"></xref>
+<h4><a name = "tagcjh_19_02_05"></a>Integers and Enumerated Types</h4>
+<index term="NDR primitive types, integers"></index>
+<p>
+NDR defines both signed and unsigned integers in four sizes:
+<dl compact>
+<p>
+<dt><b>small</b><dd><index term="NDR primitive types, small"></index>
+An 8-bit integer, represented in the octet stream as 1 octet.
+<p>
+<dt><b>short</b><dd><index term="NDR primitive types, short"></index>
+A 16-bit integer, represented in the octet stream as 2 octets.
+<p>
+<dt><b>long</b><dd><index term="NDR primitive types, long"></index>
+A 32-bit integer, represented in the octet stream as 4 octets.
+<p>
+<dt><b>hyper</b><dd><index term="NDR primitive types, hyper"></index>
+A 64-bit integer, represented in the octet stream as 8 octets.
+<p>
+</dl>
+<p>
+NDR represents signed integers in twos complement format and represents
+unsigned integers as unsigned binary numbers. There are two integer
+formats: big-endian and little-endian. If the integer
+format is big-endian, the octets of the representation are ordered
+in the octet stream from the most significant octet to the least significant
+octet. If the integer format is little-endian, the octets of the
+representation are ordered in the octet stream from the least significant
+octet to the most significant octet.
+<p>
+<xref href=fig14-4><a href="#tagfcjh_17">
+NDR Integer Formats
+</a></xref>
+illustrates the integer types in big-endian and little-endian format.
+<center>
+<img src="c7061404.gif" border="2" align="center">
+</center>
+<b><center><xref figure="NDR Integer Formats"><a name="tagfcjh_17"></a></xref>Figure: NDR Integer Formats</center></b>
+<xref type="6" name="fig14-4"></xref>
+<h5><a name = "tagcjh_19_02_05_01"></a>Enumerated Types</h5>
+<p>
+NDR represents enumerated types as signed short integers (2 octets).
+<index term="NDR primitive types, integers"></index>
+<h4><a name = "tagcjh_19_02_06"></a>Floating-point Numbers</h4>
+<index term="NDR primitive types, floating-point"></index>
+<p>
+NDR defines single-precision and double-precision
+floating-point data types. It represents single-precision
+types in 4 octets and double precision types in 8 octets.
+<p>
+NDR supports the following floating-point data representation formats
+for single-precision and double-precision floating-point types:
+<ul>
+<p>
+<li>
+IEEE single-precision and double-precision floating-point formats,
+which comply with the IEEE 754 standard.
+<p>
+<li>
+VAX <b>F_floating</b> and <b>G_floating</b> formats as defined in
+the VAX11 Architecture document.
+<p>
+<li>
+Cray floating-point format, as defined in the documentation produced
+by Cray Research, Inc.
+<p>
+<li>
+IBM short and long formats, as defined in the System/370 document.
+<p>
+</ul>
+<p>
+<xref href=tbl14-2><a href="#tagtcjh_33">
+NDR Floating Point Types
+</a></xref>
+is a conversion chart that shows how NDR single-precision and
+double-precision floating-point types correspond to the supported
+floating-point formats.
+<pre>
+<basefont size=2>
+</pre>
+<p><center><p><table  bordercolor=#000000 border=1 cellpadding=3 align=center>
+<tr valign=top><th align=left><b>NDR Values</b>
+<th colspan=4 align=center><b>Conversion Values</b>
+<tr valign=top><th align=left><b>&nbsp;</b>
+<th align=center><b>IEEE</b>
+<th align=center><b>VAX</b>
+<th align=center><b>Cray</b>
+<th align=center><b>IBM</b>
+<tr valign=top><th align=left>Single
+<th align=left>Single (4 octets)
+<th align=left>F (4 octets)
+<th align=left>Single (4 octets)
+<th align=left>Short (4 octets)
+<tr valign=top><td align=left>Double
+<td align=left>Double (8 octets)
+<td align=left>G (8 octets)
+<td align=left>Double (8 octets)
+<td align=left>Long (8 octets)
+</table>
+</center>
+<pre>
+<basefont size=3>
+</pre>
+<b><center><xref table="NDR Floating Point Types"><a name="tagtcjh_33"></a></xref>Table: NDR Floating Point Types</center></b>
+<xref type="7" name="tbl14-2"></xref>
+<p>
+The representation of a floating-point number comprises three
+fields:
+<ul>
+<p>
+<li>
+The sign bit, which indicates the sign of the number.
+Values 0 and 1 represent positive and negative, respectively. This
+field is 1 bit in length.
+<p>
+<li>
+The exponent of the number (base 16 in IBM
+format, base 2 in all others), biassed by an excess. The size of this
+field varies according to the format, as does the excess.
+<p>
+<li>
+The fractional part of the number's mantissa (base
+16 in IBM format, base 2 in all others). This field is also called
+the number's coefficient. The size of this field varies according
+to the format.
+<p>
+</ul>
+<p>
+NDR allows implementations to use different degrees of precision in
+representing floating-point numbers. When the receiver is
+unmarshaling a floating-point number, and the number cannot be
+represented exactly in the receiver's floating-point format, the
+received (input) data is rounded such that the representable value
+nearest the infinitely precise result is delivered. If two
+representable values are equally near, the one with its least
+significant bit 0 (zero) is delivered.
+<p>
+The integer representation field of the NDR format label
+indicates whether floating-point values are transmitted in big-endian
+or little-endian format. See
+<xref href=tbl14-1><a href="#tagtcjh_32">
+NDR Format Label Values
+</a></xref>
+for the mapping between format label values and data representations.
+<p>
+The remainder of this section describes how floating-point
+numbers are represented in the octet stream in IEEE, VAX, Cray and
+IBM formats.
+<h5><a name = "tagcjh_19_02_06_01"></a>IEEE Format</h5>
+<index term="NDR primitive types, IEEE floating-point"></index>
+<p>
+Single-precision IEEE floating-point format is 32 bits in length, consisting
+of a 1-bit sign, an 8-bit exponent field (excess 127), and
+a 23-bit mantissa that represents a fraction in the range
+1.0&#60;=<i>m</i>&lt;2.0. Double precision IEEE floating-point format
+is 64 bits in length with a 1-bit sign, an 11-bit exponent
+(excess 1023), and a 52-bit mantissa.
+<p>
+IEEE floating-point numbers are used on machines made by a variety of
+manufacturers and based on a variety of architectures. Some of these
+machines use little-endian representation for integers; other machines
+use big-endian representation. When a recipient interprets an NDR
+octet stream whose format label specifies IEEE floating-point format,
+it uses the integer representation in the format label to determine
+the octet order of the IEEE floating-point number.
+<p>
+<xref href=fig14-5><a href="#tagfcjh_18">
+IEEE Single-precision Floating-point Format
+</a></xref>
+illustrates IEEE single-precision floating-point format
+in big-endian and little-endian integer representation. The exponents
+and fractions shown in this figure are represented in unsigned-binary
+format.
+<center>
+<img src="c7061405.gif" border="2" align="center">
+</center>
+<b><center><xref figure="IEEE Single-precision Floating-point Format"><a name="tagfcjh_18"></a></xref>Figure: IEEE Single-precision Floating-point Format</center></b>
+<xref type="6" name="fig14-5"></xref>
+<xref href=fig14-6><a href="#tagfcjh_19">
+IEEE Double-precision Floating-point Format
+</a></xref>
+illustrates IEEE double-precision floating-point format
+in big-endian and little-endian integer representation. The exponents
+and fractions shown in this figure are represented in unsigned-binary
+format.
+<center>
+<img src="c7061406.gif" border="2" align="center">
+</center>
+<b><center><xref figure="IEEE Double-precision Floating-point Format"><a name="tagfcjh_19"></a></xref>Figure: IEEE Double-precision Floating-point Format</center></b>
+<xref type="6" name="fig14-6"></xref>
+<h5><a name = "tagcjh_19_02_06_02"></a>VAX Format</h5>
+<index term="NDR primitive types, VAX floating-point"></index>
+<p>
+VAX architecture defines four floating-point formats:
+<b>F_floating</b>, <b>D_floating</b>, <b>G_floating</b> and
+<b>H_floating</b>. <b>F_floating</b> format is 32 bits in length,
+including a 1-bit sign, an 8-bit exponent (excess 128), and a 23-bit
+mantissa that represents a fraction in the range 0.5&#60;=<i>m</i>&lt;1.00.
+<b>D_floating</b> format is 64 bits, with a 1-bit sign, an 8-bit
+exponent and a 56-bit mantissa. <b>G_floating</b> format is also 64
+bits, with a 1-bit sign, an 11-bit exponent (excess 1024) and a
+52-bit mantissa. <b>H_floating</b> format is 128 bits.
+<p>
+Although the VAX architecture supports four floating-point formats,
+NDR uses only VAX <b>F_floating</b> format to represent VAX
+single-precision floating-point numbers and VAX <b>G_floating</b>
+format to represent VAX double-precision floating-point numbers.
+<p>
+<xref href=fig14-7><a href="#tagfcjh_20">
+VAX Single-precision (F) Floating-point Format
+</a></xref>
+illustrates VAX F floating-point representation as it
+appears in the octet stream. Exponents and fractions shown in this and
+the next figure are represented in unsigned-binary format.
+<center>
+<img src="c7061407.gif" border="2" align="center">
+</center>
+<b><center><xref figure="VAX Single-precision (F) Floating-point Format"><a name="tagfcjh_20"></a></xref>Figure: VAX Single-precision (F) Floating-point Format</center></b>
+<xref type="6" name="fig14-7"></xref>
+<xref href=fig14-8><a href="#tagfcjh_21">
+VAX Double-precision (G) Floating-point Format
+</a></xref>
+illustrates VAX G floating-point representation as it
+appears in the octet stream.
+<center>
+<img src="c7061408.gif" border="2" align="center">
+</center>
+<b><center><xref figure="VAX Double-precision (G) Floating-point Format"><a name="tagfcjh_21"></a></xref>Figure: VAX Double-precision (G) Floating-point Format</center></b>
+<xref type="6" name="fig14-8"></xref>
+<xref href=fig14-7><a href="#tagfcjh_20">
+VAX Single-precision (F) Floating-point Format
+</a></xref>
+and
+<xref href=fig14-8><a href="#tagfcjh_21">
+VAX Double-precision (G) Floating-point Format
+</a></xref>
+illustrate VAX <b>F_floating</b> and
+<b>G_floating</b> formats using a little-endian representation for
+integers. However, some machines may implement VAX floating-point
+format with a big-endian representation. When a recipient interprets
+an NDR octet stream whose format label specifies VAX floating-point
+format, it uses the integer representation in the format label to
+determine the octet order of the floating-point number.
+<h5><a name = "tagcjh_19_02_06_03"></a>Cray Format</h5>
+<index term="NDR primitive types, Cray floating-point"></index>
+<p>
+Cray machine architecture defines only a double-precision
+floating-point format. However, because Cray machines may be required
+to handle single-precision floating-point values (for instance, if
+single-precision values are specified in an interface definition),
+NDR defines a single-precision floating-point format for Cray
+machines; this format is identical to IEEE big-endian single-precision
+format.
+<p>
+A Cray double-precision floating-point number is 64 bits in length and
+consists of a 1-bit sign, a 15-bit exponent (16,384 excess) and a
+48-bit fraction. A Cray single-precision
+floating-point number is 32 bits in length and consists of a 1-bit
+sign, an 8-bit exponent (excess 127) and a 23-bit mantissa that
+represents a fraction in the range  1.0&#60;=<i>m</i>&lt;2.0.
+<p>
+<xref href=fig14-9><a href="#tagfcjh_22">
+Cray Floating-point Formats
+</a></xref>
+illustrates the Cray floating-point formats.
+<center>
+<img src="c7061409.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Cray Floating-point Formats"><a name="tagfcjh_22"></a></xref>Figure: Cray Floating-point Formats</center></b>
+<xref type="6" name="fig14-9"></xref>
+<h5><a name = "tagcjh_19_02_06_04"></a>IBM Format</h5>
+<index term="NDR primitive types, IBM floating-point"></index>
+<p>
+The IBM architecture defines short and long floating-point formats for
+single-precision and double-precision floating-point values,
+respectively. An IBM short floating-point number consists of a 1-bit
+sign, a 7-bit exponent and a 24-bit fraction. An IBM long
+floating-point number consists of a 1-bit sign, a 7-bit exponent and
+a 56-bit fraction. The IBM formats represent both the exponent and
+the fraction in hexadecimal rather than binary notation.
+Consequently, the exponent is base 16, while the fraction is composed
+of either six 4-bit hexadecimal digits or fourteen 4-bit hexadecimal
+digits.
+<p>
+<xref href=fig14-10><a href="#tagfcjh_23">
+IBM Floating-point Formats
+</a></xref>
+illustrates the IBM short and long floating-point formats.
+<center>
+<img src="c7061410.gif" border="2" align="center">
+</center>
+<b><center><xref figure="IBM Floating-point Formats"><a name="tagfcjh_23"></a></xref>Figure: IBM Floating-point Formats</center></b>
+<xref type="6" name="fig14-10"></xref>
+<xref href=fig14-10><a href="#tagfcjh_23">
+IBM Floating-point Formats
+</a></xref>
+illustrates IBM floating-point format using a big-endian
+representation for integers. However, some machines may implement IBM
+floating-point with a little-endian representation. When a recipient
+interprets an NDR octet stream whose format label specifies IBM
+floating-point format, it uses the integer representation in the
+format label to determine the octet order of the floating-point
+number.
+<index term="NDR primitive types, floating-point"></index>
+<h4><a name = "tagcjh_19_02_07"></a>Uninterpreted Octets</h4>
+<index term="NDR primitive types, uninterpreted octets"></index>
+<p>
+NDR defines an uninterpreted octet data type for which no internal
+format is defined and on which no format conversions are made.
+<p>
+illustrates the uninterpreted octet type as it appears in
+the octet stream.
+<center>
+<img src="c7061411.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Uninterpreted Octet Representation"><a name="tagfcjh_24"></a></xref>Figure: Uninterpreted Octet Representation</center></b>
+<xref type="6" name="fig14-11"></xref>
+<index term="NDR primitive types"></index>
+<h3><a name = "tagcjh_19_03"></a>NDR Constructed Types</h3>
+<index term="NDR constructed types"></index>
+<p>
+NDR supports data types that are constructed from the NDR primitive
+data types described in the previous section. The NDR constructed
+types include arrays, strings, structures, unions, variant structures,
+pipes and pointers.
+<p>
+NDR represents every NDR constructed type as a sequence of NDR primitive
+values. The representation formats for these primitive values are identified
+in the NDR format label.
+<p>
+All NDR constructed data types are integer multiples of octets in length.
+<h4><a name = "tagcjh_19_03_01"></a>Representation Conventions</h4>
+<index term="NDR constructed types, representation conventions"></index>
+<p>
+The figures representing NDR constructed types adopt the following
+conventions:
+<ul>
+<p>
+<li>
+Constructed types are represented as a series of one or more primitive
+types. Each primitive type is shown as a rectangular box.
+<p>
+<li>
+The octet stream is depicted from left to right. The leftmost item
+appears first in the octet stream and the rightmost item appears last.
+<p>
+<li>
+Specified alignment gaps, which can appear in the octet stream before
+and/or within an item, are not shown in the figures (see
+<xref href=align_prim_types><a href="#tagcjh_19_02_02">
+Alignment of Primitive Types
+</a></xref>).
+<p>
+<li>
+Ellipsis points between items labelled &quot;first&quot; and &quot;last&quot; indicate that
+any number of items can appear in the octet stream. Unless otherwise
+stated, at least one item, which would be both first and last, must
+appear. Ellipsis points between items labelled &quot;first&quot; and
+&quot;penultimate&quot; are used similarly.
+<xref href=fig14-12><a href="#tagfcjh_25">
+Uni-dimensional Fixed Array Representation
+</a></xref>
+shows one example of this notation.
+<p>
+<li>
+Braces and arrows indicate an item whose composition is exploded in
+another part of the figure.
+<xref href=fig14-17><a href="#tagfcjh_30">
+Multi-dimensional Conformant Array Representation
+</a></xref>
+shows one example of this notation.
+<p>
+<li>
+&quot;Max&quot; is the abbreviation for &quot;maximum&quot;, and &quot;rep&quot; is the
+abbreviation for &quot;representation&quot;.
+<p>
+</ul>
+<h4><a name = "tagcjh_19_03_02"></a>Alignment of Constructed Types</h4>
+<index term="NDR constructed types, alignment"></index>
+<xref type="3" name="align_const_types"></xref>
+NDR enforces <i>NDR alignment</i> of structured data.  As with primitive data
+types, an alignment, <i>n</i>, is determined for the structure.  Where
+necessary, an alignment gap of octets of unspecified value precedes the 
+data in the NDR octet stream. This gap is the smallest size sufficient 
+to align the first field of the structure on an NDR octet
+stream index of <i>n</i>.
+<p>
+The rules for calculating the alignment of constructed types are
+as follows: 
+<ul>
+<p>
+<li>
+If a conformant structure-that is, a conformant or conformant varying
+array, or a structure containing a conformant or conformant varying 
+array-is embedded in the constructed type, and is the outermost 
+structure-that is, is not contained in another structure-then 
+the size information from the contained conformant structure is positioned 
+so that it precedes both the containing constructed
+type and any alignment gap for the constructed type. 
+(See 
+<xref href=structures_cont_arrays><a href="#tagcjh_19_03_07">
+Structures Containing Arrays
+</a></xref>
+for information about structures containing arrays.)
+The size information
+is itself aligned according to the alignment rules
+for primitive data types.  (See
+<xref href=align_prim_types><a href="#tagcjh_19_02_02">
+Alignment of Primitive Types
+</a></xref>.)
+The data of the constructed type is then aligned
+according to the alignment rules
+for the constructed type.  In other words, the size
+information precedes the
+structure and is aligned independently of the
+structure alignment. 
+<br>
+<p>
+<li>
+The alignment of a structure in the octet stream is the largest of the
+alignments of the fields it contains.  These fields may also be constructed
+types. The same alignment rules apply recursively to nested constructed
+types. 
+<p>
+<li>
+The fields within the structure are aligned according to the following rules:
+<ul>
+<p>
+<li>
+Scalar primitives are aligned according to the rules in 
+<xref href=align_prim_types><a href="#tagcjh_19_02_02">
+Alignment of Primitive Types
+</a></xref>.
+<p>
+<li>
+Pointer alignment is always modulo 4.
+<p>
+<li>
+Structure alignment is determined by recursive application of these rules.
+<p>
+<li>
+Array alignment is the largest alignment of the array element type and the
+size information type, if any.
+<p>
+<li>
+Union alignment is the largest alignment of the union discriminator and 
+all of the union arms. 
+<p>
+</ul>
+<p>
+The above definitions of union alignment and array alignment apply only to
+the calculation the NDR alignment of a structure and do not apply
+to the actual NDR alignment of a union or an array.  For example, the NDR
+alignment of a union is determined by the tag type and the arm actually to be
+transmitted, not the largest of the union arms.  Similarly, the NDR 
+alignment of an array is determined by the element type alignment, 
+which would be the largest arm of the union in the case of an
+array of unions. 
+<p>
+</ul>
+<p>
+<h4><a name = "tagcjh_19_03_03"></a>Arrays</h4>
+<index term="NDR constructed types, arrays"></index>
+<index term="NDR constructed types, arrays"></index>
+<p>
+An <i>array</i> is an ordered, indexed collection of elements of a
+single type. The elements of an array can be of any NDR primitive or
+constructed type except arrays, pipes, conformant structures and
+context handles.
+<p>
+NDR defines several representations for arrays. The representation
+used depends on:
+<ul>
+<p>
+<li>
+whether the array is uni-dimensional or multi-dimensional
+<p>
+<li>
+whether the array is conformant
+<p>
+<li>
+whether the array is varying.
+<p>
+</ul>
+<p>
+NDR defines special representations for arrays of strings (see
+<xref href=arrays_strings><a href="#tagcjh_19_03_05">
+Arrays of Strings
+</a></xref>),
+for structures that contain some kinds of arrays (see
+<xref href=structures_cont_arrays><a href="#tagcjh_19_03_07">
+Structures Containing Arrays
+</a></xref>),
+and for arrays that contain pointers (see
+<xref href=embedded_pointers><a href="#tagcjh_19_03_12">
+Embedded Pointers
+</a></xref>).
+<h5><a name = "tagcjh_19_03_03_01"></a>Uni-dimensional Fixed Arrays</h5>
+<index term="NDR arrays, uni-dimensional fixed"></index>
+<p>
+A fixed array is an array that is neither conformant nor varying.
+In a fixed array, the number of elements is known beforehand.
+<p>
+NDR represents a fixed array as an ordered sequence of representations
+of the array elements.
+<p>
+<xref href=fig14-12><a href="#tagfcjh_25">
+Uni-dimensional Fixed Array Representation
+</a></xref>
+illustrates a fixed array as it appears in the octet stream.
+<center>
+<img src="c7061412.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Uni-dimensional Fixed Array Representation"><a name="tagfcjh_25"></a></xref>Figure: Uni-dimensional Fixed Array Representation</center></b>
+<xref type="6" name="fig14-12"></xref>
+<h5><a name = "tagcjh_19_03_03_02"></a>Uni-dimensional Conformant Arrays</h5>
+<index term="NDR arrays, uni-dimensional conformant"></index>
+<p>
+A conformant array is an array in which the maximum number of elements
+is not known beforehand and therefore is included in the representation
+of the array.
+<p>
+NDR represents a conformant array as an ordered sequence of representations
+of the array elements, preceded by an unsigned long integer. The integer
+gives the number of array elements transmitted, including empty elements.
+<p>
+A conformant array can contain at most 2<small><sup>32</sup></small>-1 elements.
+<p>
+<xref href=fig14-13><a href="#tagfcjh_26">
+Uni-dimensional Conformant Array Representation
+</a></xref>
+illustrates a conformant array as it appears in the octet stream.
+<center>
+<img src="c7061413.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Uni-dimensional Conformant Array Representation"><a name="tagfcjh_26"></a></xref>Figure: Uni-dimensional Conformant Array Representation</center></b>
+<xref type="6" name="fig14-13"></xref>
+<h5><a name = "tagcjh_19_03_03_03"></a>Uni-dimensional Varying Arrays</h5>
+<index term="NDR arrays, uni-dimensional varying"></index>
+<p>
+A varying array is an array in which the actual number of elements
+passed in a given call varies and therefore is included in the
+representation of the array.
+<p>
+NDR represents a varying array as an ordered sequence of representations
+of the array elements, preceded by two unsigned long integers. The
+first integer gives the offset from the first index of the array to
+the first index of the actual subset being passed. The second integer
+gives the actual number of elements being passed.
+<p>
+A varying array can contain at most 2<small><sup>32</sup></small>-1 elements.
+<p>
+<xref href=fig14-14><a href="#tagfcjh_27">
+Uni-dimensional Varying Array Representation
+</a></xref>
+illustrates a varying array as it appears in the octet stream.
+<center>
+<img src="c7061414.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Uni-dimensional Varying Array Representation"><a name="tagfcjh_27"></a></xref>Figure: Uni-dimensional Varying Array Representation</center></b>
+<xref type="6" name="fig14-14"></xref>
+<h5><a name = "tagcjh_19_03_03_04"></a>Uni-dimensional Conformant-varying Arrays</h5>
+<index term="NDR arrays, uni-dimensional conformant-varying"></index>
+<p>
+An array can be both conformant and varying. Such arrays are called
+conformant-varying.
+<p>
+NDR represents a conformant and varying array as an ordered sequence
+of representations of the array elements, preceded by three unsigned
+long integers. The first integer gives the maximum number of elements
+in the array. The second integer gives the offset from the first index
+of the array to the first index of the actual subset being passed.
+The third integer gives the actual number of elements being passed.
+<br>
+<p>
+A conformant and varying array can contain at most
+2<small><sup>32</sup></small>-1-<i>o</i> elements, where <i>o</i> is the offset.
+The integers that
+indicate the offset and the actual count are always present, even if
+the maximum count is 0 (zero).
+<br>
+<p>
+<xref href=fig14-15><a href="#tagfcjh_28">
+Uni-dimensional Conformant and Varying Array Representation
+</a></xref>
+illustrates a conformant and varying array as it appears
+in the octet stream.
+<center>
+<img src="c7061415.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Uni-dimensional Conformant and Varying Array Representation"><a name="tagfcjh_28"></a></xref>Figure: Uni-dimensional Conformant and Varying Array Representation</center></b>
+<xref type="6" name="fig14-15"></xref>
+<h5><a name = "tagcjh_19_03_03_05"></a>Ordering of Elements in Multi-dimensional Arrays</h5>
+<index term="NDR arrays, ordering of elements in multi-dimensional"></index>
+<p>
+NDR orders multi-dimensional array elements so that the index of the
+first dimension varies slowest and the index of the last dimension
+varies fastest.
+<p>
+For example, consider an array <i>A</i> in two dimensions with indexes ranging
+from 0 to 1 in the first dimension and from 0 to 2 in the second dimension.
+NDR orders the elements of the array as follows:
+<pre>
+<dl compact><dt> <dd>
+<i>A</i>(0,0), <i>A</i>(0,1), <i>A</i>(0,2), <i>A</i>(1,0), <i>A</i>(1,1),
+<i>A</i>(1,2)
+</dl>
+</pre>
+<p>
+where the notation <i>A</i>(<i>i</i>,<i>j</i>) denotes
+the element with index <i>i</i> in the first dimension and index
+<i>j</i> in the second dimension of the array <i>A</i>.
+<h5><a name = "tagcjh_19_03_03_06"></a>Multi-dimensional Fixed Arrays</h5>
+<index term="NDR arrays, multi-dimensional fixed"></index>
+<p>
+A multi-dimensional array is fixed if, in all of its dimensions, the
+number of elements is known beforehand.
+<p>
+NDR represents fixed multi-dimensional arrays in the same format as
+fixed uni-dimensional arrays, as shown in
+<xref href=fig14-16><a href="#tagfcjh_29">
+Multi-dimensional Fixed Array Representation
+</a></xref>.
+<center>
+<img src="c7061416.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Multi-dimensional Fixed Array Representation"><a name="tagfcjh_29"></a></xref>Figure: Multi-dimensional Fixed Array Representation</center></b>
+<xref type="6" name="fig14-16"></xref>
+<h5><a name = "tagcjh_19_03_03_07"></a>Multi-dimensional Conformant Arrays</h5>
+<index term="NDR arrays, multi-dimensional conformant"></index>
+<p>
+A multi-dimensional array is conformant if the maximum size in any
+of its dimensions is not known beforehand.
+<p>
+NDR represents a multi-dimensional conformant array as an ordered sequence
+of unsigned long integers, followed by an ordered sequence of representations
+of the array elements. The sequence of integers give the maximum size in each
+dimension of the array.
+<p>
+A multi-dimensional conformant array can span at most
+2<small><sup>32</sup></small>-1 elements in each dimension.
+<p>
+<xref href=fig14-17><a href="#tagfcjh_30">
+Multi-dimensional Conformant Array Representation
+</a></xref>
+illustrates a multi-dimensional conformant array as it appears in
+the octet stream.
+<center>
+<img src="c7061417.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Multi-dimensional Conformant Array Representation"><a name="tagfcjh_30"></a></xref>Figure: Multi-dimensional Conformant Array Representation</center></b>
+<xref type="6" name="fig14-17"></xref>
+<h5><a name = "tagcjh_19_03_03_08"></a>Multi-dimensional Varying Arrays</h5>
+<index term="NDR arrays, multi-dimensional varying"></index>
+<p>
+A multi-dimensional array is varying if the actual size in any of its
+dimensions varies.
+<p>
+NDR represents a multi-dimensional varying array as an ordered sequence
+of pairs of unsigned long integers, followed by an ordered sequence of
+representations of the array elements. There is one integer pair for
+each dimension of the array. The first integer of each pair gives the
+offset from the first index in the dimension to the first index of the
+subset being passed. The second integer of each pair gives the actual
+size in the dimension for the subset being passed.
+<p>
+A multi-dimensional varying array can span at most
+2<small><sup>32</sup></small>-1 elements in each dimension.
+<p>
+<xref href=fig14-18><a href="#tagfcjh_31">
+Multi-dimensional Varying Array Representation
+</a></xref>
+illustrates a multi-dimensional varying array as it
+appears in the octet stream.
+<center>
+<img src="c7061418.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Multi-dimensional Varying Array Representation"><a name="tagfcjh_31"></a></xref>Figure: Multi-dimensional Varying Array Representation</center></b>
+<xref type="6" name="fig14-18"></xref>
+<h5><a name = "tagcjh_19_03_03_09"></a>Multi-dimensional Conformant and Varying Arrays</h5>
+<index term="NDR arrays, multi-dimensional conformant and varying"></index>
+<p>
+A multi-dimensional array can be both conformant and varying.
+<p>
+NDR represents a multi-dimensional conformant and varying array as an
+ordered sequence of unsigned long integers, followed by an ordered
+sequence of pairs of unsigned long integers, followed by an ordered
+sequence of representations of the array elements. In the sequence of
+integers, there is one integer for each dimension of the array, and
+the integers give the maximum size in each dimension. In the sequence
+of pairs of integers, there is one pair of integers for each dimension
+of the array; the first integer of each pair gives the offset from the
+first index in the dimension to the first index of the subset being
+passed, and the second integer of each pair gives the actual size in
+the dimension for the subset being passed.
+<p>
+Each dimension of a multi-dimensional conformant and varying array can
+span at most 2<small><sup>32</sup></small>-1-<i>o</i>
+elements, where <i>o</i> is the offset in that dimension.
+The integers that indicate the offsets and the actual counts are
+always present, even if one or more of the maximum counts is 0 (zero).
+<p>
+<xref href=fig14-19><a href="#tagfcjh_32">
+Multi-dimensional Conformant and Varying Array Representation
+</a></xref>
+illustrates a multi-dimensional conformant and varying
+array as it appears in the octet stream.
+<center>
+<img src="c7061419.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Multi-dimensional Conformant and Varying Array Representation"><a name="tagfcjh_32"></a></xref>Figure: Multi-dimensional Conformant and Varying Array Representation</center></b>
+<xref type="6" name="fig14-19"></xref>
+<index term="NDR constructed types, arrays"></index>
+<h4><a name = "tagcjh_19_03_04"></a>Strings</h4>
+<index term="NDR constructed types, strings"></index>
+<p>
+A string is an indexed or unindexed ordered collection of elements of
+the same type. The elements in a string must be characters, octets or
+structures all of whose elements are octets. The actual number of
+elements passed in a given call varies and therefore is included in
+the representation of the string.
+<p>
+The last element of a string is a terminator of the same size as the
+other elements. If the string element size is one octet, the
+terminator is a NULL character.
+The terminator for a string of multi-byte characters 
+is the array element zero (0).
+<p>
+<p>
+Strings can be varying or conformant and varying.
+<h5><a name = "tagcjh_19_03_04_01"></a>Varying Strings</h5>
+<index term="NDR constructed types, varying strings"></index>
+<p>
+NDR represents a varying string as an ordered sequence of
+representations of the string elements, preceded by two unsigned long
+integers. The first integer gives the offset from the first index of
+the string to the first index of the actual subset being passed. The
+second integer gives the actual number of elements being passed,
+including the terminator.
+<p>
+A varying string can contain at most 2<small><sup>32</sup></small>-1
+elements and must contain at least one element, the terminator.
+<p>
+<xref href=fig14-20><a href="#tagfcjh_33">
+Varying String Representation
+</a></xref>
+illustrates a varying string as it appears in the octet stream.
+<center>
+<img src="c7061420.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Varying String Representation"><a name="tagfcjh_33"></a></xref>Figure: Varying String Representation</center></b>
+<xref type="6" name="fig14-20"></xref>
+<h5><a name = "tagcjh_19_03_04_02"></a>Conformant and Varying Strings</h5>
+<index term="NDR constructed types, conformant and varying strings"></index>
+<p>
+A conformant and varying string is a string in which the maximum
+number of elements is not known beforehand and therefore is included in
+the representation of the string.
+<p>
+NDR represents a conformant and varying string as an ordered sequence
+of representations of the string elements, preceded by three unsigned
+long integers. The first integer gives the maximum number of elements
+in the string, including the terminator. The second integer gives the
+offset from the first index of the string to the first index of the
+actual subset being passed. The third integer gives the actual number
+of elements being passed, including the terminator.
+<p>
+A conformant and varying string can contain at most
+2<small><sup>32</sup></small>-1-<i>o</i> elements, where <i>o</i> is the offset,
+and must contain at least one element, the terminator.
+<p>
+<xref href=fig14-21><a href="#tagfcjh_34">
+Conformant and Varying String Representation
+</a></xref>
+illustrates a conformant and varying string as it appears in the
+octet stream.
+<center>
+<img src="c7061421.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Conformant and Varying String Representation"><a name="tagfcjh_34"></a></xref>Figure: Conformant and Varying String Representation</center></b>
+<xref type="6" name="fig14-21"></xref>
+<index term="NDR constructed types, strings"></index>
+<h4><a name = "tagcjh_19_03_05"></a>Arrays of Strings</h4>
+<xref type="3" name="arrays_strings"></xref>
+<index term="NDR arrays, of strings"></index>
+<p>
+NDR defines a special representation for an array whose elements are
+strings.
+<p>
+In the NDR representation of an array of strings, any conformance
+information (maximum element counts) for the strings is removed from
+the string representations and included in the conformance information for
+the array, but any variance information (offsets and actual element counts)
+for the strings remains with the string representations.
+<p>
+NDR requires that all of the strings in an array of strings have the
+same maximum element count. In the representation of the array that
+has conformance information, the maximum element count for the strings
+appears only once, following the maximum element counts for the array.
+<p>
+<xref href=fig14-22><a href="#tagfcjh_35">
+Multi-dimensional Conformant and Varying Array of Strings
+</a></xref>
+illustrates a multi-dimensional conformant and varying
+array of strings as it appears in the octet stream.
+<p>
+An array of strings can have a degenerate form of the representation in
+<xref href=fig14-22><a href="#tagfcjh_35">
+Multi-dimensional Conformant and Varying Array of Strings
+</a></xref>,
+depending on the properties of the array and of the strings, as follows:
+<ul>
+<p>
+<li>
+If the strings are conformant or if any dimension of the array is
+conformant, then the representation contains maximum element counts
+for all dimensions of the array and for the strings.
+<p>
+<li>
+If the strings are non-conformant and the array is non-conformant, then
+the representation does not contain any maximum element counts.
+<p>
+<li>
+If any dimension of the array is varying, then the representation
+contains offsets and actual counts for all dimensions of the array.
+<p>
+<li>
+If the array is non-varying, then the representation does not contain
+any offsets or actual counts for the array, although it does contain
+offsets and actual counts for the strings.
+<p>
+</ul>
+<center>
+<img src="c7061422.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Multi-dimensional Conformant and Varying Array of Strings"><a name="tagfcjh_35"></a></xref>Figure: Multi-dimensional Conformant and Varying Array of Strings</center></b>
+<xref type="6" name="fig14-22"></xref>
+<index term="NDR arrays, of strings"></index>
+<h4><a name = "tagcjh_19_03_06"></a>Structures</h4>
+<index term="NDR constructed types, structures"></index>
+<index term="NDR constructed types, structures"></index>
+<p>
+A structure is an ordered collection of members, not necessarily all
+of the same type. A structure member can be of any NDR primitive or
+constructed type. However, a conformant array can appear in a
+structure only as the last member, and a structure that contains a
+conformant array can appear in another structure only as the last
+member.
+<p>
+NDR represents a structure as an ordered sequence of representations
+of the structure members.
+<p>
+<xref href=fig14-23><a href="#tagfcjh_36">
+Structure Representation
+</a></xref>
+illustrates a structure as it appears in the octet stream.
+<center>
+<img src="c7061423.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Structure Representation"><a name="tagfcjh_36"></a></xref>Figure: Structure Representation</center></b>
+<xref type="6" name="fig14-23"></xref>
+NDR defines special representations for structures that contain some
+kinds of arrays (see
+<xref href=structures_cont_arrays><a href="#tagcjh_19_03_07">
+Structures Containing Arrays
+</a></xref>)
+and for structures that contain pointers (see
+<xref href=embedded_pointers><a href="#tagcjh_19_03_12">
+Embedded Pointers
+</a></xref>).
+<h4><a name = "tagcjh_19_03_07"></a>Structures Containing Arrays</h4>
+<xref type="3" name="structures_cont_arrays"></xref>
+<index term="NDR structures, containing arrays"></index>
+<p>
+NDR defines special representations for a structure that contains
+a conformant array or a conformant and varying array.
+<h5><a name = "tagcjh_19_03_07_01"></a>Structures Containing a Conformant Array</h5>
+<p>
+A structure can contain a conformant array only as its last member.
+<p>
+In the NDR representation of a structure that contains a conformant
+array, the unsigned long integers that give maximum element counts for
+dimensions of the array are moved to the beginning of the structure,
+and the array elements appear in place at the end of the structure.
+If a structure that contains a conformant array itself a member of
+another structure, the maximum element counts are further moved to the
+beginning of the containing structure. This construction iterates
+through all enclosing structures.
+<p>
+<xref href=fig14-24><a href="#tagfcjh_37">
+Representation of a Structure Containing a Conformant Array
+</a></xref>
+illustrates a structure containing a conformant array as
+it appears in the octet stream.
+<center>
+<img src="c7061424.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Representation of a Structure Containing a Conformant Array"><a name="tagfcjh_37"></a></xref>Figure: Representation of a Structure Containing a Conformant Array</center></b>
+<xref type="6" name="fig14-24"></xref>
+<h5><a name = "tagcjh_19_03_07_02"></a>Structures Containing a Conformant and Varying Array</h5>
+<p>
+A structure can contain a conformant and varying array only as its
+last member.
+<p>
+In the NDR representation of a structure that contains a conformant
+and varying array, the maximum counts for dimensions of the array are
+moved to the beginning of the structure, but the offsets and actual
+counts remain in place at the end of the structure, immediately
+preceding the array elements. If a structure that contains a
+conformant and varying array is itself a member of another structure,
+the maximum counts are further moved to the beginning of the
+containing structure. This construction iterates through all
+enclosing structures.
+<p>
+<xref href=fig14-25><a href="#tagfcjh_38">
+Representation of a Structure Containing a Conformant and Varying Array
+</a></xref>
+illustrates a structure containing a conformant and
+varying array as it appears in the octet stream. The offsets and
+actual counts iterate pairwise.
+<center>
+<img src="c7061425.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Representation of a Structure Containing a Conformant and Varying Array"><a name="tagfcjh_38"></a></xref>Figure: Representation of a Structure Containing a Conformant and Varying Array</center></b>
+<xref type="6" name="fig14-25"></xref>
+<index term="NDR structures, containing arrays"></index>
+<index term="NDR constructed types, structures"></index>
+<h4><a name = "tagcjh_19_03_08"></a>Unions</h4>
+<index term="NDR constructed types, unions"></index>
+<p>
+A union is a collection of members, not necessarily of the same type,
+from which one member is selected in any given instance by a discriminating
+tag. A union member can be of any NDR primitive or constructed type except
+pipes. A union tag can be of any NDR integer, character or Boolean
+type.
+<p>
+NDR represents a union as a representation of the tag followed by
+a representation of the selected member.
+<p>
+For a non-encapsulated union, the discriminant is marshalled into the
+transmitted data stream twice: once as the field or parameter, which
+is referenced by the <b>switch_is</b> construct, in the procedure argument
+list; and once as the first part of the union representation,
+as shown in
+<xref href=fig14-26><a href="#tagfcjh_39">
+Union Representation
+</a></xref>.
+<p>
+<xref href=fig14-26><a href="#tagfcjh_39">
+Union Representation
+</a></xref>
+illustrates a union as it appears in the octet stream.
+<center>
+<img src="c7061426.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Union Representation"><a name="tagfcjh_39"></a></xref>Figure: Union Representation</center></b>
+<xref type="6" name="fig14-26"></xref>
+<index term="NDR constructed types, unions"></index>
+<h4><a name = "tagcjh_19_03_09"></a>Pipes</h4>
+<index term="NDR constructed types, pipes"></index>
+<p>
+A pipe is an ordered sequence of elements, all of the same type; the
+number of elements in a pipe is determined dynamically and is
+potentially unlimited. Elements in a pipe can be of any NDR primitive
+or constructed type except pipes, conformant and/or varying arrays,
+and structures that contain conformant and/or varying arrays.
+<p>
+NDR represents a pipe as a sequence of chunks, not necessarily all
+containing the same number of elements. A chunk can contain at most
+2<small><sup>32</sup></small>-1 elements of the pipe. The number of chunks is
+potentially unlimited. NDR represents each chunk as an ordered
+sequence of representations of the elements in the chunk, preceded by
+an unsigned long integer giving the number of elements in the chunk.
+The final chunk is empty; it contains no elements and consists only of
+an unsigned long integer with the value 0 (zero).
+<p>
+The NDR representation of a pipe can be regarded as a sequence of
+representations of one-dimensional conformant arrays, of length&gt;0,
+terminated by a zero-length array.
+<p>
+A pipe cannot be an element of another pipe, an element of an array,
+a member of a structure or variant structure, or a member of a union.
+<p>
+<xref href=fig14-27><a href="#tagfcjh_40">
+Pipe Representation
+</a></xref>
+illustrates a pipe as it appears in the octet stream.
+<center>
+<img src="c7061427.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Pipe Representation"><a name="tagfcjh_40"></a></xref>Figure: Pipe Representation</center></b>
+<xref type="6" name="fig14-27"></xref>
+<index term="NDR constructed types, pipes"></index>
+<h4><a name = "tagcjh_19_03_10"></a>Pointers</h4>
+<index term="NDR constructed types, pointers"></index>
+<index term="NDR constructed types, pointers"></index>
+<p>
+NDR defines two classes of pointers that differ both in semantics
+and in representation:
+<ul>
+<p>
+<li>
+<i>reference pointers</i>, which cannot be null and cannot be aliases
+<p>
+<li>
+<i>full pointers</i>, which can be null and can be an aliases
+<p>
+<li>
+<i>unique pointers</i>, which can be null and cannot be aliases, and are
+transmitted as full pointers.
+<p>
+<p>
+</ul>
+<p>
+If a pointer points to nothing, it is null.
+<p>
+If the input and output octet streams pertaining to one remote procedure
+call contain several pointers that point to the same thing, the first
+of these pointers to be transmitted is considered primary and the
+others are considered aliases.
+<p>
+The scope of aliasing for a pointer extends to all streams transmitted
+in the service of one remote procedure call; that is, any inputs in
+the request that initiates the call, and any outputs in the response
+to the call.
+<p>
+Aliasing does not apply to null pointers.
+<p>
+We refer to pointers that are parameters in remote procedure calls as
+<i>top-level pointers</i> and we refer to pointers that are elements of
+arrays, members of structures, or members of unions as <i>embedded
+pointers</i>. NDR defines different representations for top-level and
+embedded pointers.
+<xref href=toplevel_pointers><a href="#tagcjh_19_03_11">
+Top-level Pointers
+</a></xref>
+describes the NDR representation for top-level pointers.
+<xref href=embedded_pointers><a href="#tagcjh_19_03_12">
+Embedded Pointers
+</a></xref>
+describes the NDR representation for embedded pointers.
+<h4><a name = "tagcjh_19_03_11"></a>Top-level Pointers</h4>
+<xref type="3" name="toplevel_pointers"></xref>
+<p>
+The following sections describe the NDR representation for pointers
+that are parameters in remote procedure calls.
+<h5><a name = "tagcjh_19_03_11_01"></a>Top-level Full Pointers</h5>
+<index term="NDR pointers, top-level full"></index>
+<p>
+NDR represents a null full pointer as an unsigned long integer with
+the value 0 (zero).
+<p>
+NDR represents the first instance in a octet stream of a non-null
+full pointer in two parts: the first part is a non-zero unsigned long
+integer that identifies the referent; the second part is the representation
+of the referent. NDR represents subsequent instances in the same octet
+stream of the same pointer only by the referent identifier.
+<p>
+Each referent in the input and output streams pertaining to
+one remote procedure call is associated with a referent identifier.
+A primary pointer and its aliases all have the same referent
+identifier.
+<p>
+On input to the call, if there are <i>n</i> distinct referents of full
+pointers, the <i>n</i> referent identifiers are chosen from the set of
+integers 1,&nbsp;.&nbsp;.&nbsp;.,&nbsp;<i>n</i>. On output from the call, if there are
+<i>m</i> new distinct referents, the referent identifiers for the new
+referents are chosen from the set <i>n</i>+1,&nbsp;.&nbsp;.&nbsp;.,<i>n</i>+<i>m</i>.
+Similar additions to the set of referent identifiers can also be made
+at each callback that occurs within the execution of the call.
+<p>
+These requirements extend to embedded full pointers as well.
+<p>
+<xref href=fig14-28><a href="#tagfcjh_41">
+Top-level Full Pointer Representation
+</a></xref>
+illustrates the three possible representations for
+top-level full pointers.
+<br>
+<center>
+<img src="c7061428.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Top-level Full Pointer Representation"><a name="tagfcjh_41"></a></xref>Figure: Top-level Full Pointer Representation</center></b>
+<xref type="6" name="fig14-28"></xref>
+<h5><a name = "tagcjh_19_03_11_02"></a>Top-level Reference Pointers</h5>
+<index term="NDR pointers, top level reference"></index>
+<p>
+A reference pointer cannot be null; it must point to a referent.
+<p>
+NDR represents a top-level reference pointer simply as the representation
+of its referent.
+<p>
+<xref href=fig14-29><a href="#tagfcjh_42">
+Top-level Reference Pointer Representation
+</a></xref>
+illustrates a top-level reference pointer as it appears
+in the octet stream.
+<center>
+<img src="c7061429.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Top-level Reference Pointer Representation"><a name="tagfcjh_42"></a></xref>Figure: Top-level Reference Pointer Representation</center></b>
+<xref type="6" name="fig14-29"></xref>
+<h4><a name = "tagcjh_19_03_12"></a>Embedded Pointers</h4>
+<xref type="3" name="embedded_pointers"></xref>
+<p>
+The following sections describe the NDR representation for pointers
+that are elements of arrays, members of structures or members of
+unions.
+<p>
+In the NDR representation of an embedded pointer, the representation
+of the pointer referent is sometimes deferred to a later position in
+the octet stream, while the pointer itself is always represented in
+place as part of the constructed type.
+<h5><a name = "tagcjh_19_03_12_01"></a>Embedded Full Pointers</h5>
+<index term="NDR pointers, embedded full"></index>
+<p>
+An embedded full pointer is represented by an unsigned long integer.
+If the pointer is null, the integer has the value 0 (zero). If the pointer
+is non-null, the integer is the referent identifier.
+<p>
+The representation of the referent of a primary pointer may
+be deferred to a later position in the octet stream.
+<xref href=alg_deferral_referents><a href="#tagcjh_19_03_12_03">
+Algorithm for Deferral of Referents
+</a></xref>
+describes the algorithm for deferral. Except for this possible deferral,
+the representation of an embedded full pointer is identical to that
+of a top-level full pointer.
+<p>
+<xref href=fig14-30><a href="#tagfcjh_43">
+Embedded Full Pointer Representations
+</a></xref>
+illustrates the three possible representations for
+embedded full pointers.
+<center>
+<img src="c7061430.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Embedded Full Pointer Representations"><a name="tagfcjh_43"></a></xref>Figure: Embedded Full Pointer Representations</center></b>
+<xref type="6" name="fig14-30"></xref>
+<h5><a name = "tagcjh_19_03_12_02"></a>Embedded Reference Pointers</h5>
+<index term="NDR pointers, embedded reference"></index>
+<p>
+An embedded reference pointer is represented in two parts, a 4
+octet value in place and a possibly deferred representation of the
+referent.
+<p>
+The reference pointer itself is represented by 4 octets of
+unspecified value. The four octets are aligned as if they were a long
+integer.
+<p>
+The special case of an array of reference pointers embedded in a
+structure has no NDR representation, that is; there is no 4-byte
+unspecified value transmitted.
+<p>
+The representation of the referent of the reference pointer may be
+deferred to a later position in the octet stream.
+<xref href=alg_deferral_referents><a href="#tagcjh_19_03_12_03">
+Algorithm for Deferral of Referents
+</a></xref>
+describes the algorithm for deferral.
+<p>
+<xref href=fig14-31><a href="#tagfcjh_44">
+Embedded Reference Pointer Representation
+</a></xref>
+illustrates an embedded reference pointer as it appears
+in the octet stream.
+<br>
+<center>
+<img src="c7061431.gif" border="2" align="center">
+</center>
+<b><center><xref figure="Embedded Reference Pointer Representation"><a name="tagfcjh_44"></a></xref>Figure: Embedded Reference Pointer Representation</center></b>
+<xref type="6" name="fig14-31"></xref>
+<h5><a name = "tagcjh_19_03_12_03"></a>Algorithm for Deferral of Referents</h5>
+<xref type="4" name="alg_deferral_referents"></xref>
+<index term="NDR pointers, deferral of referents for embedded pointers"></index>
+<p>
+If a pointer is embedded in an array, structure or union, the
+representation of its referent is deferred to a position in the octet
+stream that follows the representation of the construction that embeds
+the pointer. Representations of pointer referents are ordered
+according to a left-to-right, depth-first traversal of the embedding
+construction. Following is an elaboration of the deferral algorithm in
+detail:
+<ul>
+<p>
+<li>
+If an array, structure, or union embeds a pointer, the representation
+of the referent of the pointer is deferred to a position in the octet
+stream that follows the representation of the embedding construction.
+<p>
+<li>
+If an array or structure embeds more than one pointer, all pointer
+referent representations are deferred, and the order in which
+referents are represented is the order in which their pointers appear
+in place in the array or structure.
+<p>
+<li>
+If an array, structure or union embeds another array, structure or
+union, referent representations for the embedded construction are
+further deferred to a position in the octet stream that follows the
+representation of the embedding construction. The set of referent
+representations for the embedded construction is inserted among the
+referent representations for any pointers in the embedding
+construction, according to the order of elements or members in the
+embedding construction.
+<p>
+<li>
+The deferral of referent representations iterates through all
+successive embedding arrays, structures, and unions to the outermost
+array, structure or union.
+<p>
+</ul>
+<index term="NDR constructed types, pointers"></index>
+<index term="NDR constructed types"></index>
+<h3><a name = "tagcjh_19_04"></a>NDR Input and Output Streams</h3>
+<index term="NDR input and output streams"></index>
+<p>
+NDR represents the set of inputs or outputs in a remote procedure
+call as a octet stream. The octet stream consists of two parts: one
+part represents data that are pipes and the other part represents
+data that are not pipes. In the representation of a set of inputs,
+the part representing pipes appears last. In the representation of
+a set of outputs, the part representing pipes appears first.
+<p>
+Each part of the octet stream is aligned at an octet stream index that
+is a multiple of 8. To produce this alignment, a gap of octets
+of unspecified value may separate the two parts. The figures in this
+section do not show such gaps.
+<p>
+If an operation returns a result, the representation of the result
+appears after all parameters in the output stream.
+<p>
+<xref href=fig14-32><a href="#tagfcjh_45">
+NDR Input Stream
+</a></xref>
+illustrates the octet stream that represents a set of inputs.
+<center>
+<img src="c7061432.gif" border="2" align="center">
+</center>
+<b><center><xref figure="NDR Input Stream"><a name="tagfcjh_45"></a></xref>Figure: NDR Input Stream</center></b>
+<xref type="6" name="fig14-32"></xref>
+<xref href=fig14-33><a href="#tagfcjh_46">
+NDR Output Stream
+</a></xref>
+illustrates the octet stream that represents a set of outputs.
+<center>
+<img src="c7061433.gif" border="2" align="center">
+</center>
+<b><center><xref figure="NDR Output Stream"><a name="tagfcjh_46"></a></xref>Figure: NDR Output Stream</center></b>
+<xref type="6" name="fig14-33"></xref>
+<p>
+The octet stream representing a set of inputs or outputs is transmitted
+either as the body of one PDU or as the bodies of several PDUs,
+as described in
+<xref href=chap12><a href="chap12.htm#tagcjh_17">
+RPC PDU Encodings
+</a></xref>.
+<index term="NDR input and output streams"></index>
+<index term="NDR"></index>
+<index term="transfer syntax"></index>
+<hr>
+<basefont size=2>
+<blockquote>
+Please note that the html version of this specification
+may contain formatting aberrations. The definitive version
+is available as an <i>electronic publication</i> on CD-ROM
+from The Open Group.
+</blockquote>
+<font size=3>
+<p><center><table border=0 cellspacing=12><tr>
+<td align="left"><a href="toc.htm">Contents</a>
+<td align="center"><a href="apdxa.htm">Next&nbsp;section</a>
+<td align="right"><a href="docix.htm">Index</a></tr></table></center>
+</body></html>

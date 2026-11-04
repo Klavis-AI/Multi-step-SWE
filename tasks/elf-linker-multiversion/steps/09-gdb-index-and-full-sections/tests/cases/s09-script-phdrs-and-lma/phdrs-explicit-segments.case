@@ -1,0 +1,89 @@
+# arch: x86_64
+# A PHDRS command replaces the built-in segment set: two PT_LOADs with explicit
+# FLAGS(), ':name' assigning each output section to one, no other segment type.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char msg[] = "phdrs";
+int g = 5;
+int entry(void) { print(msg); print("\n"); return g; }
+C
+cc_obj m.o m.c
+cat > t.ld <<'L'
+PHDRS {
+  code PT_LOAD FLAGS(5);
+  vars PT_LOAD FLAGS(6);
+}
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }     :code
+  .rodata : { *(.rodata .rodata.*) } :code
+  . = 0x504000;
+  .data   : { *(.data .data.*) }     :vars
+}
+L
+# Control: same SECTIONS, no PHDRS and no ':name'. Links at every tag, so a
+# failure in the arm below is the PHDRS command itself.
+cat > c.ld <<'L'
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  . = 0x504000;
+  .data   : { *(.data .data.*) }
+}
+L
+link_ok ctl -T c.ld rt.o m.o
+run_expect ctl "phdrs" 5
+
+link_ok out -T t.ld rt.o m.o
+
+# Inline helpers (caselib has none for segments). A segment is located by the
+# address it covers, never by its ordinal or its permission bits.
+loads() { local t; t=$(segments "$1"); awk '/^ *LOAD /{f=""; for(i=7;i<NF;i++) f=f $i; print $3, $4, $6, f}' <<<"$t"; }
+seg_of() { # seg_of <file> <hex-addr> -> "<index> <vaddr> <paddr> <flags>"
+  local a=$((16#$2)) i=0 v p m f
+  while read -r v p m f; do
+    [ -n "$v" ] || continue
+    if [ "$a" -ge "$((v))" ] && [ "$a" -lt "$((v + m))" ]; then echo "$i $v $p $f"; return 0; fi
+    i=$((i + 1))
+  done <<<"$(loads "$1")"
+  return 1
+}
+
+ts=$(seg_of out "$(sec_addr out .text)")   || die ".text is in no PT_LOAD"
+rs=$(seg_of out "$(sec_addr out .rodata)") || die ".rodata is in no PT_LOAD"
+ds=$(seg_of out "$(sec_addr out .data)")   || die ".data is in no PT_LOAD"
+want ".text got FLAGS(5)"  "${ts##* }" "RE"
+want ".data got FLAGS(6)"  "${ds##* }" "RW"
+want ".rodata joined :code" "${rs%% *}" "${ts%% *}"
+[ "${ds%% *}" != "${ts%% *}" ] || die ".data landed in the :code segment"
+
+# The declared set replaces the built-ins entirely.
+want_not "no segment type outside PHDRS" "$(segments out)" '^ *(PHDR|GNU_RELRO|GNU_STACK) '
+run_expect out "phdrs" 5
+
+# spec/10 s.4: "the suffix may be repeated to place one section in several
+# segments". With ':code :vars' the .rodata address must fall inside both
+# PT_LOADs, while .text stays in one.
+sed 's/^\(  \.rodata .*\):code$/\1:code :vars/' t.ld > t2.ld
+grep -q ':code :vars' t2.ld || die "fixture edit did not produce a repeated :phdr suffix"
+link_ok two -T t2.ld rt.o m.o
+covers() { # covers <file> <hex-addr> -> how many PT_LOADs contain the address
+  local a=$((16#$2)) n=0 v p m f
+  while read -r v p m f; do
+    [ -n "$v" ] || continue
+    [ "$a" -ge "$((v))" ] && [ "$a" -lt "$((v + m))" ] && n=$((n + 1))
+  done <<<"$(loads "$1")"
+  echo "$n"
+}
+want ".rodata is in both named segments" "$(covers two "$(sec_addr two .rodata)")" "2"
+want ".text is still in one segment"     "$(covers two "$(sec_addr two .text)")"   "1"
+want "one repeated suffix did not add a segment" \
+     "$(loads two | grep -c .)" "$(loads out | grep -c .)"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 7

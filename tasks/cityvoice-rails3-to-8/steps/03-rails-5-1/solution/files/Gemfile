@@ -1,0 +1,90 @@
+source 'https://rubygems.org'
+
+ruby '2.4.10'
+
+# Versions move only where the framework or Ruby 2.4 forces them to.
+# Everything else stays where the 4.2 lockfile had it, because a gem that
+# changes under a migration changes the application's output for reasons the
+# migration did not ask for -- the markdown renderer, the analytics snippet
+# and the TwiML builder all emit bytes this application serves.
+#
+# Moving the pin from 5.0.7.2 to 5.1.7 is the whole of this step's Gemfile
+# change: `bundle update rails` moves four gems and no more -- arel 7 -> 8,
+# erubis -> erubi (Action View swapped its template compiler), rack-test
+# 0.6.3 -> 2.2.0, and the framework itself.  Nothing this application pins
+# caps the framework below 5.1.
+gem 'pg', '~> 0.21'                 # 0.17 does not build against a current libpq
+gem 'rails', '5.1.7'
+gem 'unicorn', '4.8.2'
+
+gem 'high_voltage', '3.0.0'         # 2.x's StaticPage concern calls hide_action
+gem 'jbuilder', '~> 2.0'            # 1.x is Rails 4.0 only
+gem 'redcarpet', '3.1.1'
+gem 'will_paginate', '~> 3.1'       # 3.0.5 predates Rails 4.1's AR changes
+
+gem 'backbone-rails', '1.1.0'
+gem 'foundation-rails', '5.2.2.0'
+gem 'jquery-rails', '~> 4.0'   # 3.1 caps railties below 5.0
+gem 'leaflet-rails', '0.7.2'
+gem 'sass-rails', '~> 5.0.7'   # 5.0.4 caps railties below 5.0
+gem 'twitter-typeahead-rails', '0.10.2'
+gem 'uglifier', '2.5.0'
+
+gem 'google-analytics-rails', '0.0.5'
+gem 'soda-ruby', '0.2.12', require: 'soda'
+gem 'twilio-ruby', '3.11.5'
+
+# Transitive pins that Ruby 2.4 forces.  nokogiri stops at 1.10 there, and
+# every loofah after 2.2 wants the Nokogiri::HTML4 namespace 1.12 introduced --
+# without these three lines the application does not load ActionView at all.
+gem 'nokogiri', '1.10.10'
+gem 'loofah', '2.2.3'
+gem 'rails-html-sanitizer', '~> 1.0'
+
+# sass-rails 5.0.7 asks only for `sass ~> 3.1`, so dropping the 4.x sass-rails
+# floats sass from 3.2.19 to 3.7.4 -- and foundation-rails 5.2.2.0 guards every
+# one of its modules with `@if (index($modules, $name) == false)`, which sass 3.3
+# broke by returning `null` rather than `false` for a miss.  Under 3.7.4 the
+# framework emits nothing and `application.css` dies on `failed to @extend
+# ".left"`.  Holding sass where the application already had it keeps the
+# stylesheet the migration was not asked to change.
+gem 'sass', '3.2.19'
+
+group :test do
+  gem 'shoulda-matchers', '~> 2.8'
+  gem 'timecop'
+  gem 'vcr'
+  gem 'webmock', '~> 2.3'
+end
+
+group :development, :test do
+  gem 'annotate'
+  gem 'capybara', '~> 2.18'
+  # teaspoon ships its runner as 20 .coffee sources and puts `teaspoon/*.js` on
+  # config.assets.precompile.  sprockets-rails 3 resolves that whole list the
+  # first time any *_path helper runs, so the CoffeeScript compiler stops being
+  # lazy the way sprockets 2 had it; without this every asset helper raises
+  # `LoadError: cannot load such file -- coffee_script`.
+  gem 'coffee-rails', '~> 4.2'
+  gem 'dotenv-rails', '~> 2.7'
+  gem 'factory_girl_rails', '~> 4.9'
+  gem 'ffaker', '2.11.0'
+  gem 'launchy'
+  gem 'pry'
+  gem 'rails-controller-testing'    # `assigns` left ActionPack in 5.0
+  gem 'rspec-its'                   # `its(...)` left rspec-core in 3.0
+  gem 'rspec-rails', '~> 3.9'       # 2.x caps activesupport below 4.2
+  gem 'teaspoon'
+end
+
+group :development do
+  gem 'foreman'
+  gem 'guard-teaspoon', '~> 0.8'
+  gem 'guard-livereload'
+  gem 'rack-livereload'
+end
+
+group :production do
+  gem 'newrelic_rpm'
+  gem 'rails_12factor'
+end

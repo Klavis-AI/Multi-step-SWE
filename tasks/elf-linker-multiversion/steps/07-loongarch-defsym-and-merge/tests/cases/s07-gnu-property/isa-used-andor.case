@@ -1,0 +1,52 @@
+# arch: x86_64
+# GNU_PROPERTY_X86_ISA_1_USED (0xc0010002) combines differently from
+# _NEEDED: its value is the union of the inputs' bits, but the property is
+# retained only when *every* relocatable input declared it.
+mkused() { # mkused <out.o> <fn> <isa-bits>
+  cat > "$2.s" <<S
+        .text
+        .globl $2
+$2:     mov \$7, %eax
+        ret
+        .section .note.gnu.property,"a",@note
+        .p2align 3
+        .long 4
+        .long 0x10
+        .long 5
+        .asciz "GNU"
+        .p2align 3
+        .long 0xc0010002        /* GNU_PROPERTY_X86_ISA_1_USED */
+        .long 4
+        .long $3
+        .long 0
+        .section .note.GNU-stack,"",@progbits
+S
+  as_obj "$1" "$2.s"
+}
+mkused u1.o ua 3   # baseline | v2
+mkused u2.o ub 5   # baseline | v3
+want_has "input u1 declares baseline and v2" "$(notes u1.o)" 'x86 ISA used:.*x86-64-v2'
+
+link_ok both -shared --no-gc-sections u1.o u2.o
+n=$(notes both)
+want_has "the union keeps the baseline bit" "$n" 'x86 ISA used:.*x86-64-baseline'
+want_has "the union keeps u1's v2 bit"      "$n" 'x86 ISA used:.*x86-64-v2'
+want_has "the union keeps u2's v3 bit"      "$n" 'x86 ISA used:.*x86-64-v3'
+# Captured first: an empty size would make the word the bare literal `16#`,
+# which bash abandons during word expansion -- the `want` would never run.
+nsz=$(sec_size both .note.gnu.property)
+[ -n "$nsz" ] || die "no .note.gnu.property in the output: $(sections both)"
+want "one 16-byte property in the note" "$(( 16#$nsz ))" "32"
+want_has "PT_GNU_PROPERTY describes it" "$(segments both)" '^ *GNU_PROPERTY '
+
+# Retention is all-or-nothing: an input with no property note at all is still
+# an input, so the type is not present in every input and is dropped.
+cat > c.c <<'C'
+int fc(int x) { return x - 1; }
+C
+cc_obj c.o c.c -fPIC
+want_not "the third input carries no property note" "$(sections c.o)" '\.note\.gnu\.property'
+link_ok mixed -shared --no-gc-sections u1.o u2.o c.o
+want_not "ISA-used dropped when an input lacks it" "$(notes mixed)" 'x86 ISA used'
+
+asserts_at_least 8

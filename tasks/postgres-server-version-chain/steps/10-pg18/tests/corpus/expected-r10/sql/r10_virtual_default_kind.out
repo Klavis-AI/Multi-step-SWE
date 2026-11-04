@@ -1,0 +1,22 @@
+CREATE TABLE r10vg2(a int, b int GENERATED ALWAYS AS (a + 1));
+INSERT INTO r10vg2(a) VALUES (7);
+SELECT a, b FROM r10vg2 ORDER BY a;
+ a | b 
+---+---
+ 7 | 8
+(1 row)
+
+SELECT attname, attgenerated FROM pg_attribute WHERE attrelid = 'r10vg2'::regclass AND attnum > 0 ORDER BY attnum;
+ attname | attgenerated 
+---------+--------------
+ a       | 
+ b       | v
+(2 rows)
+
+SELECT pg_get_expr(adbin, adrelid) FROM pg_attrdef WHERE adrelid = 'r10vg2'::regclass ORDER BY adnum;
+ pg_get_expr 
+-------------
+ (a + 1)
+(1 row)
+
+DROP TABLE r10vg2;

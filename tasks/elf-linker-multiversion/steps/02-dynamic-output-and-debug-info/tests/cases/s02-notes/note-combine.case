@@ -1,0 +1,93 @@
+# arch: x86_64
+# Notes contributed by several objects are concatenated into the output next to
+# the linker's own build-id note, every descriptor still intact, and the whole
+# lot mapped by PT_NOTE.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+secbytes() { local o s
+  o=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+3) } }' | sed -n 1p)
+  s=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+4) } }' | sed -n 1p)
+  [ -n "$o" ] || die "output has no $2 section: $(sections "$1")"
+  dd if="$1" of="$3" bs=1 skip=$(( 16#$o )) count=$(( 16#$s )) status=none
+}
+u32at() { od -An -tx4 -j "$2" -N 4 "$1" | tr -d ' \n'; }
+abi() { cat > "$1.s" <<S
+        .section .note.ABI-tag,"a",@note
+        .align 4
+        .long 4
+        .long 16
+        .long 1
+        .asciz "GNU"
+        .long 0
+        .long $2
+        .long $3
+        .long $4
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj "$1.o" "$1.s"; }
+abi na 3 2 0
+abi nb 4 9 1
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("two\n"); return 2; }
+C
+cc_obj m.o m.c
+link_ok out --build-id=0x00112233445566778899aabbccddeeff rt.o m.o na.o nb.o
+SEC=$(sections out)
+wre ".note.gnu.build-id" "$SEC" '[[:space:]]\.note\.gnu\.build-id[[:space:]]+NOTE'
+wre ".note.ABI-tag"      "$SEC" '[[:space:]]\.note\.ABI-tag[[:space:]]+NOTE'
+# Two 32-byte ABI-tag notes, concatenated, neither dropped nor merged.
+want ".note.ABI-tag size" "$(( 16#$(sec_size out '.note.ABI-tag') ))" "64"
+secbytes out .note.ABI-tag a.bin
+i=0
+for want_os in "00000003 00000002 00000000" "00000004 00000009 00000001"; do
+  b=$(( i * 32 ))
+  want "note $i n_namesz" "$(u32at a.bin $b)"        "00000004"
+  want "note $i n_descsz" "$(u32at a.bin $(( b+4 )) )" "00000010"
+  want "note $i n_type"   "$(u32at a.bin $(( b+8 )) )" "00000001"
+  want "note $i owner"    "$(dd if=a.bin bs=1 skip=$(( b+12 )) count=3 status=none)" "GNU"
+  want "note $i descriptor tail" \
+       "$(od -An -tx4 -j $(( b+20 )) -N 12 a.bin | tr -s ' ' | sed 's/^ //;s/ $//')" "$want_os"
+  i=$(( i + 1 ))
+done
+wre "readelf sees ABI 3.2.0" "$(notes out)" 'OS: Linux, ABI: 3\.2\.0'
+wre "readelf sees ABI 4.9.1" "$(notes out)" 'OS: Linux, ABI: 4\.9\.1'
+wre "readelf sees the build id" "$(notes out)" 'Build ID: 00112233445566778899aabbccddeeff'
+# Both note sections are mapped by PT_NOTE, and the note segments together
+# describe exactly the 96 bytes of notes -- whether one segment spans both
+# sections or each section gets its own.
+NSEG=$(grep -E '^ *NOTE +0x' <<<"$(segments out)")
+[ -n "$NSEG" ] || die "no PT_NOTE segment: $(segments out)"
+total=0
+while read -r _ _ va _ fsz msz _; do
+  want "PT_NOTE at $va has filesz == memsz" "$(( fsz ))" "$(( msz ))"
+  total=$(( total + $(( fsz )) ))
+done <<<"$NSEG"
+want "note segments describe every note byte" "$total" "96"
+# Coverage is checked in the file as well as in memory. An address-only check
+# (which is all this was) passes a linker that reports the right sizes and
+# addresses while its PT_NOTE maps the wrong file bytes: one segment must cover
+# the section in BOTH spaces, at the same distance from the segment's start.
+# The note bytes themselves are compared directly by secbytes/u32at above, so
+# this is the framing half of that pair rather than a second content check.
+sec_off() { sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+3); exit } }'; }
+covered() { local a=$1 s=$2 o=$3 va off fsz
+  while read -r _ off va _ fsz _; do
+    [ "$a" -ge "$(( va ))" ] && [ $(( a + s )) -le $(( $(( va )) + $(( fsz )) )) ] \
+      && [ "$o" -ge "$(( off ))" ] && [ $(( o + s )) -le $(( $(( off )) + $(( fsz )) )) ] \
+      && [ $(( a - $(( va )) )) -eq $(( o - $(( off )) )) ] && return 0
+  done <<<"$NSEG"
+  return 1
+}
+for sec in .note.gnu.build-id .note.ABI-tag; do
+  covered "$(( 16#$(sec_addr out "$sec") ))" "$(( 16#$(sec_size out "$sec") ))" \
+          "$(( 16#$(sec_off  out "$sec") ))" \
+    || die "$sec is not mapped in file and in memory by one PT_NOTE"
+done
+run_expect out "two" 2
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 18

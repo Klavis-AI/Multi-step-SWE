@@ -1,0 +1,96 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. A step's reward is
+# `correctness x mean_f( ln(max(1, speedup_f)) )` over the styles in its scope --
+# i.e. correctness x ln(geometric mean of the per-style speedups). Correctness
+# is binary and multiplies, so a tree that changes behaviour scores 0 however
+# fast it is; a correct but unimproved tree scores 0 too, because a style left
+# on the reference path contributes ln(1) = 0.
+multi_step_reward_strategy = "mean"
+
+# "build" matches a path component at ANY depth. Checked against the real tree:
+# the pinned LAMMPS checkout contains no directory named `build` at any depth
+# (`find . -type d -name build` -> 0 matches), so this removes the candidate's
+# own build directory and nothing else.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build"] },
+]
+
+[task]
+name = "harbor/lammps-intel-kernels"
+version = "1.0.0"
+description = "Optimize LAMMPS's accelerated pair kernels one style family at a time. Five cumulative milestones, each measured by the speedup of the style LAMMPS installs behind its `intel` suffix, gated on the thermodynamic trajectory staying inside the project's own regression budget."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "molecular-dynamics", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c++", "simd", "avx2", "molecular-dynamics"]
+
+[environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# The verifier builds the candidate's tree from scratch, runs each scored input
+# in both configurations, and compares. Measurement pins to a single core per
+# configuration, so cpus must stay >= 2.
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-pair-lj-cut"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "02-pair-sw"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "03-pair-tersoff"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "04-pair-lj-cut-coul-long"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "05-pair-airebo"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

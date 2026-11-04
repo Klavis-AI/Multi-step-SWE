@@ -1,0 +1,28 @@
+PREPARE r08sp1(int, text) AS SELECT JSON_OBJECT('n': $1, 't': $2 ABSENT ON NULL RETURNING jsonb);
+EXECUTE r08sp1(1,'a');
+    json_object     
+--------------------
+ {"n": 1, "t": "a"}
+(1 row)
+
+EXECUTE r08sp1(2,NULL);
+ json_object 
+-------------
+ {"n": 2}
+(1 row)
+
+PREPARE r08sp2(text) AS SELECT $1 IS JSON, $1 IS JSON OBJECT;
+EXECUTE r08sp2('{"a":1}');
+ ?column? | ?column? 
+----------+----------
+ t        | t
+(1 row)
+
+EXECUTE r08sp2('oops');
+ ?column? | ?column? 
+----------+----------
+ f        | f
+(1 row)
+
+DEALLOCATE r08sp1;
+DEALLOCATE r08sp2;

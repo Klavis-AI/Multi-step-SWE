@@ -1,0 +1,36 @@
+# arch: x86_64
+# SHF_MERGE without SHF_STRINGS must be merged too: two input sections with
+# identical bytes collapse to one copy and the symbols in them coincide.
+rt_obj rt.o
+mkconst() { # mkconst <out.o> <sym> <second quad>
+  cat > "$2.s" <<S
+        .section .mergeconst,"aM",@progbits,8
+        .globl $2
+$2:     .quad 0x1234567890abcdef
+        .quad $3
+        .section .note.GNU-stack,"",@progbits
+S
+  as_obj "$1" "$2.s"
+}
+mkconst a.o sa 0x0fedcba098765432
+mkconst b.o sb 0x0fedcba098765432
+mkconst c.o sc 0x00000000deadbeef
+in=$(sections a.o)
+want_has "the input section is SHF_MERGE without SHF_STRINGS" "$in" '\.mergeconst +PROGBITS.* AM '
+cat > m.c <<'C'
+#include "rt.h"
+extern unsigned long sa;
+int entry(void) { putdec((long)(sa >> 60)); print("\n"); return 0; }
+C
+cc_obj m.o m.c
+link_ok out --no-gc-sections rt.o m.o a.o b.o c.o
+# Three 16-byte inputs, two of them identical -> 32 bytes of output.
+want "duplicate content merged away" "$(( 0x$(sec_size out .mergeconst) ))" "32"
+want "the identical sections share an address" "$(sym_value out sa)" "$(sym_value out sb)"
+[ "$(sym_value out sa)" != "$(sym_value out sc)" ] \
+  || die "the differing section was merged with the others as well"
+want_has "the output section keeps SHF_MERGE" "$(sections out)" '\.mergeconst +PROGBITS.* AM '
+# 0x1234567890abcdef >> 60 == 1
+run_expect out "1" 0
+
+asserts_at_least 4

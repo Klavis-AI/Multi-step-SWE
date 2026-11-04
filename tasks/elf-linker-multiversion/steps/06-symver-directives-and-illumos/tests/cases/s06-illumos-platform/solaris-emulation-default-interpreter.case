@@ -1,0 +1,47 @@
+# arch: x86_64
+# -m elf_x86_64_sol2 selects the Illumos flavour of x86-64: when no
+# --dynamic-linker has been given, the output gets PT_INTERP /lib/amd64/ld.so.1.
+# With neither the emulation nor the option there is no built-in default, so the
+# same inputs produce no PT_INTERP at all. EI_OSABI and EI_ABIVERSION stay 0
+# under both emulations (spec 13 2.1: never ELFOSABI_SOLARIS).
+rt_obj rt.o
+cat > lib.c <<'C'
+int libfn(void) { return 5; }
+C
+cc_obj lib.o lib.c -fPIC
+cat > m.c <<'C'
+#include "rt.h"
+int libfn(void);
+int entry(void) { return libfn(); }
+C
+cc_obj m.o m.c
+link_ok libx.so -shared -soname libx.so lib.o
+
+# The interpreter string, without depending on how readelf frames it.
+interp_of() {
+  local t; t=$($READELF -p .interp "$1" 2>/dev/null)
+  awk '/^\[/ { sub(/^\[ *[0-9]+\] */, ""); print }' <<<"$t"
+}
+
+# 1. Solaris emulation, no --dynamic-linker: the Solaris default appears.
+link_ok sol -m elf_x86_64_sol2 --no-gc-sections rt.o m.o libx.so
+has_segment sol INTERP || die "no PT_INTERP under -m elf_x86_64_sol2: $(segments sol)"
+want "Solaris default interpreter" "$(interp_of sol)" "/lib/amd64/ld.so.1"
+want_has ".interp section present" "$(sections sol)" '\.interp +PROGBITS'
+want "EI_OSABI and EI_ABIVERSION are 0 under the Solaris emulation" \
+     "$(od -An -tu1 -j7 -N2 sol | tr -s ' ' | sed 's/^ //')" "0 0"
+want "still an ordinary ELF executable" "$(hdr sol | awk '/^ *Type:/{print $2}')" "EXEC"
+want_has "the dynamic dependency survived" "$(dynamic sol)" 'NEEDED.*libx\.so'
+
+# 2. The plain x86-64 emulation has no built-in interpreter.
+link_ok lin -m elf_x86_64 --no-gc-sections rt.o m.o libx.so
+want_not "no PT_INTERP without the Solaris emulation" "$(segments lin)" 'INTERP'
+want "EI_OSABI and EI_ABIVERSION are 0 on Linux too" \
+     "$(od -An -tu1 -j7 -N2 lin | tr -s ' ' | sed 's/^ //')" "0 0"
+
+# 3. Neither -m nor --dynamic-linker: same answer as 2.
+link_ok bare --no-gc-sections rt.o m.o libx.so
+want_not "no built-in default interpreter" "$(segments bare)" 'INTERP'
+want_not "and no .interp section either" "$(sections bare)" '\.interp'
+
+asserts_at_least 9

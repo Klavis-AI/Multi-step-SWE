@@ -1,0 +1,47 @@
+{
+  "doc": "stages/filters.geomdistance.rst, option 'dimension': 'The dimension to write the distance into bounds or polygon.' with '[Default: distance]' on the same option -- naming the dimension gdist puts exactly the same values there: 250 zeros inside the [0,4]x[0,4] square and sqrt(50) at the far corner.",
+  "files": {
+    "in.las": {
+      "fixture": "grid.las"
+    },
+    "p.json": {
+      "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.geomdistance\",\"geometry\":\"POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0))\",\"dimension\":\"gdist\"},{\"type\":\"filters.assign\",\"value\":\"Z = gdist\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"
+    }
+  },
+  "run": [
+    {
+      "argv": [
+        "pipeline",
+        "p.json"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "kind": "exit",
+      "run": 0,
+      "equals": 0
+    },
+    {
+      "kind": "las",
+      "file": "out.las",
+      "header": {
+        "point_count": 1000
+      },
+      "dims": {
+        "Z": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "approx": 7.0710678,
+            "tol": 0.011
+          },
+          "count_equal": {
+            "0": 250
+          }
+        }
+      }
+    }
+  ]
+}

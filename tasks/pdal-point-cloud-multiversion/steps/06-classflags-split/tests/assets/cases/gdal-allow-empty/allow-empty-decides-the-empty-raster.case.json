@@ -1,0 +1,26 @@
+{
+  "doc": "PROFILE.md §6.1: '`writers.gdal` `allow_empty`. Writing a raster from an empty point set becomes an option rather than an error... Both directions are graded, on a point set that really is empty.' `empty.las` is a well-formed LAS 1.2 header with a point count of 0, so the writer receives no points at all -- the condition the option is about, which the two other cases in this group (both on the 1000-point `grid.las`) cannot reach. Run 0 sets `allow_empty` **true** and gives the grid explicitly with `origin_x` -- 'X origin (lower left corner) of the grid' -- `origin_y`, `width` -- 'Number of cells in the X direction' -- and `height`, all four writers.gdal.rst's own Options, as §6.1 requires: the pipeline succeeds and `out.tif` is written. Run 1 sets it **false** with `resolution` alone -- 'Length of raster cell edges in X/Y units. [Required]' -- and the writer still refuses: non-zero exit and no `neg.tif`. §6.1 pins that refusal's diagnostic, `Unable to write GDAL data with no points`, as its one named exception to §5.3; the diagnostic is inherited rather than authored -- the 2.5.0 tree emits the same sentence on the same path with no `allow_empty` set -- so asserting it costs a conforming implementation nothing. pipeline.rst specifies the JSON array. Run 2 is run 1 with the option **left out altogether**, which is the only way the documented default is observed as a default: §6.1 states 'It is a boolean and its default is `false`', and an implementation that registered `allow_empty` but defaulted it to `true` would pass run 1 and fail here. Run 2 behaves identically at 2.5.0, so on its own it grades nothing between the anchors -- it is a third run inside this case rather than a case of its own precisely so that it cannot hand a 2.5.0 tree free credit: runs 0 and 1 both fail there on the unknown argument, so the case as a whole still fails at the pre-anchor.",
+  "files": {
+    "in.las": {"fixture": "empty.las"},
+    "yes.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.gdal\",\"filename\":\"out.tif\",\"resolution\":2.0,\"allow_empty\":true,\"origin_x\":0.0,\"origin_y\":0.0,\"width\":10,\"height\":10}]"},
+    "no.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.gdal\",\"filename\":\"neg.tif\",\"resolution\":2.0,\"allow_empty\":false}]"},
+    "default.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.gdal\",\"filename\":\"def.tif\",\"resolution\":2.0}]"}
+  },
+  "run": [
+    {"argv": ["pipeline", "yes.json"]},
+    {"argv": ["pipeline", "no.json"]},
+    {"argv": ["pipeline", "default.json"]}
+  ],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "file_exists", "file": "out.tif"},
+    {"kind": "exit", "run": 1, "nonzero": true},
+    {"kind": "file_absent", "file": "neg.tif"},
+    {"kind": "stderr_regex", "run": 1,
+     "regex": "Unable to write GDAL data with no points"},
+    {"kind": "exit", "run": 2, "nonzero": true},
+    {"kind": "file_absent", "file": "def.tif"},
+    {"kind": "stderr_regex", "run": 2,
+     "regex": "Unable to write GDAL data with no points"}
+  ]
+}

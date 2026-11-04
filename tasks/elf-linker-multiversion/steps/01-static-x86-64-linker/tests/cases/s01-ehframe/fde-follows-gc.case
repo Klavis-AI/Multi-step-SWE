@@ -1,0 +1,38 @@
+# arch: x86_64
+# .eh_frame is not copied wholesale: the FDE of a function that garbage
+# collection removed is dropped too, and the header's count follows.
+rt_obj rt.o
+cat > a.c <<'C'
+#include "rt.h"
+int kept_one(void) { print("1"); return 1; }
+int kept_two(void) { print("2"); return 2; }
+int dropped_fn(void) { print("X"); return 90; }
+C
+cat > m.c <<'C'
+int kept_one(void); int kept_two(void);
+int entry(void) { return kept_one() + kept_two(); }
+C
+cc_obj a.o a.c -fasynchronous-unwind-tables -ffunction-sections
+cc_obj m.o m.c -fasynchronous-unwind-tables
+link_ok out rt.o a.o m.o --eh-frame-hdr
+want_not "the unreferenced function was collected" "$(symbols out)" "dropped_fn"
+fdes=$($OBJDUMP --dwarf=frames out | grep -cE '^[0-9a-f]+ [0-9a-f]+ [0-9a-f]+ FDE ')
+want "one FDE per surviving function" "$fdes" "3"
+hp=$($READELF --unwind out | sed -n '1,/^\.eh_frame section/p')
+want "fde_count follows the collection" \
+     "$(printf '%s\n' "$hp" | sed -n 's/.*fde_count: *\([0-9]*\).*/\1/p')" "3"
+# every table entry must name a surviving function's address
+tbl=$(printf '%s\n' "$hp" | sed -n 's/.*initial_location: 0x0*\([0-9a-f]*\).*/\1/p' | LC_ALL=C sort)
+for s in kept_one kept_two entry; do
+  a=$(sym_value out $s | sed 's/^0*//')
+  # here-string, not a pipe: `printf ... | grep -q` races with `set -o pipefail`
+  # (grep exits on the first match, printf takes SIGPIPE, the pipeline "fails").
+  grep -qxF -- "$a" <<<"$tbl" || die "no .eh_frame_hdr entry for $s at 0x$a"
+done
+run_expect out "12" 3
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

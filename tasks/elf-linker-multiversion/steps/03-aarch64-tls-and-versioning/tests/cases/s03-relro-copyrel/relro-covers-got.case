@@ -1,0 +1,66 @@
+# arch: x86_64
+# -z relro must emit PT_GNU_RELRO covering .dynamic and .got, starting at the
+# writable LOAD segment, and stopping before the genuinely writable data:
+# every allocated writable section is either wholly inside the RELRO window or
+# wholly after it, and .data/.bss are after it.
+# NOTE: inspection output is dumped to a file and grepped there, so that no
+# assertion rides on the exit status of a pipeline ending in `grep -q`.
+rt_obj rt.o
+cat > lib.c <<'C'
+long shared_data[4] = {11, 22, 33, 44};
+long libfn(void) { return shared_data[0]; }
+C
+cc_obj lib.o lib.c -fPIC
+ld -shared -soname liby.so.1 -o liby.so lib.o 2> ld.err || die "fixture ld failed: $(tail -2 ld.err)"
+cat > m.c <<'C'
+extern long shared_data[4];
+long libfn(void);
+long mydata[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+long mybss[16];
+int entry(void) { mybss[0] = mydata[1] + shared_data[1]; return (int)(libfn() + mybss[0]); }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o liby.so -dynamic-linker /lib64/ld-linux-x86-64.so.2 -z relro
+segments out > seg.txt; sections out > sec.txt
+set -- $(awk '$1 == "GNU_RELRO" { print $3, $6; exit }' seg.txt)
+[ $# -eq 2 ] || die "no PT_GNU_RELRO segment: $(cat seg.txt)"
+rs=$(($1)); re=$((rs + $2))
+[ "$2" != "0x000000" ] || die "PT_GNU_RELRO is empty"
+# Locate the LOAD segment that contains the RELRO start address, by address
+# coverage -- never by searching for "the" RW-flagged PT_LOAD: from 0.9.0 on
+# wild emits a second writable PT_LOAD (the RELRO slice itself, FileSiz 0), so
+# a permission-only search can pick the wrong one.
+loads=$(awk '$1 == "LOAD" { print $3, $6 }' seg.txt)
+rw=""
+while read -r v m; do
+  [ -n "$v" ] || continue
+  vv=$((v)); mm=$((m))
+  [ "$rs" -ge "$vv" ] && [ "$rs" -lt "$((vv + mm))" ] && { rw=$vv; break; }
+done <<<"$loads"
+[ -n "$rw" ] || die "RELRO start $rs is not covered by any PT_LOAD: $(cat seg.txt)"
+want "RELRO starts at the writable LOAD" "$rs" "$rw"
+for s in .dynamic .got; do
+  a=$(sec_addr out $s); z=$(sec_size out $s)
+  [ -n "$a" ] || die "no $s section in the output: $(cat sec.txt)"
+  [ $((0x$a)) -ge $rs ] && [ $((0x$a + 0x$z)) -le $re ] \
+    || die "$s [0x$a +0x$z) is not inside RELRO [$rs, $re)"
+done
+for s in .data .bss; do
+  a=$(sec_addr out $s)
+  [ -n "$a" ] || die "no $s section in the output: $(cat sec.txt)"
+  [ $((0x$a)) -ge $re ] || die "$s at 0x$a is inside the RELRO window [$rs, $re)"
+done
+# No allocated writable section may straddle the RELRO boundary.
+sed -n 's/^ *\[ *[0-9]\+\] *//p' sec.txt | awk '$7 ~ /W/ && $7 ~ /A/ && $2 != "NULL" { print $1, $3, $5 }' > w.txt
+[ -s w.txt ] || die "no writable allocated sections found: $(cat sec.txt)"
+while read -r nm a z; do
+  s=$((0x$a)); e=$((0x$a + 0x$z))
+  [ $e -le $rs ] || [ $s -ge $re ] || { [ $s -ge $rs ] && [ $e -le $re ]; } \
+    || die "writable section $nm [0x$a +0x$z) straddles RELRO [$rs, $re)"
+done < w.txt
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

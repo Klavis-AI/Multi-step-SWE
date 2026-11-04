@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Verifier-owned scenario, deliberately catalog-free. Two vehicles on the
+     same road. Only "Ego" is named by the manoeuvre group's Actors; "Bystander"
+     is parked 200 m up the road and is named by nothing, so it is the control
+     for the "affects only the entity the actor names" clause.
+
+     Ego switches four different lamps at four different times:
+
+       t > 1 s : brake lights        -> on
+       t > 2 s : left indicator      -> on
+       t > 3 s : fog lights          -> off
+       t > 3 s : high beam           -> flashing
+
+     so that at t = 4 s a query has to give four different answers for four
+     different lamp types, and the untouched lamps a fifth. Stops itself at
+     5 s. -->
+<OpenSCENARIO>
+    <FileHeader revMajor="1" revMinor="2" date="2026-01-01T00:00:00" description="taskgen fixture" author="taskgen"/>
+    <ParameterDeclarations/>
+    <CatalogLocations/>
+    <RoadNetwork>
+        <LogicFile filepath="straight_500m.xodr"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Ego">
+            <Vehicle name="fixture_car" vehicleCategory="car">
+                <ParameterDeclarations/>
+                <Performance maxSpeed="69" maxAcceleration="10" maxDeceleration="10"/>
+                <BoundingBox>
+                    <Center x="1.4" y="0.0" z="0.75"/>
+                    <Dimensions width="2.0" length="5.0" height="1.5"/>
+                </BoundingBox>
+                <Axles>
+                    <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="2.98" positionZ="0.3"/>
+                    <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
+                </Axles>
+                <Properties/>
+            </Vehicle>
+        </ScenarioObject>
+        <ScenarioObject name="Bystander">
+            <Vehicle name="fixture_car2" vehicleCategory="car">
+                <ParameterDeclarations/>
+                <Performance maxSpeed="69" maxAcceleration="10" maxDeceleration="10"/>
+                <BoundingBox>
+                    <Center x="1.4" y="0.0" z="0.75"/>
+                    <Dimensions width="2.0" length="5.0" height="1.5"/>
+                </BoundingBox>
+                <Axles>
+                    <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="2.98" positionZ="0.3"/>
+                    <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
+                </Axles>
+                <Properties/>
+            </Vehicle>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <Private entityRef="Ego">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position><LanePosition roadId="1" laneId="-1" offset="0" s="20"/></Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0"/>
+                                <SpeedActionTarget><AbsoluteTargetSpeed value="10"/></SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+                <Private entityRef="Bystander">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position><LanePosition roadId="1" laneId="-1" offset="0" s="200"/></Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0"/>
+                                <SpeedActionTarget><AbsoluteTargetSpeed value="0"/></SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <Story name="Story">
+            <Act name="Act">
+                <ManeuverGroup maximumExecutionCount="1" name="Group">
+                    <Actors selectTriggeringEntities="false">
+                        <EntityRef entityRef="Ego"/>
+                    </Actors>
+                    <Maneuver name="Maneuver">
+                        <Event name="BrakeLightsOn" priority="parallel">
+                            <Action name="BrakeLightsOnAction">
+                                <PrivateAction>
+                                    <AppearanceAction>
+                                        <LightStateAction>
+                                            <LightType><VehicleLight vehicleLightType="brakeLights"/></LightType>
+                                            <LightState mode="on" luminousIntensity="1000"/>
+                                        </LightStateAction>
+                                    </AppearanceAction>
+                                </PrivateAction>
+                            </Action>
+                            <StartTrigger>
+                                <ConditionGroup>
+                                    <Condition name="At1s" delay="0" conditionEdge="none">
+                                        <ByValueCondition><SimulationTimeCondition value="1" rule="greaterThan"/></ByValueCondition>
+                                    </Condition>
+                                </ConditionGroup>
+                            </StartTrigger>
+                        </Event>
+                        <Event name="IndicatorLeftOn" priority="parallel">
+                            <Action name="IndicatorLeftOnAction">
+                                <PrivateAction>
+                                    <AppearanceAction>
+                                        <LightStateAction>
+                                            <LightType><VehicleLight vehicleLightType="indicatorLeft"/></LightType>
+                                            <LightState mode="on" luminousIntensity="800"/>
+                                        </LightStateAction>
+                                    </AppearanceAction>
+                                </PrivateAction>
+                            </Action>
+                            <StartTrigger>
+                                <ConditionGroup>
+                                    <Condition name="At2s" delay="0" conditionEdge="none">
+                                        <ByValueCondition><SimulationTimeCondition value="2" rule="greaterThan"/></ByValueCondition>
+                                    </Condition>
+                                </ConditionGroup>
+                            </StartTrigger>
+                        </Event>
+                        <Event name="FogLightsOff" priority="parallel">
+                            <Action name="FogLightsOffAction">
+                                <PrivateAction>
+                                    <AppearanceAction>
+                                        <LightStateAction>
+                                            <LightType><VehicleLight vehicleLightType="fogLights"/></LightType>
+                                            <LightState mode="off" luminousIntensity="0"/>
+                                        </LightStateAction>
+                                    </AppearanceAction>
+                                </PrivateAction>
+                            </Action>
+                            <StartTrigger>
+                                <ConditionGroup>
+                                    <Condition name="At3s" delay="0" conditionEdge="none">
+                                        <ByValueCondition><SimulationTimeCondition value="3" rule="greaterThan"/></ByValueCondition>
+                                    </Condition>
+                                </ConditionGroup>
+                            </StartTrigger>
+                        </Event>
+                        <Event name="HighBeamFlashing" priority="parallel">
+                            <Action name="HighBeamFlashingAction">
+                                <PrivateAction>
+                                    <AppearanceAction>
+                                        <LightStateAction>
+                                            <LightType><VehicleLight vehicleLightType="highBeam"/></LightType>
+                                            <LightState mode="flashing" luminousIntensity="1200" flashingOnDuration="0.5" flashingOffDuration="0.5"/>
+                                        </LightStateAction>
+                                    </AppearanceAction>
+                                </PrivateAction>
+                            </Action>
+                            <StartTrigger>
+                                <ConditionGroup>
+                                    <Condition name="At3sHighBeam" delay="0" conditionEdge="none">
+                                        <ByValueCondition><SimulationTimeCondition value="3" rule="greaterThan"/></ByValueCondition>
+                                    </Condition>
+                                </ConditionGroup>
+                            </StartTrigger>
+                        </Event>
+                    </Maneuver>
+                </ManeuverGroup>
+                <StartTrigger>
+                    <ConditionGroup>
+                        <Condition name="ActStart" delay="0" conditionEdge="none">
+                            <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                        </Condition>
+                    </ConditionGroup>
+                </StartTrigger>
+                <StopTrigger>
+                    <ConditionGroup>
+                        <Condition name="ActStop" delay="0" conditionEdge="none">
+                            <ByValueCondition><SimulationTimeCondition value="5" rule="greaterThan"/></ByValueCondition>
+                        </Condition>
+                    </ConditionGroup>
+                </StopTrigger>
+            </Act>
+        </Story>
+        <StopTrigger>
+            <ConditionGroup>
+                <Condition name="StoryboardStop" delay="0" conditionEdge="none">
+                    <ByValueCondition><SimulationTimeCondition value="5" rule="greaterThan"/></ByValueCondition>
+                </Condition>
+            </ConditionGroup>
+        </StopTrigger>
+    </Storyboard>
+</OpenSCENARIO>

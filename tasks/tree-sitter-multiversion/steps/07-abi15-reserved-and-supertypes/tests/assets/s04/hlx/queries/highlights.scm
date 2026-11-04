@@ -1,0 +1,2 @@
+(kw) @keyword
+(id) @variable

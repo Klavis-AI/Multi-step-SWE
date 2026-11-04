@@ -1,0 +1,28 @@
+CREATE TABLE x06_22a(id int, parent int);
+INSERT INTO x06_22a VALUES (1,NULL),(2,1);
+WITH RECURSIVE t(id,parent) AS (
+  SELECT id,parent FROM x06_22a WHERE parent IS NULL
+  UNION ALL SELECT g.id,g.parent FROM x06_22a g JOIN t ON g.parent=t.id
+) SEARCH DEPTH FIRST BY nosuchcol SET ord SELECT count(*) FROM t;
+ERROR:  search column "nosuchcol" not in WITH query column list
+LINE 4: ) SEARCH DEPTH FIRST BY nosuchcol SET ord SELECT count(*) FR...
+          ^
+WITH RECURSIVE t(id,parent) AS (
+  SELECT id,parent FROM x06_22a WHERE parent IS NULL
+  UNION ALL SELECT g.id,g.parent FROM x06_22a g JOIN t ON g.parent=t.id
+) SEARCH DEPTH FIRST BY id SET id SELECT count(*) FROM t;
+ERROR:  column reference "id" is ambiguous
+LINE 3: ... SELECT g.id,g.parent FROM x06_22a g JOIN t ON g.parent=t.id
+                                                                   ^
+WITH t(id) AS (SELECT 1) SEARCH DEPTH FIRST BY id SET ord SELECT * FROM t;
+ERROR:  WITH query is not recursive
+LINE 1: WITH t(id) AS (SELECT 1) SEARCH DEPTH FIRST BY id SET ord SE...
+             ^
+WITH RECURSIVE t(id,parent) AS (
+  SELECT id,parent FROM x06_22a WHERE parent IS NULL
+  UNION ALL SELECT g.id,g.parent FROM x06_22a g JOIN t ON g.parent=t.id
+) CYCLE id SET is_cycle USING is_cycle SELECT count(*) FROM t;
+ERROR:  cycle mark column name and cycle path column name are the same
+LINE 4: ) CYCLE id SET is_cycle USING is_cycle SELECT count(*) FROM ...
+          ^
+DROP TABLE x06_22a;

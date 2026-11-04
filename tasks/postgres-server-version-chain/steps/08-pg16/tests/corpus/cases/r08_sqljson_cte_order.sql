@@ -1,0 +1,8 @@
+WITH src(g, k, v) AS (VALUES (1,'b',2),(1,'a',1),(2,'c',3))
+SELECT g, JSON_ARRAYAGG(k ORDER BY k RETURNING jsonb) AS ks,
+          JSON_OBJECTAGG(k: v RETURNING jsonb) AS kv
+  FROM src GROUP BY g ORDER BY g;
+WITH src(v) AS (VALUES (1),(NULL),(3))
+SELECT JSON_ARRAYAGG(v ORDER BY v NULLS LAST ABSENT ON NULL RETURNING jsonb) FROM src;
+WITH src(t) AS (VALUES ('{"a":1}'),('nope'))
+SELECT t, t IS JSON, t IS JSON OBJECT FROM src ORDER BY t;

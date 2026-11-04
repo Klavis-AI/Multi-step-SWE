@@ -1,0 +1,53 @@
+How environment/docs/ was produced: the build stage below fetches each
+document from its official source, checks it against the pinned sha256,
+and makes the text conversions. The resulting files are stored in docs/
+and copied in directly. Re-run these steps to refresh a document.
+
+# Reference documentation for the agent (the agent phase has no network).
+# Fetched at build time from the official sources, pinned by sha256; only
+# /opt/docs leaves this stage. The Postfix and Dovecot release tarballs are
+# unpacked here for their documentation files alone; no source reaches the image.
+FROM debian:bookworm-slim AS docs
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl groff-base \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    fetch() { out="$1"; sum="$2"; shift 2; \
+      for u in "$@"; do \
+        if curl -fsSL --retry 3 --max-time 600 -o "$out" "$u" \
+           && echo "$sum  $out" | sha256sum -c -; then return 0; fi; \
+      done; return 1; }; \
+    D=/opt/docs; mkdir -p /tmp/dl; cd /tmp/dl; \
+    mkdir -p $D/rfc $D/postfix-3.8.6 $D/dovecot-2.3.21; \
+    for p in \
+        1035:d14ae809fc9b41bbcae26bb38c937c9515808b944f3252b00de9fe0e95f4fdfb \
+        2047:f3b1356151ae24d616076880115c5ac0c313a88bcbe76d32d0cacf4b5f24f01d \
+        6698:daecd0cdee8d8b8896c8f463c95237d32d42bbe1ecfc1c65a232cb1300d3f668 \
+        7617:bc941321da9912fbb1bc92ad1820848ddfd3283dbfbc30f26ea2800bdaf541db \
+        8601:5b4508b7c948c1a296ef2e010a2d65f55635adb8a667f70420c4f479265586fb; do \
+      fetch "$D/rfc/rfc${p%%:*}.txt" "${p#*:}" \
+            "https://www.rfc-editor.org/rfc/rfc${p%%:*}.txt"; \
+    done; \
+    fetch postfix.tar.gz 4b6e17c826cc438cc3016a9c0a55ea7e77c6cbafba7dd57241d81b690b0e9774 \
+          http://ftp.porcupine.org/mirrors/postfix-release/official/postfix-3.8.6.tar.gz \
+          https://archive.mgm51.com/mirrors/postfix-source/official/postfix-3.8.6.tar.gz; \
+    for f in postfix.1 postconf.5 master.5 transport.5 virtual.8 DATABASE_README; do \
+      tar -xzf postfix.tar.gz -O "postfix-3.8.6/html/$f.html" > "$D/postfix-3.8.6/$f.html"; \
+      test -s "$D/postfix-3.8.6/$f.html"; \
+    done; \
+    fetch dovecot.tar.gz 05b11093a71c237c2ef309ad587510721cc93bbee6828251549fc1586c36502d \
+          https://dovecot.org/releases/2.3/dovecot-2.3.21.tar.gz; \
+    tar -xzf dovecot.tar.gz dovecot-2.3.21/doc/wiki dovecot-2.3.21/doc/example-config \
+        dovecot-2.3.21/doc/man/dovecot.1.in; \
+    find dovecot-2.3.21/doc/wiki -type f ! -name '*.txt' -delete; \
+    find dovecot-2.3.21/doc/example-config -type f -name 'Makefile.*' -delete; \
+    cp -r dovecot-2.3.21/doc/wiki dovecot-2.3.21/doc/example-config $D/dovecot-2.3.21/; \
+    sed 's|@pkgsysconfdir@|/etc/dovecot|g' dovecot-2.3.21/doc/man/dovecot.1.in > dovecot.1; \
+    groff -t -man -Tutf8 -P-cbou dovecot.1 > $D/dovecot-2.3.21/dovecot.1.txt; \
+    test -s $D/dovecot-2.3.21/dovecot.1.txt; \
+    test -s $D/dovecot-2.3.21/wiki/MailboxFormat.Maildir.txt; \
+    cd /; rm -rf /tmp/dl; \
+    find $D -type f -empty | { ! grep .; }; \
+    (cd $D && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > /tmp/SHA256SUMS) && mv /tmp/SHA256SUMS $D/SHA256SUMS; \
+    du -sh $D

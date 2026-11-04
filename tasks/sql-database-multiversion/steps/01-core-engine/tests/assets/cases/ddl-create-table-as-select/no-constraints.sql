@@ -1,0 +1,7 @@
+CREATE TABLE src(a INTEGER PRIMARY KEY NOT NULL, b TEXT UNIQUE);
+INSERT INTO src VALUES(1,'p'),(2,'q');
+CREATE TABLE copy AS SELECT a AS a, b AS b FROM src ORDER BY a;
+INSERT INTO copy VALUES(1,'p');
+INSERT INTO copy VALUES(NULL,NULL);
+SELECT count(*) FROM copy;
+SELECT count(*) FROM sqlite_master WHERE type = 'index';

@@ -1,0 +1,52 @@
+# Step 07 -- C-5's frozen population: every HttpURLConnection/URLConnection
+# record on the input tree, tagged by what this step asks of it.
+#
+#   move   the 14 records in ServletMethodExecutor.java. This is the file the
+#          migration line's "java.net.http" bullet is about: one method,
+#          `execute(String)`, that opens a URLConnection, casts it to
+#          HttpURLConnection, disables caching, polls for a 200 and
+#          disconnects. Java 11's HttpClient/HttpRequest/HttpResponse replace
+#          all of it.
+#   hold   the 3 records in CDIInjectionEnricherTestCase.java. NOT a migration
+#          site and NOT scored: it is an anonymous `new URLConnection(u){...}`
+#          stub used as a test fixture for injection, there is no HttpClient
+#          shape for it, and `java.net.URLConnection` is not deprecated. It is
+#          published as gate.c5.cdistub so a trajectory analysis can see it,
+#          and the instrument against deleting it is family A and family B's
+#          test gates, not this one.
+#
+# THE 3 HOLDS ARE WHY C-5 IS SCOPED BY FILE. An earlier draft asked for
+# `http.legacyref == 0` tree-wide; the golden reads 3, because those three are
+# irreducible, and the gate would have scored the finished migration at zero.
+# Verified site by site before the finding was drawn from it: line 179 is the
+# stub's return type, line 181 is the `new URLConnection(u){...}` itself and is
+# counted twice -- once as the NewClass and once as the anonymous class's
+# supertype. NOTES 12.13.
+#
+# Scoped by FILE and not by <file>#<method>, for the other half of the same
+# reason: `execute` is a private method whose body is entirely replaced, a
+# candidate who splits it into `send` and `awaitOk` has done the migration, and
+# a bucket-scoped arrival half would score that tree 0.
+#
+# followRedirects is listed with the move records because it is the one
+# BEHAVIOUR in the pair that is not carried over by spelling: HttpURLConnection
+# follows redirects by default and HttpClient does not, so a migration that
+# does not name the policy has changed what the code does. C-5 pays 0.75 for
+# the move and the last 0.25 for naming it.
+hold testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java:179 form=legacytype name=java.net.URLConnection in=createDeployment
+hold testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java:181 form=legacytype name=java.net.URLConnection in=createDeployment
+hold testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java:181 form=legacytype name=java.net.URLConnection in=createDeployment
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:112 form=legacycall name=getResponseCode in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:112 form=legacytype name=java.net.HttpURLConnection in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:116 form=legacycall name=getResponseCode in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:116 form=legacycall name=getResponseMessage in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:129 form=legacycall name=disconnect in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:86 form=legacycall name=openConnection in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:86 form=legacytype name=java.net.URLConnection in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:87 form=legacytype name=java.net.HttpURLConnection in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:91 form=legacytype name=java.net.HttpURLConnection in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:91 form=legacytype name=java.net.HttpURLConnection in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:92 form=legacycall name=setUseCaches in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:93 form=legacycall name=setDefaultUseCaches in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:97 form=legacycall name=getResponseCode in=execute
+move protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:97 form=legacytype name=java.net.HttpURLConnection in=execute

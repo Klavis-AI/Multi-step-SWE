@@ -1,0 +1,25 @@
+// DESC: Options named with a parenthesised extension followed by dotted field paths
+syntax = "proto2";
+package c2.options.uninterpreted_option_shapes;
+
+import "google/protobuf/descriptor.proto";
+
+// Options whose names use the parenthesised-extension form followed by dotted
+// field paths, which exercises UninterpretedOption name-part parsing.
+message Outer {
+  optional Inner inner = 1;
+  message Inner {
+    optional int32 leaf = 1;
+    optional Inner deeper = 2;
+  }
+}
+
+extend google.protobuf.MessageOptions { optional Outer outer_opt = 51001; }
+extend google.protobuf.FieldOptions { optional Outer.Inner inner_opt = 51002; }
+
+message Target {
+  option (outer_opt).inner.leaf = 5;
+  option (outer_opt).inner.deeper.leaf = 6;
+  optional int32 a = 1 [(inner_opt).leaf = 7];
+  optional int32 b = 2 [(inner_opt).deeper.deeper.leaf = 8];
+}

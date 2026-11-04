@@ -1,0 +1,24 @@
+{
+  "doc": "stages/writers.copc.rst: 'The **COPC Writer** supports writing to `COPC format`_ files.' and stages/readers.copc.rst: 'The **COPC Reader** supports reading from `COPC format`_ files.' -- the step-04 milestone still runs: a COPC write/read round trip keeps the point count and the X/Y/Z of the 10x10x10 lattice. Asserted order-independently, because the order a COPC file stores its points in is what step 05 changes.",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "write.json": {"text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"out.copc.laz\"}]}"},
+    "read.json": {"text": "{\"pipeline\":[{\"type\":\"readers.copc\",\"filename\":\"out.copc.laz\"},{\"type\":\"writers.las\",\"filename\":\"back.las\"}]}"}
+  },
+  "run": [
+    {"argv": ["pipeline", "write.json"]},
+    {"argv": ["pipeline", "read.json"]}
+  ],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "exit", "run": 1, "equals": 0},
+    {"kind": "copc", "file": "out.copc.laz", "point_count": {"equals": 1000}},
+    {"kind": "las", "file": "back.las",
+     "header": {"point_count": 1000},
+     "dims": {
+       "X": {"min": {"equals": 0.0}, "max": {"equals": 9.0}, "mean": {"approx": 4.5, "tol": 1e-9}},
+       "Y": {"min": {"equals": 0.0}, "max": {"equals": 9.0}, "mean": {"approx": 4.5, "tol": 1e-9}},
+       "Z": {"min": {"equals": 0.0}, "max": {"equals": 9.0}, "mean": {"approx": 4.5, "tol": 1e-9}}
+     }}
+  ]
+}

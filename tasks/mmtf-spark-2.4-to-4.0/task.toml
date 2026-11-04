@@ -1,0 +1,154 @@
+schema_version = "1.4"
+
+# Task reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Nothing is excluded: the verifier rebuilds the tree
+# from source anyway, and a target/ left behind is visible to it.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/mmtf-spark-2.4-to-4.0"
+version = "1.0.0"
+description = "Migrate sbl-sdsc/mmtf-spark from Spark 2.4 to Spark 3.4 on Scala 2.13 and JDK 17 in five cumulative steps, holding a 140-job recorded behavior suite (141 from step 5) byte-identical at every step."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["spark", "scala", "java", "migration", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["spark", "jvm", "migration", "multi-step"]
+
+[environment]
+# The agent image carries the starting toolchain (JDK 8, Maven, Spark 2.4.8),
+# the four LTS JDKs and the untouched repository; no later-step Spark
+# distribution is installed.
+#
+# An hour, because the Spark distribution comes from archive.apache.org and
+# archive.apache.org rate-limits a single connection to about 200 KB/s, which
+# makes one 236 MB download take more than 20 minutes on a single stream.
+# toolchain/fetch.sh pulls a large file in six ranged pieces, which brings that
+# download to about 8 minutes; this budget is the margin for a day when the
+# limiter is slower.
+build_timeout_sec = 3600.0
+# Seven, so the pod places on a GKE e2-standard-8. The recordings were taken at
+# this quota with -XX:ActiveProcessorCount=1 per job, and the suite is only
+# comparable against them at the same width.
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench. The image is nonetheless
+# self-sufficient -- every dependency is baked in or mirrored locally -- so a
+# slow or missing network changes nothing about what is scored.
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# The verifier replays 140 recorded jobs, so this image is sized for the corpus
+# rather than for the agent.
+#
+# Same hour, for the same reason and one more: this image fetches its own Spark
+# from the same rate limiter, and it also unpacks a 19 MB corpus and warms a
+# Maven repository on top.
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local 0-1>} to reward.json, always, and
+# exits 0. No min_reward anywhere: a zero never stops the run.
+[[steps]]
+# The Scala 2.12 fence and the Spark 3.0 move are one step.
+name = "01-spark-30"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (TEMPLATE_STEP_TIMEOUT_SEC).
+timeout_sec = 7200.0
+[steps.verifier]
+# 60-minute hard cap; the measured figure is logged per step.
+timeout_sec = 3600.0
+
+[[steps]]
+# The rung does not move here: step 1 landed on Spark 3.0.3 / Scala 2.12 and
+# step 2 stays there, so environment/ is byte-identical to step 1's and the
+# whole of the step is which engine runs work the tree already does.
+name = "02-rdd-to-dataset"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (TEMPLATE_STEP_TIMEOUT_SEC).
+timeout_sec = 7200.0
+[steps.verifier]
+# 60-minute hard cap; the measured figure is logged per step.
+timeout_sec = 3600.0
+
+[[steps]]
+# The first step that moves the rung: 3.0.3 -> 3.2.4, two releases in one step
+# because the census says nothing between them breaks (c02 -> c04 is 138 SAME /
+# 2 VAL / 0 RC). The verifier image is therefore a different one
+# from steps 1 and 2 -- mmtf-rung-r04 rather than r02 -- and the recordings the
+# replay is compared against were taken on it. This step's adaptive-execution
+# and statistical-aggregate requirements are standing rules rather than graded
+# milestones: they are true of a tree that changed nothing, because the replay
+# submits through the image's Spark and spark-core is `provided`.
+name = "03-spark-32"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (TEMPLATE_STEP_TIMEOUT_SEC).
+timeout_sec = 7200.0
+[steps.verifier]
+# 60-minute hard cap; the measured figure is logged per step.
+timeout_sec = 3600.0
+
+[[steps]]
+# 3.2.4 -> 3.3.4, and the fence is the smaller half. Both halves of it are
+# behaviourally silent -- rung-diff c04 -> c05b is SAME=140, and the same tree at
+# 3.3.4 with spark.sql.ansi.enabled forced on every job is SAME=140 after
+# projection -- so the version move is priced as a gate at 0.10
+# and the milestone is the entry point: 63 programs that open by handing a
+# SparkConf to a JavaSparkContext each get one SparkSession of their own,
+# built where that program starts, with its context derived from that session
+# and the ANSI dialect switched on. That consolidation is what makes the six
+# rungs above this one affordable; without it every session setting the ladder
+# needs costs 63 edits. The verifier image moves again, to mmtf-rung-r05, and
+# the recordings are the c05b census taken on it.
+name = "04-session-entry-point"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (TEMPLATE_STEP_TIMEOUT_SEC).
+timeout_sec = 7200.0
+[steps.verifier]
+# 60-minute hard cap; the measured figure is logged per step.
+timeout_sec = 3600.0
+
+[[steps]]
+# The widest step on the ladder: 3.3.4 -> 3.4.4 on the Spark axis, _2.12 ->
+# _2.13 on the build axis and JDK 8 -> 17 on the runtime axis, all at once. The
+# census says the three together are almost inert -- c05b -> c09 is SAME=138,
+# one VALUE (JEP 358's helpful-NPE text) and one RC (DatasetClassifier
+# recovering at 3.4.4) -- and the suite says otherwise: at JDK 17 one
+# IllegalAccessError on sun.nio.ch.DirectBuffer takes out 256 tests until
+# surefire's argLine carries Spark's own module options. So the version move is
+# a gate rather than a family, and the graded subject is what the readers pin:
+# at 3.4.4 CSVOptions.preferDate makes a bare inferSchema read a date column as
+# DateType where 3.3.4 read TimestampType, so every csv read under src/main
+# that asks the engine to infer has to pin preferDate=false at the site. The
+# value is the requirement and not just the option: preferDate=true states
+# 3.4's new behaviour where this step asks the old one to be held, and a read
+# that stops inferring at all -- deleted, or handed a declared schema -- has
+# left the requirement rather than met it. The verifier image moves to
+# mmtf-rung-r09 and the recordings are the c09 census taken on it.
+name = "05-spark-34-jdk17"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (TEMPLATE_STEP_TIMEOUT_SEC).
+timeout_sec = 7200.0
+[steps.verifier]
+# 60-minute hard cap; the measured figure is logged per step.
+timeout_sec = 3600.0

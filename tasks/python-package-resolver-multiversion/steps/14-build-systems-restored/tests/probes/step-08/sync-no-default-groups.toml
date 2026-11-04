@@ -1,0 +1,31 @@
+# PROFILE.md 8 `uv sync` and `uv tree` flags: `--no-default-groups` "disables
+# every dependency group that would otherwise be enabled by default, `dev`
+# included". The fixture declares the default `dev` group with a distribution
+# of its own, so the observation that distinguishes an implementation honouring
+# the flag is that the group's distribution is absent from the environment the
+# run leaves behind; one that ignores the flag installs it and fails.
+id = "sync-no-default-groups"
+step = 8
+group = "project-command-flags"
+python = "3.12"
+mode = "bare"
+argv = ["sync", "--no-default-groups"]
+observe = ["status", "glob:.venv/lib/python3.12/site-packages/*.dist-info"]
+timeout = 300
+
+[files]
+"pyproject.toml" = """
+[project]
+name = "proj"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = []
+
+[dependency-groups]
+dev = ["leafpkg"]
+
+[tool.uv]
+index-url = "{INDEX}"
+"""
+
+[index.packages.leafpkg.versions."1.0.0"]

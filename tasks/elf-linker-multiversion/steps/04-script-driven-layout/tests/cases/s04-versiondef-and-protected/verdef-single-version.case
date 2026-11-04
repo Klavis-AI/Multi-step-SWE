@@ -1,0 +1,41 @@
+# arch: x86_64
+# what: a --version-script that names a version node makes the shared object
+# define that version: a .gnu.version_d section with a BASE entry and the named
+# entry, DT_VERDEF/DT_VERDEFNUM pointing at it, and sym@@VERS in .dynsym.
+dtag() { dynamic "$1" | sed -n "s/.*($2)[[:space:]]*//p" | head -1 | awk '{print $1}'; }
+cat > v.c <<'C'
+int pub_one(void) { return 1; }
+int pub_two(void) { return 2; }
+int hidden_one(void) { return 3; }
+C
+cc_obj v.o v.c -fPIC
+cat > v.map <<'M'
+VERS_1.0 { global: pub_one; pub_two; local: *; };
+M
+link_ok libv.so -shared --version-script v.map -soname libv.so.1 v.o
+# The version *definition* section has to exist and be of type VERDEF.
+want ".gnu.version_d is VERDEF" \
+  "$(sections libv.so | awk '{for(i=1;i<=NF;i++) if ($i==".gnu.version_d") {print $(i+1); exit}}')" \
+  "VERDEF"
+want ".gnu.version is VERSYM" \
+  "$(sections libv.so | awk '{for(i=1;i<=NF;i++) if ($i==".gnu.version") {print $(i+1); exit}}')" \
+  "VERSYM"
+# Dynamic tags must agree with the sections that were written.
+want "DT_VERDEF == addr(.gnu.version_d)" \
+  "$(( $(dtag libv.so VERDEF) ))" "$(( 16#$(sec_addr libv.so .gnu.version_d) ))"
+want "DT_VERSYM == addr(.gnu.version)" \
+  "$(( $(dtag libv.so VERSYM) ))" "$(( 16#$(sec_addr libv.so .gnu.version) ))"
+# One BASE record plus the one version the script defines.
+want "DT_VERDEFNUM" "$(( $(dtag libv.so VERDEFNUM) ))" "2"
+V=$(vernum libv.so)
+want "verdef entry count" "$(printf '%s\n' "$V" | grep -cE "^ *0x[0-9a-f]+: +Rev:")" "2"
+want "BASE record names the soname" \
+  "$(printf '%s\n' "$V" | grep -cE 'Flags: BASE +Index: 1 +Cnt: 1 +Name: libv\.so\.1')" "1"
+want "VERS_1.0 is index 2" \
+  "$(printf '%s\n' "$V" | grep -cE 'Flags: none +Index: 2 +Cnt: 1 +Name: VERS_1\.0')" "1"
+# The exported symbols carry that version; the local one is not exported.
+D=$(dynsyms libv.so)
+want "pub_one@@VERS_1.0"   "$(printf '%s\n' "$D" | grep -c 'pub_one@@VERS_1\.0')" "1"
+want "pub_two@@VERS_1.0"   "$(printf '%s\n' "$D" | grep -c 'pub_two@@VERS_1\.0')" "1"
+want "hidden_one not exported" "$(printf '%s\n' "$D" | grep -c 'hidden_one')" "0"
+asserts_at_least 11

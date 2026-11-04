@@ -1,0 +1,32 @@
+CREATE TABLE q2_esb(a int, b int);
+CREATE STATISTICS q2_esb_nd (ndistinct) ON a, b FROM q2_esb;
+CREATE STATISTICS q2_esb_dep (dependencies) ON a, b FROM q2_esb;
+SELECT stxname, stxkind::text FROM pg_statistic_ext
+  WHERE stxname IN ('q2_esb_nd','q2_esb_dep') ORDER BY stxname;
+  stxname   | stxkind 
+------------+---------
+ q2_esb_dep | {f}
+ q2_esb_nd  | {d}
+(2 rows)
+
+SELECT attname FROM pg_attribute WHERE attrelid = 'pg_statistic_ext'::regclass
+  AND attnum > 0 ORDER BY attnum;
+    attname    
+---------------
+ oid
+ stxrelid
+ stxname
+ stxnamespace
+ stxowner
+ stxstattarget
+ stxkeys
+ stxkind
+(8 rows)
+
+DROP TABLE q2_esb;
+SELECT count(*) FROM pg_statistic_ext WHERE stxname IN ('q2_esb_nd','q2_esb_dep');
+ count 
+-------
+     0
+(1 row)
+

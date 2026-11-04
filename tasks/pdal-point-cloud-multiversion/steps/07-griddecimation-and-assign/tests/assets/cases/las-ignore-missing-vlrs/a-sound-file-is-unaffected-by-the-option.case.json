@@ -1,0 +1,31 @@
+{
+ "doc": "PROFILE.md 7.1: '**`readers.las` `ignore_missing_vlrs`.** Lets the reader carry on past a VLR it cannot use instead of refusing the file. By default `readers.las` refuses a file whose VLR block it cannot walk to the end — a record header that runs off the end of the file, or a record whose declared payload length runs past the start of the point data — and writes no output. With the option set the reader stops reading VLRs at that record, keeps the ones it already has, and returns the file's points normally.'  stages/readers.las.rst carries the reader's VLR Options -- `ignore_vlr` ('A comma-separated list of \"userid/record_id\" pairs specifying VLR records that should not be loaded.') and the options beside it -- but ships no sentence for `ignore_missing_vlrs`; that gap is recorded in EVIDENCE and the option is specified in the profile instead.  The option only takes effect on a VLR block the reader cannot walk, so on a sound cloud it changes nothing: all one thousand points are still read.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\", \"ignore_missing_vlrs\": true}, {\"type\": \"writers.text\", \"filename\": \"out.csv\", \"format\": \"csv\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "file_text_regex",
+   "file": "out.csv",
+   "regex": "(?m)^9\\.000,9\\.000,9\\.000,"
+  }
+ ]
+}

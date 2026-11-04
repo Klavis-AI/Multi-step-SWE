@@ -1,0 +1,44 @@
+# arch: x86_64
+# what: a thin archive carries member paths rather than member data, and the
+# linker must resolve those paths relative to the archive's own location, not
+# relative to its working directory.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int thin_a(void); int thin_b(void);
+int entry(void) { return thin_a() + thin_b(); }
+C
+cc_obj m.o m.c
+mkdir -p libs
+cat > libs/ta.c <<'C'
+int thin_a(void) { return 20; }
+C
+cat > libs/tb.c <<'C'
+int thin_b(void) { return 3; }
+C
+cat > libs/unused.c <<'C'
+int thin_unused(void) { return 99; }
+C
+cc_obj libs/ta.o libs/ta.c; cc_obj libs/tb.o libs/tb.c; cc_obj libs/unused.o libs/unused.c
+# Build the thin archive from inside libs/ so the stored member names are bare
+# file names that only resolve against the archive's own directory.
+( cd libs && rm -f libthin.a && $AR crsT libthin.a ta.o tb.o unused.o ) 2> ar.err \
+  || die "creating thin archive failed: $(tail -2 ar.err | tr '\n' ' ')"
+want "archive is thin" "$(head -c 7 libs/libthin.a)" '!<thin>'
+# A thin archive holds no member data, so it must stay far smaller than its
+# members -- this is what forces the linker to go and open the member files.
+asz=$(stat -c %s libs/libthin.a); msz=$(stat -c %s libs/ta.o)
+[ "$asz" -lt "$msz" ] || die "libthin.a ($asz bytes) is not thinner than ta.o ($msz)"
+link_ok out --no-gc-sections rt.o m.o libs/libthin.a
+seen() { symbols "$1" | awk -v n="$2" '$8 == n { c++ } END { print c + 0 }'; }
+want "thin_a pulled from the thin archive" "$(seen out thin_a)" "1"
+want "thin_b pulled from the thin archive" "$(seen out thin_b)" "1"
+want "unreferenced member not pulled in"   "$(seen out thin_unused)" "0"
+want "thin_a is defined" \
+  "$(symbols out | awk '$8=="thin_a"{print ($7=="UND")?"UND":"def"}')" "def"
+run_expect out "" 23
+# The same archive found through the library search path must behave identically.
+link_ok out2 --no-gc-sections rt.o m.o -Llibs -l:libthin.a
+run_expect out2 "" 23
+want "searched thin archive pulls thin_b" "$(seen out2 thin_b)" "1"
+asserts_at_least 6

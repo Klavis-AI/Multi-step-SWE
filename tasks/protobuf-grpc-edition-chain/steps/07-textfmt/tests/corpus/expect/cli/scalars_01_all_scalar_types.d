@@ -1,0 +1,1 @@
+/dev/null: scalars/01_all_scalar_types.proto

@@ -1,0 +1,50 @@
+# Match start-up optimisations when a pattern begins with a positive
+# lookahead, and the implicit anchoring of a leading .* inside one.
+# PCRE2_NO_START_OPTIMIZE is not set for any pattern here, so the start-up
+# optimisations are active throughout.
+
+# A character required inside the leading assertion must not also be demanded
+# of the subject as a second, separate occurrence.
+/(?=.*X)X$/I
+Capturing subpattern count = 0
+First code unit = 'X'
+Subject length lower bound = 1
+    abcdX
+ 0: X
+    X
+ 0: X
+\= Expect no match
+    abcd
+No match
+
+# A .* at the start of an assertion is not an indication that the match itself
+# begins at the subject start or immediately after a newline.
+/(?=.*b)\w\w/I
+Capturing subpattern count = 0
+Subject length lower bound = 2
+    --ab
+ 0: ab
+
+/(?=.*[A-Z])(?=.{6,12})(?!.*[\s])\w+/I
+Capturing subpattern count = 0
+Subject length lower bound = 1
+    --pqrsTu
+ 0: pqrsTu
+
+# With PCRE2_DOTALL set and PCRE2_NO_DOTSTAR_ANCHOR not set, a .* inside a
+# leading positive lookahead does not implicitly anchor the pattern.
+/(?=.*b)ab/s,I
+Capturing subpattern count = 0
+Options: dotall
+First code unit = 'a'
+Last code unit = 'b'
+Subject length lower bound = 2
+    zzab
+ 0: ab
+
+/(?=.*9)\d\d/s,I
+Capturing subpattern count = 0
+Options: dotall
+Subject length lower bound = 2
+    pq7879
+ 0: 78

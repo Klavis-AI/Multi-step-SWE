@@ -1,0 +1,3905 @@
+diff --git a/client/ctclient/ctclient.go b/client/ctclient/ctclient.go
+index 76835129..e2ab94fd 100644
+--- a/client/ctclient/ctclient.go
++++ b/client/ctclient/ctclient.go
+@@ -45,7 +45,7 @@ var (
+ 	useDNS    = flag.Bool("dns", false, "Use DNS access points for inclusion checking (requires --log_name or --dns_base)")
+ 	logName   = flag.String("log_name", "", "Name of log to retrieve information from --log_list for")
+ 	logList   = flag.String("log_list", loglist.LogListURL, "Location of master log list (URL or filename)")
+-	logURI    = flag.String("log_uri", "http://ct.googleapis.com/rocketeer", "CT log base URI")
++	logURI    = flag.String("log_uri", "https://ct.googleapis.com/rocketeer", "CT log base URI")
+ 	logMMD    = flag.Duration("log_mmd", 24*time.Hour, "Log's maximum merge delay")
+ 	pubKey    = flag.String("pub_key", "", "Name of file containing log's public key")
+ 	certChain = flag.String("cert_chain", "", "Name of file containing certificate chain as concatenated PEM files")
+@@ -361,7 +361,6 @@ func main() {
+ 			}
+ 			log.Fatalf("Multiple logs with name like %q found in loglist: %s", *logName, strings.Join(logNames, ","))
+ 		}
+-		// TODO(drysdale): what if a log is http:// only?
+ 		uri = "https://" + logs[0].URL
+ 		if *useDNS {
+ 			dns = logs[0].DNSAPIEndpoint
+diff --git a/client/logclient.go b/client/logclient.go
+index df063038..a79ef308 100644
+--- a/client/logclient.go
++++ b/client/logclient.go
+@@ -19,7 +19,6 @@ package client
+ 
+ import (
+ 	"context"
+-	"crypto/sha256"
+ 	"encoding/base64"
+ 	"fmt"
+ 	"net/http"
+@@ -45,7 +44,7 @@ type CheckLogClient interface {
+ 
+ // New constructs a new LogClient instance.
+ // |uri| is the base URI of the CT log instance to interact with, e.g.
+-// http://ct.googleapis.com/pilot
++// https://ct.googleapis.com/pilot
+ // |hc| is the underlying client to be used for HTTP requests to the CT log.
+ // |opts| can be used to provide a custom logger interface and a public key
+ // for signature verification.
+@@ -177,35 +176,16 @@ func (c *LogClient) GetSTH(ctx context.Context) (*ct.SignedTreeHead, error) {
+ 		}
+ 		return nil, err
+ 	}
+-	sth := ct.SignedTreeHead{
+-		TreeSize:  resp.TreeSize,
+-		Timestamp: resp.Timestamp,
+-	}
+-
+-	if len(resp.SHA256RootHash) != sha256.Size {
+-		return nil, RspError{
+-			Err:        fmt.Errorf("sha256_root_hash is invalid length, expected %d got %d", sha256.Size, len(resp.SHA256RootHash)),
+-			StatusCode: httpRsp.StatusCode,
+-			Body:       body,
+-		}
+-	}
+-	copy(sth.SHA256RootHash[:], resp.SHA256RootHash)
+ 
+-	var ds ct.DigitallySigned
+-	if rest, err := tls.Unmarshal(resp.TreeHeadSignature, &ds); err != nil {
++	sth, err := resp.ToSignedTreeHead()
++	if err != nil {
+ 		return nil, RspError{Err: err, StatusCode: httpRsp.StatusCode, Body: body}
+-	} else if len(rest) > 0 {
+-		return nil, RspError{
+-			Err:        fmt.Errorf("trailing data (%d bytes) after DigitallySigned", len(rest)),
+-			StatusCode: httpRsp.StatusCode,
+-			Body:       body,
+-		}
+ 	}
+-	sth.TreeHeadSignature = ds
+-	if err := c.VerifySTHSignature(sth); err != nil {
++
++	if err := c.VerifySTHSignature(*sth); err != nil {
+ 		return nil, RspError{Err: err, StatusCode: httpRsp.StatusCode, Body: body}
+ 	}
+-	return &sth, nil
++	return sth, nil
+ }
+ 
+ // VerifySTHSignature checks the signature in sth, returning any error encountered or nil if verification is
+@@ -289,3 +269,21 @@ func (c *LogClient) GetAcceptedRoots(ctx context.Context) ([]ct.ASN1Cert, error)
+ 	}
+ 	return roots, nil
+ }
++
++// GetEntryAndProof returns a log entry and audit path for the index of a leaf.
++func (c *LogClient) GetEntryAndProof(ctx context.Context, index, treeSize uint64) (*ct.GetEntryAndProofResponse, error) {
++	base10 := 10
++	params := map[string]string{
++		"leaf_index": strconv.FormatUint(index, base10),
++		"tree_size":  strconv.FormatUint(treeSize, base10),
++	}
++	var resp ct.GetEntryAndProofResponse
++	httpRsp, body, err := c.GetAndParse(ctx, ct.GetEntryAndProofPath, params, &resp)
++	if err != nil {
++		if httpRsp != nil {
++			return nil, RspError{Err: err, StatusCode: httpRsp.StatusCode, Body: body}
++		}
++		return nil, err
++	}
++	return &resp, nil
++}
+diff --git a/client/logclient_test.go b/client/logclient_test.go
+index 42453791..e3ca7430 100644
+--- a/client/logclient_test.go
++++ b/client/logclient_test.go
+@@ -86,6 +86,15 @@ const (
+ 		]
+ 	}`
+ 	GetSTHConsistencyResp = `{ "consistency": [ "IqlrapPQKtmCY1jCr8+lpCtscRyjjZAA7nyadtFPRFQ=", "ytf6K2GnSRZ3Au+YkivCb7N1DygfKyZmE4aEs9OXl\/8=" ] }`
++	GetEntryAndProofResp  = `{
++    "leaf_input": "AAAAAAFhw8UTtQAAAAJ1MIICcTCCAhegAwIBAgIFAN6tvu8wCgYIKoZIzj0EAwIwcjELMAkGA1UEBhMCR0IxDzANBgNVBAgTBkxvbmRvbjEPMA0GA1UEBxMGTG9uZG9uMQ8wDQYDVQQKEwZHb29nbGUxDDAKBgNVBAsTA0VuZzEiMCAGA1UEAxMZRmFrZUludGVybWVkaWF0ZUF1dGhvcml0eTAgFw0xNjEyMDcxNTEzMzZaGA8wMDAxMDEwMTAwMDAwMFowVjELMAkGA1UEBhMCR0IxDzANBgNVBAgMBkxvbmRvbjEPMA0GA1UECgwGR29vZ2xlMQwwCgYDVQQLDANFbmcxFzAVBgNVBAMMDmxlYWYwMS5jc3IucGVtMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE6zdOUkWcRtWouMXtWLkwKaZwimmgJlyeL264ayNshOFGOpg2gkSliheLQYIy9C3gCFt+BzhS/EdWKCeb7WCLrKOBszCBsDAPBgNVHQ8BAf8EBQMDB/mAMIGLBgNVHQ4EgYMEgYBPRBC+90lR8pRLbTi3ID4j0WRzjoJOT3MGkKko87o8z6gEifk9zCwOiHeIgclTA0ZUTxXMRI5r+nUY0frjRCWZu4uthPlE90iJM+RyjcNTwDJGu2StvLnJ8y4t5fdnwdGssncXiBQMuM7/1eMEwAOfHgTFzJ0UBC2Umztl0hul3zAPBgNVHSMECDAGgAQBAgMEMAoGCCqGSM49BAMCA0gAMEUCIQCrwywGKvyt/BwR+e7yDs78qt4sSEVJltv7Y0W6gOI5awIgQ+IAjejYivLEfqNufFRezCBWHWhbq/HHGdNQtv6EArkAAA==",
++		"extra_data": "RXh0cmEK",
++		"audit_path": [
++		"pMumx96PIUB3TX543ljlpQ/RgZRqitRfykupIZrXq0Q=",
++		"5s2NQWkjmesu+Kqgp70TCwVLwq8obpHw/JyMGwN56pQ=",
++		"7VelXijfmGFSl62BWIsG8LRmxJGBq9XP8FxmszuT2Cg="
++		] 
++  }`
+ )
+ 
+ func b64(s string) []byte {
+@@ -712,3 +721,69 @@ func TestGetAcceptedRootsErrors(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestGetEntryAndProof(t *testing.T) {
++	hs := serveRspAt(t, "/ct/v1/get-entry-and-proof", GetEntryAndProofResp)
++	defer hs.Close()
++	lc, err := client.New(hs.URL, &http.Client{}, jsonclient.Options{})
++	if err != nil {
++		t.Fatalf("Failed to create client: %v", err)
++	}
++
++	tests := []struct {
++		index    uint64
++		treesize uint64
++	}{
++		{1000, 2000},
++	}
++
++	for _, test := range tests {
++		resp, err := lc.GetEntryAndProof(context.Background(), test.index, test.treesize)
++		if err != nil {
++			t.Errorf("GetEntryAndProof(%v, %v)=nil,%v; want proof,nil", test.index, test.treesize, err)
++		} else if got := len(resp.AuditPath); got < 1 {
++			t.Errorf("len(GetEntryAndProof(%v, %v)): %v; want > 1", test.index, test.treesize, got)
++		}
++	}
++}
++
++func TestGetEntryAndProofErrors(t *testing.T) {
++	ctx := context.Background()
++	var tests = []struct {
++		rsp, want string
++	}{
++		{rsp: "", want: "EOF"},
++		{rsp: "not-json", want: "invalid"},
++		{rsp: `{"leaf_input": "bogus", "extra_data": "Z29vZAo=", "audit_path": ["Z29vZAo="]}`, want: "illegal base64"},
++		{rsp: `{"leaf_input": "Z29vZAo=", "extra_data": "bogus", "audit_path": ["Z29vZAo="]}`, want: "illegal base64"},
++		{rsp: `{"leaf_input": "Z29vZAo=", "extra_data": "Z29vZAo=", "audit_path": ["bogus"]}`, want: "illegal base64"},
++		{rsp: `{"leaf_input": "Z29vZAo=", "extra_data": "Z29vZAo=", "audit_path": ["bbbb",]}`, want: "invalid"},
++	}
++
++	for _, test := range tests {
++		ts := serveRspAt(t, "/ct/v1/get-entry-and-proof", test.rsp)
++		defer ts.Close()
++		lc, err := client.New(ts.URL, &http.Client{}, jsonclient.Options{})
++		if err != nil {
++			t.Errorf("Failed to create client: %v", err)
++			continue
++		}
++		got, err := lc.GetEntryAndProof(ctx, 99, 100)
++		if err == nil {
++			t.Errorf("GetEntryAndProof()=%+v, nil; want nil, %q", got, test.want)
++		} else if !strings.Contains(err.Error(), test.want) {
++			t.Errorf("GetEntryAndProof()=nil, %q; want nil, %q", err, test.want)
++		}
++		if got != nil {
++			t.Errorf("GetEntryAndProof()=%+v, _; want nil, _", got)
++		}
++		if len(test.rsp) > 0 {
++			// Expect the error to include the HTTP response
++			if rspErr, ok := err.(client.RspError); !ok {
++				t.Errorf("GetEntryAndProof()=nil, .(%T); want nil, .(RspError)", err)
++			} else if string(rspErr.Body) != test.rsp {
++				t.Errorf("GetEntryAndProof()=nil, .Body=%q; want nil, .Body=%q", rspErr.Body, test.rsp)
++			}
++		}
++	}
++}
+diff --git a/ctutil/sctscan/sctscan.go b/ctutil/sctscan/sctscan.go
+index 0f10beff..41213f9a 100644
+--- a/ctutil/sctscan/sctscan.go
++++ b/ctutil/sctscan/sctscan.go
+@@ -35,7 +35,7 @@ import (
+ )
+ 
+ var (
+-	logURI        = flag.String("log_uri", "http://ct.googleapis.com/pilot", "CT log base URI")
++	logURI        = flag.String("log_uri", "https://ct.googleapis.com/pilot", "CT log base URI")
+ 	logList       = flag.String("log_list", loglist.LogListURL, "Location of master CT log list (URL or filename)")
+ 	useDNS        = flag.Bool("dns", true, "Use DNS access points for inclusion checking")
+ 	inclusion     = flag.Bool("inclusion", false, "Whether to do inclusion checking")
+@@ -44,7 +44,6 @@ var (
+ 	numWorkers    = flag.Int("num_workers", 2, "Number of concurrent matchers")
+ 	parallelFetch = flag.Int("parallel_fetch", 2, "Number of concurrent GetEntries fetches")
+ 	startIndex    = flag.Int64("start_index", 0, "Log index to start scanning at")
+-	quiet         = flag.Bool("quiet", false, "Don't print out extra logging messages, only matches.")
+ )
+ 
+ func main() {
+@@ -93,7 +92,6 @@ func main() {
+ 			BatchSize:     *batchSize,
+ 			ParallelFetch: *parallelFetch,
+ 			StartIndex:    *startIndex,
+-			Quiet:         *quiet,
+ 		},
+ 		Matcher:    EmbeddedSCTMatcher{},
+ 		NumWorkers: *numWorkers,
+diff --git a/jsonclient/client.go b/jsonclient/client.go
+index 4896d7ac..c34fa833 100644
+--- a/jsonclient/client.go
++++ b/jsonclient/client.go
+@@ -53,7 +53,7 @@ type backoffer interface {
+ // JSONClient provides common functionality for interacting with a JSON server
+ // that uses cryptographic signatures.
+ type JSONClient struct {
+-	uri        string                // the base URI of the server. e.g. http://ct.googleapis/pilot
++	uri        string                // the base URI of the server. e.g. https://ct.googleapis/pilot
+ 	httpClient *http.Client          // used to interact with the server via HTTP
+ 	Verifier   *ct.SignatureVerifier // nil for no verification (e.g. no public key available)
+ 	logger     Logger                // interface to use for logging warnings and errors
+diff --git a/preload/preloader/preloader.go b/preload/preloader/preloader.go
+index 31bebc04..5ec510c2 100644
+--- a/preload/preloader/preloader.go
++++ b/preload/preloader/preloader.go
+@@ -21,12 +21,12 @@ import (
+ 	"flag"
+ 	"io"
+ 	"io/ioutil"
+-	"log"
+ 	"net/http"
+ 	"os"
+ 	"sync"
+ 	"time"
+ 
++	"github.com/golang/glog"
+ 	ct "github.com/google/certificate-transparency-go"
+ 	"github.com/google/certificate-transparency-go/client"
+ 	"github.com/google/certificate-transparency-go/jsonclient"
+@@ -35,15 +35,14 @@ import (
+ )
+ 
+ var (
+-	sourceLogURI         = flag.String("source_log_uri", "http://ct.googleapis.com/aviator", "CT log base URI to fetch entries from")
+-	targetLogURI         = flag.String("target_log_uri", "http://example.com/ct", "CT log base URI to add entries to")
++	sourceLogURI         = flag.String("source_log_uri", "https://ct.googleapis.com/aviator", "CT log base URI to fetch entries from")
++	targetLogURI         = flag.String("target_log_uri", "https://example.com/ct", "CT log base URI to add entries to")
+ 	targetTemporalLogCfg = flag.String("target_temporal_log_cfg", "", "File holding temporal log configuration")
+ 	batchSize            = flag.Int("batch_size", 1000, "Max number of entries to request at per call to get-entries")
+ 	numWorkers           = flag.Int("num_workers", 2, "Number of concurrent matchers")
+ 	parallelFetch        = flag.Int("parallel_fetch", 2, "Number of concurrent GetEntries fetches")
+ 	parallelSubmit       = flag.Int("parallel_submit", 2, "Number of concurrent add-[pre]-chain requests")
+ 	startIndex           = flag.Int64("start_index", 0, "Log index to start scanning at")
+-	quiet                = flag.Bool("quiet", false, "Don't print out extra logging messages, only matches.")
+ 	sctInputFile         = flag.String("sct_file", "", "File to save SCTs & leaf data to")
+ 	precertsOnly         = flag.Bool("precerts_only", false, "Only match precerts")
+ )
+@@ -81,11 +80,11 @@ func sctDumper(addedCerts <-chan *preload.AddedCert, sctWriter io.Writer) {
+ 		if encoder != nil {
+ 			err := encoder.Encode(c)
+ 			if err != nil {
+-				log.Fatalf("failed to encode to %s: %v", *sctInputFile, err)
++				glog.Fatalf("failed to encode to %s: %v", *sctInputFile, err)
+ 			}
+ 		}
+ 	}
+-	log.Printf("Added %d certs, %d failed, total: %d\n", numAdded, numFailed, numAdded+numFailed)
++	glog.Infof("Added %d certs, %d failed, total: %d\n", numAdded, numFailed, numAdded+numFailed)
+ }
+ 
+ func certSubmitter(ctx context.Context, addedCerts chan<- *preload.AddedCert, logClient client.AddLogClient, certs <-chan *ct.LogEntry) {
+@@ -95,14 +94,12 @@ func certSubmitter(ctx context.Context, addedCerts chan<- *preload.AddedCert, lo
+ 		copy(chain[1:], c.Chain)
+ 		sct, err := logClient.AddChain(ctx, chain)
+ 		if err != nil {
+-			log.Printf("failed to add chain with CN %s: %v\n", c.X509Cert.Subject.CommonName, err)
++			glog.Errorf("failed to add chain with CN %s: %v\n", c.X509Cert.Subject.CommonName, err)
+ 			recordFailure(addedCerts, chain[0], err)
+ 			continue
+ 		}
+ 		recordSct(addedCerts, chain[0], sct)
+-		if !*quiet {
+-			log.Printf("Added chain for CN '%s', SCT: %s\n", c.X509Cert.Subject.CommonName, sct)
+-		}
++		glog.V(2).Infof("Added chain for CN '%s', SCT: %s\n", c.X509Cert.Subject.CommonName, sct)
+ 	}
+ }
+ 
+@@ -113,25 +110,25 @@ func precertSubmitter(ctx context.Context, addedCerts chan<- *preload.AddedCert,
+ 		copy(chain[1:], c.Chain)
+ 		sct, err := logClient.AddPreChain(ctx, chain)
+ 		if err != nil {
+-			log.Printf("failed to add pre-chain with CN %s: %v", c.Precert.TBSCertificate.Subject.CommonName, err)
++			glog.Errorf("failed to add pre-chain with CN %s: %v", c.Precert.TBSCertificate.Subject.CommonName, err)
+ 			recordFailure(addedCerts, chain[0], err)
+ 			continue
+ 		}
+ 		recordSct(addedCerts, chain[0], sct)
+-		if !*quiet {
+-			log.Printf("Added precert chain for CN '%s', SCT: %s\n", c.Precert.TBSCertificate.Subject.CommonName, sct)
+-		}
++		glog.V(2).Infof("Added precert chain for CN '%s', SCT: %s\n", c.Precert.TBSCertificate.Subject.CommonName, sct)
+ 	}
+ }
+ 
+ func main() {
+ 	flag.Parse()
++	glog.CopyStandardLogTo("WARNING")
++
+ 	var sctFileWriter io.Writer
+ 	var err error
+ 	if *sctInputFile != "" {
+ 		sctFile, err := os.Create(*sctInputFile)
+ 		if err != nil {
+-			log.Fatalf("Failed to create SCT file: %v", err)
++			glog.Exitf("Failed to create SCT file: %v", err)
+ 		}
+ 		defer sctFile.Close()
+ 		sctFileWriter = sctFile
+@@ -143,7 +140,7 @@ func main() {
+ 	defer func() {
+ 		err := sctWriter.Close()
+ 		if err != nil {
+-			log.Fatalf("Failed to close SCT file: %v", err)
++			glog.Exitf("Failed to close SCT file: %v", err)
+ 		}
+ 	}()
+ 
+@@ -162,7 +159,7 @@ func main() {
+ 		Transport: transport,
+ 	}, jsonclient.Options{})
+ 	if err != nil {
+-		log.Fatalf("Failed to create client for source log: %v", err)
++		glog.Exitf("Failed to create client for source log: %v", err)
+ 	}
+ 
+ 	opts := scanner.ScannerOptions{
+@@ -170,7 +167,6 @@ func main() {
+ 			BatchSize:     *batchSize,
+ 			ParallelFetch: *parallelFetch,
+ 			StartIndex:    *startIndex,
+-			Quiet:         *quiet,
+ 		},
+ 		Matcher:     scanner.MatchAll{},
+ 		PrecertOnly: *precertsOnly,
+@@ -194,16 +190,16 @@ func main() {
+ 	if *targetTemporalLogCfg != "" {
+ 		cfg, err := client.TemporalLogConfigFromFile(*targetTemporalLogCfg)
+ 		if err != nil {
+-			log.Fatalf("Failed to load temporal log config: %v", err)
++			glog.Exitf("Failed to load temporal log config: %v", err)
+ 		}
+ 		submitLogClient, err = client.NewTemporalLogClient(*cfg, &http.Client{Transport: transport})
+ 		if err != nil {
+-			log.Fatalf("Failed to create client for destination temporal log: %v", err)
++			glog.Exitf("Failed to create client for destination temporal log: %v", err)
+ 		}
+ 	} else {
+ 		submitLogClient, err = client.New(*targetLogURI, &http.Client{Transport: transport}, jsonclient.Options{})
+ 		if err != nil {
+-			log.Fatalf("Failed to create client for destination log: %v", err)
++			glog.Exitf("Failed to create client for destination log: %v", err)
+ 		}
+ 	}
+ 
+diff --git a/scanner/fetcher.go b/scanner/fetcher.go
+index 44e428a9..26eb1424 100644
+--- a/scanner/fetcher.go
++++ b/scanner/fetcher.go
+@@ -16,12 +16,14 @@ package scanner
+ 
+ import (
+ 	"context"
+-	"fmt"
+-	"log"
++	"errors"
+ 	"sync"
++	"time"
+ 
++	"github.com/golang/glog"
+ 	ct "github.com/google/certificate-transparency-go"
+ 	"github.com/google/certificate-transparency-go/client"
++	"github.com/google/trillian/client/backoff"
+ )
+ 
+ // FetcherOptions holds configuration options for the Fetcher.
+@@ -37,8 +39,9 @@ type FetcherOptions struct {
+ 	StartIndex int64
+ 	EndIndex   int64
+ 
+-	// Don't print any status messages to default logger.
+-	Quiet bool
++	// Continuous determines whether Fetcher should run indefinitely after
++	// reaching EndIndex.
++	Continuous bool
+ }
+ 
+ // DefaultFetcherOptions returns new FetcherOptions with sensible defaults.
+@@ -48,7 +51,7 @@ func DefaultFetcherOptions() *FetcherOptions {
+ 		ParallelFetch: 1,
+ 		StartIndex:    0,
+ 		EndIndex:      0,
+-		Quiet:         false,
++		Continuous:    false,
+ 	}
+ }
+ 
+@@ -61,9 +64,8 @@ type Fetcher struct {
+ 
+ 	// Current STH of the Log this Fetcher sends queries to.
+ 	sth *ct.SignedTreeHead
+-
+-	// TODO(pavelkalinnikov): Consider log.Logger instead.
+-	Log func(msg string)
++	// The STH retrieval backoff state. Used only in Continuous fetch mode.
++	sthBackoff *backoff.Backoff
+ }
+ 
+ // EntryBatch represents a contiguous range of entries of the Log.
+@@ -81,25 +83,26 @@ type fetchRange struct {
+ // NewFetcher creates a Fetcher instance using client to talk to the log,
+ // taking configuration options from opts.
+ func NewFetcher(client *client.LogClient, opts *FetcherOptions) *Fetcher {
+-	fetcher := &Fetcher{client: client, opts: opts}
+-	if opts.Quiet {
+-		fetcher.Log = func(msg string) {}
+-	} else {
+-		fetcher.Log = func(msg string) { log.Print(msg) }
+-	}
+-	return fetcher
++	return &Fetcher{client: client, opts: opts}
+ }
+ 
+-// Prepare caches the latest Log's STH in the Fetcher and returns it. It also
++// Prepare caches the latest Log's STH if not present and returns it. It also
+ // adjusts the entry range to fit the size of the tree.
+ func (f *Fetcher) Prepare(ctx context.Context) (*ct.SignedTreeHead, error) {
++	if f.sth != nil {
++		return f.sth, nil
++	}
++
+ 	sth, err := f.client.GetSTH(ctx)
+ 	if err != nil {
+-		return nil, fmt.Errorf("GetSTH() failed: %v", err)
++		glog.Errorf("GetSTH() failed: %v", err)
++		return nil, err
+ 	}
+-	f.Log(fmt.Sprintf("Got STH with %d certs", sth.TreeSize))
+-	if f.opts.EndIndex == 0 || f.opts.EndIndex > int64(sth.TreeSize) {
+-		f.opts.EndIndex = int64(sth.TreeSize)
++	glog.Infof("Got STH with %d certs", sth.TreeSize)
++
++	if size := int64(sth.TreeSize); f.opts.EndIndex == 0 || f.opts.EndIndex > size {
++		glog.Warningf("Reset EndIndex from %d to %d", f.opts.EndIndex, size)
++		f.opts.EndIndex = size
+ 	}
+ 	f.sth = sth
+ 	return sth, nil
+@@ -109,12 +112,9 @@ func (f *Fetcher) Prepare(ctx context.Context) (*ct.SignedTreeHead, error) {
+ // context is cancelled. For each successfully fetched batch, runs the fn
+ // callback.
+ func (f *Fetcher) Run(ctx context.Context, fn func(EntryBatch)) error {
+-	f.Log("Starting up Fetcher...\n")
+-
+-	if f.sth == nil {
+-		if _, err := f.Prepare(ctx); err != nil {
+-			return err
+-		}
++	glog.V(1).Info("Starting up Fetcher...")
++	if _, err := f.Prepare(ctx); err != nil {
++		return err
+ 	}
+ 
+ 	ranges := f.genRanges(ctx)
+@@ -125,12 +125,14 @@ func (f *Fetcher) Run(ctx context.Context, fn func(EntryBatch)) error {
+ 		wg.Add(1)
+ 		go func(idx int) {
+ 			defer wg.Done()
++			glog.V(1).Infof("Starting up Fetcher worker %d...", idx)
+ 			f.runWorker(ctx, ranges, fn)
+-			f.Log(fmt.Sprintf("Fetcher worker %d finished", idx))
++			glog.V(1).Infof("Fetcher worker %d finished", idx)
+ 		}(w)
+ 	}
+ 	wg.Wait()
+ 
++	glog.V(1).Info("Fetcher terminated")
+ 	return nil
+ }
+ 
+@@ -138,27 +140,80 @@ func (f *Fetcher) Run(ctx context.Context, fn func(EntryBatch)) error {
+ // sends things down this channel. The goroutine terminates when all ranges
+ // have been generated, or if context is cancelled.
+ func (f *Fetcher) genRanges(ctx context.Context) <-chan fetchRange {
+-	start, end := f.opts.StartIndex, f.opts.EndIndex
+ 	batch := int64(f.opts.BatchSize)
+-
+ 	ranges := make(chan fetchRange)
++
+ 	go func() {
+ 		defer close(ranges)
++		start, end := f.opts.StartIndex, f.opts.EndIndex
++
+ 		for start < end {
+-			batchEnd := min(start+batch, end)
++			batchEnd := start + min(end-start, batch)
+ 			next := fetchRange{start, batchEnd - 1}
+ 			select {
+ 			case <-ctx.Done():
+-				f.Log(fmt.Sprintf("genRanges cancelled: %v", ctx.Err()))
++				glog.Warningf("Cancelling genRanges: %v", ctx.Err())
+ 				return
+ 			case ranges <- next:
+ 			}
+ 			start = batchEnd
++
++			if start == end && f.opts.Continuous {
++				if err := f.updateSTH(ctx); err != nil {
++					glog.Warningf("STH update cancelled: %v", err)
++					return
++				}
++				end = f.opts.EndIndex
++			}
+ 		}
+ 	}()
++
+ 	return ranges
+ }
+ 
++// updateSTH waits until a bigger STH is discovered, and updates the Fetcher
++// accordingly. It is optimized for both bulk-load (new STH is way bigger then
++// the last one) and keep-up (STH grows slowly) modes of operation. Waits for
++// some time until the STH grows enough to request a full batch, but falls back
++// to *any* STH bigger than the old one if it takes too long.
++// Returns error only if the context is cancelled.
++func (f *Fetcher) updateSTH(ctx context.Context) error {
++	// TODO(pavelkalinnikov): Make these parameters tunable.
++	const quickDur = 45 * time.Second
++	if f.sthBackoff == nil {
++		f.sthBackoff = &backoff.Backoff{
++			Min:    1 * time.Second,
++			Max:    30 * time.Second,
++			Factor: 2,
++			Jitter: true,
++		}
++	}
++
++	lastSize := uint64(f.opts.EndIndex)
++	targetSize := lastSize + uint64(f.opts.BatchSize)
++	quickDeadline := time.Now().Add(quickDur)
++
++	return f.sthBackoff.Retry(ctx, func() error {
++		sth, err := f.client.GetSTH(ctx)
++		if err != nil {
++			return err
++		}
++		glog.V(2).Infof("Got STH with %d certs", sth.TreeSize)
++
++		quick := time.Now().Before(quickDeadline)
++		if sth.TreeSize <= lastSize || quick && sth.TreeSize < targetSize {
++			return errors.New("waiting for bigger STH")
++		}
++
++		if quick {
++			f.sthBackoff.Reset() // Growth is presumably fast, set next pause to Min.
++		}
++		f.sth = sth
++		f.opts.EndIndex = int64(sth.TreeSize)
++		return nil
++	})
++}
++
+ // runWorker is a worker function for handling fetcher ranges.
+ // Accepts cert ranges to fetch over the ranges channel, and if the fetch is
+ // successful sends the corresponding EntryBatch through the fn callback. Will
+@@ -170,12 +225,12 @@ func (f *Fetcher) runWorker(ctx context.Context, ranges <-chan fetchRange, fn fu
+ 		for r.start <= r.end {
+ 			// Fetcher.Run() can be cancelled while we are looping over this job.
+ 			if err := ctx.Err(); err != nil {
+-				f.Log(fmt.Sprintf("Context closed: %v", err))
++				glog.Warningf("Worker context closed: %v", err)
+ 				return
+ 			}
+ 			resp, err := f.client.GetRawEntries(ctx, r.start, r.end)
+ 			if err != nil {
+-				f.Log(fmt.Sprintf("GetRawEntries() failed: %v", err))
++				glog.Errorf("GetRawEntries() failed: %v", err)
+ 				// TODO(pavelkalinnikov): Introduce backoff policy and pause here.
+ 				continue
+ 			}
+diff --git a/scanner/scanlog/scanlog.go b/scanner/scanlog/scanlog.go
+index ebe6d6a0..efcbe804 100644
+--- a/scanner/scanlog/scanlog.go
++++ b/scanner/scanlog/scanlog.go
+@@ -39,7 +39,7 @@ const (
+ )
+ 
+ var (
+-	logURI = flag.String("log_uri", "http://ct.googleapis.com/aviator", "CT log base URI")
++	logURI = flag.String("log_uri", "https://ct.googleapis.com/aviator", "CT log base URI")
+ 
+ 	matchSubjectRegex = flag.String("match_subject_regex", ".*", "Regex to match CN/SAN")
+ 	matchIssuerRegex  = flag.String("match_issuer_regex", "", "Regex to match in issuer CN")
+@@ -56,7 +56,6 @@ var (
+ 	startIndex    = flag.Int64("start_index", 0, "Log index to start scanning at")
+ 	endIndex      = flag.Int64("end_index", 0, "Log index to end scanning at (non-inclusive, 0 = end of log)")
+ 
+-	quiet       = flag.Bool("quiet", false, "Don't print out extra logging messages, only matches.")
+ 	printChains = flag.Bool("print_chains", false, "If true prints the whole chain rather than a summary")
+ 	dumpDir     = flag.String("dump_dir", "", "Directory to store matched certificates in")
+ )
+@@ -185,6 +184,7 @@ func createMatcherFromFlags(logClient *client.LogClient) (interface{}, error) {
+ 
+ func main() {
+ 	flag.Parse()
++
+ 	logClient, err := client.New(*logURI, &http.Client{
+ 		Timeout: 10 * time.Second,
+ 		Transport: &http.Transport{
+@@ -211,7 +211,6 @@ func main() {
+ 			ParallelFetch: *parallelFetch,
+ 			StartIndex:    *startIndex,
+ 			EndIndex:      *endIndex,
+-			Quiet:         *quiet,
+ 		},
+ 		Matcher:    matcher,
+ 		NumWorkers: *numWorkers,
+diff --git a/scanner/scanner.go b/scanner/scanner.go
+index 4d7e4d64..0cb224ce 100644
+--- a/scanner/scanner.go
++++ b/scanner/scanner.go
+@@ -22,6 +22,7 @@ import (
+ 	"sync/atomic"
+ 	"time"
+ 
++	"github.com/golang/glog"
+ 	ct "github.com/google/certificate-transparency-go"
+ 	"github.com/google/certificate-transparency-go/client"
+ 	"github.com/google/certificate-transparency-go/x509"
+@@ -72,8 +73,6 @@ type Scanner struct {
+ 
+ 	unparsableEntries         int64
+ 	entriesWithNonFatalErrors int64
+-
+-	Log func(msg string)
+ }
+ 
+ // entryInfo represents information about a log entry.
+@@ -98,7 +97,7 @@ func (s *Scanner) isCertErrorFatal(err error, logEntry *ct.LogEntry, index int64
+ 	} else if _, ok := err.(x509.NonFatalErrors); ok {
+ 		atomic.AddInt64(&s.entriesWithNonFatalErrors, 1)
+ 		// We'll make a note, but continue.
+-		s.Log(fmt.Sprintf("Non-fatal error in %v at index %d: %v", logEntry.Leaf.TimestampedEntry.EntryType, index, err))
++		glog.V(1).Infof("Non-fatal error in %v at index %d: %v", logEntry.Leaf.TimestampedEntry.EntryType, index, err)
+ 		return false
+ 	}
+ 	return true
+@@ -178,7 +177,7 @@ func (s *Scanner) matcherJob(entries <-chan entryInfo, foundCert func(*ct.LogEnt
+ 	for e := range entries {
+ 		if err := s.processEntry(e, foundCert, foundPrecert); err != nil {
+ 			atomic.AddInt64(&s.unparsableEntries, 1)
+-			s.Log(fmt.Sprintf("Failed to parse entry at index %d: %s", e.index, err.Error()))
++			glog.Errorf("Failed to parse entry at index %d: %s", e.index, err.Error())
+ 		}
+ 	}
+ }
+@@ -231,10 +230,10 @@ func (s *Scanner) logThroughput(treeSize int64, stop <-chan bool) {
+ 			remainingCerts := treeSize - int64(s.opts.StartIndex) - certsCnt
+ 			remainingSeconds := int(float64(remainingCerts) / throughput)
+ 			remainingString := humanTime(time.Duration(remainingSeconds) * time.Second)
+-			s.Log(fmt.Sprintf("Processed: %d certs (to index %d), matched %d (%2.2f%%). Throughput (last %ds): %3.2f ETA: %s\n",
++			glog.V(1).Infof("Processed: %d certs (to index %d), matched %d (%2.2f%%). Throughput (last %ds): %3.2f ETA: %s\n",
+ 				certsCnt, s.opts.StartIndex+certsCnt, certsMatched,
+ 				(100.0*float64(certsMatched))/float64(certsCnt),
+-				filled, throughput, remainingString))
++				filled, throughput, remainingString)
+ 		}
+ 	}
+ }
+@@ -246,7 +245,7 @@ func (s *Scanner) logThroughput(treeSize int64, stop <-chan bool) {
+ // For each precert found, calls foundPrecert with the corresponding LogEntry,
+ // which includes the index of the entry and the precert.
+ func (s *Scanner) Scan(ctx context.Context, foundCert func(*ct.LogEntry), foundPrecert func(*ct.LogEntry)) error {
+-	s.Log("Starting up Scanner...\n")
++	glog.V(1).Infof("Starting up Scanner...")
+ 	s.certsProcessed = 0
+ 	s.certsMatched = 0
+ 	s.precertsSeen = 0
+@@ -274,7 +273,7 @@ func (s *Scanner) Scan(ctx context.Context, foundCert func(*ct.LogEntry), foundP
+ 		go func(idx int) {
+ 			defer wg.Done()
+ 			s.matcherJob(entries, foundCert, foundPrecert)
+-			s.Log(fmt.Sprintf("Matcher %d finished", idx))
++			glog.V(1).Infof("Matcher %d finished", idx)
+ 		}(w)
+ 	}
+ 
+@@ -290,9 +289,10 @@ func (s *Scanner) Scan(ctx context.Context, foundCert func(*ct.LogEntry), foundP
+ 		return err
+ 	}
+ 
+-	s.Log(fmt.Sprintf("Completed %d certs in %s", atomic.LoadInt64(&s.certsProcessed), humanTime(time.Since(startTime))))
+-	s.Log(fmt.Sprintf("Saw %d precerts", atomic.LoadInt64(&s.precertsSeen)))
+-	s.Log(fmt.Sprintf("%d unparsable entries, %d non-fatal errors", atomic.LoadInt64(&s.unparsableEntries), atomic.LoadInt64(&s.entriesWithNonFatalErrors)))
++	glog.V(1).Infof("Completed %d certs in %s", atomic.LoadInt64(&s.certsProcessed), humanTime(time.Since(startTime)))
++	glog.V(1).Infof("Saw %d precerts", atomic.LoadInt64(&s.precertsSeen))
++	glog.V(1).Infof("Saw %d unparsable entries", atomic.LoadInt64(&s.unparsableEntries))
++	glog.V(1).Infof("Saw %d non-fatal errors", atomic.LoadInt64(&s.entriesWithNonFatalErrors))
+ 
+ 	return nil
+ }
+@@ -303,7 +303,6 @@ func NewScanner(client *client.LogClient, opts ScannerOptions) *Scanner {
+ 	var scanner Scanner
+ 	scanner.opts = opts
+ 	scanner.fetcher = NewFetcher(client, &scanner.opts.FetcherOptions)
+-	scanner.Log = scanner.fetcher.Log
+ 
+ 	// Set a default match-everything regex if none was provided.
+ 	if opts.Matcher == nil {
+diff --git a/scanner/scanner_test.go b/scanner/scanner_test.go
+index c677df26..ea7f2fbb 100644
+--- a/scanner/scanner_test.go
++++ b/scanner/scanner_test.go
+@@ -261,7 +261,4 @@ func TestDefaultScannerOptions(t *testing.T) {
+ 	if opts.StartIndex != 0 {
+ 		t.Fatalf("Expected StartIndex to be 0, but was %d", opts.StartIndex)
+ 	}
+-	if opts.Quiet {
+-		t.Fatal("Expected Quiet to be false.")
+-	}
+ }
+diff --git a/scripts/deploy_gce_ci.sh b/scripts/deploy_gce_ci.sh
+index 3b85dfc1..f99aa74c 100755
+--- a/scripts/deploy_gce_ci.sh
++++ b/scripts/deploy_gce_ci.sh
+@@ -40,7 +40,7 @@ echo "Tagging docker image..."
+ gcloud --quiet container images add-tag gcr.io/${PROJECT_NAME_CI}/ctfe:${TRAVIS_COMMIT} gcr.io/${PROJECT_NAME_CI}/ctfe:latest
+ 
+ echo "Updating jobs..."
+-kubectl apply -f trillian/examples/deployment/kubernetes/ctfe-deployment.yaml
+-kubectl apply -f trillian/examples/deployment/kubernetes/ctfe-service.yaml
+-kubectl apply -f trillian/examples/deployment/kubernetes/ctfe-ingress.yaml
++envsubst < trillian/examples/deployment/kubernetes/ctfe-deployment.yaml | kubectl apply -f -
++envsubst < trillian/examples/deployment/kubernetes/ctfe-service.yaml | kubectl apply -f -
++envsubst < trillian/examples/deployment/kubernetes/ctfe-ingress.yaml | kubectl apply -f -
+ kubectl set image deployment/trillian-ctfe-deployment trillian-ctfe=gcr.io/${PROJECT_NAME_CI}/ctfe:${TRAVIS_COMMIT}
+diff --git a/trillian/ctfe/cert_checker.go b/trillian/ctfe/cert_checker.go
+index b147e8af..df9deed4 100644
+--- a/trillian/ctfe/cert_checker.go
++++ b/trillian/ctfe/cert_checker.go
+@@ -58,11 +58,8 @@ func ValidateChain(rawChain [][]byte, validationOpts CertValidationOpts) ([]*x50
+ 
+ 	for i, certBytes := range rawChain {
+ 		cert, err := x509.ParseCertificate(certBytes)
+-		if err != nil {
+-			_, ok := err.(x509.NonFatalErrors)
+-			if !ok {
+-				return nil, err
+-			}
++		if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
++			return nil, err
+ 		}
+ 
+ 		chain = append(chain, cert)
+diff --git a/trillian/ctfe/cert_quota.go b/trillian/ctfe/cert_quota.go
+new file mode 100644
+index 00000000..6c760928
+--- /dev/null
++++ b/trillian/ctfe/cert_quota.go
+@@ -0,0 +1,40 @@
++// Copyright 2018 Google Inc. All Rights Reserved.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package ctfe
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++
++	"github.com/google/certificate-transparency-go/x509"
++)
++
++// CertificateQuotaUserPrefix is prepended to all User quota ids association
++// with intermediate certificates.
++const CertificateQuotaUserPrefix = "@intermediate"
++
++// QuotaUserForCert returns a User quota id string for the passed in
++// certificate.
++// This is intended to be used for quota limiting by intermediate certificates,
++// but the function does not enforce anything about the passed in cert.
++//
++// Format returned is:
++//   "CertificateQuotaUserPrefix Subject hex(SHA256(SubjectPublicKeyInfo)[0:5])"
++// See tests for examples.
++func QuotaUserForCert(c *x509.Certificate) string {
++	spkiHash := sha256.Sum256(c.RawSubjectPublicKeyInfo)
++	return fmt.Sprintf("%s %s %s", CertificateQuotaUserPrefix, c.Subject.String(), hex.EncodeToString(spkiHash[0:5]))
++}
+diff --git a/trillian/ctfe/cert_quota_test.go b/trillian/ctfe/cert_quota_test.go
+new file mode 100644
+index 00000000..48d63fc9
+--- /dev/null
++++ b/trillian/ctfe/cert_quota_test.go
+@@ -0,0 +1,57 @@
++// Copyright 2018 Google Inc. All Rights Reserved.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package ctfe
++
++import (
++	"testing"
++
++	"github.com/google/certificate-transparency-go/trillian/ctfe/testonly"
++	"github.com/google/certificate-transparency-go/x509"
++	"github.com/google/certificate-transparency-go/x509util"
++)
++
++func mustDePEM(t *testing.T, pem string) *x509.Certificate {
++	t.Helper()
++	c, err := x509util.CertificateFromPEM([]byte(pem))
++	if err != nil {
++		t.Fatalf("Failed to parse PEM: %v", err)
++	}
++	return c
++}
++
++func TestQuotaUserForCert(t *testing.T) {
++	for _, test := range []struct {
++		desc string
++		cert *x509.Certificate
++		want string
++	}{
++		{
++			desc: "cacert",
++			cert: mustDePEM(t, testonly.CACertPEM),
++			want: "@intermediate O=Certificate Transparency CA,L=Erw Wen,ST=Wales,C=GB 02adddca08",
++		},
++		{
++			desc: "intermediate",
++			cert: mustDePEM(t, testonly.FakeIntermediateCertPEM),
++			want: "@intermediate CN=FakeIntermediateAuthority,OU=Eng,O=Google,L=London,ST=London,C=GB 6e62e56f67",
++		},
++	} {
++		t.Run(test.desc, func(t *testing.T) {
++			if got := QuotaUserForCert(test.cert); got != test.want {
++				t.Fatalf("QuotaUserForCert() = %q, want %q", got, test.want)
++			}
++		})
++	}
++}
+diff --git a/trillian/ctfe/ct_server/main.go b/trillian/ctfe/ct_server/main.go
+index 4e5cbb90..9c7f57cb 100644
+--- a/trillian/ctfe/ct_server/main.go
++++ b/trillian/ctfe/ct_server/main.go
+@@ -36,6 +36,7 @@ import (
+ 	"github.com/google/trillian/monitoring/prometheus"
+ 	"github.com/prometheus/client_golang/prometheus/promhttp"
+ 	"github.com/rs/cors"
++	"github.com/tomasen/realip"
+ 	"google.golang.org/grpc"
+ 	"google.golang.org/grpc/balancer/roundrobin"
+ 	"google.golang.org/grpc/naming"
+@@ -61,6 +62,8 @@ var (
+ 	tracing            = flag.Bool("tracing", false, "If true opencensus Stackdriver tracing will be enabled. See https://opencensus.io/.")
+ 	tracingProjectID   = flag.String("tracing_project_id", "", "project ID to pass to stackdriver. Can be empty for GCP, consult docs for other platforms.")
+ 	tracingPercent     = flag.Int("tracing_percent", 0, "Percent of requests to be traced. Zero is a special case to use the DefaultSampler")
++	quotaRemote        = flag.Bool("quota_remote", true, "Enable requesting of quota for IP address sending incoming requests")
++	quotaIntermediate  = flag.Bool("quota_intermediate", true, "Enable requesting of quota for intermediate certificates in sumbmitted chains")
+ )
+ 
+ func main() {
+@@ -78,9 +81,12 @@ func main() {
+ 	// in flags). The single-backend config is converted to a multi config so
+ 	// they can be treated the same.
+ 	if len(*rpcBackend) > 0 {
+-		cfg, err = readCfg(*logConfig, *rpcBackend)
++		var cfgs []*configpb.LogConfig
++		if cfgs, err = ctfe.LogConfigFromFile(*logConfig); err == nil {
++			cfg = ctfe.ToMultiLogConfig(cfgs, *rpcBackend)
++		}
+ 	} else {
+-		cfg, err = readMultiCfg(*logConfig)
++		cfg, err = ctfe.MultiLogConfigFromFile(*logConfig)
+ 	}
+ 
+ 	if err != nil {
+@@ -201,7 +207,7 @@ func main() {
+ 				glog.Infof("start internal get-sth operations on log %v (%d)", c.Prefix, c.LogId)
+ 				for t := range ticker.C {
+ 					glog.V(1).Infof("tick at %v: force internal get-sth for log %v (%d)", t, c.Prefix, c.LogId)
+-					if _, err := ctfe.GetTreeHead(ctx, clientMap[c.LogBackendName], c.LogId, c.Prefix); err != nil {
++					if _, err := ctfe.GetTreeHead(ctx, clientMap[c.LogBackendName], c.LogId, c.Prefix, nil /*quota user*/); err != nil {
+ 						glog.Warningf("failed to retrieve tree head for log %v (%d): %v", c.Prefix, c.LogId, err)
+ 					}
+ 				}
+@@ -244,7 +250,19 @@ func awaitSignal(doneFn func()) {
+ }
+ 
+ func setupAndRegister(ctx context.Context, client trillian.TrillianLogClient, deadline time.Duration, cfg *configpb.LogConfig, mux *http.ServeMux) error {
+-	opts := ctfe.InstanceOptions{Deadline: deadline, MetricFactory: prometheus.MetricFactory{}, RequestLog: new(ctfe.DefaultRequestLog)}
++	opts := ctfe.InstanceOptions{
++		Deadline:      deadline,
++		MetricFactory: prometheus.MetricFactory{},
++		RequestLog:    new(ctfe.DefaultRequestLog),
++	}
++	if *quotaRemote {
++		glog.Info("Enabling quota for requesting IP")
++		opts.RemoteQuotaUser = realip.FromRequest
++	}
++	if *quotaIntermediate {
++		glog.Info("Enabling quota for intermediate certificates")
++		opts.CertificateQuotaUser = ctfe.QuotaUserForCert
++	}
+ 	handlers, err := ctfe.SetUpInstance(ctx, client, cfg, opts)
+ 	if err != nil {
+ 		return err
+@@ -254,21 +272,3 @@ func setupAndRegister(ctx context.Context, client trillian.TrillianLogClient, de
+ 	}
+ 	return nil
+ }
+-
+-func readMultiCfg(filename string) (*configpb.LogMultiConfig, error) {
+-	cfg, err := ctfe.MultiLogConfigFromFile(filename)
+-	if err != nil {
+-		return nil, err
+-	}
+-
+-	return cfg, nil
+-}
+-
+-func readCfg(filename string, backendSpec string) (*configpb.LogMultiConfig, error) {
+-	cfg, err := ctfe.LogConfigFromFile(filename)
+-	if err != nil {
+-		return nil, err
+-	}
+-
+-	return ctfe.ToMultiLogConfig(cfg, backendSpec), nil
+-}
+diff --git a/trillian/ctfe/handlers.go b/trillian/ctfe/handlers.go
+index 94b72cbd..1982c783 100644
+--- a/trillian/ctfe/handlers.go
++++ b/trillian/ctfe/handlers.go
+@@ -126,11 +126,11 @@ var Entrypoints = []EntrypointName{AddChainName, AddPreChainName, GetSTHName, Ge
+ // PathHandlers maps from a path to the relevant AppHandler instance.
+ type PathHandlers map[string]AppHandler
+ 
+-// AppHandler holds a LogContext and a handler function that uses it, and is
++// AppHandler holds a logInfo and a handler function that uses it, and is
+ // an implementation of the http.Handler interface.
+ type AppHandler struct {
+-	Context *LogContext
+-	Handler func(context.Context, *LogContext, http.ResponseWriter, *http.Request) (int, error)
++	Info    *logInfo
++	Handler func(context.Context, *logInfo, http.ResponseWriter, *http.Request) (int, error)
+ 	Name    EntrypointName
+ 	Method  string // http.MethodGet or http.MethodPost
+ }
+@@ -139,21 +139,21 @@ type AppHandler struct {
+ // does additional common error and stats processing.
+ func (a AppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 	var status int
+-	label0 := strconv.FormatInt(a.Context.logID, 10)
++	label0 := strconv.FormatInt(a.Info.logID, 10)
+ 	label1 := string(a.Name)
+ 	reqsCounter.Inc(label0, label1)
+-	startTime := a.Context.TimeSource.Now()
+-	logCtx := a.Context.RequestLog.Start(r.Context())
+-	a.Context.RequestLog.LogPrefix(logCtx, a.Context.LogPrefix)
++	startTime := a.Info.TimeSource.Now()
++	logCtx := a.Info.RequestLog.Start(r.Context())
++	a.Info.RequestLog.LogPrefix(logCtx, a.Info.LogPrefix)
+ 	defer func() {
+-		latency := a.Context.TimeSource.Now().Sub(startTime).Seconds()
++		latency := a.Info.TimeSource.Now().Sub(startTime).Seconds()
+ 		rspLatency.Observe(latency, label0, label1, strconv.Itoa(status))
+ 	}()
+-	glog.V(2).Infof("%s: request %v %q => %s", a.Context.LogPrefix, r.Method, r.URL, a.Name)
++	glog.V(2).Infof("%s: request %v %q => %s", a.Info.LogPrefix, r.Method, r.URL, a.Name)
+ 	if r.Method != a.Method {
+-		glog.Warningf("%s: %s wrong HTTP method: %v", a.Context.LogPrefix, a.Name, r.Method)
++		glog.Warningf("%s: %s wrong HTTP method: %v", a.Info.LogPrefix, a.Name, r.Method)
+ 		sendHTTPError(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed: %s", r.Method))
+-		a.Context.RequestLog.Status(logCtx, http.StatusMethodNotAllowed)
++		a.Info.RequestLog.Status(logCtx, http.StatusMethodNotAllowed)
+ 		return
+ 	}
+ 
+@@ -162,29 +162,29 @@ func (a AppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 	if r.Method == http.MethodGet {
+ 		if err := r.ParseForm(); err != nil {
+ 			sendHTTPError(w, http.StatusBadRequest, fmt.Errorf("failed to parse form data: %v", err))
+-			a.Context.RequestLog.Status(logCtx, http.StatusBadRequest)
++			a.Info.RequestLog.Status(logCtx, http.StatusBadRequest)
+ 			return
+ 		}
+ 	}
+ 
+ 	// Many/most of the handlers forward the request on to the Log RPC server; impose a deadline
+ 	// on this onward request.
+-	ctx, cancel := context.WithDeadline(logCtx, getRPCDeadlineTime(a.Context))
++	ctx, cancel := context.WithDeadline(logCtx, getRPCDeadlineTime(a.Info))
+ 	defer cancel()
+ 
+-	status, err := a.Handler(ctx, a.Context, w, r)
+-	a.Context.RequestLog.Status(ctx, status)
+-	glog.V(2).Infof("%s: %s <= status=%d", a.Context.LogPrefix, a.Name, status)
++	status, err := a.Handler(ctx, a.Info, w, r)
++	a.Info.RequestLog.Status(ctx, status)
++	glog.V(2).Infof("%s: %s <= status=%d", a.Info.LogPrefix, a.Name, status)
+ 	rspsCounter.Inc(label0, label1, strconv.Itoa(status))
+ 	if err != nil {
+-		glog.Warningf("%s: %s handler error: %v", a.Context.LogPrefix, a.Name, err)
++		glog.Warningf("%s: %s handler error: %v", a.Info.LogPrefix, a.Name, err)
+ 		sendHTTPError(w, status, err)
+ 		return
+ 	}
+ 
+ 	// Additional check, for consistency the handler must return an error for non-200 status
+ 	if status != http.StatusOK {
+-		glog.Warningf("%s: %s handler non 200 without error: %d %v", a.Context.LogPrefix, a.Name, status, err)
++		glog.Warningf("%s: %s handler non 200 without error: %d %v", a.Info.LogPrefix, a.Name, status, err)
+ 		sendHTTPError(w, http.StatusInternalServerError, fmt.Errorf("http handler misbehaved, status: %d", status))
+ 		return
+ 	}
+@@ -209,8 +209,8 @@ type CertValidationOpts struct {
+ 	extKeyUsages []x509.ExtKeyUsage
+ }
+ 
+-// LogContext holds information for a specific log instance.
+-type LogContext struct {
++// logInfo holds information for a specific log instance.
++type logInfo struct {
+ 	// LogPrefix is a pre-formatted string identifying the log for diagnostics
+ 	LogPrefix string
+ 	// TimeSource is a util.TimeSource that can be injected for testing
+@@ -231,8 +231,6 @@ type LogContext struct {
+ 	rpcClient trillian.TrillianLogClient
+ 	// signer signs objects
+ 	signer crypto.Signer
+-	// rpcDeadline is the deadline that will be set on all backend RPC requests
+-	rpcDeadline time.Duration
+ 
+ 	// Cache the last signature generated for an STH, to reduce re-signing
+ 	// and slightly reduce the chances of being able to fingerprint get-sth
+@@ -242,9 +240,9 @@ type LogContext struct {
+ 	lastSTHSignature ct.DigitallySigned
+ }
+ 
+-// NewLogContext creates a new instance of LogContext.
+-func NewLogContext(logID int64, prefix string, validationOpts CertValidationOpts, rpcClient trillian.TrillianLogClient, signer crypto.Signer, instanceOpts InstanceOptions, timeSource util.TimeSource) *LogContext {
+-	ctx := &LogContext{
++// newLogInfo creates a new instance of logInfo.
++func newLogInfo(logID int64, prefix string, validationOpts CertValidationOpts, rpcClient trillian.TrillianLogClient, signer crypto.Signer, instanceOpts InstanceOptions, timeSource util.TimeSource) *logInfo {
++	ctx := &logInfo{
+ 		logID:          logID,
+ 		urlPrefix:      prefix,
+ 		LogPrefix:      fmt.Sprintf("%s{%d}", prefix, logID),
+@@ -261,68 +259,89 @@ func NewLogContext(logID int64, prefix string, validationOpts CertValidationOpts
+ 	return ctx
+ }
+ 
+-func (c *LogContext) setLastSTHSignature(sthBytes []byte, sig ct.DigitallySigned) {
+-	c.lastSTHMu.Lock()
+-	defer c.lastSTHMu.Unlock()
+-	c.lastSTHBytes = sthBytes
+-	c.lastSTHSignature = sig
++func (li *logInfo) setLastSTHSignature(sthBytes []byte, sig ct.DigitallySigned) {
++	li.lastSTHMu.Lock()
++	defer li.lastSTHMu.Unlock()
++	li.lastSTHBytes = sthBytes
++	li.lastSTHSignature = sig
+ }
+ 
+-func (c *LogContext) getLastSTHSignature(sthBytes []byte) (ct.DigitallySigned, bool) {
+-	c.lastSTHMu.RLock()
+-	defer c.lastSTHMu.RUnlock()
+-	if !bytes.Equal(sthBytes, c.lastSTHBytes) {
++func (li *logInfo) getLastSTHSignature(sthBytes []byte) (ct.DigitallySigned, bool) {
++	li.lastSTHMu.RLock()
++	defer li.lastSTHMu.RUnlock()
++	if !bytes.Equal(sthBytes, li.lastSTHBytes) {
+ 		return ct.DigitallySigned{}, false
+ 	}
+-	return c.lastSTHSignature, true
++	return li.lastSTHSignature, true
+ }
+ 
+ // Handlers returns a map from URL paths (with the given prefix) and AppHandler instances
+ // to handle those entrypoints.
+-func (c *LogContext) Handlers(prefix string) PathHandlers {
++func (li *logInfo) Handlers(prefix string) PathHandlers {
+ 	if !strings.HasPrefix(prefix, "/") {
+ 		prefix = "/" + prefix
+ 	}
+ 	prefix = strings.TrimRight(prefix, "/")
+ 
+-	// Bind the LogContext instance to give an appHandler instance for each entrypoint.
++	// Bind the logInfo instance to give an appHandler instance for each entrypoint.
+ 	return PathHandlers{
+-		prefix + ct.AddChainPath:          AppHandler{Context: c, Handler: addChain, Name: AddChainName, Method: http.MethodPost},
+-		prefix + ct.AddPreChainPath:       AppHandler{Context: c, Handler: addPreChain, Name: AddPreChainName, Method: http.MethodPost},
+-		prefix + ct.GetSTHPath:            AppHandler{Context: c, Handler: getSTH, Name: GetSTHName, Method: http.MethodGet},
+-		prefix + ct.GetSTHConsistencyPath: AppHandler{Context: c, Handler: getSTHConsistency, Name: GetSTHConsistencyName, Method: http.MethodGet},
+-		prefix + ct.GetProofByHashPath:    AppHandler{Context: c, Handler: getProofByHash, Name: GetProofByHashName, Method: http.MethodGet},
+-		prefix + ct.GetEntriesPath:        AppHandler{Context: c, Handler: getEntries, Name: GetEntriesName, Method: http.MethodGet},
+-		prefix + ct.GetRootsPath:          AppHandler{Context: c, Handler: getRoots, Name: GetRootsName, Method: http.MethodGet},
+-		prefix + ct.GetEntryAndProofPath:  AppHandler{Context: c, Handler: getEntryAndProof, Name: GetEntryAndProofName, Method: http.MethodGet},
++		prefix + ct.AddChainPath:          AppHandler{Info: li, Handler: addChain, Name: AddChainName, Method: http.MethodPost},
++		prefix + ct.AddPreChainPath:       AppHandler{Info: li, Handler: addPreChain, Name: AddPreChainName, Method: http.MethodPost},
++		prefix + ct.GetSTHPath:            AppHandler{Info: li, Handler: getSTH, Name: GetSTHName, Method: http.MethodGet},
++		prefix + ct.GetSTHConsistencyPath: AppHandler{Info: li, Handler: getSTHConsistency, Name: GetSTHConsistencyName, Method: http.MethodGet},
++		prefix + ct.GetProofByHashPath:    AppHandler{Info: li, Handler: getProofByHash, Name: GetProofByHashName, Method: http.MethodGet},
++		prefix + ct.GetEntriesPath:        AppHandler{Info: li, Handler: getEntries, Name: GetEntriesName, Method: http.MethodGet},
++		prefix + ct.GetRootsPath:          AppHandler{Info: li, Handler: getRoots, Name: GetRootsName, Method: http.MethodGet},
++		prefix + ct.GetEntryAndProofPath:  AppHandler{Info: li, Handler: getEntryAndProof, Name: GetEntryAndProofName, Method: http.MethodGet},
+ 	}
+ }
+ 
+-func parseBodyAsJSONChain(c *LogContext, r *http.Request) (ct.AddChainRequest, error) {
++func parseBodyAsJSONChain(li *logInfo, r *http.Request) (ct.AddChainRequest, error) {
+ 	body, err := ioutil.ReadAll(r.Body)
+ 	if err != nil {
+-		glog.V(1).Infof("%s: Failed to read request body: %v", c.LogPrefix, err)
++		glog.V(1).Infof("%s: Failed to read request body: %v", li.LogPrefix, err)
+ 		return ct.AddChainRequest{}, err
+ 	}
+ 
+ 	var req ct.AddChainRequest
+ 	if err := json.Unmarshal(body, &req); err != nil {
+-		glog.V(1).Infof("%s: Failed to parse request body: %v", c.LogPrefix, err)
++		glog.V(1).Infof("%s: Failed to parse request body: %v", li.LogPrefix, err)
+ 		return ct.AddChainRequest{}, err
+ 	}
+ 
+ 	// The cert chain is not allowed to be empty. We'll defer other validation for later
+ 	if len(req.Chain) == 0 {
+-		glog.V(1).Infof("%s: Request chain is empty: %s", c.LogPrefix, body)
++		glog.V(1).Infof("%s: Request chain is empty: %s", li.LogPrefix, body)
+ 		return ct.AddChainRequest{}, errors.New("cert chain was empty")
+ 	}
+ 
+ 	return req, nil
+ }
+ 
++// appendUserCharge adds the specified user to the passed in ChargeTo and
++// and returns the result.
++// If the passed-in ChargeTo is nil, then a new one is created with the passed
++// in user and returned.
++func appendUserCharge(a *trillian.ChargeTo, user string) *trillian.ChargeTo {
++	if a == nil {
++		a = &trillian.ChargeTo{}
++	}
++	a.User = append(a.User, user)
++	return a
++}
++
++// chargeUser returns a trillian.ChargeTo containing an ID for the remote User,
++// or nil if instanceOpts does not have a RemoteQuotaUser function set.
++func (li *logInfo) chargeUser(r *http.Request) *trillian.ChargeTo {
++	if li.instanceOpts.RemoteQuotaUser != nil {
++		return &trillian.ChargeTo{User: []string{li.instanceOpts.RemoteQuotaUser(r)}}
++	}
++	return nil
++}
++
+ // addChainInternal is called by add-chain and add-pre-chain as the logic involved in
+ // processing these requests is almost identical
+-func addChainInternal(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request, isPrecert bool) (int, error) {
++func addChainInternal(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request, isPrecert bool) (int, error) {
+ 	var method EntrypointName
+ 	var etype ct.LogEntryType
+ 	if isPrecert {
+@@ -334,43 +353,53 @@ func addChainInternal(ctx context.Context, c *LogContext, w http.ResponseWriter,
+ 	}
+ 
+ 	// Check the contents of the request and convert to slice of certificates.
+-	addChainReq, err := parseBodyAsJSONChain(c, r)
++	addChainReq, err := parseBodyAsJSONChain(li, r)
+ 	if err != nil {
+ 		return http.StatusBadRequest, fmt.Errorf("failed to parse add-chain body: %v", err)
+ 	}
+ 	// Log the DERs now because they might not parse as valid X.509.
+ 	for _, der := range addChainReq.Chain {
+-		c.RequestLog.AddDERToChain(ctx, der)
++		li.RequestLog.AddDERToChain(ctx, der)
+ 	}
+-	chain, err := verifyAddChain(c, addChainReq, w, isPrecert)
++	chain, err := verifyAddChain(li, addChainReq, isPrecert)
+ 	if err != nil {
+ 		return http.StatusBadRequest, fmt.Errorf("failed to verify add-chain contents: %v", err)
+ 	}
+ 	for _, cert := range chain {
+-		c.RequestLog.AddCertToChain(ctx, cert)
++		li.RequestLog.AddCertToChain(ctx, cert)
+ 	}
+ 	// Get the current time in the form used throughout RFC6962, namely milliseconds since Unix
+ 	// epoch, and use this throughout.
+-	timeMillis := uint64(c.TimeSource.Now().UnixNano() / millisPerNano)
++	timeMillis := uint64(li.TimeSource.Now().UnixNano() / millisPerNano)
+ 
+ 	// Build the MerkleTreeLeaf that gets sent to the backend, and make a trillian.LogLeaf for it.
+ 	merkleLeaf, err := ct.MerkleTreeLeafFromChain(chain, etype, timeMillis)
+ 	if err != nil {
+ 		return http.StatusBadRequest, fmt.Errorf("failed to build MerkleTreeLeaf: %v", err)
+ 	}
+-	leaf, err := buildLogLeafForAddChain(c, *merkleLeaf, chain)
++	leaf, err := buildLogLeafForAddChain(li, *merkleLeaf, chain, isPrecert)
+ 	if err != nil {
+ 		return http.StatusInternalServerError, fmt.Errorf("failed to build LogLeaf: %v", err)
+ 	}
+ 
+ 	// Send the Merkle tree leaf on to the Log server.
+-	req := trillian.QueueLeavesRequest{LogId: c.logID, Leaves: []*trillian.LogLeaf{&leaf}}
++	req := trillian.QueueLeavesRequest{
++		LogId:    li.logID,
++		Leaves:   []*trillian.LogLeaf{&leaf},
++		ChargeTo: li.chargeUser(r),
++	}
++	if li.instanceOpts.CertificateQuotaUser != nil {
++		// TODO(al): ignore pre-issuers? Probably doesn't matter
++		for _, cert := range chain[1:] {
++			req.ChargeTo = appendUserCharge(req.ChargeTo, li.instanceOpts.CertificateQuotaUser(cert))
++		}
++	}
+ 
+-	glog.V(2).Infof("%s: %s => grpc.QueueLeaves", c.LogPrefix, method)
+-	rsp, err := c.rpcClient.QueueLeaves(ctx, &req)
+-	glog.V(2).Infof("%s: %s <= grpc.QueueLeaves err=%v", c.LogPrefix, method, err)
++	glog.V(2).Infof("%s: %s => grpc.QueueLeaves", li.LogPrefix, method)
++	rsp, err := li.rpcClient.QueueLeaves(ctx, &req)
++	glog.V(2).Infof("%s: %s <= grpc.QueueLeaves err=%v", li.LogPrefix, method, err)
+ 	if err != nil {
+-		return c.toHTTPStatus(err), fmt.Errorf("backend QueueLeaves request failed: %v", err)
++		return li.toHTTPStatus(err), fmt.Errorf("backend QueueLeaves request failed: %v", err)
+ 	}
+ 	if rsp == nil {
+ 		return http.StatusInternalServerError, errors.New("missing QueueLeaves response")
+@@ -390,34 +419,45 @@ func addChainInternal(ctx context.Context, c *LogContext, w http.ResponseWriter,
+ 
+ 	// As the Log server has definitely got the Merkle tree leaf, we can
+ 	// generate an SCT and respond with it.
+-	sct, err := buildV1SCT(c.signer, &loggedLeaf)
++	sct, err := buildV1SCT(li.signer, &loggedLeaf)
+ 	if err != nil {
+ 		return http.StatusInternalServerError, fmt.Errorf("failed to generate SCT: %v", err)
+ 	}
+-	err = marshalAndWriteAddChainResponse(sct, c.signer, w)
++	sctBytes, err := tls.Marshal(*sct)
++	if err != nil {
++		return http.StatusInternalServerError, fmt.Errorf("failed to marshall SCT: %v", err)
++	}
++	// We could possibly fail to issue the SCT after this but it's v. unlikely.
++	li.RequestLog.IssueSCT(ctx, sctBytes)
++	err = marshalAndWriteAddChainResponse(sct, li.signer, w)
+ 	if err != nil {
+ 		// reason is logged and http status is already set
+ 		return http.StatusInternalServerError, fmt.Errorf("failed to write response: %v", err)
+ 	}
+-	glog.V(3).Infof("%s: %s <= SCT", c.LogPrefix, method)
+-	lastSCTTimestamp.Set(float64(sct.Timestamp), strconv.FormatInt(c.logID, 10))
++	glog.V(3).Infof("%s: %s <= SCT", li.LogPrefix, method)
++	if sct.Timestamp == timeMillis {
++		lastSCTTimestamp.Set(float64(sct.Timestamp), strconv.FormatInt(li.logID, 10))
++	}
+ 
+ 	return http.StatusOK, nil
+ }
+ 
+-func addChain(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request) (int, error) {
+-	return addChainInternal(ctx, c, w, r, false)
++func addChain(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request) (int, error) {
++	return addChainInternal(ctx, li, w, r, false)
+ }
+ 
+-func addPreChain(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request) (int, error) {
+-	return addChainInternal(ctx, c, w, r, true)
++func addPreChain(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request) (int, error) {
++	return addChainInternal(ctx, li, w, r, true)
+ }
+ 
+ // GetTreeHead retrieves and builds a tree head structure for the given log; the returned
+ // tree head is not yet signed.
+-func GetTreeHead(ctx context.Context, client trillian.TrillianLogClient, logID int64, prefix string) (*ct.SignedTreeHead, error) {
++func GetTreeHead(ctx context.Context, client trillian.TrillianLogClient, logID int64, prefix string, remoteQuota *string) (*ct.SignedTreeHead, error) {
+ 	// Send request to the Log server.
+ 	req := trillian.GetLatestSignedLogRootRequest{LogId: logID}
++	if remoteQuota != nil {
++		req.ChargeTo = appendUserCharge(req.ChargeTo, *remoteQuota)
++	}
+ 	glog.V(2).Infof("%s: GetSTH => grpc.GetLatestSignedLogRoot %+v", prefix, req)
+ 	rsp, err := client.GetLatestSignedLogRoot(ctx, &req)
+ 	glog.V(2).Infof("%s: GetSTH <= grpc.GetLatestSignedLogRoot err=%v", prefix, err)
+@@ -452,14 +492,20 @@ func GetTreeHead(ctx context.Context, client trillian.TrillianLogClient, logID i
+ 	return &sth, nil
+ }
+ 
+-func getSTH(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request) (int, error) {
+-	sth, err := GetTreeHead(ctx, c.rpcClient, c.logID, c.LogPrefix)
++func getSTH(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request) (int, error) {
++	var remoteQuotaUser *string
++	if li.instanceOpts.RemoteQuotaUser != nil {
++		rqu := li.instanceOpts.RemoteQuotaUser(r)
++		remoteQuotaUser = &rqu
++	}
++
++	sth, err := GetTreeHead(ctx, li.rpcClient, li.logID, li.LogPrefix, remoteQuotaUser)
+ 	if err != nil {
+ 		return http.StatusInternalServerError, err
+ 	}
+ 
+ 	// Add the signature over the STH contents.
+-	err = c.signV1TreeHead(c.signer, sth)
++	err = li.signV1TreeHead(li.signer, sth)
+ 	if err != nil || len(sth.TreeHeadSignature.Signature) == 0 {
+ 		return http.StatusInternalServerError, fmt.Errorf("failed to sign tree head: %v", err)
+ 	}
+@@ -490,21 +536,26 @@ func getSTH(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.R
+ 	return http.StatusOK, nil
+ }
+ 
+-func getSTHConsistency(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request) (int, error) {
++func getSTHConsistency(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request) (int, error) {
+ 	first, second, err := parseGetSTHConsistencyRange(r)
+ 	if err != nil {
+ 		return http.StatusBadRequest, fmt.Errorf("failed to parse consistency range: %v", err)
+ 	}
+-	c.RequestLog.FirstAndSecond(ctx, first, second)
++	li.RequestLog.FirstAndSecond(ctx, first, second)
+ 	var jsonRsp ct.GetSTHConsistencyResponse
+ 	if first != 0 {
+-		req := trillian.GetConsistencyProofRequest{LogId: c.logID, FirstTreeSize: first, SecondTreeSize: second}
++		req := trillian.GetConsistencyProofRequest{
++			LogId:          li.logID,
++			FirstTreeSize:  first,
++			SecondTreeSize: second,
++			ChargeTo:       li.chargeUser(r),
++		}
+ 
+-		glog.V(2).Infof("%s: GetSTHConsistency(%d, %d) => grpc.GetConsistencyProof %+v", c.LogPrefix, first, second, req)
+-		rsp, err := c.rpcClient.GetConsistencyProof(ctx, &req)
+-		glog.V(2).Infof("%s: GetSTHConsistency <= grpc.GetConsistencyProof err=%v", c.LogPrefix, err)
++		glog.V(2).Infof("%s: GetSTHConsistency(%d, %d) => grpc.GetConsistencyProof %+v", li.LogPrefix, first, second, req)
++		rsp, err := li.rpcClient.GetConsistencyProof(ctx, &req)
++		glog.V(2).Infof("%s: GetSTHConsistency <= grpc.GetConsistencyProof err=%v", li.LogPrefix, err)
+ 		if err != nil {
+-			return c.toHTTPStatus(err), fmt.Errorf("backend GetConsistencyProof request failed: %v", err)
++			return li.toHTTPStatus(err), fmt.Errorf("backend GetConsistencyProof request failed: %v", err)
+ 		}
+ 
+ 		// We can get here with a tree size too small to satisfy the proof.
+@@ -523,7 +574,7 @@ func getSTHConsistency(ctx context.Context, c *LogContext, w http.ResponseWriter
+ 			jsonRsp.Consistency = emptyProof
+ 		}
+ 	} else {
+-		glog.V(2).Infof("%s: GetSTHConsistency(%d, %d) starts from 0 so return empty proof", c.LogPrefix, first, second)
++		glog.V(2).Infof("%s: GetSTHConsistency(%d, %d) starts from 0 so return empty proof", li.LogPrefix, first, second)
+ 		jsonRsp.Consistency = emptyProof
+ 	}
+ 
+@@ -542,7 +593,7 @@ func getSTHConsistency(ctx context.Context, c *LogContext, w http.ResponseWriter
+ 	return http.StatusOK, nil
+ }
+ 
+-func getProofByHash(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request) (int, error) {
++func getProofByHash(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request) (int, error) {
+ 	// Accept any non empty hash that decodes from base64 and let the backend validate it further
+ 	hash := r.FormValue(getProofParamHash)
+ 	if len(hash) == 0 {
+@@ -557,21 +608,22 @@ func getProofByHash(ctx context.Context, c *LogContext, w http.ResponseWriter, r
+ 	if err != nil || treeSize < 1 {
+ 		return http.StatusBadRequest, fmt.Errorf("get-proof-by-hash: missing or invalid tree_size: %v", r.FormValue(getProofParamTreeSize))
+ 	}
+-	c.RequestLog.LeafHash(ctx, leafHash)
+-	c.RequestLog.TreeSize(ctx, treeSize)
++	li.RequestLog.LeafHash(ctx, leafHash)
++	li.RequestLog.TreeSize(ctx, treeSize)
+ 
+ 	// Per RFC 6962 section 4.5 the API returns a single proof. This should be the lowest leaf index
+ 	// Because we request order by sequence and we only passed one hash then the first result is
+ 	// the correct proof to return
+ 	req := trillian.GetInclusionProofByHashRequest{
+-		LogId:           c.logID,
++		LogId:           li.logID,
+ 		LeafHash:        leafHash,
+ 		TreeSize:        treeSize,
+ 		OrderBySequence: true,
++		ChargeTo:        li.chargeUser(r),
+ 	}
+-	rsp, err := c.rpcClient.GetInclusionProofByHash(ctx, &req)
++	rsp, err := li.rpcClient.GetInclusionProofByHash(ctx, &req)
+ 	if err != nil {
+-		return c.toHTTPStatus(err), fmt.Errorf("backend GetInclusionProofByHash request failed: %v", err)
++		return li.toHTTPStatus(err), fmt.Errorf("backend GetInclusionProofByHash request failed: %v", err)
+ 	}
+ 
+ 	// We could fail to get the proof because the tree size that the server has
+@@ -602,7 +654,7 @@ func getProofByHash(ctx context.Context, c *LogContext, w http.ResponseWriter, r
+ 	w.Header().Set(contentTypeHeader, contentTypeJSON)
+ 	jsonData, err := json.Marshal(&proofRsp)
+ 	if err != nil {
+-		glog.Warningf("%s: Failed to marshal get-proof-by-hash resp: %v", c.LogPrefix, proofRsp)
++		glog.Warningf("%s: Failed to marshal get-proof-by-hash resp: %v", li.LogPrefix, proofRsp)
+ 		return http.StatusInternalServerError, fmt.Errorf("failed to marshal get-proof-by-hash resp: %v, error: %v", proofRsp, err)
+ 	}
+ 
+@@ -615,7 +667,7 @@ func getProofByHash(ctx context.Context, c *LogContext, w http.ResponseWriter, r
+ 	return http.StatusOK, nil
+ }
+ 
+-func getEntries(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request) (int, error) {
++func getEntries(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request) (int, error) {
+ 	// The first job is to parse the params and make sure they're sensible. We just make
+ 	// sure the range is valid. We don't do an extra roundtrip to get the current tree
+ 	// size and prefer to let the backend handle this case
+@@ -623,20 +675,21 @@ func getEntries(ctx context.Context, c *LogContext, w http.ResponseWriter, r *ht
+ 	if err != nil {
+ 		return http.StatusBadRequest, fmt.Errorf("bad range on get-entries request: %v", err)
+ 	}
+-	c.RequestLog.StartAndEnd(ctx, start, end)
++	li.RequestLog.StartAndEnd(ctx, start, end)
+ 
+ 	// Now make a request to the backend to get the relevant leaves
+ 	var leaves []*trillian.LogLeaf
+ 	if *getByRange {
+ 		count := end + 1 - start
+ 		req := trillian.GetLeavesByRangeRequest{
+-			LogId:      c.logID,
++			LogId:      li.logID,
+ 			StartIndex: start,
+ 			Count:      count,
++			ChargeTo:   li.chargeUser(r),
+ 		}
+-		rsp, err := c.rpcClient.GetLeavesByRange(ctx, &req)
++		rsp, err := li.rpcClient.GetLeavesByRange(ctx, &req)
+ 		if err != nil {
+-			return c.toHTTPStatus(err), fmt.Errorf("backend GetLeavesByRange request failed: %v", err)
++			return li.toHTTPStatus(err), fmt.Errorf("backend GetLeavesByRange request failed: %v", err)
+ 		}
+ 		if rsp.SignedLogRoot != nil && rsp.SignedLogRoot.TreeSize <= start {
+ 			// If the returned tree is too small to contain any leaves return the 4xx
+@@ -655,12 +708,13 @@ func getEntries(ctx context.Context, c *LogContext, w http.ResponseWriter, r *ht
+ 		leaves = rsp.Leaves
+ 	} else {
+ 		req := trillian.GetLeavesByIndexRequest{
+-			LogId:     c.logID,
++			LogId:     li.logID,
+ 			LeafIndex: buildIndicesForRange(start, end),
++			ChargeTo:  li.chargeUser(r),
+ 		}
+-		rsp, err := c.rpcClient.GetLeavesByIndex(ctx, &req)
++		rsp, err := li.rpcClient.GetLeavesByIndex(ctx, &req)
+ 		if err != nil {
+-			return c.toHTTPStatus(err), fmt.Errorf("backend GetLeavesByIndex request failed: %v", err)
++			return li.toHTTPStatus(err), fmt.Errorf("backend GetLeavesByIndex request failed: %v", err)
+ 		}
+ 
+ 		if rsp.SignedLogRoot != nil && rsp.SignedLogRoot.TreeSize <= start {
+@@ -684,7 +738,7 @@ func getEntries(ctx context.Context, c *LogContext, w http.ResponseWriter, r *ht
+ 	// to serialize the leaves in JSON format for the HTTP response. Doing a
+ 	// round trip via the leaf deserializer gives us another chance to
+ 	// prevent bad / corrupt data from reaching the client.
+-	jsonRsp, err := marshalGetEntriesResponse(c, leaves)
++	jsonRsp, err := marshalGetEntriesResponse(li, leaves)
+ 	if err != nil {
+ 		return http.StatusInternalServerError, fmt.Errorf("failed to process leaves returned from backend: %v", err)
+ 	}
+@@ -704,10 +758,10 @@ func getEntries(ctx context.Context, c *LogContext, w http.ResponseWriter, r *ht
+ 	return http.StatusOK, nil
+ }
+ 
+-func getRoots(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request) (int, error) {
++func getRoots(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request) (int, error) {
+ 	// Pull out the raw certificates from the parsed versions
+-	rawCerts := make([][]byte, 0, len(c.validationOpts.trustedRoots.RawCertificates()))
+-	for _, cert := range c.validationOpts.trustedRoots.RawCertificates() {
++	rawCerts := make([][]byte, 0, len(li.validationOpts.trustedRoots.RawCertificates()))
++	for _, cert := range li.validationOpts.trustedRoots.RawCertificates() {
+ 		rawCerts = append(rawCerts, cert.Raw)
+ 	}
+ 
+@@ -716,28 +770,32 @@ func getRoots(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http
+ 	enc := json.NewEncoder(w)
+ 	err := enc.Encode(jsonMap)
+ 	if err != nil {
+-		glog.Warningf("%s: get_roots failed: %v", c.LogPrefix, err)
++		glog.Warningf("%s: get_roots failed: %v", li.LogPrefix, err)
+ 		return http.StatusInternalServerError, fmt.Errorf("get-roots failed with: %v", err)
+ 	}
+ 
+ 	return http.StatusOK, nil
+ }
+ 
+-// See RFC 6962 Section 4.8. This is mostly used for debug purposes rather than by normal
+-// CT clients.
+-func getEntryAndProof(ctx context.Context, c *LogContext, w http.ResponseWriter, r *http.Request) (int, error) {
++// See RFC 6962 Section 4.8.
++func getEntryAndProof(ctx context.Context, li *logInfo, w http.ResponseWriter, r *http.Request) (int, error) {
+ 	// Ensure both numeric params are present and look reasonable.
+ 	leafIndex, treeSize, err := parseGetEntryAndProofParams(r)
+ 	if err != nil {
+ 		return http.StatusBadRequest, fmt.Errorf("failed to parse get-entry-and-proof params: %v", err)
+ 	}
+-	c.RequestLog.LeafIndex(ctx, leafIndex)
+-	c.RequestLog.TreeSize(ctx, treeSize)
++	li.RequestLog.LeafIndex(ctx, leafIndex)
++	li.RequestLog.TreeSize(ctx, treeSize)
+ 
+-	req := trillian.GetEntryAndProofRequest{LogId: c.logID, LeafIndex: leafIndex, TreeSize: treeSize}
+-	rsp, err := c.rpcClient.GetEntryAndProof(ctx, &req)
++	req := trillian.GetEntryAndProofRequest{
++		LogId:     li.logID,
++		LeafIndex: leafIndex,
++		TreeSize:  treeSize,
++		ChargeTo:  li.chargeUser(r),
++	}
++	rsp, err := li.rpcClient.GetEntryAndProof(ctx, &req)
+ 	if err != nil {
+-		return c.toHTTPStatus(err), fmt.Errorf("backend GetEntryAndProof request failed: %v", err)
++		return li.toHTTPStatus(err), fmt.Errorf("backend GetEntryAndProof request failed: %v", err)
+ 	}
+ 
+ 	if rsp.SignedLogRoot != nil && rsp.SignedLogRoot.TreeSize < treeSize {
+@@ -781,17 +839,17 @@ func sendHTTPError(w http.ResponseWriter, statusCode int, err error) {
+ }
+ 
+ // getRPCDeadlineTime calculates the future time an RPC should expire based on our config
+-func getRPCDeadlineTime(c *LogContext) time.Time {
+-	return c.TimeSource.Now().Add(c.instanceOpts.Deadline)
++func getRPCDeadlineTime(li *logInfo) time.Time {
++	return li.TimeSource.Now().Add(li.instanceOpts.Deadline)
+ }
+ 
+ // verifyAddChain is used by add-chain and add-pre-chain. It does the checks that the supplied
+ // cert is of the correct type and chains to a trusted root.
+ // TODO(Martin2112): This may not implement all the RFC requirements. Check what is provided
+ // by fixchain (called by this code) plus the ones here to make sure that it is compliant.
+-func verifyAddChain(c *LogContext, req ct.AddChainRequest, w http.ResponseWriter, expectingPrecert bool) ([]*x509.Certificate, error) {
++func verifyAddChain(li *logInfo, req ct.AddChainRequest, expectingPrecert bool) ([]*x509.Certificate, error) {
+ 	// We already checked that the chain is not empty so can move on to verification
+-	validPath, err := ValidateChain(req.Chain, c.validationOpts)
++	validPath, err := ValidateChain(req.Chain, li.validationOpts)
+ 	if err != nil {
+ 		// We rejected it because the cert failed checks or we could not find a path to a root etc.
+ 		// Lots of possible causes for errors
+@@ -806,9 +864,9 @@ func verifyAddChain(c *LogContext, req ct.AddChainRequest, w http.ResponseWriter
+ 	// The type of the leaf must match the one the handler expects
+ 	if isPrecert != expectingPrecert {
+ 		if expectingPrecert {
+-			glog.Warningf("%s: Cert (or precert with invalid CT ext) submitted as precert chain: %x", c.LogPrefix, req.Chain)
++			glog.Warningf("%s: Cert (or precert with invalid CT ext) submitted as precert chain: %x", li.LogPrefix, req.Chain)
+ 		} else {
+-			glog.Warningf("%s: Precert (or cert with invalid CT ext) submitted as cert chain: %x", c.LogPrefix, req.Chain)
++			glog.Warningf("%s: Precert (or cert with invalid CT ext) submitted as cert chain: %x", li.LogPrefix, req.Chain)
+ 		}
+ 		return nil, fmt.Errorf("cert / precert mismatch: %v", expectingPrecert)
+ 	}
+@@ -816,72 +874,21 @@ func verifyAddChain(c *LogContext, req ct.AddChainRequest, w http.ResponseWriter
+ 	return validPath, nil
+ }
+ 
+-// buildLogLeafForAddChain is also used by add-pre-chain and does the hashing to build a
+-// LogLeaf that will be sent to the backend
+-func buildLogLeafForAddChain(c *LogContext, merkleLeaf ct.MerkleTreeLeaf, chain []*x509.Certificate) (trillian.LogLeaf, error) {
+-	leafData, err := tls.Marshal(merkleLeaf)
+-	if err != nil {
+-		glog.Warningf("%s: Failed to serialize Merkle leaf: %v", c.LogPrefix, err)
+-		return trillian.LogLeaf{}, err
++func extractRawCerts(chain []*x509.Certificate) []ct.ASN1Cert {
++	raw := make([]ct.ASN1Cert, len(chain))
++	for i, cert := range chain {
++		raw[i] = ct.ASN1Cert{Data: cert.Raw}
+ 	}
+-
+-	isPrecert, err := IsPrecertificate(chain[0])
+-	if err != nil {
+-		glog.Warningf("%s: Failed to determine if cert or pre-cert: %v", c.LogPrefix, err)
+-		return trillian.LogLeaf{}, err
+-	}
+-
+-	extraData, err := extraDataForChain(chain, isPrecert)
+-	if err != nil {
+-		glog.Warningf("%s: Failed to serialize chain for ExtraData: %v", c.LogPrefix, err)
+-		return trillian.LogLeaf{}, err
+-	}
+-
+-	// leafIDHash allows Trillian to detect duplicate entries, so this should be
+-	// a hash over the cert data.
+-	leafIDHash := sha256.Sum256(chain[0].Raw)
+-
+-	return trillian.LogLeaf{
+-		LeafIdentityHash: leafIDHash[:],
+-		LeafValue:        leafData,
+-		ExtraData:        extraData,
+-	}, nil
++	return raw
+ }
+ 
+-// extraDataForChain creates the extra data associated with a log entry as described in
+-// RFC6962 section 4.6.
+-func extraDataForChain(chain []*x509.Certificate, isPrecert bool) ([]byte, error) {
+-	var extraData []byte
+-	var err error
+-	if isPrecert {
+-		// For a pre-certificate, the extra data is a TLS-encoded PrecertChainEntry.
+-		extra := ct.PrecertChainEntry{
+-			PreCertificate:   ct.ASN1Cert{Data: chain[0].Raw},
+-			CertificateChain: make([]ct.ASN1Cert, len(chain)-1),
+-		}
+-		for i := 1; i < len(chain); i++ {
+-			extra.CertificateChain[i-1] = ct.ASN1Cert{Data: chain[i].Raw}
+-		}
+-		extraData, err = tls.Marshal(extra)
+-		if err != nil {
+-			return nil, err
+-		}
+-	} else {
+-		// For a certificate, the extra data is a TLS-encoded:
+-		//   ASN.1Cert certificate_chain<0..2^24-1>;
+-		// containing the chain after the leaf.
+-		extra := ct.CertificateChain{
+-			Entries: make([]ct.ASN1Cert, len(chain)-1),
+-		}
+-		for i := 1; i < len(chain); i++ {
+-			extra.Entries[i-1] = ct.ASN1Cert{Data: chain[i].Raw}
+-		}
+-		extraData, err = tls.Marshal(extra)
+-		if err != nil {
+-			return nil, err
+-		}
+-	}
+-	return extraData, nil
++// buildLogLeafForAddChain does the hashing to build a LogLeaf that will be
++// sent to the backend by add-chain and add-pre-chain endpoints.
++func buildLogLeafForAddChain(li *logInfo,
++	merkleLeaf ct.MerkleTreeLeaf, chain []*x509.Certificate, isPrecert bool,
++) (trillian.LogLeaf, error) {
++	raw := extractRawCerts(chain)
++	return util.BuildLogLeaf(li.LogPrefix, merkleLeaf, 0, raw[0], raw[1:], isPrecert)
+ }
+ 
+ // marshalAndWriteAddChainResponse is used by add-chain and add-pre-chain to create and write
+@@ -1040,7 +1047,7 @@ func sortLeafRange(rsp *trillian.GetLeavesByIndexResponse, start, end int64) err
+ 
+ // marshalGetEntriesResponse does the conversion from the backend response to the one we need for
+ // an RFC compliant JSON response to the client.
+-func marshalGetEntriesResponse(c *LogContext, leaves []*trillian.LogLeaf) (ct.GetEntriesResponse, error) {
++func marshalGetEntriesResponse(li *logInfo, leaves []*trillian.LogLeaf) (ct.GetEntriesResponse, error) {
+ 	jsonRsp := ct.GetEntriesResponse{}
+ 
+ 	for _, leaf := range leaves {
+@@ -1050,14 +1057,14 @@ func marshalGetEntriesResponse(c *LogContext, leaves []*trillian.LogLeaf) (ct.Ge
+ 		// or data storage that should be investigated.
+ 		var treeLeaf ct.MerkleTreeLeaf
+ 		if rest, err := tls.Unmarshal(leaf.LeafValue, &treeLeaf); err != nil {
+-			glog.Errorf("%s: Failed to deserialize Merkle leaf from backend: %d", c.LogPrefix, leaf.LeafIndex)
++			glog.Errorf("%s: Failed to deserialize Merkle leaf from backend: %d", li.LogPrefix, leaf.LeafIndex)
+ 		} else if len(rest) > 0 {
+-			glog.Errorf("%s: Trailing data after Merkle leaf from backend: %d", c.LogPrefix, leaf.LeafIndex)
++			glog.Errorf("%s: Trailing data after Merkle leaf from backend: %d", li.LogPrefix, leaf.LeafIndex)
+ 		}
+ 
+ 		extraData := leaf.ExtraData
+ 		if len(extraData) == 0 {
+-			glog.Errorf("%s: Missing ExtraData for leaf %d", c.LogPrefix, leaf.LeafIndex)
++			glog.Errorf("%s: Missing ExtraData for leaf %d", li.LogPrefix, leaf.LeafIndex)
+ 		}
+ 		jsonRsp.Entries = append(jsonRsp.Entries, ct.LeafEntry{
+ 			LeafInput: leaf.LeafValue,
+@@ -1079,9 +1086,9 @@ func checkAuditPath(path [][]byte) bool {
+ 	return true
+ }
+ 
+-func (c *LogContext) toHTTPStatus(err error) int {
+-	if c.instanceOpts.ErrorMapper != nil {
+-		if status, ok := c.instanceOpts.ErrorMapper(err); ok {
++func (li *logInfo) toHTTPStatus(err error) int {
++	if li.instanceOpts.ErrorMapper != nil {
++		if status, ok := li.instanceOpts.ErrorMapper(err); ok {
+ 			return status
+ 		}
+ 	}
+diff --git a/trillian/ctfe/handlers_test.go b/trillian/ctfe/handlers_test.go
+index d1ab9ecf..18e2de3e 100644
+--- a/trillian/ctfe/handlers_test.go
++++ b/trillian/ctfe/handlers_test.go
+@@ -39,6 +39,7 @@ import (
+ 	"github.com/google/certificate-transparency-go/trillian/testdata"
+ 	"github.com/google/certificate-transparency-go/trillian/util"
+ 	"github.com/google/certificate-transparency-go/x509"
++	"github.com/google/certificate-transparency-go/x509util"
+ 	"github.com/google/trillian"
+ 	"github.com/google/trillian/crypto/keys/pem"
+ 	"github.com/google/trillian/monitoring"
+@@ -99,13 +100,50 @@ const caAndIntermediateCertsPEM string = "-----BEGIN CERTIFICATE-----\n" +
+ 	intermediateCertB64 +
+ 	"\n-----END CERTIFICATE-----\n"
+ 
++const remoteQuotaUser = "Moneybags"
++
+ type handlerTestInfo struct {
+ 	mockCtrl      *gomock.Controller
+ 	roots         *PEMCertPool
+ 	notAfterStart time.Time
+ 	notAfterEnd   time.Time
+ 	client        *mockclient.MockTrillianLogClient
+-	c             *LogContext
++	li            *logInfo
++}
++
++const certQuotaPrefix = "CERT:"
++
++func quotaUserForCert(c *x509.Certificate) string {
++	return fmt.Sprintf("%s %s", certQuotaPrefix, c.Subject.String())
++}
++
++func quotaUsersForIssuers(t *testing.T, pem ...string) []string {
++	t.Helper()
++	r := make([]string, 0)
++	for _, p := range pem {
++		c, err := x509util.CertificateFromPEM([]byte(p))
++		if err != nil {
++			t.Fatalf("Failed to parse pem: %v", err)
++		}
++		r = append(r, quotaUserForCert(c))
++	}
++	return r
++}
++
++func (info *handlerTestInfo) setRemoteQuotaUser(u string) {
++	if len(u) > 0 {
++		info.li.instanceOpts.RemoteQuotaUser = func(_ *http.Request) string { return u }
++	} else {
++		info.li.instanceOpts.RemoteQuotaUser = nil
++	}
++}
++
++func (info *handlerTestInfo) enableCertQuota(e bool) {
++	if e {
++		info.li.instanceOpts.CertificateQuotaUser = quotaUserForCert
++	} else {
++		info.li.instanceOpts.CertificateQuotaUser = nil
++	}
+ }
+ 
+ // setupTest creates mock objects and contexts.  Caller should invoke info.mockCtrl.Finish().
+@@ -123,7 +161,7 @@ func setupTest(t *testing.T, pemRoots []string, signer crypto.Signer) handlerTes
+ 		extKeyUsages:  []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+ 	}
+ 	iOpts := InstanceOptions{Deadline: time.Millisecond * 500, MetricFactory: monitoring.InertMetricFactory{}, RequestLog: new(DefaultRequestLog)}
+-	info.c = NewLogContext(0x42, "test", vOpts, info.client, signer, iOpts, fakeTimeSource)
++	info.li = newLogInfo(0x42, "test", vOpts, info.client, signer, iOpts, fakeTimeSource)
+ 
+ 	for _, pemRoot := range pemRoots {
+ 		if !info.roots.AppendCertsFromPEM([]byte(pemRoot)) {
+@@ -136,19 +174,19 @@ func setupTest(t *testing.T, pemRoots []string, signer crypto.Signer) handlerTes
+ 
+ func (info handlerTestInfo) getHandlers() map[string]AppHandler {
+ 	return map[string]AppHandler{
+-		"get-sth":             {Context: info.c, Handler: getSTH, Name: "GetSTH", Method: http.MethodGet},
+-		"get-sth-consistency": {Context: info.c, Handler: getSTHConsistency, Name: "GetSTHConsistency", Method: http.MethodGet},
+-		"get-proof-by-hash":   {Context: info.c, Handler: getProofByHash, Name: "GetProofByHash", Method: http.MethodGet},
+-		"get-entries":         {Context: info.c, Handler: getEntries, Name: "GetEntries", Method: http.MethodGet},
+-		"get-roots":           {Context: info.c, Handler: getRoots, Name: "GetRoots", Method: http.MethodGet},
+-		"get-entry-and-proof": {Context: info.c, Handler: getEntryAndProof, Name: "GetEntryAndProof", Method: http.MethodGet},
++		"get-sth":             {Info: info.li, Handler: getSTH, Name: "GetSTH", Method: http.MethodGet},
++		"get-sth-consistency": {Info: info.li, Handler: getSTHConsistency, Name: "GetSTHConsistency", Method: http.MethodGet},
++		"get-proof-by-hash":   {Info: info.li, Handler: getProofByHash, Name: "GetProofByHash", Method: http.MethodGet},
++		"get-entries":         {Info: info.li, Handler: getEntries, Name: "GetEntries", Method: http.MethodGet},
++		"get-roots":           {Info: info.li, Handler: getRoots, Name: "GetRoots", Method: http.MethodGet},
++		"get-entry-and-proof": {Info: info.li, Handler: getEntryAndProof, Name: "GetEntryAndProof", Method: http.MethodGet},
+ 	}
+ }
+ 
+ func (info handlerTestInfo) postHandlers() map[string]AppHandler {
+ 	return map[string]AppHandler{
+-		"add-chain":     {Context: info.c, Handler: addChain, Name: "AddChain", Method: http.MethodPost},
+-		"add-pre-chain": {Context: info.c, Handler: addPreChain, Name: "AddPreChain", Method: http.MethodPost},
++		"add-chain":     {Info: info.li, Handler: addChain, Name: "AddChain", Method: http.MethodPost},
++		"add-pre-chain": {Info: info.li, Handler: addPreChain, Name: "AddPreChain", Method: http.MethodPost},
+ 	}
+ }
+ 
+@@ -236,7 +274,7 @@ func TestHandlers(t *testing.T) {
+ 	info := setupTest(t, nil, nil)
+ 	defer info.mockCtrl.Finish()
+ 	for _, test := range tests {
+-		handlers := info.c.Handlers(test)
++		handlers := info.li.Handlers(test)
+ 		if h, ok := handlers[path]; !ok {
+ 			t.Errorf("Handlers(%s)[%q]=%+v; want _", test, path, h)
+ 		} else if h.Name != "AddChain" {
+@@ -261,7 +299,7 @@ func TestHandlers(t *testing.T) {
+ func TestGetRoots(t *testing.T) {
+ 	info := setupTest(t, []string{caAndIntermediateCertsPEM}, nil)
+ 	defer info.mockCtrl.Finish()
+-	handler := AppHandler{Context: info.c, Handler: getRoots, Name: "GetRoots", Method: http.MethodGet}
++	handler := AppHandler{Info: info.li, Handler: getRoots, Name: "GetRoots", Method: http.MethodGet}
+ 
+ 	req, err := http.NewRequest("GET", "http://example.com/ct/v1/get-roots", nil)
+ 	if err != nil {
+@@ -294,11 +332,15 @@ func TestGetRoots(t *testing.T) {
+ 
+ func TestAddChain(t *testing.T) {
+ 	var tests = []struct {
+-		descr  string
+-		chain  []string
+-		toSign string // hex-encoded
+-		want   int
+-		err    error
++		descr           string
++		chain           []string
++		toSign          string // hex-encoded
++		want            int
++		err             error
++		remoteQuotaUser string
++		enableCertQuota bool
++		// if remote quota enabled, it must be the first entry here
++		wantQuotaUsers []string
+ 	}{
+ 		{
+ 			descr: "leaf-only",
+@@ -329,6 +371,39 @@ func TestAddChain(t *testing.T) {
+ 			toSign: "1337d72a403b6539f58896decba416d5d4b3603bfa03e1f94bb9b4e898af897d",
+ 			want:   http.StatusOK,
+ 		},
++		{
++			descr:           "success-without-root with remote quota",
++			chain:           []string{cttestonly.LeafSignedByFakeIntermediateCertPEM, cttestonly.FakeIntermediateCertPEM},
++			toSign:          "1337d72a403b6539f58896decba416d5d4b3603bfa03e1f94bb9b4e898af897d",
++			remoteQuotaUser: remoteQuotaUser,
++			want:            http.StatusOK,
++			wantQuotaUsers:  []string{remoteQuotaUser},
++		},
++		{
++			descr:           "success with remote quota",
++			chain:           []string{cttestonly.LeafSignedByFakeIntermediateCertPEM, cttestonly.FakeIntermediateCertPEM, cttestonly.FakeCACertPEM},
++			toSign:          "1337d72a403b6539f58896decba416d5d4b3603bfa03e1f94bb9b4e898af897d",
++			remoteQuotaUser: remoteQuotaUser,
++			want:            http.StatusOK,
++			wantQuotaUsers:  []string{remoteQuotaUser},
++		},
++		{
++			descr:           "success with chain quota",
++			chain:           []string{cttestonly.LeafSignedByFakeIntermediateCertPEM, cttestonly.FakeIntermediateCertPEM, cttestonly.FakeCACertPEM},
++			toSign:          "1337d72a403b6539f58896decba416d5d4b3603bfa03e1f94bb9b4e898af897d",
++			enableCertQuota: true,
++			want:            http.StatusOK,
++			wantQuotaUsers:  quotaUsersForIssuers(t, cttestonly.FakeIntermediateCertPEM, cttestonly.FakeCACertPEM),
++		},
++		{
++			descr:           "success with remote and chain quota",
++			chain:           []string{cttestonly.LeafSignedByFakeIntermediateCertPEM, cttestonly.FakeIntermediateCertPEM, cttestonly.FakeCACertPEM},
++			toSign:          "1337d72a403b6539f58896decba416d5d4b3603bfa03e1f94bb9b4e898af897d",
++			remoteQuotaUser: remoteQuotaUser,
++			enableCertQuota: true,
++			want:            http.StatusOK,
++			wantQuotaUsers:  append([]string{remoteQuotaUser}, quotaUsersForIssuers(t, cttestonly.FakeIntermediateCertPEM, cttestonly.FakeCACertPEM)...),
++		},
+ 	}
+ 
+ 	signer, err := setupSigner(fakeSignature)
+@@ -340,6 +415,8 @@ func TestAddChain(t *testing.T) {
+ 	defer info.mockCtrl.Finish()
+ 
+ 	for _, test := range tests {
++		info.setRemoteQuotaUser(test.remoteQuotaUser)
++		info.enableCertQuota(test.enableCertQuota)
+ 		pool := loadCertsIntoPoolOrDie(t, test.chain)
+ 		chain := createJSONChain(t, *pool)
+ 		if len(test.toSign) > 0 {
+@@ -366,10 +443,14 @@ func TestAddChain(t *testing.T) {
+ 				}
+ 			}
+ 			rsp := trillian.QueueLeavesResponse{QueuedLeaves: queuedLeaves}
+-			info.client.EXPECT().QueueLeaves(deadlineMatcher(), &trillian.QueueLeavesRequest{LogId: 0x42, Leaves: leaves}).Return(&rsp, test.err)
++			req := &trillian.QueueLeavesRequest{LogId: 0x42, Leaves: leaves}
++			if len(test.wantQuotaUsers) > 0 {
++				req.ChargeTo = &trillian.ChargeTo{User: test.wantQuotaUsers}
++			}
++			info.client.EXPECT().QueueLeaves(deadlineMatcher(), req).Return(&rsp, test.err)
+ 		}
+ 
+-		recorder := makeAddChainRequest(t, info.c, chain)
++		recorder := makeAddChainRequest(t, info.li, chain)
+ 		if recorder.Code != test.want {
+ 			t.Errorf("addChain(%s)=%d (body:%v); want %dv", test.descr, recorder.Code, recorder.Body, test.want)
+ 			continue
+@@ -398,12 +479,13 @@ func TestAddChain(t *testing.T) {
+ 
+ func TestAddPrechain(t *testing.T) {
+ 	var tests = []struct {
+-		descr  string
+-		chain  []string
+-		root   string
+-		toSign string // hex-encoded
+-		err    error
+-		want   int
++		descr         string
++		chain         []string
++		root          string
++		toSign        string // hex-encoded
++		err           error
++		want          int
++		wantQuotaUser string
+ 	}{
+ 		{
+ 			descr: "leaf-signed-by-different",
+@@ -428,12 +510,26 @@ func TestAddPrechain(t *testing.T) {
+ 			toSign: "92ecae1a2dc67a6c5f9c96fa5cab4c2faf27c48505b696dad926f161b0ca675a",
+ 			want:   http.StatusOK,
+ 		},
++		{
++			descr:         "success with quota",
++			chain:         []string{cttestonly.PrecertPEMValid, cttestonly.CACertPEM},
++			toSign:        "92ecae1a2dc67a6c5f9c96fa5cab4c2faf27c48505b696dad926f161b0ca675a",
++			want:          http.StatusOK,
++			wantQuotaUser: remoteQuotaUser,
++		},
+ 		{
+ 			descr:  "success-without-root",
+ 			chain:  []string{cttestonly.PrecertPEMValid},
+ 			toSign: "92ecae1a2dc67a6c5f9c96fa5cab4c2faf27c48505b696dad926f161b0ca675a",
+ 			want:   http.StatusOK,
+ 		},
++		{
++			descr:         "success-without-root with quota",
++			chain:         []string{cttestonly.PrecertPEMValid},
++			toSign:        "92ecae1a2dc67a6c5f9c96fa5cab4c2faf27c48505b696dad926f161b0ca675a",
++			want:          http.StatusOK,
++			wantQuotaUser: remoteQuotaUser,
++		},
+ 	}
+ 
+ 	signer, err := setupSigner(fakeSignature)
+@@ -445,6 +541,7 @@ func TestAddPrechain(t *testing.T) {
+ 	defer info.mockCtrl.Finish()
+ 
+ 	for _, test := range tests {
++		info.setRemoteQuotaUser(test.wantQuotaUser)
+ 		pool := loadCertsIntoPoolOrDie(t, test.chain)
+ 		chain := createJSONChain(t, *pool)
+ 		if len(test.toSign) > 0 {
+@@ -471,10 +568,14 @@ func TestAddPrechain(t *testing.T) {
+ 				}
+ 			}
+ 			rsp := trillian.QueueLeavesResponse{QueuedLeaves: queuedLeaves}
+-			info.client.EXPECT().QueueLeaves(deadlineMatcher(), &trillian.QueueLeavesRequest{LogId: 0x42, Leaves: leaves}).Return(&rsp, test.err)
++			req := &trillian.QueueLeavesRequest{LogId: 0x42, Leaves: leaves}
++			if len(test.wantQuotaUser) != 0 {
++				req.ChargeTo = &trillian.ChargeTo{User: []string{test.wantQuotaUser}}
++			}
++			info.client.EXPECT().QueueLeaves(deadlineMatcher(), req).Return(&rsp, test.err)
+ 		}
+ 
+-		recorder := makeAddPrechainRequest(t, info.c, chain)
++		recorder := makeAddPrechainRequest(t, info.li, chain)
+ 		if recorder.Code != test.want {
+ 			t.Errorf("addPrechain(%s)=%d (body:%v); want %d", test.descr, recorder.Code, recorder.Body, test.want)
+ 			continue
+@@ -503,13 +604,14 @@ func TestAddPrechain(t *testing.T) {
+ 
+ func TestGetSTH(t *testing.T) {
+ 	var tests = []struct {
+-		descr   string
+-		rpcRsp  *trillian.GetLatestSignedLogRootResponse
+-		rpcErr  error
+-		toSign  string // hex-encoded
+-		signErr error
+-		want    int
+-		errStr  string
++		descr         string
++		rpcRsp        *trillian.GetLatestSignedLogRootResponse
++		rpcErr        error
++		toSign        string // hex-encoded
++		signErr       error
++		want          int
++		wantQuotaUser string
++		errStr        string
+ 	}{
+ 		{
+ 			descr:  "backend-failure",
+@@ -542,6 +644,13 @@ func TestGetSTH(t *testing.T) {
+ 			toSign: "1e88546f5157bfaf77ca2454690b602631fedae925bbe7cf708ea275975bfe74",
+ 			want:   http.StatusOK,
+ 		},
++		{
++			descr:         "ok with quota",
++			rpcRsp:        makeGetRootResponseForTest(12345000000, 25, []byte("abcdabcdabcdabcdabcdabcdabcdabcd")),
++			toSign:        "1e88546f5157bfaf77ca2454690b602631fedae925bbe7cf708ea275975bfe74",
++			want:          http.StatusOK,
++			wantQuotaUser: remoteQuotaUser,
++		},
+ 	}
+ 
+ 	key, err := pem.UnmarshalPublicKey(testdata.DemoPublicKey)
+@@ -560,16 +669,21 @@ func TestGetSTH(t *testing.T) {
+ 			}
+ 
+ 			info := setupTest(t, []string{cttestonly.CACertPEM}, signer)
++			info.setRemoteQuotaUser(test.wantQuotaUser)
+ 			defer info.mockCtrl.Finish()
+ 
+-			info.client.EXPECT().GetLatestSignedLogRoot(deadlineMatcher(), &trillian.GetLatestSignedLogRootRequest{LogId: 0x42}).Return(test.rpcRsp, test.rpcErr)
++			srReq := &trillian.GetLatestSignedLogRootRequest{LogId: 0x42}
++			if len(test.wantQuotaUser) != 0 {
++				srReq.ChargeTo = &trillian.ChargeTo{User: []string{test.wantQuotaUser}}
++			}
++			info.client.EXPECT().GetLatestSignedLogRoot(deadlineMatcher(), srReq).Return(test.rpcRsp, test.rpcErr)
+ 			req, err := http.NewRequest("GET", "http://example.com/ct/v1/get-sth", nil)
+ 			if err != nil {
+ 				t.Errorf("Failed to create request: %v", err)
+ 				return
+ 			}
+ 
+-			handler := AppHandler{Context: info.c, Handler: getSTH, Name: "GetSTH", Method: http.MethodGet}
++			handler := AppHandler{Info: info.li, Handler: getSTH, Name: "GetSTH", Method: http.MethodGet}
+ 			w := httptest.NewRecorder()
+ 			handler.ServeHTTP(w, req)
+ 			if got := w.Code; got != test.want {
+@@ -633,15 +747,16 @@ func runTestGetEntries(t *testing.T) {
+ 	}
+ 
+ 	var tests = []struct {
+-		descr  string
+-		req    string
+-		want   int
+-		glbir  *trillian.GetLeavesByIndexRequest
+-		glbrr  *trillian.GetLeavesByRangeRequest
+-		leaves []*trillian.LogLeaf
+-		rpcErr error
+-		slr    *trillian.SignedLogRoot
+-		errStr string
++		descr         string
++		req           string
++		want          int
++		wantQuotaUser string
++		glbir         *trillian.GetLeavesByIndexRequest
++		glbrr         *trillian.GetLeavesByRangeRequest
++		leaves        []*trillian.LogLeaf
++		rpcErr        error
++		slr           *trillian.SignedLogRoot
++		errStr        string
+ 	}{
+ 		{
+ 			descr: "invalid &&s",
+@@ -717,6 +832,16 @@ func runTestGetEntries(t *testing.T) {
+ 				{LeafIndex: 2, MerkleLeafHash: []byte("hash"), LeafValue: merkleBytes2, ExtraData: []byte("extra2")},
+ 			},
+ 		},
++		{
++			descr:         "leaves ok with quota",
++			req:           "start=1&end=2",
++			want:          http.StatusOK,
++			wantQuotaUser: remoteQuotaUser,
++			leaves: []*trillian.LogLeaf{
++				{LeafIndex: 1, MerkleLeafHash: []byte("hash"), LeafValue: merkleBytes1, ExtraData: []byte("extra1")},
++				{LeafIndex: 2, MerkleLeafHash: []byte("hash"), LeafValue: merkleBytes2, ExtraData: []byte("extra2")},
++			},
++		},
+ 		{
+ 			descr: "tree too small",
+ 			req:   "start=5&end=6",
+@@ -759,7 +884,8 @@ func runTestGetEntries(t *testing.T) {
+ 
+ 	for _, test := range tests {
+ 		info := setupTest(t, nil, nil)
+-		handler := AppHandler{Context: info.c, Handler: getEntries, Name: "GetEntries", Method: http.MethodGet}
++		info.setRemoteQuotaUser(test.wantQuotaUser)
++		handler := AppHandler{Info: info.li, Handler: getEntries, Name: "GetEntries", Method: http.MethodGet}
+ 		path := fmt.Sprintf("/ct/v1/get-entries?%s", test.req)
+ 		req, err := http.NewRequest("GET", path, nil)
+ 		if err != nil {
+@@ -767,15 +893,19 @@ func runTestGetEntries(t *testing.T) {
+ 			continue
+ 		}
+ 		if test.leaves != nil || test.rpcErr != nil {
++			var chargeTo *trillian.ChargeTo
++			if len(test.wantQuotaUser) != 0 {
++				chargeTo = &trillian.ChargeTo{User: []string{test.wantQuotaUser}}
++			}
+ 			if *getByRange {
+-				glbrr := &trillian.GetLeavesByRangeRequest{LogId: 0x42, StartIndex: 1, Count: 2}
++				glbrr := &trillian.GetLeavesByRangeRequest{LogId: 0x42, StartIndex: 1, Count: 2, ChargeTo: chargeTo}
+ 				if test.glbrr != nil {
+ 					glbrr = test.glbrr
+ 				}
+ 				rsp := trillian.GetLeavesByRangeResponse{SignedLogRoot: test.slr, Leaves: test.leaves}
+ 				info.client.EXPECT().GetLeavesByRange(deadlineMatcher(), glbrr).Return(&rsp, test.rpcErr)
+ 			} else {
+-				glbir := &trillian.GetLeavesByIndexRequest{LogId: 0x42, LeafIndex: []int64{1, 2}}
++				glbir := &trillian.GetLeavesByIndexRequest{LogId: 0x42, LeafIndex: []int64{1, 2}, ChargeTo: chargeTo}
+ 				if test.glbir != nil {
+ 					glbir = test.glbir
+ 				}
+@@ -827,12 +957,13 @@ func runTestGetEntries(t *testing.T) {
+ 
+ func runTestGetEntriesRanges(t *testing.T) {
+ 	var tests = []struct {
+-		desc   string
+-		start  int64
+-		end    int64
+-		rpcEnd int64 // same as end if zero
+-		want   int
+-		rpc    bool
++		desc          string
++		start         int64
++		end           int64
++		rpcEnd        int64 // same as end if zero
++		want          int
++		wantQuotaUser string
++		rpc           bool
+ 	}{
+ 		{
+ 			desc:  "-ve start value not allowed",
+@@ -865,6 +996,14 @@ func runTestGetEntriesRanges(t *testing.T) {
+ 			want:  http.StatusInternalServerError,
+ 			rpc:   true,
+ 		},
++		{
++			desc:          "valid range quota",
++			start:         10,
++			end:           20,
++			want:          http.StatusInternalServerError,
++			wantQuotaUser: remoteQuotaUser,
++			rpc:           true,
++		},
+ 		{
+ 			desc:  "valid range, one entry",
+ 			start: 10,
+@@ -890,21 +1029,26 @@ func runTestGetEntriesRanges(t *testing.T) {
+ 
+ 	info := setupTest(t, nil, nil)
+ 	defer info.mockCtrl.Finish()
+-	handler := AppHandler{Context: info.c, Handler: getEntries, Name: "GetEntries", Method: http.MethodGet}
++	handler := AppHandler{Info: info.li, Handler: getEntries, Name: "GetEntries", Method: http.MethodGet}
+ 
+ 	// This tests that only valid ranges make it to the backend for get-entries.
+ 	// We're testing request handling up to the point where we make the RPC so arrange for
+ 	// it to fail with a specific error.
+ 	for _, test := range tests {
++		info.setRemoteQuotaUser(test.wantQuotaUser)
+ 		if test.rpc {
+ 			end := test.rpcEnd
+ 			if end == 0 {
+ 				end = test.end
+ 			}
++			var chargeTo *trillian.ChargeTo
++			if len(test.wantQuotaUser) != 0 {
++				chargeTo = &trillian.ChargeTo{User: []string{test.wantQuotaUser}}
++			}
+ 			if *getByRange {
+-				info.client.EXPECT().GetLeavesByRange(deadlineMatcher(), &trillian.GetLeavesByRangeRequest{LogId: 0x42, StartIndex: test.start, Count: end + 1 - test.start}).Return(nil, errors.New("RPCMADE"))
++				info.client.EXPECT().GetLeavesByRange(deadlineMatcher(), &trillian.GetLeavesByRangeRequest{LogId: 0x42, StartIndex: test.start, Count: end + 1 - test.start, ChargeTo: chargeTo}).Return(nil, errors.New("RPCMADE"))
+ 			} else {
+-				info.client.EXPECT().GetLeavesByIndex(deadlineMatcher(), &trillian.GetLeavesByIndexRequest{LogId: 0x42, LeafIndex: buildIndicesForRange(test.start, end)}).Return(nil, errors.New("RPCMADE"))
++				info.client.EXPECT().GetLeavesByIndex(deadlineMatcher(), &trillian.GetLeavesByIndexRequest{LogId: 0x42, LeafIndex: buildIndicesForRange(test.start, end), ChargeTo: chargeTo}).Return(nil, errors.New("RPCMADE"))
+ 			}
+ 		}
+ 
+@@ -1000,13 +1144,14 @@ func TestGetProofByHash(t *testing.T) {
+ 	}
+ 
+ 	var tests = []struct {
+-		req      string
+-		want     int
+-		rpcRsp   *trillian.GetInclusionProofByHashResponse
+-		httpRsp  *ct.GetProofByHashResponse
+-		httpJSON string
+-		rpcErr   error
+-		errStr   string
++		req           string
++		want          int
++		wantQuotaUser string
++		rpcRsp        *trillian.GetInclusionProofByHashResponse
++		httpRsp       *ct.GetProofByHashResponse
++		httpJSON      string
++		rpcErr        error
++		errStr        string
+ 	}{
+ 		{
+ 			req:  "",
+@@ -1049,6 +1194,23 @@ func TestGetProofByHash(t *testing.T) {
+ 			// Check undecoded JSON to confirm use of '[]' not 'null'
+ 			httpJSON: "{\"leaf_index\":0,\"audit_path\":[]}",
+ 		},
++		{
++			req:  "tree_size=1&hash=YWhhc2g=",
++			want: http.StatusOK,
++			// Want quota
++			wantQuotaUser: remoteQuotaUser,
++			rpcRsp: &trillian.GetInclusionProofByHashResponse{
++				Proof: []*trillian.Proof{
++					{
++						LeafIndex: 0,
++						Hashes:    nil,
++					},
++				},
++			},
++			httpRsp: &ct.GetProofByHashResponse{LeafIndex: 0, AuditPath: nil},
++			// Check undecoded JSON to confirm use of '[]' not 'null'
++			httpJSON: "{\"leaf_index\":0,\"audit_path\":[]}",
++		},
+ 		{
+ 			req:  "tree_size=7&hash=YWhhc2g=",
+ 			want: http.StatusOK,
+@@ -1164,9 +1326,10 @@ func TestGetProofByHash(t *testing.T) {
+ 	}
+ 	info := setupTest(t, nil, nil)
+ 	defer info.mockCtrl.Finish()
+-	handler := AppHandler{Context: info.c, Handler: getProofByHash, Name: "GetProofByHash", Method: http.MethodGet}
++	handler := AppHandler{Info: info.li, Handler: getProofByHash, Name: "GetProofByHash", Method: http.MethodGet}
+ 
+ 	for _, test := range tests {
++		info.setRemoteQuotaUser(test.wantQuotaUser)
+ 		req, err := http.NewRequest("GET", fmt.Sprintf("/ct/v1/proof-by-hash?%s", test.req), nil)
+ 		if err != nil {
+ 			t.Errorf("Failed to create request: %v", err)
+@@ -1220,6 +1383,7 @@ func TestGetSTHConsistency(t *testing.T) {
+ 	var tests = []struct {
+ 		req           string
+ 		want          int
++		wantQuotaUser string
+ 		first, second int64
+ 		rpcRsp        *trillian.GetConsistencyProofResponse
+ 		httpRsp       *ct.GetSTHConsistencyResponse
+@@ -1271,6 +1435,17 @@ func TestGetSTHConsistency(t *testing.T) {
+ 			// Check a nil proof is passed through as '[]' not 'null' in raw JSON.
+ 			httpJSON: "{\"consistency\":[]}",
+ 		},
++		{
++			req:  "first=0&second=1",
++			want: http.StatusOK,
++			// Want quota
++			wantQuotaUser: remoteQuotaUser,
++			httpRsp: &ct.GetSTHConsistencyResponse{
++				Consistency: nil,
++			},
++			// Check a nil proof is passed through as '[]' not 'null' in raw JSON.
++			httpJSON: "{\"consistency\":[]}",
++		},
+ 		{
+ 			// Check that unrecognized parameters are ignored.
+ 			req:     "first=0&second=1&third=2&fourth=3",
+@@ -1450,9 +1625,10 @@ func TestGetSTHConsistency(t *testing.T) {
+ 
+ 	info := setupTest(t, nil, nil)
+ 	defer info.mockCtrl.Finish()
+-	handler := AppHandler{Context: info.c, Handler: getSTHConsistency, Name: "GetSTHConsistency", Method: http.MethodGet}
++	handler := AppHandler{Info: info.li, Handler: getSTHConsistency, Name: "GetSTHConsistency", Method: http.MethodGet}
+ 
+ 	for _, test := range tests {
++		info.setRemoteQuotaUser(test.wantQuotaUser)
+ 		req, err := http.NewRequest("GET", fmt.Sprintf("/ct/v1/get-sth-consistency?%s", test.req), nil)
+ 		if err != nil {
+ 			t.Errorf("Failed to create request: %v", err)
+@@ -1464,6 +1640,9 @@ func TestGetSTHConsistency(t *testing.T) {
+ 				FirstTreeSize:  test.first,
+ 				SecondTreeSize: test.second,
+ 			}
++			if len(test.wantQuotaUser) > 0 {
++				req.ChargeTo = &trillian.ChargeTo{User: []string{test.wantQuotaUser}}
++			}
+ 			info.client.EXPECT().GetConsistencyProof(deadlineMatcher(), &req).Return(test.rpcRsp, test.rpcErr)
+ 		}
+ 		w := httptest.NewRecorder()
+@@ -1519,11 +1698,12 @@ func TestGetEntryAndProof(t *testing.T) {
+ 	}
+ 
+ 	var tests = []struct {
+-		req    string
+-		want   int
+-		rpcRsp *trillian.GetEntryAndProofResponse
+-		rpcErr error
+-		errStr string
++		req           string
++		want          int
++		wantQuotaUser string
++		rpcRsp        *trillian.GetEntryAndProofResponse
++		rpcErr        error
++		errStr        string
+ 	}{
+ 		{
+ 			req:  "",
+@@ -1597,6 +1777,28 @@ func TestGetEntryAndProof(t *testing.T) {
+ 				},
+ 			},
+ 		},
++		{
++			req:  "leaf_index=1&tree_size=3",
++			want: http.StatusOK,
++			// wantQuota
++			wantQuotaUser: remoteQuotaUser,
++			rpcRsp: &trillian.GetEntryAndProofResponse{
++				Proof: &trillian.Proof{
++					LeafIndex: 2,
++					Hashes: [][]byte{
++						[]byte("abcdef"),
++						[]byte("ghijkl"),
++						[]byte("mnopqr"),
++					},
++				},
++				// To match merkleLeaf above.
++				Leaf: &trillian.LogLeaf{
++					LeafValue:      leafBytes,
++					MerkleLeafHash: []byte("ahash"),
++					ExtraData:      []byte("extra"),
++				},
++			},
++		},
+ 		{
+ 			req:  "leaf_index=1&tree_size=3",
+ 			want: http.StatusBadRequest,
+@@ -1660,9 +1862,10 @@ func TestGetEntryAndProof(t *testing.T) {
+ 
+ 	info := setupTest(t, nil, nil)
+ 	defer info.mockCtrl.Finish()
+-	handler := AppHandler{Context: info.c, Handler: getEntryAndProof, Name: "GetEntryAndProof", Method: http.MethodGet}
++	handler := AppHandler{Info: info.li, Handler: getEntryAndProof, Name: "GetEntryAndProof", Method: http.MethodGet}
+ 
+ 	for _, test := range tests {
++		info.setRemoteQuotaUser(test.wantQuotaUser)
+ 		req, err := http.NewRequest("GET", fmt.Sprintf("/ct/v1/get-entry-and-proof?%s", test.req), nil)
+ 		if err != nil {
+ 			t.Errorf("Failed to create request: %v", err)
+@@ -1670,7 +1873,11 @@ func TestGetEntryAndProof(t *testing.T) {
+ 		}
+ 
+ 		if test.rpcRsp != nil || test.rpcErr != nil {
+-			info.client.EXPECT().GetEntryAndProof(deadlineMatcher(), &trillian.GetEntryAndProofRequest{LogId: 0x42, LeafIndex: 1, TreeSize: 3}).Return(test.rpcRsp, test.rpcErr)
++			req := &trillian.GetEntryAndProofRequest{LogId: 0x42, LeafIndex: 1, TreeSize: 3}
++			if len(test.wantQuotaUser) > 0 {
++				req.ChargeTo = &trillian.ChargeTo{User: []string{test.wantQuotaUser}}
++			}
++			info.client.EXPECT().GetEntryAndProof(deadlineMatcher(), req).Return(test.rpcRsp, test.rpcErr)
+ 		}
+ 
+ 		w := httptest.NewRecorder()
+@@ -1732,9 +1939,10 @@ func logLeavesForCert(t *testing.T, certs []*x509.Certificate, merkleLeaf *ct.Me
+ 		t.Fatalf("failed to serialize leaf: %v", err)
+ 	}
+ 
+-	leafIDHash := sha256.Sum256(certs[0].Raw)
++	raw := extractRawCerts(certs)
++	leafIDHash := sha256.Sum256(raw[0].Data)
+ 
+-	extraData, err := extraDataForChain(certs, isPrecert)
++	extraData, err := util.ExtraDataForChain(raw[0], raw[1:], isPrecert)
+ 	if err != nil {
+ 		t.Fatalf("failed to serialize extra data: %v", err)
+ 	}
+@@ -1767,15 +1975,15 @@ func (d dlMatcher) String() string {
+ 	return fmt.Sprintf("deadline is %v", fakeDeadlineTime)
+ }
+ 
+-func makeAddPrechainRequest(t *testing.T, c *LogContext, body io.Reader) *httptest.ResponseRecorder {
++func makeAddPrechainRequest(t *testing.T, li *logInfo, body io.Reader) *httptest.ResponseRecorder {
+ 	t.Helper()
+-	handler := AppHandler{Context: c, Handler: addPreChain, Name: "AddPreChain", Method: http.MethodPost}
++	handler := AppHandler{Info: li, Handler: addPreChain, Name: "AddPreChain", Method: http.MethodPost}
+ 	return makeAddChainRequestInternal(t, handler, "add-pre-chain", body)
+ }
+ 
+-func makeAddChainRequest(t *testing.T, c *LogContext, body io.Reader) *httptest.ResponseRecorder {
++func makeAddChainRequest(t *testing.T, li *logInfo, body io.Reader) *httptest.ResponseRecorder {
+ 	t.Helper()
+-	handler := AppHandler{Context: c, Handler: addChain, Name: "AddChain", Method: http.MethodPost}
++	handler := AppHandler{Info: li, Handler: addChain, Name: "AddChain", Method: http.MethodPost}
+ 	return makeAddChainRequestInternal(t, handler, "add-chain", body)
+ }
+ 
+diff --git a/trillian/ctfe/instance.go b/trillian/ctfe/instance.go
+index 4a3ec8bd..fe654536 100644
+--- a/trillian/ctfe/instance.go
++++ b/trillian/ctfe/instance.go
+@@ -19,6 +19,7 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"io/ioutil"
++	"net/http"
+ 	"time"
+ 
+ 	"github.com/golang/protobuf/proto"
+@@ -50,6 +51,20 @@ func LogConfigFromFile(filename string) ([]*configpb.LogConfig, error) {
+ 	return cfg.Config, nil
+ }
+ 
++// ToMultiLogConfig creates a multi backend config proto from the data
++// loaded from a single-backend configuration file. All the log configs
++// reference a default backend spec as provided.
++func ToMultiLogConfig(cfg []*configpb.LogConfig, beSpec string) *configpb.LogMultiConfig {
++	defaultBackend := &configpb.LogBackend{Name: "default", BackendSpec: beSpec}
++	for _, c := range cfg {
++		c.LogBackendName = defaultBackend.Name
++	}
++	return &configpb.LogMultiConfig{
++		LogConfigs: &configpb.LogConfigSet{Config: cfg},
++		Backends:   &configpb.LogBackendSet{Backend: []*configpb.LogBackend{defaultBackend}},
++	}
++}
++
+ // MultiLogConfigFromFile creates a LogMultiConfig proto from the given
+ // filename, which should contain text-protobuf encoded configuration data.
+ // Does not do full validation of the config but checks that it is non empty.
+@@ -70,6 +85,86 @@ func MultiLogConfigFromFile(filename string) (*configpb.LogMultiConfig, error) {
+ 	return &cfg, nil
+ }
+ 
++// ValidateLogMultiConfig checks that a config is valid for use with multiple
++// backend log servers. The rules applied are:
++//
++// 1. The backend set must define a set of log backends with distinct
++// (non empty) names and non empty backend specs.
++// 2. The backend specs must all be distinct.
++// 3. The log configs must all specify a log backend and each must be one of
++// those defined in the backend set.
++// 4. If NotBeforeStart or NotBeforeLimit are set for a log then these fields
++// must be valid timestamp protos. If both are set then NotBeforeLimit must
++// not be before NotBeforeStart.
++// 5. The prefixes of configured logs must all be distinct and must not be
++// empty.
++// 6. The set of tree ids for each configured backend must be distinct.
++func ValidateLogMultiConfig(cfg *configpb.LogMultiConfig) (map[string]*configpb.LogBackend, error) {
++	// Check the backends have unique non empty names and build the map.
++	backendMap := make(map[string]*configpb.LogBackend)
++	bSpecMap := make(map[string]bool)
++	for _, backend := range cfg.Backends.Backend {
++		if len(backend.Name) == 0 {
++			return nil, fmt.Errorf("empty backend name: %v", backend)
++		}
++		if len(backend.BackendSpec) == 0 {
++			return nil, fmt.Errorf("empty backend_spec for backend: %v", backend)
++		}
++		if _, ok := backendMap[backend.Name]; ok {
++			return nil, fmt.Errorf("duplicate backend name: %v", backend)
++		}
++		if ok := bSpecMap[backend.BackendSpec]; ok {
++			return nil, fmt.Errorf("duplicate backend spec: %v", backend)
++		}
++		backendMap[backend.Name] = backend
++		bSpecMap[backend.BackendSpec] = true
++	}
++
++	// Check that logs all reference a defined backend and there are no duplicate
++	// or empty prefixes. Apply other LogConfig specific checks.
++	logNameMap := make(map[string]bool)
++	logIDMap := make(map[string]bool)
++	for _, logCfg := range cfg.LogConfigs.Config {
++		if len(logCfg.Prefix) == 0 {
++			return nil, fmt.Errorf("log config: empty prefix: %v", logCfg)
++		}
++		if logNameMap[logCfg.Prefix] {
++			return nil, fmt.Errorf("log config: duplicate prefix: %s: %v", logCfg.Prefix, logCfg)
++		}
++		if _, ok := backendMap[logCfg.LogBackendName]; !ok {
++			return nil, fmt.Errorf("log config: references undefined backend: %s: %v", logCfg.LogBackendName, logCfg)
++		}
++		logNameMap[logCfg.Prefix] = true
++		logIDKey := fmt.Sprintf("%s-%d", logCfg.LogBackendName, logCfg.LogId)
++		if ok := logIDMap[logIDKey]; ok {
++			return nil, fmt.Errorf("log config: dup tree id: %d for: %v", logCfg.LogId, logCfg)
++		}
++		var err error
++		var tStart time.Time
++		start := logCfg.GetNotAfterStart()
++		if start != nil {
++			tStart, err = ptypes.Timestamp(start)
++			if err != nil {
++				return nil, fmt.Errorf("log_config: invalid start timestamp %v for: %v", err, logCfg)
++			}
++		}
++		var tLimit time.Time
++		limit := logCfg.GetNotAfterLimit()
++		if limit != nil {
++			tLimit, err = ptypes.Timestamp(limit)
++			if err != nil {
++				return nil, fmt.Errorf("log_config: invalid limit timestamp %v for: %v", err, logCfg)
++			}
++		}
++		if start != nil && limit != nil && tLimit.Before(tStart) {
++			return nil, fmt.Errorf("log_config: limit before start for: %v", logCfg)
++		}
++		logIDMap[logIDKey] = true
++	}
++
++	return backendMap, nil
++}
++
+ var stringToKeyUsage = map[string]x509.ExtKeyUsage{
+ 	"Any":                        x509.ExtKeyUsageAny,
+ 	"ServerAuth":                 x509.ExtKeyUsageServerAuth,
+@@ -93,6 +188,18 @@ type InstanceOptions struct {
+ 	// a boolean to indicate whether the conversion succeeded.
+ 	ErrorMapper func(error) (int, bool)
+ 	RequestLog  RequestLog
++	// RemoteUser returns a string representing the originating host for the
++	// given request. This string will be used as a User quota key.
++	// If unset, no quota will be requested for remote users.
++	RemoteQuotaUser func(*http.Request) string
++
++	// CertificateQuotaUser returns a string represeing the passed in
++	// intermediate certificate. This string will be user as a User quota key for
++	// the cert.  Quota will be requested for each intermediate in an
++	// add-[pre]-chain request so as to allow individual issers to be rate
++	// limited.  If unset, no quota will be requested for intermediate
++	// certificates.
++	CertificateQuotaUser func(*x509.Certificate) string
+ }
+ 
+ // SetUpInstance sets up a log instance that uses the specified client to communicate
+@@ -164,108 +271,8 @@ func SetUpInstance(ctx context.Context, client trillian.TrillianLogClient, cfg *
+ 		extKeyUsages:  keyUsages,
+ 	}
+ 	// Create and register the handlers using the RPC client we just set up.
+-	logCtx := NewLogContext(cfg.LogId,
+-		cfg.Prefix,
+-		validationOpts,
+-		client,
+-		key,
+-		opts,
+-		new(util.SystemTimeSource))
++	logInfo := newLogInfo(cfg.LogId, cfg.Prefix, validationOpts, client, key, opts, new(util.SystemTimeSource))
+ 
+-	handlers := logCtx.Handlers(cfg.Prefix)
++	handlers := logInfo.Handlers(cfg.Prefix)
+ 	return &handlers, nil
+ }
+-
+-// ValidateLogMultiConfig checks that a config is valid for use with multiple
+-// backend log servers. The rules applied are:
+-//
+-// 1. The backend set must define a set of log backends with distinct
+-// (non empty) names and non empty backend specs.
+-// 2. The backend specs must all be distinct.
+-// 3. The log configs must all specify a log backend and each must be one of
+-// those defined in the backend set.
+-// 4. If NotBeforeStart or NotBeforeLimit are set for a log then these fields
+-// must be valid timestamp protos. If both are set then NotBeforeLimit must
+-// not be before NotBeforeStart.
+-// 5. The prefixes of configured logs must all be distinct and must not be
+-// empty.
+-// 6. The set of tree ids for each configured backend must be distinct.
+-func ValidateLogMultiConfig(cfg *configpb.LogMultiConfig) (map[string]*configpb.LogBackend, error) {
+-	// Check the backends have unique non empty names and build the map.
+-	backendMap := make(map[string]*configpb.LogBackend)
+-	bSpecMap := make(map[string]bool)
+-	for _, backend := range cfg.Backends.Backend {
+-		if len(backend.Name) == 0 {
+-			return nil, fmt.Errorf("empty backend name: %v", backend)
+-		}
+-		if len(backend.BackendSpec) == 0 {
+-			return nil, fmt.Errorf("empty backend_spec for backend: %v", backend)
+-		}
+-		if _, ok := backendMap[backend.Name]; ok {
+-			return nil, fmt.Errorf("duplicate backend name: %v", backend)
+-		}
+-		if ok := bSpecMap[backend.BackendSpec]; ok {
+-			return nil, fmt.Errorf("duplicate backend spec: %v", backend)
+-		}
+-		backendMap[backend.Name] = backend
+-		bSpecMap[backend.BackendSpec] = true
+-	}
+-
+-	// Check that logs all reference a defined backend and there are no duplicate
+-	// or empty prefixes. Apply other LogConfig specific checks.
+-	logNameMap := make(map[string]bool)
+-	logIDMap := make(map[string]bool)
+-	for _, logCfg := range cfg.LogConfigs.Config {
+-		if len(logCfg.Prefix) == 0 {
+-			return nil, fmt.Errorf("log config: empty prefix: %v", logCfg)
+-		}
+-		if logNameMap[logCfg.Prefix] {
+-			return nil, fmt.Errorf("log config: duplicate prefix: %s: %v", logCfg.Prefix, logCfg)
+-		}
+-		if _, ok := backendMap[logCfg.LogBackendName]; !ok {
+-			return nil, fmt.Errorf("log config: references undefined backend: %s: %v", logCfg.LogBackendName, logCfg)
+-		}
+-		logNameMap[logCfg.Prefix] = true
+-		logIDKey := fmt.Sprintf("%s-%d", logCfg.LogBackendName, logCfg.LogId)
+-		if ok := logIDMap[logIDKey]; ok {
+-			return nil, fmt.Errorf("log config: dup tree id: %d for: %v", logCfg.LogId, logCfg)
+-		}
+-		var err error
+-		var tStart time.Time
+-		start := logCfg.GetNotAfterStart()
+-		if start != nil {
+-			tStart, err = ptypes.Timestamp(start)
+-			if err != nil {
+-				return nil, fmt.Errorf("log_config: invalid start timestamp %v for: %v", err, logCfg)
+-			}
+-		}
+-		var tLimit time.Time
+-		limit := logCfg.GetNotAfterLimit()
+-		if limit != nil {
+-			tLimit, err = ptypes.Timestamp(limit)
+-			if err != nil {
+-				return nil, fmt.Errorf("log_config: invalid limit timestamp %v for: %v", err, logCfg)
+-			}
+-		}
+-		if start != nil && limit != nil && tLimit.Before(tStart) {
+-			return nil, fmt.Errorf("log_config: limit before start for: %v", logCfg)
+-		}
+-		logIDMap[logIDKey] = true
+-	}
+-
+-	return backendMap, nil
+-}
+-
+-// ToMultiLogConfig creates a multi backend config proto from the data
+-// loaded from a single-backend configuration file. All the log configs
+-// reference a default backend spec as provided.
+-func ToMultiLogConfig(cfg []*configpb.LogConfig, beSpec string) *configpb.LogMultiConfig {
+-	defaultBackend := &configpb.LogBackend{Name: "default", BackendSpec: beSpec}
+-	for _, c := range cfg {
+-		c.LogBackendName = defaultBackend.Name
+-	}
+-	return &configpb.LogMultiConfig{
+-		LogConfigs: &configpb.LogConfigSet{Config: cfg},
+-		Backends:   &configpb.LogBackendSet{Backend: []*configpb.LogBackend{defaultBackend}},
+-	}
+-}
+diff --git a/trillian/ctfe/instance_test.go b/trillian/ctfe/instance_test.go
+index 328ef51d..136e66d8 100644
+--- a/trillian/ctfe/instance_test.go
++++ b/trillian/ctfe/instance_test.go
+@@ -51,9 +51,9 @@ func TestSetUpInstance(t *testing.T) {
+ 	}
+ 
+ 	var tests = []struct {
+-		desc   string
+-		cfg    configpb.LogConfig
+-		errStr string
++		desc    string
++		cfg     configpb.LogConfig
++		wantErr string
+ 	}{
+ 		{
+ 			desc: "valid",
+@@ -71,7 +71,7 @@ func TestSetUpInstance(t *testing.T) {
+ 				Prefix:     "log",
+ 				PrivateKey: privKey,
+ 			},
+-			errStr: "specify RootsPemFile",
++			wantErr: "specify RootsPemFile",
+ 		},
+ 		{
+ 			desc: "no-priv-key",
+@@ -80,7 +80,7 @@ func TestSetUpInstance(t *testing.T) {
+ 				Prefix:       "log",
+ 				RootsPemFile: []string{"../testdata/fake-ca.cert"},
+ 			},
+-			errStr: "specify PrivateKey",
++			wantErr: "specify PrivateKey",
+ 		},
+ 		{
+ 			desc: "missing-root-cert",
+@@ -90,7 +90,7 @@ func TestSetUpInstance(t *testing.T) {
+ 				RootsPemFile: []string{"../testdata/bogus.cert"},
+ 				PrivateKey:   privKey,
+ 			},
+-			errStr: "failed to read trusted roots",
++			wantErr: "failed to read trusted roots",
+ 		},
+ 		{
+ 			desc: "missing-privkey",
+@@ -100,7 +100,7 @@ func TestSetUpInstance(t *testing.T) {
+ 				RootsPemFile: []string{"../testdata/fake-ca.cert"},
+ 				PrivateKey:   missingPrivKey,
+ 			},
+-			errStr: "failed to load private key",
++			wantErr: "failed to load private key",
+ 		},
+ 		{
+ 			desc: "privkey-wrong-password",
+@@ -110,7 +110,7 @@ func TestSetUpInstance(t *testing.T) {
+ 				RootsPemFile: []string{"../testdata/fake-ca.cert"},
+ 				PrivateKey:   wrongPassPrivKey,
+ 			},
+-			errStr: "failed to load private key",
++			wantErr: "failed to load private key",
+ 		},
+ 		{
+ 			desc: "valid-ekus-1",
+@@ -141,7 +141,7 @@ func TestSetUpInstance(t *testing.T) {
+ 				PrivateKey:   privKey,
+ 				ExtKeyUsages: []string{"Any", "ServerAuth", "TimeStomping"},
+ 			},
+-			errStr: "unknown extended key usage",
++			wantErr: "unknown extended key usage",
+ 		},
+ 		{
+ 			desc: "invalid-ekus-2",
+@@ -152,23 +152,25 @@ func TestSetUpInstance(t *testing.T) {
+ 				PrivateKey:   privKey,
+ 				ExtKeyUsages: []string{"Any "},
+ 			},
+-			errStr: "unknown extended key usage",
++			wantErr: "unknown extended key usage",
+ 		},
+ 	}
+ 
+ 	opts := InstanceOptions{Deadline: time.Second, MetricFactory: monitoring.InertMetricFactory{}}
+ 	for _, test := range tests {
+-		if _, err := SetUpInstance(ctx, nil, &test.cfg, opts); err != nil {
+-			if test.errStr == "" {
+-				t.Errorf("(%v).SetUpInstance()=_,%v; want _,nil", test.desc, err)
+-			} else if !strings.Contains(err.Error(), test.errStr) {
+-				t.Errorf("(%v).SetUpInstance()=_,%v; want err containing %q", test.desc, err, test.errStr)
++		t.Run(test.desc, func(t *testing.T) {
++			if _, err := SetUpInstance(ctx, nil, &test.cfg, opts); err != nil {
++				if test.wantErr == "" {
++					t.Errorf("SetUpInstance()=_,%v; want _,nil", err)
++				} else if !strings.Contains(err.Error(), test.wantErr) {
++					t.Errorf("SetUpInstance()=_,%v; want err containing %q", err, test.wantErr)
++				}
++				return
+ 			}
+-			continue
+-		}
+-		if test.errStr != "" {
+-			t.Errorf("(%v).SetUpInstance()=_,mo;; want err containing %q", test.desc, test.errStr)
+-		}
++			if test.wantErr != "" {
++				t.Errorf("SetUpInstance()=_,nil; want err containing %q", test.wantErr)
++			}
++		})
+ 	}
+ }
+ 
+@@ -241,38 +243,38 @@ func TestSetUpInstanceSetsValidationOpts(t *testing.T) {
+ 
+ 	opts := InstanceOptions{Deadline: time.Second, MetricFactory: monitoring.InertMetricFactory{}}
+ 	for _, test := range tests {
+-		h, err := SetUpInstance(ctx, nil, &test.cfg, opts)
+-		if err != nil {
+-			t.Errorf("%v: SetUpInstance() = %v, want no error", test.desc, err)
+-			continue
+-		}
+-		addChainHandler, ok := (*h)[test.cfg.Prefix+ct.AddChainPath]
+-		if !ok {
+-			t.Error("Couldn't find AddChain handler")
+-			continue
+-		}
+-		gotOpts := addChainHandler.Context.validationOpts
+-		if got, want := gotOpts.notAfterStart, test.cfg.NotAfterStart; want != nil && !equivalentTimes(got, want) {
+-			t.Errorf("%v: handler notAfterStart %v, want %v", test.desc, got, want)
+-		}
+-		if got, want := gotOpts.notAfterLimit, test.cfg.NotAfterLimit; want != nil && !equivalentTimes(got, want) {
+-			t.Errorf("%v: handler notAfterLimit %v, want %v", test.desc, got, want)
+-		}
+-		if got, want := gotOpts.acceptOnlyCA, test.cfg.AcceptOnlyCa; got != want {
+-			t.Errorf("%v: handler acceptOnlyCA %v, want %v", test.desc, got, want)
+-		}
++		t.Run(test.desc, func(t *testing.T) {
++			h, err := SetUpInstance(ctx, nil, &test.cfg, opts)
++			if err != nil {
++				t.Fatalf("%v: SetUpInstance() = %v, want no error", test.desc, err)
++			}
++			addChainHandler, ok := (*h)[test.cfg.Prefix+ct.AddChainPath]
++			if !ok {
++				t.Fatal("Couldn't find AddChain handler")
++			}
++			gotOpts := addChainHandler.Info.validationOpts
++			if got, want := gotOpts.notAfterStart, test.cfg.NotAfterStart; want != nil && !equivalentTimes(got, want) {
++				t.Errorf("%v: handler notAfterStart %v, want %v", test.desc, got, want)
++			}
++			if got, want := gotOpts.notAfterLimit, test.cfg.NotAfterLimit; want != nil && !equivalentTimes(got, want) {
++				t.Errorf("%v: handler notAfterLimit %v, want %v", test.desc, got, want)
++			}
++			if got, want := gotOpts.acceptOnlyCA, test.cfg.AcceptOnlyCa; got != want {
++				t.Errorf("%v: handler acceptOnlyCA %v, want %v", test.desc, got, want)
++			}
++		})
+ 	}
+ }
+ 
+ func TestValidateLogMultiConfig(t *testing.T) {
+ 	var tests = []struct {
+-		desc   string
+-		cfg    configpb.LogMultiConfig
+-		errStr string
++		desc    string
++		cfg     configpb.LogMultiConfig
++		wantErr string
+ 	}{
+ 		{
+-			desc:   "missing backend name",
+-			errStr: "empty backend name",
++			desc:    "missing-backend-name",
++			wantErr: "empty backend name",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -283,8 +285,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "missing backend spec",
+-			errStr: "empty backend_spec",
++			desc:    "missing-backend-spec",
++			wantErr: "empty backend_spec",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -295,8 +297,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "missing backend name and spec",
+-			errStr: "empty backend name",
++			desc:    "missing-backend-name-and-spec",
++			wantErr: "empty backend name",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -307,8 +309,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "dup backend name",
+-			errStr: "duplicate backend name",
++			desc:    "dup-backend-name",
++			wantErr: "duplicate backend name",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -320,8 +322,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "dup backend spec",
+-			errStr: "duplicate backend spec",
++			desc:    "dup-backend-spec",
++			wantErr: "duplicate backend spec",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -333,8 +335,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "missing backend reference",
+-			errStr: "empty backend",
++			desc:    "missing-backend-reference",
++			wantErr: "empty backend",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -349,8 +351,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "undefined backend reference",
+-			errStr: "undefined backend",
++			desc:    "undefined-backend-reference",
++			wantErr: "undefined backend",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -365,8 +367,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "empty log prefix",
+-			errStr: "empty prefix",
++			desc:    "empty-log-prefix",
++			wantErr: "empty prefix",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -385,8 +387,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "dup log prefix",
+-			errStr: "duplicate prefix",
++			desc:    "dup-log-prefix",
++			wantErr: "duplicate prefix",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -403,8 +405,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "dup log ids on same backend",
+-			errStr: "dup tree id",
++			desc:    "dup-log-ids-on-same-backend",
++			wantErr: "dup tree id",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -421,8 +423,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "start timestamp invalid",
+-			errStr: "invalid start",
++			desc:    "start-timestamp-invalid",
++			wantErr: "invalid start",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -443,8 +445,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "limit timestamp invalid",
+-			errStr: "invalid limit",
++			desc:    "limit-timestamp-invalid",
++			wantErr: "invalid limit",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -465,8 +467,8 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc:   "limit before start",
+-			errStr: "before start",
++			desc:    "limit-before-start",
++			wantErr: "before start",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -487,7 +489,7 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc: "valid config",
++			desc: "valid0config",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -506,7 +508,7 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc: "valid config dup ids on different backends",
++			desc: "valid-config-dup-ids-on-different-backends",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -525,7 +527,7 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc: "valid config - only not after start set",
++			desc: "valid-config-only-not-after-start-set",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -540,7 +542,7 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc: "valid config - only not after limit set",
++			desc: "valid-config-only-not-after-limit-set",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -555,7 +557,7 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 			},
+ 		},
+ 		{
+-			desc: "valid config with time range",
++			desc: "valid-config-with-time-range",
+ 			cfg: configpb.LogMultiConfig{
+ 				Backends: &configpb.LogBackendSet{
+ 					Backend: []*configpb.LogBackend{
+@@ -578,16 +580,16 @@ func TestValidateLogMultiConfig(t *testing.T) {
+ 	}
+ 
+ 	for _, test := range tests {
+-		_, err := ValidateLogMultiConfig(&test.cfg)
+-
+-		if len(test.errStr) == 0 && err != nil {
+-			t.Errorf("ValidateLogMultiConfig()=%v, want: nil (%v)", err, test.desc)
+-			continue
+-		}
++		t.Run(test.desc, func(t *testing.T) {
++			_, err := ValidateLogMultiConfig(&test.cfg)
++			if len(test.wantErr) == 0 && err != nil {
++				t.Fatalf("ValidateLogMultiConfig()=%v, want: nil", err)
++			}
+ 
+-		if len(test.errStr) > 0 && (err == nil || !strings.Contains(err.Error(), test.errStr)) {
+-			t.Errorf("ValidateLogMultiConfig()=%v, want: %v (%v)", err, test.errStr, test.desc)
+-		}
++			if len(test.wantErr) > 0 && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
++				t.Errorf("ValidateLogMultiConfig()=%v, want: %v", err, test.wantErr)
++			}
++		})
+ 	}
+ }
+ 
+@@ -634,10 +636,11 @@ func TestToMultiLogConfig(t *testing.T) {
+ 	}
+ 
+ 	for _, test := range tests {
+-		got := ToMultiLogConfig(test.cfg, "spec")
+-
+-		if !proto.Equal(got, test.want) {
+-			t.Errorf("TestToMultiLogConfig() got: %v, want: %v (%v)", got, test.want, test.desc)
+-		}
++		t.Run(test.desc, func(t *testing.T) {
++			got := ToMultiLogConfig(test.cfg, "spec")
++			if !proto.Equal(got, test.want) {
++				t.Errorf("TestToMultiLogConfig() got: %v, want: %v", got, test.want)
++			}
++		})
+ 	}
+ }
+diff --git a/trillian/ctfe/requestlog.go b/trillian/ctfe/requestlog.go
+index e0c390fd..039a8ba2 100644
+--- a/trillian/ctfe/requestlog.go
++++ b/trillian/ctfe/requestlog.go
+@@ -16,7 +16,6 @@ package ctfe
+ 
+ import (
+ 	"context"
+-	"encoding/hex"
+ 	"time"
+ 
+ 	"github.com/golang/glog"
+@@ -64,6 +63,12 @@ type RequestLog interface {
+ 	// LeafHash will be called once for get proof by hash requests with the
+ 	// requested hash value (if the parameters parse correctly).
+ 	LeafHash(context.Context, []byte)
++	// IssueSCT will be called once when the server is about to issue an SCT to a
++	// client. This should not be called if the submission process fails before an
++	// SCT could be presented to a client, even if this is unrelated to
++	// the validity of the submitted chain. The SCT bytes will be in TLS
++	// serialized format.
++	IssueSCT(context.Context, []byte)
+ 	// Status will be called once to set the HTTP status code that was the
+ 	// the result after the request has been handled.
+ 	Status(context.Context, int)
+@@ -87,7 +92,7 @@ func (dlr *DefaultRequestLog) LogPrefix(_ context.Context, p string) {
+ 
+ // AddDERToChain logs the raw bytes of a submitted certificate.
+ func (dlr *DefaultRequestLog) AddDERToChain(_ context.Context, d []byte) {
+-	glog.V(vLevel).Infof("RL: Cert DER: %s", hex.EncodeToString(d))
++	glog.V(vLevel).Infof("RL: Cert DER: %x", d)
+ }
+ 
+ // AddCertToChain logs some issuer / subject / timing fields from a
+@@ -122,7 +127,12 @@ func (dlr *DefaultRequestLog) TreeSize(_ context.Context, ts int64) {
+ 
+ // LeafHash logs request parameters.
+ func (dlr *DefaultRequestLog) LeafHash(_ context.Context, lh []byte) {
+-	glog.V(vLevel).Infof("RL: LeafHash: %s", hex.EncodeToString(lh))
++	glog.V(vLevel).Infof("RL: LeafHash: %x", lh)
++}
++
++// IssueSCT logs an SCT that will be issued to a client.
++func (dlr *DefaultRequestLog) IssueSCT(_ context.Context, sct []byte) {
++	glog.V(vLevel).Infof("RL: Issuing SCT: %x", sct)
+ }
+ 
+ // Status logs the response HTTP status code after processing completes.
+diff --git a/trillian/ctfe/serialize.go b/trillian/ctfe/serialize.go
+index 6a7bff9e..f646135f 100644
+--- a/trillian/ctfe/serialize.go
++++ b/trillian/ctfe/serialize.go
+@@ -27,12 +27,12 @@ import (
+ 
+ // signV1TreeHead signs a tree head for CT. The input STH should have been built from a
+ // backend response and already checked for validity.
+-func (c *LogContext) signV1TreeHead(signer crypto.Signer, sth *ct.SignedTreeHead) error {
++func (li *logInfo) signV1TreeHead(signer crypto.Signer, sth *ct.SignedTreeHead) error {
+ 	sthBytes, err := ct.SerializeSTHSignatureInput(*sth)
+ 	if err != nil {
+ 		return err
+ 	}
+-	if sig, ok := c.getLastSTHSignature(sthBytes); ok {
++	if sig, ok := li.getLastSTHSignature(sthBytes); ok {
+ 		sth.TreeHeadSignature = sig
+ 		return nil
+ 	}
+@@ -51,7 +51,7 @@ func (c *LogContext) signV1TreeHead(signer crypto.Signer, sth *ct.SignedTreeHead
+ 		},
+ 		Signature: signature,
+ 	}
+-	c.setLastSTHSignature(sthBytes, sth.TreeHeadSignature)
++	li.setLastSTHSignature(sthBytes, sth.TreeHeadSignature)
+ 	return nil
+ }
+ 
+diff --git a/trillian/ctfe/serialize_test.go b/trillian/ctfe/serialize_test.go
+index 0b85a01c..732788cf 100644
+--- a/trillian/ctfe/serialize_test.go
++++ b/trillian/ctfe/serialize_test.go
+@@ -152,14 +152,14 @@ func TestSignV1TreeHead(t *testing.T) {
+ 		t.Fatalf("could not create signer: %v", err)
+ 	}
+ 	logID := int64(6962)
+-	c := &LogContext{logID: logID, signer: signer}
++	li := &logInfo{logID: logID, signer: signer}
+ 
+ 	sth := ct.SignedTreeHead{
+ 		Version:   ct.V1,
+ 		TreeSize:  10,
+ 		Timestamp: 1512993312000,
+ 	}
+-	if err := c.signV1TreeHead(signer, &sth); err != nil {
++	if err := li.signV1TreeHead(signer, &sth); err != nil {
+ 		t.Fatalf("signV1TreeHead()=%v; want nil", err)
+ 	}
+ 	prevSig := make([]byte, len(sth.TreeHeadSignature.Signature))
+@@ -167,7 +167,7 @@ func TestSignV1TreeHead(t *testing.T) {
+ 
+ 	// Signing the same contents should get the same cached signature regardless.
+ 	for i := 0; i < 5; i++ {
+-		if err := c.signV1TreeHead(signer, &sth); err != nil {
++		if err := li.signV1TreeHead(signer, &sth); err != nil {
+ 			t.Fatalf("signV1TreeHead()=%v; want nil", err)
+ 		}
+ 		sig := make([]byte, len(sth.TreeHeadSignature.Signature))
+@@ -181,7 +181,7 @@ func TestSignV1TreeHead(t *testing.T) {
+ 	// But changing the contents does change the signature.
+ 	for i := 0; i < 5; i++ {
+ 		sth.TreeSize = uint64(11 + i)
+-		if err := c.signV1TreeHead(signer, &sth); err != nil {
++		if err := li.signV1TreeHead(signer, &sth); err != nil {
+ 			t.Errorf("signV1TreeHead()=%v; want nil", err)
+ 		}
+ 		sig := make([]byte, len(sth.TreeHeadSignature.Signature))
+@@ -193,7 +193,7 @@ func TestSignV1TreeHead(t *testing.T) {
+ 		prevSig := sig
+ 
+ 		// Repeating should again return the cached signature.
+-		if err := c.signV1TreeHead(signer, &sth); err != nil {
++		if err := li.signV1TreeHead(signer, &sth); err != nil {
+ 			t.Errorf("signV1TreeHead(size=%d)=%v; want nil", sth.TreeSize, err)
+ 		}
+ 		sig = make([]byte, len(sth.TreeHeadSignature.Signature))
+@@ -211,13 +211,13 @@ func TestSignV1TreeHeadDifferentSigners(t *testing.T) {
+ 		t.Fatalf("could not create signer1: %v", err)
+ 	}
+ 	logID := int64(6962)
+-	c1 := &LogContext{logID: logID, signer: signer1}
++	li1 := &logInfo{logID: logID, signer: signer1}
+ 
+ 	signer2, err := setupSigner(fakeSignature)
+ 	if err != nil {
+ 		t.Fatalf("could not create signer2: %v", err)
+ 	}
+-	c2 := &LogContext{logID: 6963, signer: signer2}
++	li2 := &logInfo{logID: 6963, signer: signer2}
+ 
+ 	sth := ct.SignedTreeHead{
+ 		Version:   ct.V1,
+@@ -225,13 +225,13 @@ func TestSignV1TreeHeadDifferentSigners(t *testing.T) {
+ 		Timestamp: 1512993312000,
+ 	}
+ 
+-	if err := c1.signV1TreeHead(signer1, &sth); err != nil {
++	if err := li1.signV1TreeHead(signer1, &sth); err != nil {
+ 		t.Fatalf("signV1TreeHead(signer1)=%v; want nil", err)
+ 	}
+ 	sig1 := make([]byte, len(sth.TreeHeadSignature.Signature))
+ 	copy(sig1, sth.TreeHeadSignature.Signature)
+ 
+-	if err := c2.signV1TreeHead(signer2, &sth); err != nil {
++	if err := li2.signV1TreeHead(signer2, &sth); err != nil {
+ 		t.Fatalf("signV1TreeHead(signer2)=%v; want nil", err)
+ 	}
+ 	sig2 := make([]byte, len(sth.TreeHeadSignature.Signature))
+diff --git a/trillian/examples/deployment/kubernetes/ctfe-deployment.yaml b/trillian/examples/deployment/kubernetes/ctfe-deployment.yaml
+index 08ec76ee..0d6f6002 100644
+--- a/trillian/examples/deployment/kubernetes/ctfe-deployment.yaml
++++ b/trillian/examples/deployment/kubernetes/ctfe-deployment.yaml
+@@ -22,7 +22,7 @@ spec:
+           "--log_config=/ctfe-config/ct_server.cfg",
+           "--alsologtostderr"
+           ]
+-          image: gcr.io/trillian-opensource-ci/ctfe:latest
++          image: gcr.io/${PROJECT_NAME}/ctfe:latest
+           imagePullPolicy: Always
+           resources:
+             limits:
+diff --git a/trillian/migrillian/README.md b/trillian/migrillian/README.md
+new file mode 100644
+index 00000000..409d19cc
+--- /dev/null
++++ b/trillian/migrillian/README.md
+@@ -0,0 +1,13 @@
++Migrillian Tool
++===============
++
++*Status: in development, not ready for production use*
++
++**Migrillian** is a tool that transfers data from existing Certificate
++Transparency logs to Trillian *PREORDERED_LOG* trees.
++
++It can be used for:
++ - One-off data migrations, e.g. from legacy CT implementation to the new
++   Trillian-based [solution](https://github.com/google/certificate-transparency-go).
++ - Continuous migration for keeping the copy up-to-date with the remote log,
++   i.e. log mirroring.
+diff --git a/trillian/migrillian/core/controller.go b/trillian/migrillian/core/controller.go
+new file mode 100644
+index 00000000..8894b96c
+--- /dev/null
++++ b/trillian/migrillian/core/controller.go
+@@ -0,0 +1,151 @@
++// Copyright 2018 Google Inc. All Rights Reserved.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++// Package core provides transport-agnostic implementation of Migrillian tool.
++package core
++
++import (
++	"bytes"
++	"context"
++	"fmt"
++	"sync"
++
++	"github.com/golang/glog"
++	ct "github.com/google/certificate-transparency-go"
++	"github.com/google/certificate-transparency-go/client"
++	"github.com/google/certificate-transparency-go/scanner"
++	"github.com/google/trillian/merkle"
++	_ "github.com/google/trillian/merkle/rfc6962" // Register hasher.
++	"github.com/google/trillian/types"
++)
++
++// Options holds configuration for a Controller.
++type Options struct {
++	scanner.FetcherOptions
++	Submitters          int
++	BatchesPerSubmitter int
++}
++
++// Controller coordinates migration from a CT log to a Trillian tree.
++//
++// TODO(pavelkalinnikov):
++// - Add per-tree master election.
++// - Coordinate multiple trees.
++// - Schedule a distributed fetch to increase throughput.
++// - Store CT STHs in Trillian or make this tool stateful on its own.
++// - Make fetching stateful to reduce master resigning aftermath.
++type Controller struct {
++	opts     Options
++	batches  chan scanner.EntryBatch
++	ctClient *client.LogClient
++	plClient *PreorderedLogClient
++}
++
++// NewController creates a Controller configured by the passed in options.
++func NewController(opts Options, ctClient *client.LogClient, plClient *PreorderedLogClient) *Controller {
++	bufferSize := opts.Submitters * opts.BatchesPerSubmitter
++	batches := make(chan scanner.EntryBatch, bufferSize)
++	return &Controller{opts: opts, batches: batches, ctClient: ctClient, plClient: plClient}
++}
++
++// Run transfers CT log entries obtained via the CT log client to a Trillian
++// log via the other client. If Options.Continuous is true then the migration
++// process runs continuously trying to keep up with the target CT log.
++func (c *Controller) Run(ctx context.Context) error {
++	root, err := c.plClient.getVerifiedRoot(ctx)
++	if err != nil {
++		return err
++	}
++	if c.opts.Continuous { // Ignore range parameters in Continuous mode.
++		// TODO(pavelkalinnikov): Restore fetching state from storage in a better
++		// way than "take the current tree size".
++		c.opts.StartIndex, c.opts.EndIndex = int64(root.TreeSize), 0
++		glog.Warningf("Tree %d: updated entry range to [%d, INF)",
++			c.plClient.tree.TreeId, c.opts.StartIndex)
++	}
++
++	fetcher := scanner.NewFetcher(c.ctClient, &c.opts.FetcherOptions)
++	sth, err := fetcher.Prepare(ctx)
++	if err != nil {
++		return err
++	}
++	if err := c.verifyConsistency(ctx, root, sth); err != nil {
++		return err
++	}
++
++	var wg sync.WaitGroup
++	for w, cnt := 0, c.opts.Submitters; w < cnt; w++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			c.runSubmitter(ctx)
++		}()
++	}
++	defer func() {
++		close(c.batches)
++		wg.Wait()
++	}()
++
++	handler := func(b scanner.EntryBatch) {
++		c.batches <- b
++	}
++	return fetcher.Run(ctx, handler)
++}
++
++// verifyConsistency checks that the provided verified Trillian root is
++// consistent with the CT log's STH.
++func (c *Controller) verifyConsistency(ctx context.Context, root *types.LogRootV1, sth *ct.SignedTreeHead) error {
++	h := c.plClient.verif.Hasher
++	if root.TreeSize == 0 {
++		if got, want := root.RootHash, h.EmptyRoot(); !bytes.Equal(got, want) {
++			return fmt.Errorf("invalid empty tree hash %x, want %x", got, want)
++		}
++		return nil
++	}
++
++	resp, err := c.ctClient.GetEntryAndProof(ctx, root.TreeSize-1, sth.TreeSize)
++	if err != nil {
++		return err
++	}
++	leafHash, err := h.HashLeaf(resp.LeafInput)
++	if err != nil {
++		return err
++	}
++
++	hash, err := merkle.NewLogVerifier(h).VerifiedPrefixHashFromInclusionProof(
++		int64(root.TreeSize), int64(sth.TreeSize),
++		resp.AuditPath, sth.SHA256RootHash[:], leafHash)
++	if err != nil {
++		return err
++	}
++
++	if got := root.RootHash; !bytes.Equal(got, hash) {
++		return fmt.Errorf("inconsistent root hash %x, want %x", got, hash)
++	}
++	return nil
++}
++
++// runSubmitter obtaines CT log entry batches from the controller's channel and
++// submits them through Trillian client. Returns when the channel is closed.
++func (c *Controller) runSubmitter(ctx context.Context) {
++	for b := range c.batches {
++		end := b.Start + int64(len(b.Entries))
++		// TODO(pavelkalinnikov): Retry with backoff on errors.
++		if err := c.plClient.addSequencedLeaves(ctx, &b); err != nil {
++			glog.Errorf("Failed to add batch [%d, %d): %v\n", b.Start, end, err)
++		} else {
++			glog.Infof("Added batch [%d, %d)\n", b.Start, end)
++		}
++	}
++}
+diff --git a/trillian/migrillian/core/trillian.go b/trillian/migrillian/core/trillian.go
+new file mode 100644
+index 00000000..e93fb54d
+--- /dev/null
++++ b/trillian/migrillian/core/trillian.go
+@@ -0,0 +1,89 @@
++// Copyright 2018 Google Inc. All Rights Reserved.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package core
++
++import (
++	"context"
++	"errors"
++	"fmt"
++
++	"github.com/google/certificate-transparency-go/scanner"
++	"github.com/google/trillian"
++	"github.com/google/trillian/client"
++	"github.com/google/trillian/crypto"
++	"github.com/google/trillian/types"
++)
++
++// PreorderedLogClient is a means of communicating with a single Trillian
++// pre-ordered log tree.
++type PreorderedLogClient struct {
++	cli    trillian.TrillianLogClient
++	verif  *client.LogVerifier
++	tree   *trillian.Tree
++	prefix string // TODO(pavelkalinnikov): Get rid of this.
++}
++
++// NewPreorderedLogClient creates and initializes a pre-ordered log client.
++func NewPreorderedLogClient(
++	cli trillian.TrillianLogClient, tree *trillian.Tree, prefix string,
++) (*PreorderedLogClient, error) {
++	if tree == nil {
++		return nil, errors.New("missing Tree")
++	}
++	if got, want := tree.TreeType, trillian.TreeType_PREORDERED_LOG; got != want {
++		return nil, fmt.Errorf("tree %d is %v, want %v", tree.TreeId, got, want)
++	}
++	v, err := client.NewLogVerifierFromTree(tree)
++	if err != nil {
++		return nil, err
++	}
++	return &PreorderedLogClient{cli: cli, verif: v, tree: tree, prefix: prefix}, nil
++}
++
++// getVerifiedRoot returns the current root of the Trillian tree. Verifies the
++// log's signature.
++func (c *PreorderedLogClient) getVerifiedRoot(ctx context.Context) (*types.LogRootV1, error) {
++	req := trillian.GetLatestSignedLogRootRequest{LogId: c.tree.TreeId}
++	rsp, err := c.cli.GetLatestSignedLogRoot(ctx, &req)
++	if err != nil {
++		return nil, err
++	} else if rsp == nil || rsp.SignedLogRoot == nil {
++		return nil, errors.New("missing SignedLogRoot")
++	}
++	return crypto.VerifySignedLogRoot(c.verif.PubKey, c.verif.SigHash, rsp.SignedLogRoot)
++}
++
++// addSequencedLeaves converts a batch of CT log entries into Trillian log
++// leaves and submits them to Trillian via AddSequencedLeaves API.
++func (c *PreorderedLogClient) addSequencedLeaves(ctx context.Context, b *scanner.EntryBatch) error {
++	// TODO(pavelkalinnikov): Verify range inclusion against the remote STH.
++	leaves := make([]*trillian.LogLeaf, len(b.Entries))
++	for i, e := range b.Entries {
++		var err error
++		if leaves[i], err = buildLogLeaf(c.prefix, b.Start+int64(i), &e); err != nil {
++			return err
++		}
++	}
++
++	req := trillian.AddSequencedLeavesRequest{LogId: c.tree.TreeId, Leaves: leaves}
++	rsp, err := c.cli.AddSequencedLeaves(ctx, &req)
++	if err != nil {
++		return fmt.Errorf("AddSequencedLeaves(): %v", err)
++	} else if rsp == nil {
++		return errors.New("missing AddSequencedLeaves response")
++	}
++	// TODO(pavelkalinnikov): Check rsp.Results statuses.
++	return nil
++}
+diff --git a/trillian/migrillian/core/util.go b/trillian/migrillian/core/util.go
+new file mode 100644
+index 00000000..22bc3099
+--- /dev/null
++++ b/trillian/migrillian/core/util.go
+@@ -0,0 +1,77 @@
++// Copyright 2018 Google Inc. All Rights Reserved.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package core
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"os/signal"
++	"syscall"
++
++	"github.com/golang/glog"
++	ct "github.com/google/certificate-transparency-go"
++	"github.com/google/certificate-transparency-go/trillian/util"
++	"github.com/google/certificate-transparency-go/x509"
++	"github.com/google/trillian"
++)
++
++func buildLogLeaf(logPrefix string, index int64, entry *ct.LeafEntry) (*trillian.LogLeaf, error) {
++	logEntry, err := ct.LogEntryFromLeaf(index, entry)
++	if _, ok := err.(x509.NonFatalErrors); !ok && err != nil {
++		return nil, fmt.Errorf("failed to build LogEntry: %v", err)
++	}
++	// TODO(pavelkalinnikov): Verify the cert chain.
++
++	var cert ct.ASN1Cert
++	isPrecert := false
++	switch {
++	case logEntry.X509Cert != nil:
++		cert = ct.ASN1Cert{Data: logEntry.X509Cert.Raw}
++	case logEntry.Precert != nil:
++		isPrecert = true
++		cert = logEntry.Precert.Submitted
++	default:
++		return nil, fmt.Errorf("entry at %d is neither cert nor pre-cert", index)
++	}
++
++	leaf, err := util.BuildLogLeaf(logPrefix, logEntry.Leaf, logEntry.Index, cert, logEntry.Chain, isPrecert)
++	if err != nil {
++		return nil, fmt.Errorf("failed to build LogLeaf: %v", err)
++	}
++	return &leaf, nil
++}
++
++// WithSignalCancel acts like context.WithCancel(), but it also automatically
++// invokes cancel if a termination signal (SIGINT/SIGTERM) is received by the
++// process.
++func WithSignalCancel(ctx context.Context) (context.Context, context.CancelFunc) {
++	ctx, cancel := context.WithCancel(ctx)
++	go func() {
++		// Subscribe for the standard set of signals used to terminate a server.
++		sigs := make(chan os.Signal, 1)
++		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
++		defer signal.Stop(sigs)
++
++		// Wait for a signal or explicit context cancellation.
++		select {
++		case sig := <-sigs:
++			glog.Warningf("Signal received: %v", sig)
++			cancel()
++		case <-ctx.Done():
++		}
++	}()
++	return ctx, cancel
++}
+diff --git a/trillian/migrillian/main.go b/trillian/migrillian/main.go
+new file mode 100644
+index 00000000..4f6d2b27
+--- /dev/null
++++ b/trillian/migrillian/main.go
+@@ -0,0 +1,139 @@
++// Copyright 2018 Google Inc. All Rights Reserved.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++// Migrillian tool transfers certs from CT logs to Trillian pre-ordered logs in
++// the same order.
++package main
++
++import (
++	"context"
++	"flag"
++	"fmt"
++	"io/ioutil"
++	"net/http"
++	"time"
++
++	"github.com/golang/glog"
++	"google.golang.org/grpc"
++
++	"github.com/google/certificate-transparency-go/client"
++	"github.com/google/certificate-transparency-go/jsonclient"
++	"github.com/google/certificate-transparency-go/scanner"
++	"github.com/google/certificate-transparency-go/trillian/migrillian/core"
++	"github.com/google/trillian"
++)
++
++var (
++	ctLogURI    = flag.String("ct_log_uri", "https://ct.googleapis.com/aviator", "CT log base URI to fetch entries from")
++	pubKeyFile  = flag.String("pub_key", "", "Name of file containing CT log's public key")
++	trillianURI = flag.String("trillian_uri", "localhost:8090", "Trillian log server URI to add entries to")
++	logID       = flag.Int64("log_id", 0, "Trillian log tree ID to add entries to")
++
++	maxIdleConnsPerHost = flag.Int("max_idle_conns_per_host", 10, "Max idle HTTP connections per host (0 = DefaultMaxIdleConnsPerHost)")
++	maxIdleConns        = flag.Int("max_idle_conns", 100, "Max number of idle HTTP connections across all hosts (0 = unlimited)")
++	dialTimeout         = flag.Duration("grpc_dial_timeout", 5*time.Second, "Timeout for dialling Trillian")
++
++	ctBatchSize      = flag.Int("ct_batch_size", 512, "Max number of entries to request per get-entries call")
++	ctFetchers       = flag.Int("ct_fetchers", 2, "Number of concurrent get-entries fetchers")
++	submitters       = flag.Int("submitters", 2, "Number of concurrent workers submitting entries to Trillian")
++	submitterBatches = flag.Int("submitter_batches", 5, "Max number of batches per submitter in fetchers->submitters channel")
++
++	startIndex = flag.Int64("start_index", 0, "CT log index to start scanning at")
++	endIndex   = flag.Int64("end_index", 0, "CT log index to end scanning at (non-inclusive, 0 = end of log)")
++	mirror     = flag.Bool("mirror", false, "Run migration continuously")
++)
++
++func main() {
++	flag.Parse()
++	glog.CopyStandardLogTo("WARNING")
++	ctx := context.Background()
++
++	transport := &http.Transport{
++		TLSHandshakeTimeout:   30 * time.Second,
++		DisableKeepAlives:     false,
++		MaxIdleConns:          *maxIdleConns,
++		MaxIdleConnsPerHost:   *maxIdleConnsPerHost,
++		IdleConnTimeout:       90 * time.Second,
++		ResponseHeaderTimeout: 30 * time.Second,
++		ExpectContinueTimeout: 1 * time.Second,
++	}
++	// TODO(pavelkalinnikov): Share this between multiple CT clients.
++	// TODO(pavelkalinnikov): Make the timeout tunable.
++	httpClient := &http.Client{
++		Timeout:   10 * time.Second,
++		Transport: transport,
++	}
++
++	var ctOpts jsonclient.Options
++	if *pubKeyFile != "" {
++		pubKey, err := ioutil.ReadFile(*pubKeyFile)
++		if err != nil {
++			glog.Exitf("Failed to read public key file: %v", err)
++		}
++		ctOpts.PublicKey = string(pubKey)
++	} else {
++		glog.Warningf("No public key for CT log %q", *ctLogURI)
++	}
++	ctClient, err := client.New(*ctLogURI, httpClient, ctOpts)
++	if err != nil {
++		glog.Exitf("Failed to create CT client for log at %q: %v", *ctLogURI, err)
++	}
++	glog.Info("Created CT client")
++
++	cctx, cancel := context.WithTimeout(ctx, *dialTimeout)
++	conn, err := grpc.DialContext(cctx, *trillianURI,
++		grpc.WithInsecure(), grpc.WithBlock(), grpc.FailOnNonTempDialError(true))
++	cancel()
++	if err != nil {
++		glog.Exitf("Could not dial Trillian server %q: %v", *trillianURI, err)
++	}
++	defer conn.Close()
++	glog.Info("Connected to Trillian")
++
++	plClient, err := newPreorderedLogClient(ctx, conn, *logID)
++	if err != nil {
++		glog.Exitf("Failed to create PreorderedLogClient: %v", err)
++	}
++
++	opts := core.Options{
++		FetcherOptions: scanner.FetcherOptions{
++			BatchSize:     *ctBatchSize,
++			ParallelFetch: *ctFetchers,
++			StartIndex:    *startIndex,
++			EndIndex:      *endIndex,
++			Continuous:    *mirror,
++		},
++		Submitters:          *submitters,
++		BatchesPerSubmitter: *submitterBatches,
++	}
++	ctrl := core.NewController(opts, ctClient, plClient)
++
++	cctx, cancel = core.WithSignalCancel(ctx)
++	defer cancel()
++	if err := ctrl.Run(cctx); err != nil {
++		glog.Exitf("Controller.Run() returned error: %v", err)
++	}
++}
++
++func newPreorderedLogClient(ctx context.Context, conn *grpc.ClientConn, treeID int64) (*core.PreorderedLogClient, error) {
++	admin := trillian.NewTrillianAdminClient(conn)
++	gt := trillian.GetTreeRequest{TreeId: treeID}
++	tree, err := admin.GetTree(ctx, &gt)
++	if err != nil {
++		return nil, err
++	}
++	log := trillian.NewTrillianLogClient(conn)
++	pref := fmt.Sprintf("%d", *logID)
++	return core.NewPreorderedLogClient(log, tree, pref)
++}
+diff --git a/trillian/util/log_leaf.go b/trillian/util/log_leaf.go
+new file mode 100644
+index 00000000..b52a3df0
+--- /dev/null
++++ b/trillian/util/log_leaf.go
+@@ -0,0 +1,73 @@
++// Copyright 2018 Google Inc. All Rights Reserved.
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++package util
++
++import (
++	"crypto/sha256"
++
++	"github.com/golang/glog"
++	ct "github.com/google/certificate-transparency-go"
++	"github.com/google/certificate-transparency-go/tls"
++	"github.com/google/trillian"
++)
++
++// BuildLogLeaf returns a Trillian LogLeaf structure for a (pre-)cert and the
++// chain of certificates leading it up to a known root.
++func BuildLogLeaf(logPrefix string,
++	merkleLeaf ct.MerkleTreeLeaf, leafIndex int64,
++	cert ct.ASN1Cert, chain []ct.ASN1Cert, isPrecert bool,
++) (trillian.LogLeaf, error) {
++	leafData, err := tls.Marshal(merkleLeaf)
++	if err != nil {
++		glog.Warningf("%s: Failed to serialize Merkle leaf: %v", logPrefix, err)
++		return trillian.LogLeaf{}, err
++	}
++
++	extraData, err := ExtraDataForChain(cert, chain, isPrecert)
++	if err != nil {
++		glog.Warningf("%s: Failed to serialize chain for ExtraData: %v", logPrefix, err)
++		return trillian.LogLeaf{}, err
++	}
++
++	// leafIDHash allows Trillian to detect duplicate entries, so this should be
++	// a hash over the cert data.
++	leafIDHash := sha256.Sum256(cert.Data)
++
++	return trillian.LogLeaf{
++		LeafValue:        leafData,
++		ExtraData:        extraData,
++		LeafIndex:        leafIndex,
++		LeafIdentityHash: leafIDHash[:],
++	}, nil
++}
++
++// ExtraDataForChain creates the extra data associated with a log entry as
++// described in RFC6962 section 4.6.
++func ExtraDataForChain(cert ct.ASN1Cert, chain []ct.ASN1Cert, isPrecert bool) ([]byte, error) {
++	var extra interface{}
++	if isPrecert {
++		// For a pre-cert, the extra data is a TLS-encoded PrecertChainEntry.
++		extra = ct.PrecertChainEntry{
++			PreCertificate:   cert,
++			CertificateChain: chain,
++		}
++	} else {
++		// For a certificate, the extra data is a TLS-encoded:
++		//   ASN.1Cert certificate_chain<0..2^24-1>;
++		// containing the chain after the leaf.
++		extra = ct.CertificateChain{Entries: chain}
++	}
++	return tls.Marshal(extra)
++}
+diff --git a/types.go b/types.go
+index ee8eb01b..90c42154 100644
+--- a/types.go
++++ b/types.go
+@@ -421,6 +421,29 @@ type GetSTHResponse struct {
+ 	TreeHeadSignature []byte `json:"tree_head_signature"` // Log signature for this STH
+ }
+ 
++// ToSignedTreeHead creates a SignedTreeHead from the GetSTHResponse.
++func (r *GetSTHResponse) ToSignedTreeHead() (*SignedTreeHead, error) {
++	sth := SignedTreeHead{
++		TreeSize:  r.TreeSize,
++		Timestamp: r.Timestamp,
++	}
++
++	if len(r.SHA256RootHash) != sha256.Size {
++		return nil, fmt.Errorf("sha256_root_hash is invalid length, expected %d got %d", sha256.Size, len(r.SHA256RootHash))
++	}
++	copy(sth.SHA256RootHash[:], r.SHA256RootHash)
++
++	var ds DigitallySigned
++	if rest, err := tls.Unmarshal(r.TreeHeadSignature, &ds); err != nil {
++		return nil, fmt.Errorf("tls.Unmarshal(): %s", err)
++	} else if len(rest) > 0 {
++		return nil, fmt.Errorf("trailing data (%d bytes) after DigitallySigned", len(rest))
++	}
++	sth.TreeHeadSignature = ds
++
++	return &sth, nil
++}
++
+ // GetSTHConsistencyResponse represents the JSON response to the get-sth-consistency
+ // GET method from section 4.4.  (The corresponding GET request has parameters 'first' and
+ // 'second'.)
+diff --git a/types_test.go b/types_test.go
+index 8c09a13d..0a75c001 100644
+--- a/types_test.go
++++ b/types_test.go
+@@ -64,3 +64,68 @@ func TestUnmarshalMerkleTreeLeaf(t *testing.T) {
+ 		}
+ 	}
+ }
++
++const (
++	validRootHash = "708981e91d1487c2a9ea901ab5a8d053c1348585afcdb5e107bf60c0c1d20fc0"
++	longRootHash  = "708981e91d1487c2a9ea901ab5a8d053c1348585afcdb5e107bf60c0c1d20fc000"
++	shortRootHash = "708981e91d1487c2a9ea901ab5a8d053c1348585afcdb5e107bf60c0c1d20f"
++
++	validSignature = "040300473045022007fb5ae3cea8f076b534a01a9a19e60625c6cc70704c6c1a7c88b30d8f67d4af022100840d37b8f2f9ce134e74eefda6a0c2ad034d591b785cdc4973c4c4f5d03f0439"
++	longSignature  = "040300473045022007fb5ae3cea8f076b534a01a9a19e60625c6cc70704c6c1a7c88b30d8f67d4af022100840d37b8f2f9ce134e74eefda6a0c2ad034d591b785cdc4973c4c4f5d03f043900"
++)
++
++func mustHexDecode(s string) []byte {
++	h, err := hex.DecodeString(s)
++	if err != nil {
++		panic(err)
++	}
++	return h
++}
++
++func TestToSignedTreeHead(t *testing.T) {
++	tests := []struct {
++		desc      string
++		rootHash  string
++		signature string
++		wantErr   bool
++	}{
++		{
++			desc:      "success",
++			rootHash:  validRootHash,
++			signature: validSignature,
++		},
++		{
++			desc:      "root hash too long",
++			rootHash:  longRootHash,
++			signature: validSignature,
++			wantErr:   true,
++		},
++		{
++			desc:      "root hash too short",
++			rootHash:  shortRootHash,
++			signature: validSignature,
++			wantErr:   true,
++		},
++		{
++			desc:      "signature trailing data",
++			rootHash:  validRootHash,
++			signature: longSignature,
++			wantErr:   true,
++		},
++	}
++
++	for _, test := range tests {
++		t.Run(test.desc, func(t *testing.T) {
++			sthResponse := &GetSTHResponse{
++				TreeSize:          278437663,
++				Timestamp:         1527076172068,
++				SHA256RootHash:    mustHexDecode(test.rootHash),
++				TreeHeadSignature: mustHexDecode(test.signature),
++			}
++			sth, err := sthResponse.ToSignedTreeHead()
++			if gotErr := (err != nil); gotErr != test.wantErr {
++				t.Errorf("GetSTHResponse.ToSignedTreeHead() = %+v, %v, want err? %t", sth, err, test.wantErr)
++			}
++		})
++	}
++}

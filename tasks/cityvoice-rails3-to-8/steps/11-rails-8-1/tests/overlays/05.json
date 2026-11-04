@@ -1,0 +1,86 @@
+{
+ "cases": {
+  "http_edges/host_header_odd": {
+   "cite": "`actionpack-6.0.6.1/lib/action_dispatch/middleware/host_authorization.rb`: `DEFAULT_RESPONSE_APP` at :77-88 renders `template: \"rescues/blocked_host\", layout: \"rescues/layout\"` and returns `[403, {\"Content-Type\" => ...}, [body]]`; `#call` at :96-106 returns `@app.call(env)` untouched when `@permissions.empty?`, so on 6.0 the middleware is in the stack either way and an empty list is the same as no middleware at all. It is installed unconditionally by `railties-6.0.6.1/lib/rails/application/default_middleware_stack.rb:16` (`middleware.use ::ActionDispatch::HostAuthorization, config.hosts, config.action_dispatch.hosts_response_app`), and `railties-6.0.6.1/lib/rails/application/configuration.rb:34-37` is where the list comes from: `ALLOWED_HOSTS_IN_DEVELOPMENT` (`[\".localhost\", IPAddr.new(\"0.0.0.0/0\"), IPAddr.new(\"::/0\")]`, host_authorization.rb:13) in development and `[]` in every other environment -- which is why production has to write its own. `Permissions#sanitize_string` (:64-69) anchors a plain string as `/\\A#{Regexp.escape host}#{PORT_REGEX}?\\z/i` and a leading-dot string as one optional label in front of it, and `sanitize_regexp` (:60-62) re-anchors a `Regexp` handed in unanchored, so the suffix reading is the framework's own; `allows?` (:33-47) is a plain `#===` against each entry, so a `Proc` or an `IPAddr` is whatever the application wrote. actionpack's CHANGELOG for 6.0.0 announces the middleware -- \"Introduce `ActionDispatch::HostAuthorization`. This is a new middleware that guards against DNS rebinding attacks by explicitly permitting the hosts a request can be made to.\" -- and there is no such file in actionpack-5.2.8.1 (`ls lib/action_dispatch/middleware | grep -i host` finds nothing), which is why 5.2 served the request. The configuration side is in the guide: https://guides.rubyonrails.org/configuring.html, `config.hosts`.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "",
+     "data": [],
+     "forms": [],
+     "headings": [
+      [
+       "h1",
+       "Blocked host: evil.example.com"
+      ],
+      [
+       "h2",
+       "To allow requests to evil.example.com make sure it is a valid hostname (containing only numbers, letters, dashes and dots), then add the following to your environment configuration:"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [],
+     "tables": [],
+     "text": "Blocked host: evil.example.com To allow requests to evil.example.com make sure it is a valid hostname (containing only numbers, letters, dashes and dots), then add the following to your environment configuration: config.hosts << \"evil.example.com\"",
+     "title": "Action Controller: Exception caught"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/"
+    },
+    "status": 403
+   },
+   "why": "`GET /` carrying `Host: evil.example.com`, a name this deployment does not answer for (`build/harness/cvh/scenarios.py:774`). On 5.2 nothing in the stack looked at the header, so the request was served: the case recorded the landing page -- `CityVoice` and four `h3` headings under it, the welcome audio, the topbar data attribute, `body_class` `landing index`, the whole navigation. On 6.0, with `config.hosts` written down in `config/environments/production.rb`, `ActionDispatch::HostAuthorization` refuses it: 403, `text/html; charset=utf-8`, and the release's own blocked-host page, which names the host it refused and the line that would permit it. That is this step's milestone doing exactly what it was asked to do, and the instruction states it as the step's first behaviour exception -- the one endpoint answer this step is expected to change. The middleware is not refusing everything, and the recording is what shows it: 308 of the 309 HTTP cases arrive with `Host: 127.0.0.1:<port>` (`build/harness/cvh/httpc.py:39`), which is the address the proxy and the platform health check reach the process on, and every one of them still gets the answer it had. The two readings a careless list gets wrong need a header the recorder does not vary, so they are scored as gates instead: `hosts_refuses_unknown` (w3) and `hosts_refuses_suffix` (w2) in this step's profile drive the middleware with `evil.example.com` and with `<deployment>.evil.example.com`, and `hosts_serves_deployment` (w2) with the deployed name. The body recorded here is the release's `rescues/blocked_host` page, so a later release that rewords that page will have to re-record this case with a citation of its own; what this fragment fixes is the answer 6.0.6.1 gives. Nothing a candidate does to the application produces this answer -- only configuring the middleware does -- and writing code to serve the unknown host again would be undoing the milestone."
+  },
+  "subscriptions/notify.after_answers": {
+   "cite": "`actionmailer-5.2.8.1/lib/action_mailer/log_subscriber.rb:10-13` -- `def deliver(event); info do; recipients = Array(event.payload[:to]).join(\", \"); \"Sent mail to #{recipients} (#{event.duration.round(1)}ms)\"` -- against `actionmailer-6.0.6.1/lib/action_mailer/log_subscriber.rb:10-18`, where the same method now reads `\"Delivered mail #{event.payload[:message_id]} (#{event.duration.round(1)}ms)\"`, with a `\"Skipped delivery of mail #{...} as `perform_deliveries` is false\"` branch beside it. The recipient is gone from the line and the message's own id is in its place. Neither release's CHANGELOG mentions it -- `grep -i 'message_id\\|log_subscriber' actionmailer-6.0.6.1/CHANGELOG.md` finds nothing -- so the subscriber source is the whole of the documentation, and it is unambiguous. The render line above it is the other half: `actionview-5.2.8.1/lib/action_view/log_subscriber.rb:21` appends `\" (#{event.duration.round(1)}ms)\"` and `actionview-6.0.6.1/lib/action_view/log_subscriber.rb:21` appends `\" (Duration: #{event.duration.round(1)}ms | Allocations: #{event.allocations})\"` -- and that one is in actionview's CHANGELOG for 6.0.0: \"Add allocations to template rendering instrumentation. Adds the allocations for template and partial rendering to the server output on render.\", with the example `Rendered posts/new.html.erb within layouts/application (Duration: 8.3ms | Allocations: 6654)`. The harness labels both numbers the release added and the id it introduced -- `<MS>` for a duration it has always labelled, `<ALLOC>` for the allocation count, `<MID>` for the message id (`build/harness/cvh/norm.py:136-156`, applied at :317-321) -- because an allocation count is a property of the interpreter and of every gem on the render path, and a Mail message id embeds the pid and the container's hostname, so neither is twice the same string. The wording is not labelled: it is the release's doing, and this fragment is where it is recorded.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendering notification_mailer/weekly_activity.html.erb",
+     "  Rendered notification_mailer/weekly_activity.html.erb (Duration: <MS> | Allocations: <ALLOC>)",
+     "Delivered mail <MID> (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "`rake notifications:send`, the first digest, run after an IVR call has left answers on location 001 and a second has been let pass so the delivery is strictly later than the answers. What the task does is unchanged -- it still finds the same subscriber, still renders `notification_mailer/weekly_activity.html.erb`, still delivers one message, and still exits 0 with nothing aborted -- and the two lines that changed are the framework's own log, not the application's output. Line 0 of the recorded stdout (`  Rendering notification_mailer/weekly_activity.html.erb`, which step 02 re-recorded when 5.0 began announcing the start of a render) is unchanged; line 1 keeps the same template name and gains the allocation count 6.0 puts beside the duration; line 2 names the message instead of its recipient. Nothing about the mail became unobservable: the companion case `subscriptions/notify.after_answers_mail` records the delivered message itself -- `envelope_to`, `from`, subject and every rendered part -- and it is not re-recorded here, because it does not change. The suite checks the same thing from the other side (`spec/mailers/notification_mailer_spec.rb:46-52`: `mail.to.should == ['user@example.com']`, and the sender beside it). So the recipient is still asserted in two places; what moved is one line of framework log wording. A candidate cannot produce the new wording by doing anything to the application, and the only way to keep the old wording on 6.0 would be to reopen `ActionMailer::LogSubscriber` and write the 5.2 string back -- code to restore an old log line, which the instruction names as not the migration. So this is adopted, and the instruction states it as this step's second behaviour exception."
+  },
+  "subscriptions/notify.again": {
+   "cite": "`actionmailer-5.2.8.1/lib/action_mailer/log_subscriber.rb:10-13` -- `def deliver(event); info do; recipients = Array(event.payload[:to]).join(\", \"); \"Sent mail to #{recipients} (#{event.duration.round(1)}ms)\"` -- against `actionmailer-6.0.6.1/lib/action_mailer/log_subscriber.rb:10-18`, where the same method now reads `\"Delivered mail #{event.payload[:message_id]} (#{event.duration.round(1)}ms)\"`, with a `\"Skipped delivery of mail #{...} as `perform_deliveries` is false\"` branch beside it. The recipient is gone from the line and the message's own id is in its place. Neither release's CHANGELOG mentions it -- `grep -i 'message_id\\|log_subscriber' actionmailer-6.0.6.1/CHANGELOG.md` finds nothing -- so the subscriber source is the whole of the documentation, and it is unambiguous. The render line above it is the other half: `actionview-5.2.8.1/lib/action_view/log_subscriber.rb:21` appends `\" (#{event.duration.round(1)}ms)\"` and `actionview-6.0.6.1/lib/action_view/log_subscriber.rb:21` appends `\" (Duration: #{event.duration.round(1)}ms | Allocations: #{event.allocations})\"` -- and that one is in actionview's CHANGELOG for 6.0.0: \"Add allocations to template rendering instrumentation. Adds the allocations for template and partial rendering to the server output on render.\", with the example `Rendered posts/new.html.erb within layouts/application (Duration: 8.3ms | Allocations: 6654)`. The harness labels both numbers the release added and the id it introduced -- `<MS>` for a duration it has always labelled, `<ALLOC>` for the allocation count, `<MID>` for the message id (`build/harness/cvh/norm.py:136-156`, applied at :317-321) -- because an allocation count is a property of the interpreter and of every gem on the render path, and a Mail message id embeds the pid and the container's hostname, so neither is twice the same string. The wording is not labelled: it is the release's doing, and this fragment is where it is recorded.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendering notification_mailer/weekly_activity.html.erb",
+     "  Rendered notification_mailer/weekly_activity.html.erb (Duration: <MS> | Allocations: <ALLOC>)",
+     "Delivered mail <MID> (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "`rake notifications:send`, the same task run again straight afterwards (an adversarial case: whether a second digest goes out is the application's own `with_new_answers` rule, and the recording fixes whatever it answered). What the task does is unchanged -- it still finds the same subscriber, still renders `notification_mailer/weekly_activity.html.erb`, still delivers one message, and still exits 0 with nothing aborted -- and the two lines that changed are the framework's own log, not the application's output. Line 0 of the recorded stdout (`  Rendering notification_mailer/weekly_activity.html.erb`, which step 02 re-recorded when 5.0 began announcing the start of a render) is unchanged; line 1 keeps the same template name and gains the allocation count 6.0 puts beside the duration; line 2 names the message instead of its recipient. Nothing about the mail became unobservable: the companion case `subscriptions/notify.again_mail` records the delivered message itself -- `envelope_to`, `from`, subject and every rendered part -- and it is not re-recorded here, because it does not change. The suite checks the same thing from the other side (`spec/mailers/notification_mailer_spec.rb:46-52`: `mail.to.should == ['user@example.com']`, and the sender beside it). So the recipient is still asserted in two places; what moved is one line of framework log wording. A candidate cannot produce the new wording by doing anything to the application, and the only way to keep the old wording on 6.0 would be to reopen `ActionMailer::LogSubscriber` and write the 5.2 string back -- code to restore an old log line, which the instruction names as not the migration. So this is adopted, and the instruction states it as this step's second behaviour exception."
+  },
+  "subscriptions/notify.new_activity": {
+   "cite": "`actionmailer-5.2.8.1/lib/action_mailer/log_subscriber.rb:10-13` -- `def deliver(event); info do; recipients = Array(event.payload[:to]).join(\", \"); \"Sent mail to #{recipients} (#{event.duration.round(1)}ms)\"` -- against `actionmailer-6.0.6.1/lib/action_mailer/log_subscriber.rb:10-18`, where the same method now reads `\"Delivered mail #{event.payload[:message_id]} (#{event.duration.round(1)}ms)\"`, with a `\"Skipped delivery of mail #{...} as `perform_deliveries` is false\"` branch beside it. The recipient is gone from the line and the message's own id is in its place. Neither release's CHANGELOG mentions it -- `grep -i 'message_id\\|log_subscriber' actionmailer-6.0.6.1/CHANGELOG.md` finds nothing -- so the subscriber source is the whole of the documentation, and it is unambiguous. The render line above it is the other half: `actionview-5.2.8.1/lib/action_view/log_subscriber.rb:21` appends `\" (#{event.duration.round(1)}ms)\"` and `actionview-6.0.6.1/lib/action_view/log_subscriber.rb:21` appends `\" (Duration: #{event.duration.round(1)}ms | Allocations: #{event.allocations})\"` -- and that one is in actionview's CHANGELOG for 6.0.0: \"Add allocations to template rendering instrumentation. Adds the allocations for template and partial rendering to the server output on render.\", with the example `Rendered posts/new.html.erb within layouts/application (Duration: 8.3ms | Allocations: 6654)`. The harness labels both numbers the release added and the id it introduced -- `<MS>` for a duration it has always labelled, `<ALLOC>` for the allocation count, `<MID>` for the message id (`build/harness/cvh/norm.py:136-156`, applied at :317-321) -- because an allocation count is a property of the interpreter and of every gem on the render path, and a Mail message id embeds the pid and the container's hostname, so neither is twice the same string. The wording is not labelled: it is the release's doing, and this fragment is where it is recorded.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendering notification_mailer/weekly_activity.html.erb",
+     "  Rendered notification_mailer/weekly_activity.html.erb (Duration: <MS> | Allocations: <ALLOC>)",
+     "Delivered mail <MID> (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "`rake notifications:send`, run after a further call has left new answers on the same location, so there is something to say again. What the task does is unchanged -- it still finds the same subscriber, still renders `notification_mailer/weekly_activity.html.erb`, still delivers one message, and still exits 0 with nothing aborted -- and the two lines that changed are the framework's own log, not the application's output. Line 0 of the recorded stdout (`  Rendering notification_mailer/weekly_activity.html.erb`, which step 02 re-recorded when 5.0 began announcing the start of a render) is unchanged; line 1 keeps the same template name and gains the allocation count 6.0 puts beside the duration; line 2 names the message instead of its recipient. Nothing about the mail became unobservable: the companion case `subscriptions/notify.new_activity_mail` records the delivered message itself -- `envelope_to`, `from`, subject and every rendered part -- and it is not re-recorded here, because it does not change. The suite checks the same thing from the other side (`spec/mailers/notification_mailer_spec.rb:46-52`: `mail.to.should == ['user@example.com']`, and the sender beside it). So the recipient is still asserted in two places; what moved is one line of framework log wording. A candidate cannot produce the new wording by doing anything to the application, and the only way to keep the old wording on 6.0 would be to reopen `ActionMailer::LogSubscriber` and write the 5.2 string back -- code to restore an old log line, which the instruction names as not the migration. So this is adopted, and the instruction states it as this step's second behaviour exception."
+  }
+ },
+ "step": "05-rails-6-0"
+}

@@ -1,0 +1,37 @@
+CREATE TABLE q3_hsb(a int, b text) PARTITION BY HASH (a);
+CREATE TABLE q3_hsb_0 PARTITION OF q3_hsb FOR VALUES WITH (MODULUS 3, REMAINDER 0);
+CREATE TABLE q3_hsb_1 PARTITION OF q3_hsb FOR VALUES WITH (MODULUS 3, REMAINDER 1);
+CREATE TABLE q3_hsb_2 PARTITION OF q3_hsb FOR VALUES WITH (MODULUS 3, REMAINDER 2);
+INSERT INTO q3_hsb SELECT g, 'v' || g FROM generate_series(1,12) g;
+SELECT count(*) FROM q3_hsb;
+ count 
+-------
+    12
+(1 row)
+
+SELECT tableoid::regclass::text AS part, count(*) FROM q3_hsb GROUP BY 1 ORDER BY 1;
+   part   | count 
+----------+-------
+ q3_hsb_0 |     4
+ q3_hsb_1 |     3
+ q3_hsb_2 |     5
+(3 rows)
+
+SELECT a, b FROM q3_hsb ORDER BY a;
+ a  |  b  
+----+-----
+  1 | v1
+  2 | v2
+  3 | v3
+  4 | v4
+  5 | v5
+  6 | v6
+  7 | v7
+  8 | v8
+  9 | v9
+ 10 | v10
+ 11 | v11
+ 12 | v12
+(12 rows)
+
+DROP TABLE q3_hsb;

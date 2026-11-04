@@ -1,0 +1,114 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. No min_reward gate, so every
+# step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# The cumulative /app workspace is the only thing that reaches the verifier
+# container. The candidate's source tree is the submission, and every
+# verifier rebuilds it from scratch with its own toolchain, so a prebuilt
+# binary in the snapshot is not what gets graded.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/protobuf-grpc-edition-chain"
+version = "1.0.0"
+description = "Eight-step Protocol Buffers task: carry one protoc-compatible compiler, runtime, code generator and gRPC stack written in C from proto2 to editions 2024, keeping every earlier era byte-identical to protoc."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["protobuf", "protoc", "grpc", "editions", "http2", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["protobuf", "grpc", "editions", "conformance", "multi-step", "c"]
+
+[environment]
+build_timeout_sec = 2400.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+# The verifier needs no network at run time (no fetch in test.sh or the
+# scorers; the candidate's build is cc + libc/libm/libz), and without one a
+# graded program cannot download another implementation while it is scored.
+network_mode = "no-network"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-proto2"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-proto3"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-presence"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-editions"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-edition2024"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-grpc"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-textfmt"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-codegen"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

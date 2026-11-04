@@ -1,0 +1,45 @@
+# arch: x86_64
+# what: an `extern "C++" { ... }` block matches against the *demangled* name,
+# so a quoted signature and a namespace glob must select Itanium-mangled
+# symbols that share no literal text with the pattern.
+cat > s.s <<'S'
+        .text
+        .globl _ZN2ns3fooEv
+_ZN2ns3fooEv: ret
+        .globl _ZN2ns3barEi
+_ZN2ns3barEi: ret
+        .globl _ZN3other3fooEv
+_ZN3other3fooEv: ret
+        .globl _Z8freefuncv
+_Z8freefuncv: ret
+        .globl plainc
+plainc: ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj s.o s.s
+exported() { dynsyms "$1" > ds.txt; awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' '; }
+want "fixture really is mangled" "$($NM s.o | grep -c ' T _ZN2ns3fooEv$')" "1"
+cat > q.map <<'V'
+{ global: extern "C++" { "ns::foo()"; }; local: *; };
+V
+link_ok q.so -shared --version-script=q.map s.o
+want "quoted demangled signature" "$(exported q.so)" "_ZN2ns3fooEv "
+cat > g.map <<'V'
+{ global: extern "C++" { ns::*; }; local: *; };
+V
+link_ok g.so -shared --version-script=g.map s.o
+want "namespace glob" "$(exported g.so)" "_ZN2ns3barEi _ZN2ns3fooEv "
+# The mangled spelling must not be what is matched inside extern "C++".
+cat > m.map <<'V'
+{ global: extern "C++" { _ZN2ns3fooEv; }; local: *; };
+V
+link_ok m.so -shared --version-script=m.map s.o
+want "mangled spelling does not match" "$(exported m.so)" ""
+# A version node may mix an extern "C++" block with an extern "C" one.
+cat > x.map <<'V'
+V1 { global: extern "C++" { "ns::bar(int)"; }; extern "C" { plainc; }; local: *; };
+V
+link_ok x.so -shared --version-script=x.map s.o
+want "mixed blocks, both versioned" "$(exported x.so)" "_ZN2ns3barEi@@V1 plainc@@V1 "
+# 5 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 5

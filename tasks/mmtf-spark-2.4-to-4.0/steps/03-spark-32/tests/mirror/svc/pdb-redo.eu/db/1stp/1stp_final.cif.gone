@@ -1,0 +1,23 @@
+status: 500
+
+PDB-REDO has no entry 1STP, and that absence is the point of the fixture set.
+
+MmtfImporter.getFromMmcifUrl is 17 lines, and roughly half of them are the
+catch: it prints "WARNING: could not parse" and returns null, and the caller
+filters the null out. Mirroring 1STP would leave that half uncovered, so the
+pdbredo recipe asks for 1AIE 1STP 2ONX and only two of the three are served.
+
+Probed upstream over https on 2026-09-16 (curl, no proxy):
+
+  GET /db/1stp/1stp_final.cif   500   21 bytes   {"error":"Not Found"}
+  GET /db/1pen/1pen_final.cif   500   21 bytes   {"error":"Not Found"}
+  GET /db/4hhb/4hhb_final.cif   500   21 bytes   {"error":"Not Found"}
+  GET /db/1aie/1aie_final.cif   200   53989 bytes
+
+So 500 -- not 404 -- is what a client asking PDB-REDO for a missing entry
+gets. Both statuses reach HttpURLConnection.getInputStream as an IOException
+and both are caught identically here, which is precisely why the status has to
+be recorded rather than inferred from what the client happens to survive.
+
+The body is not served. Nothing in this tree reads an error body, and a
+21-byte payload recorded here would be a second thing to keep true.

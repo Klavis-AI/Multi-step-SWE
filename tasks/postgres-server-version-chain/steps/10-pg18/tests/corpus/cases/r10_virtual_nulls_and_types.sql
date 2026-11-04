@@ -1,0 +1,6 @@
+CREATE TABLE r10vg8(a int, b text GENERATED ALWAYS AS (a::text || 'x') VIRTUAL,
+                    c bool GENERATED ALWAYS AS (a > 0) VIRTUAL);
+INSERT INTO r10vg8(a) VALUES (1),(NULL),(-2);
+SELECT a, b, c FROM r10vg8 ORDER BY a NULLS LAST;
+SELECT count(*) FILTER (WHERE b IS NULL) FROM r10vg8;
+DROP TABLE r10vg8;

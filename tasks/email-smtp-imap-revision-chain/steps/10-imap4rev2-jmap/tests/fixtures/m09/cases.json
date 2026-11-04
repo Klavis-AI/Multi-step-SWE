@@ -1,0 +1,434 @@
+[
+  {
+    "id": "smtp.ehlo.starttls",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 3207 STARTTLS; RFC 8689 REQUIRETLS on EHLO"
+    },
+    "expect_smtp_contains": [
+      "STARTTLS",
+      "REQUIRETLS"
+    ]
+  },
+  {
+    "id": "smtp.starttls.handshake",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "STARTTLS\r\n",
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "220",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 3207 handshake then EHLO without STARTTLS; RFC 7672 inbound cert CN=mail.example.test from hooked smtpd_tls_cert_file"
+    },
+    "expect_smtp_contains": [
+      "PIPELINING"
+    ],
+    "expect_tls_identity": "mail.example.test",
+    "expect_reply_contains": {
+      "2": [
+        "PIPELINING"
+      ]
+    },
+    "expect_reply_excludes": {
+      "2": [
+        "STARTTLS"
+      ]
+    }
+  },
+  {
+    "id": "smtp.mail.requiretls",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test> REQUIRETLS\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "sts.policy.stsv1",
+    "kind": "sts",
+    "stratum": "core",
+    "gate": true,
+    "port": 8080,
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "smtp.auth.plain.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "AUTH PLAIN AGFsaWNlAGFsaWNlLXNlY3JldA==\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "235",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "smtp.7bit.helo.compat",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "HELO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "smtp.help.still.500",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "HELP\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "500",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "smtp.source.route.still.501",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<@r:alice@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "501",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "smtp.smtputf8.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    },
+    "expect_smtp_contains": [
+      "SMTPUTF8"
+    ]
+  },
+  {
+    "id": "smtp.nested.mail.still.503",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "MAIL FROM:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "503",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "smtp.rcpt.unknown.still.550",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<nobody@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "550",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "smtp.starttls.not.after.mail",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "STARTTLS\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "503",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    }
+  },
+  {
+    "id": "imap.login.compat",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.enable.utf8.still",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 ENABLE UTF8=ACCEPT\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.fetch.empty.still.bad",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 FETCH 1 RFC822\r\n",
+      "a4 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "BAD",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.uid.star.empty.ok",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 UID FETCH 1:* (UID)\r\n",
+      "a4 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.capability.imap4rev1",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 CAPABILITY\r\n",
+      "a2 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    },
+    "expect_capability": [
+      "IMAP4rev1"
+    ]
+  },
+  {
+    "id": "imap.append.fetch.gate",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 APPEND INBOX {77}\r\n",
+      "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: seed\r\n\r\nhello seed\r\n",
+      "a3 SELECT INBOX\r\n",
+      "a4 FETCH 1 (FLAGS UID RFC822.SIZE)\r\n",
+      "a5 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8461 MTA-STS policy file; RFC 3207 STARTTLS 220; RFC 8689 REQUIRETLS; Postfix smtpd TLS",
+      "recorded_at": "2026-09-04T04:46:19.146188+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "smtp.tlsrpt.report",
+    "kind": "smtp_dane",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<sink@dane-ok.test>\r\n",
+      "DATA\r\n",
+      "Subject: dane TOKEN-DANE-OK-001\r\n\r\nbody\r\n.\r\n",
+      "QUIT\r\n"
+    ],
+    "provenance": {
+      "oracle": "RFC 7672 outbound DANE: STARTTLS to nexthop, TLSA 3 1 1 match, RFC 8460 report to zone rua"
+    },
+    "expect_tlsrpt_report": true,
+    "sink_port": 2527,
+    "token": "TOKEN-DANE-OK-001"
+  },
+  {
+    "id": "smtp.dane.outbound.mismatch",
+    "kind": "smtp_dane",
+    "stratum": "core",
+    "gate": false,
+    "dane_mismatch": true,
+    "sink_port": 2528,
+    "token": "TOKEN-DANE-BAD-001",
+    "expect_tlsrpt_report": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<sink@dane-bad.test>\r\n",
+      "DATA\r\n",
+      "Subject: dane TOKEN-DANE-BAD-001\r\n\r\nbody\r\n.\r\n",
+      "QUIT\r\n"
+    ],
+    "provenance": {
+      "oracle": "RFC 7672: TLSA mismatch must not deliver DATA; TLS-RPT dane-invalid to rua"
+    }
+  }
+]

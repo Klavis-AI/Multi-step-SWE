@@ -1,0 +1,43 @@
+# arch: x86_64
+# -Ttext=, -Tdata= and -Tbss= place the three standard output sections at the
+# addresses asked for, and the load segments that cover them keep the
+# permissions those sections need.
+rt_obj rt.o
+cat > t.c <<'C'
+int dvar = 7;
+int barr[16];
+int entry(void) { barr[3] = 35; return dvar + barr[3]; }
+C
+cc_obj t.o t.c
+link_ok out -Ttext=0x500000 -Tdata=0x600000 -Tbss=0x700000 rt.o t.o --no-gc-sections
+
+# Captured before they are read as hex: an absent section would otherwise make
+# `$(( 16# ))` an invalid constant, and bash abandons that command during word
+# expansion without running the assertion in it.
+ta_hex=$(sec_addr out .text); da_hex=$(sec_addr out .data); ba_hex=$(sec_addr out .bss)
+ts_hex=$(sec_size out .text)
+[ -n "$ta_hex" ] && [ -n "$da_hex" ] && [ -n "$ba_hex" ] && [ -n "$ts_hex" ] \
+  || die "the placed link is missing one of .text/.data/.bss ('$ta_hex', '$da_hex', '$ba_hex', size '$ts_hex')"
+
+want "-Ttext places .text" "$((16#$ta_hex))" "$((0x500000))"
+want "-Tdata places .data" "$((16#$da_hex))" "$((0x600000))"
+want "-Tbss places .bss"   "$((16#$ba_hex))" "$((0x700000))"
+
+want "the segment covering .text is executable" "$(seg_perm_of out .text)" "RE"
+want "the segment covering .data is writable"   "$(seg_perm_of out .data)" "RW"
+want "the segment covering .bss is writable"    "$(seg_perm_of out .bss)"  "RW"
+
+# The entry point moved with the text it points into.
+e=$(hdr out | awk '/Entry point address/ { print $NF }')
+[ -n "$e" ] || die "the output header carries no entry point address"
+ta=$((16#$ta_hex))
+ts=$((16#$ts_hex))
+[ $((e)) -ge "$ta" ] && [ $((e)) -lt $((ta + ts)) ] \
+  || die "entry point $e is outside the placed .text [$ta, $((ta + ts)))"
+
+# And the placed program still works.
+run_expect out "" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 6

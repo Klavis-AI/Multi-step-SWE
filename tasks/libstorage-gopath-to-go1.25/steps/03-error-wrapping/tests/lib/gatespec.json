@@ -1,0 +1,495 @@
+{
+ "gates": [
+  {
+   "baseline": 16,
+   "id": "import-absent:goof",
+   "import": "github.com/akutz/goof",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 3,
+   "why": "Requirement 1, read off the compiled import graph. Sixteen first-party packages reach `github.com/akutz/goof` today -- every layer of the server, the client, the registry, the utilities and three drivers -- and an alias, a dot-import or a first-party re-export all still show up here. It is graded as the whole of requirement 1 and not as a proxy for it: the library is what supplies the error constructors, the HTTP error envelope and the JSON those marshal to, so nothing that keeps it has replaced anything. It is scored as the property rather than as progress towards it, because the cheapest tree that satisfies a proportional reading is the one requirement 1 rules out by name: move every use behind a single first-party file that re-exports the library, and fifteen of the sixteen importers are gone for a rename that has replaced nothing. That tree was built and measured -- fifteen sixteenths here, zero on every other line of this milestone -- which is what the requirement means when it says not through an alias or a local re-export. The gradient requirement 1 does deserve is the census next to this one, which moves a file at a time and is unaffected by how this gate reads."
+  },
+  {
+   "baseline": 29,
+   "direction": "down",
+   "id": "count:goof-imports",
+   "import": "github.com/akutz/goof",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "The same requirement, counted over the source rather than over the build, because the build does not see all of it. Twenty-nine files import the library and three of them are behind a build constraint this platform does not satisfy: the darwin OS driver and the two mock-tagged files. `./...` never compiles those, so the import graph above reads clean while a quarter of the call sites still exist -- and requirement 1 is phrased over the source this repository owns rather than over what this platform happens to compile, which is what makes those three files count. This census is filesystem-scoped and parses every `.go` file whatever its constraints say, which is what makes the three visible. It also carries requirement 1's gradient: it moves a file at a time, so a candidate part-way through the job is scored part-way through it, while the gate above states the endpoint the requirement is actually phrased as."
+  },
+  {
+   "baseline": 1,
+   "category": "string-cmp",
+   "id": "errscan:string-cmp",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 3, on the site that names it. One error in this repository is recognised by comparing the text of its `Error()` to the text of a sentinel -- an executor reporting that it does not implement an operation. The comparison is true today only because the two values are in fact the same value and nobody has put a message in between; it stops being true the moment anything adds one, and it silently starts being true of any unrelated error that happens to be worded the same way. This is the construct the milestone is named for, so it is graded on its own rather than pooled with the others. It is recognised however it is spelled, not only as `==`: a substring test or a regexp match against an error's message asks the same question in a strictly more fragile way, since it answers yes for any error whose text merely contains the sentinel's, and a match against text that `fmt` rendered from an error counts the same as one against the error's own method. The tree this step starts from holds exactly one such site and it is the `==` one; a candidate that reaches requirement 4's answer by matching messages instead of types scores zero here rather than passing unnoticed, which is measured -- the tree that does it reports six."
+  },
+  {
+   "baseline": 5,
+   "category": "identity-cmp",
+   "id": "errscan:identity-cmp",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 3, on the commonest form. Five sites ask whether an error *is* a sentinel by comparing the two values with `==` or `!=`. That is the right question asked in a way that only works while the error is handed up untouched, which is precisely what requirement 2 is about to stop being the case: the moment a caller adds context on the way out, every one of these five silently answers no. The standard library has had the question that walks the chain since Go 1.13."
+  },
+  {
+   "baseline": 2,
+   "category": "concrete-type-switch",
+   "id": "errscan:concrete-type-switch",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 3, on the form that decides what an error is by switching on its dynamic type. Two sites do it, and one of them is the filter that assigns every HTTP status this API returns -- which is why requirement 4 reads the way it does. A switch on the concrete type sees the value in hand and nothing behind it."
+  },
+  {
+   "baseline": 1,
+   "category": "concrete-type-assert",
+   "id": "errscan:concrete-type-assert",
+   "kind": "errscan",
+   "weight": 1,
+   "why": "Requirement 3, on the single-case form of the same thing: one site asserts an error to a concrete type to decide whether to keep looking in another file. Graded apart from the switch above because a candidate can plausibly convert one construct and not the other, and at a lower weight because it is one site rather than two. An assertion to an *interface* is not this construct and is not counted: asking whether an error answers a question is not the same as asking what it was made of."
+  },
+  {
+   "baseline": 4,
+   "category": "dropped-cause",
+   "id": "errscan:dropped-cause",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 2, counted at the sites where a cause is demonstrably destroyed. Four `fmt.Errorf` calls in this tree render an error into a new message with a verb that formats it and then throws the value away -- three in the request-schema filter and one in the mount-table parser. The text that comes out is identical either way, which is the whole problem: nothing about the produced message says whether the error underneath it survived. This is the narrow, certain half of requirement 2; the reachability of a cause stored in a field is the probe's to judge."
+  },
+  {
+   "baseline": 4,
+   "direction": "up",
+   "field": "wrap_verbs",
+   "id": "count:wrap-verbs",
+   "kind": "count",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 2 from the other side, and the only syntactic mark a wrapped cause leaves: `%w` and `%v` render an error identically, so nothing about the message distinguishes them. Zero today. The target is four because four call sites render a cause into a message and then drop it, and every one of them has something worth keeping; a tree that reached zero on the gate above by deleting the four messages instead of wrapping them reads zero here too. Counted per verb rather than per call, so a message that carries two causes has done the work twice."
+  },
+  {
+   "baseline": 1,
+   "direction": "up",
+   "field": "unwrap_methods",
+   "id": "count:unwrap-methods",
+   "kind": "count",
+   "scope": "own",
+   "weight": 1,
+   "why": "The same mark for the other way an error carries a cause. Two constructors in `api/utils` take the error that caused the one they are building and store it in a field, and a type that does that reaches the standard library's chain walk only by saying so. Zero today, and the target is one: what this gate states is that at least one type in this tree exposes a stored cause, which is the syntactic mark that the exposure exists at all. How many types end up carrying a cause, and whether they share a single method through an embedded base, is a design decision this gate deliberately does not grade -- a shared `Unwrap` is a complete answer to the requirement, and the old target of two scored it at half. What the exposure is *for* is graded next door, by `probe:errwrap` at weight 4, which asks the errors themselves."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap",
+   "kind": "probe",
+   "tests": [
+    "TestBadFilterKeepsItsCause",
+    "TestBatchProcessKeepsItsCause",
+    "TestCauseKeepsItsTypeThroughAWrap"
+   ],
+   "weight": 4,
+   "why": "Requirement 2, observed rather than counted. The two constructors that take a cause are each handed three kinds of it -- an error from outside this repository, one of its own sentinels, and one of its own constructed errors -- and the error that comes back has to lead to what it was built around. The third test asks the same thing by type instead of by identity and through two layers instead of one, because a chain that survives one link is not a chain. All three fail on the tree this step starts from, where the cause is in a field nothing can walk to: the text is kept and the value is lost. Nothing here names a field, a helper or a spelling -- only `errors.Is` and `errors.As`, which are the two questions a caller has once a cause is reachable. The three controls in the same package are graded in the regression family."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus",
+   "kind": "probe",
+   "tests": [
+    "TestAWrappedNotFoundIsStillANotFound",
+    "TestAWrappedBadRequestIsStillABadRequest",
+    "TestAWrappedUnauthorizedIsStillUnauthorized"
+   ],
+   "weight": 4,
+   "why": "Requirement 4, observed from outside the process. The probe serves its own routes, so the error values are ones whose identity is known, and each is served twice: plain, and with a layer of context wrapped around it. The two responses have to carry the same status, and it has to be the status the plain one already has. Three statuses are asked for separately because they fail for different reasons and a client does different things with them -- 404 is how it learns a volume is gone, 400 is how it learns the fault is its own, 401 is how it learns that retrying is pointless -- and the not-found is asked through two layers as well as one. All three fail on the tree this step starts from, where every wrapped error comes back 500 because the filter that assigns the status looks at the value in its hand. Three controls in the same package hold the line this must not cross and are graded in the regression family."
+  }
+ ],
+ "module": "github.com/codedellemc/libstorage",
+ "probes": {
+  "cancellation": {
+   "hard_timeout": 240,
+   "timeout": "3m",
+   "why": "Five tests, 3.0 s together on the finished tree and 3.0 s on the tree this step starts from; the two controls account for nearly all of it, one of them deliberately waiting two seconds for a slow answer. Every failure path in the package is a bounded select, so the budget is there for a tree that will not start a server at all rather than for one that merely fails."
+  },
+  "deadlines": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Four tests, and each of the two graded ones now drives its key at two values in turn rather than at one, so the package starts six servers instead of four: 56.4 s together on the finished tree and 41.2 s on the tree this step starts from, where the two graded tests fail early. Neither is the number the budget has to clear. A tree that adds a draining stop and keeps the 2017 substring sniff deadlocks every close, and this package's teardown gives up on a stop after 30 s rather than joining the deadlock -- six servers, so three minutes of teardown on top of the waiting the tests do anyway: measured at 236.6 s on that tree, with all four assertions still reported correctly. The budget is set above that so a deadlock elsewhere in the tree costs this package time and not its answers."
+  },
+  "errstatus": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Six tests sharing one server, 1.07 s together on the finished tree and 1.07 s on the tree this step starts from, where the three graded tests fail on the first response they read. Neither is the number the budget has to clear. Every way this package can wait is bounded by the package itself: sixty seconds for a server that never finishes starting, fifteen for a request that is never answered, thirty for a stop that never returns. Twenty-one requests are issued in all, so the arithmetic worst case -- a server that answers every one of them just too slowly to count -- is 315 s of requests on top of a minute of start and half a minute of stop, and the budget sits above that. Bounding rather than waiting is deliberate: a tree whose server has been broken elsewhere should fail these assertions and say so, not take the package's other answers down with it."
+  },
+  "errwrap": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Six tests that construct errors and ask questions of them in process -- no server, no listener, no clock. 0.005 s together on the finished tree and 0.006 s on the tree this step starts from. The budget is two minutes because the only way this package can be slow is a tree that takes a long time to compile, and a compile is the one thing a test timeout should never be the first to notice."
+  },
+  "shutdown": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Four tests, 40.6 s together on the finished tree and 4.2 s on the tree this step starts from, where every stop returns at once and every assertion fails the moment it is made. Neither is the number the budget has to clear. The worst measured case is the half-done tree that adds a draining stop and keeps the 2017 substring match, which deadlocks the close: there each test waits out its own ceiling and then pays a further 30 s of bounded teardown for a stop that was never going to return, 288.4 s in all, with all four failures still reported rather than lost with a killed binary. A tree that drains but sets no deadline is the other slow case, at 80.7 s. The budget sits well above the deadlocking tree because bounding the teardown exists precisely so that this package still answers on a tree whose close hangs, and a package timeout would take those answers away again."
+  },
+  "surface": {
+   "hard_timeout": 360,
+   "timeout": "5m",
+   "why": "Two tests, each of which starts an embedded server and a client through `libstorage.New` and makes one request: 2.3 s together on the finished tree and 2.2 s on the tree this step starts from. The budget is sized for the two ways a tree can be slow here rather than wrong -- `libstorage.New` itself hanging, which the helper gives up on after 60 s, and a stop that never returns, which the teardown gives up on after 30 s. Measured against the deadlocking tree: 62.4 s, both assertions still reported."
+  }
+ },
+ "regression": [
+  {
+   "go": "1.17",
+   "id": "module",
+   "kind": "module",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 1,
+   "why": "Requirement 7's first sentence. Everything this milestone needs has been in the standard library since Go 1.13, so nothing here wants a higher directive, and raising it would change what several of the tools below report without any of this milestone's work having been done -- at a `go 1.20` directive staticcheck starts reporting SA1019 against the ten `io/ioutil` imports this repository still carries, none of which this milestone asks anyone to touch. Read back out of the built binary, so a go.mod that disagrees with the build cannot pass."
+  },
+  {
+   "id": "build-all",
+   "kind": "build-all",
+   "weight": 1,
+   "why": "Requirement 7. Inherited and still a bound rather than a milestone: compiling is the thing this work may not cost. It is worth more here than the weight suggests, because an error API rewritten across sixteen packages is the kind of change that compiles in fourteen of them."
+  },
+  {
+   "kind": "no-vendored-source",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 1,
+   "why": "Requirement 7. Computed from the import graph, so a dependency copied back into the repository under any directory name and rewired with a replace directive is still third-party source here -- which is exactly the shape the cheapest answer to requirement 1 would take. The same requirement has a second reading, because the graph cannot see a dependency whose source has been copied *into* the main module and given a first-party import path: every first-party file is also hashed, whitespace removed, against every .go file in the module cache the image ships, and a file that matches one of them is that dependency's source under another name."
+  },
+  {
+   "directives": [
+    "replace",
+    "exclude",
+    "ignore"
+   ],
+   "id": "gomod-directives",
+   "kind": "gomod-directives",
+   "weight": 1,
+   "why": "Requirement 7. `replace` would let the retired library be aliased back in under a name of the candidate's choosing; `ignore` would let a file that no longer compiles disappear from every `./...` pattern, including the import graph the gates above read."
+  },
+  {
+   "baseline": 0,
+   "kind": "gofmt",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7. The tree this step starts from is `gofmt -s` clean -- 0 dirty files out of 162 -- so the baseline is zero and any excursion is new. It matters more than usual for a milestone whose work is a mechanical sweep across two dozen import blocks."
+  },
+  {
+   "baseline": 0,
+   "kind": "vet",
+   "weight": 1,
+   "why": "Requirement 7, same shape: the tree this step starts from leaves `go vet ./...` silent, so the bound is silence. `vet` is also the tool that notices a format verb that does not match what it was handed, which is the commonest way a `%w` sweep goes wrong."
+  },
+  {
+   "baseline": 0,
+   "checks": "SA1019",
+   "kind": "staticcheck",
+   "weight": 1,
+   "why": "Requirement 7's last clause. Measured 0 on the tree this step starts from and 0 on the finished one. This is the gate that would notice an error helper being reached for that the standard library has since marked deprecated."
+  },
+  {
+   "baseline": 0,
+   "field": "suppressions",
+   "id": "floor:suppressions",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 5: silencing a tool is not fixing what it found. Zero today, and the bound is zero."
+  },
+  {
+   "baseline": 1,
+   "field": "skips",
+   "id": "floor:skips",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 5. One `t.Skip` exists in the inherited corpus; a second is a test that stopped running."
+  },
+  {
+   "baseline": 96,
+   "field": "blank_discards",
+   "id": "floor:blank-discards",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 5's last clause. 96 on the tree this step starts from, and 96 on the finished one. The bound is the inherited number, so shedding one is free and acquiring one is not -- and acquiring one is the ordinary way a cause that has just become reachable is made to compile away again."
+  },
+  {
+   "baseline": 84,
+   "field": "test_funcs",
+   "id": "floor:test-funcs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 5. The repository's own corpus. This milestone touches the error API that several of these tests assert against, which makes deleting one an attractive way to finish."
+  },
+  {
+   "baseline": 111,
+   "field": "specs",
+   "id": "floor:specs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 5. Ginkgo specs, counted separately from test functions because the integration suites are written in them."
+  },
+  {
+   "baseline": 503,
+   "field": "assertions",
+   "id": "floor:assertions",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 5. A test function that survives with its body hollowed out keeps the two counts above still and moves this one -- and the assertions this milestone is most likely to be tempted by are the ones comparing an error's text."
+  },
+  {
+   "baseline": 16,
+   "field": "test_files",
+   "id": "floor:test-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 5."
+  },
+  {
+   "baseline": 1,
+   "field": "constrained_test_files",
+   "id": "floor:constrained-test-files",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 5 and requirement 7's last sentence. One test file is behind a build tag today (`drivers/storage/mock/tests`), and it is one of the three files requirement 1 reaches that this platform does not compile -- which makes tagging it out both the obvious way to avoid that work and a suite that stopped running."
+  },
+  {
+   "baseline": 126,
+   "field": "unconstrained_src_files",
+   "id": "floor:unconstrained-src-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "strict": true,
+   "weight": 3,
+   "why": "Requirement 7's last sentence, and the bound that keeps the import-graph gates honest: a file tagged out of the build vanishes from `go list -deps` just as thoroughly as a file whose import was retired. 126 on the tree this step starts from and 127 on the finished one, which adds a file rather than constraining one. Strict, for the reason step 1 recorded: proportional scoring cannot deter a single excursion against a baseline this large."
+  },
+  {
+   "constraints": {
+    "api/utils/unix_windows.go": "windows;",
+    "api/utils/utils_unix.go": ";!windows",
+    "cli/lss/lss-darwin/lss-darwin_amd64.go": "amd64;",
+    "cli/lss/lss-darwin/lss-darwin_arm.go": "arm;",
+    "cli/lss/lss-darwin/lss-darwin_arm64.go": "arm64;",
+    "cli/lss/lss-linux/lss-linux_amd64.go": "amd64;",
+    "cli/lss/lss-linux/lss-linux_arm.go": "arm;",
+    "cli/lss/lss-linux/lss-linux_arm64.go": "arm64;",
+    "cli/lss/lss-windows/lss-windows_amd64.go": "amd64;",
+    "client/client_darwin.go": "darwin;",
+    "client/client_linux.go": "linux;",
+    "drivers/os/darwin/darwin.go": ";darwin",
+    "drivers/os/linux/linux.go": ";linux",
+    "drivers/os/linux/linux_mount.go": ";linux",
+    "drivers/storage/mock/executor/mock_executor.go": ";mock",
+    "drivers/storage/mock/mock_driver.go": ";mock",
+    "drivers/storage/mock/tests/mock_test.go": ";mock",
+    "imports/executors/executors.go": ";!vfs",
+    "imports/executors/executors_vfs.go": ";vfs",
+    "imports/storage/storage.go": ";!vfs",
+    "imports/storage/storage_vfs.go": ";vfs"
+   },
+   "id": "floor:build-constraints",
+   "kind": "constraint-set",
+   "scope": "own",
+   "weight": 3,
+   "why": "Requirement 7's last sentence, by identity rather than by count. The same twenty-one entries the previous milestone left behind, unchanged: this milestone has no reason to move any of them, and three of the files in this map are ones requirement 1 has to reach without the compiler's help. Widening `//go:build darwin` or `//go:build mock` so the work can be checked, or narrowing one so it need not be done, both move this. Keys the candidate adds are not held against it, so this is a bound on loss."
+  },
+  {
+   "baseline": 0,
+   "field": "legacy_build_tags",
+   "id": "floor:legacy-build-tags",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7. The `// +build` form was retired two milestones ago; a file re-acquiring one is that coming undone. Zero on both trees."
+  },
+  {
+   "baseline": 12,
+   "field": "converted_build_tags",
+   "id": "floor:converted-build-tags",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "The same bound from the other side: twelve files carry a `//go:build` line and no legacy twin, on the tree this step starts from and on the finished one alike. A constraint dropped rather than kept moves this below twelve; the constraint set above says which twelve."
+  },
+  {
+   "baseline": 4,
+   "id": "import-absent:x-net-context",
+   "import": "golang.org/x/net/context",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 6. The `golang.org/x/net/context` shim was retired by the previous milestone and stays retired; the baseline is the four packages that reached it before that, so the fall-off is measured on the same scale it was earned on. It is here rather than assumed because this milestone rewrites the import block of twenty-nine files, which is the single most likely way for a retired import path to come back."
+  },
+  {
+   "baseline": 1,
+   "id": "import-absent:ctxhttp",
+   "import": "golang.org/x/net/context/ctxhttp",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 6, the same bound on the subpackage."
+  },
+  {
+   "id": "import-present:context",
+   "import": "context",
+   "kind": "import-present",
+   "packages": [
+    "github.com/codedellemc/libstorage",
+    "github.com/codedellemc/libstorage/api/types",
+    "github.com/codedellemc/libstorage/api/context",
+    "github.com/codedellemc/libstorage/api/server",
+    "github.com/codedellemc/libstorage/client"
+   ],
+   "weight": 2,
+   "why": "Requirement 6. The complement: the standard library's `context` stays live in the five first-party packages that deal in a context type. A sweep that reorganised imports and broke the plumbing would fail this while the two absence bounds above stayed clean."
+  },
+  {
+   "id": "pre-go17-twin",
+   "kind": "files-absent",
+   "paths": [
+    "libstorage_go17.go",
+    "libstorage_pre_go17.go"
+   ],
+   "weight": 2,
+   "why": "Requirement 6. The pre-Go-1.7 twin stays gone; a file reintroduced under either name is the previous milestone coming undone."
+  },
+  {
+   "dir": "deadlines",
+   "id": "probe:deadlines",
+   "kind": "probe",
+   "tests": [
+    "TestReadTimeoutFollowsTheConfiguredValue",
+    "TestWriteTimeoutFollowsTheConfiguredValue"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, observed. The server's configured read and write timeouts keep taking effect at the values they are configured with. This milestone changes how the server reports a failure, and both of these tests read a failure off a connection."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown",
+   "kind": "probe",
+   "tests": [
+    "TestStopWaitsForRequestsInFlight",
+    "TestStopClosesIdleConnections"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, observed. Stopping the server still drains what it is serving and still closes its idle connections."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown-bound",
+   "kind": "probe",
+   "tests": [
+    "TestStopGivesUpOnAWedgedRequest"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, observed. The drain is still bounded, so a request that never finishes still cannot keep the process alive forever. It is the half of the previous milestone most easily lost by accident, which is why it is carried separately here too."
+  },
+  {
+   "dir": "cancellation",
+   "id": "probe:cancellation",
+   "kind": "probe",
+   "tests": [
+    "TestCancelledContextStopsRequest",
+    "TestContextDeadlineStopsRequest",
+    "TestServerSeesTheCancellation",
+    "TestLiveContextCompletesRequest",
+    "TestLiveContextSurvivesASlowAnswer"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, observed. A cancelled or expired context still stops an in-flight request promptly, and a live one still completes however long the answer takes. The first three of these five require the call to come back with the error the caller's own cancellation produced rather than with whatever else ended it at about the same moment -- which is an assertion about error identity, and therefore an assertion this milestone can break."
+  },
+  {
+   "dir": "deadlines",
+   "id": "probe:deadlines-controls",
+   "kind": "probe",
+   "tests": [
+    "TestDefaultReadTimeoutLeavesItAlone",
+    "TestConfiguredTimeoutsStillServeAnOrdinaryRequest"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, observed. A server on the documented defaults still does not cut off a slow client, and a server with the timeouts configured still serves an ordinary request."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown-controls",
+   "kind": "probe",
+   "tests": [
+    "TestStopReturnsPromptlyWithNothingInFlight"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, observed. A server with nothing to drain still stops at once."
+  },
+  {
+   "dir": "surface",
+   "id": "probe:surface",
+   "kind": "probe",
+   "tests": [
+    "TestEmbeddedNewReturnsAConnectedClient",
+    "TestEmbeddedNewServesTheConfiguredService"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, observed, and the widest of the inherited bounds: the exported surface that deals in contexts is written out as ordinary code the compiler has to agree with, and the root package's `New` is driven end to end."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap-controls",
+   "kind": "probe",
+   "tests": [
+    "TestErrorTextIsUnchanged",
+    "TestErrorsAreStillClassifiable"
+   ],
+   "weight": 2,
+   "why": "Requirement 5, asked of the error API directly, and the reason requirement 1 can be stated as a removal without becoming an invitation to start over. Fifteen messages are pinned -- each of them is what the server puts in the `message` field of an error response -- and every error type the repository hands out has to remain recognisable as itself and not as something else. A tree that made causes reachable by collapsing the error types into one value passes the two graded tests in this package and fails both of these. The JSON those same values marshal to is the third thing this API is, and it is no longer pooled in here: it is graded on its own next door, at four times what one test pooled among three was worth. Both of these pass on the tree this step starts from, which is what makes them a bound rather than a leap."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap-json",
+   "kind": "probe",
+   "tests": [
+    "TestErrorJSONIsUnchanged"
+   ],
+   "weight": 4,
+   "why": "Requirement 5 on the part of the error API that is least visible and cheapest to break: the JSON. The same values this milestone rewrites are what the server puts on the wire and what a task record carries -- a `types.Task` holds its failure in an `error` field and `encoding/json` renders whatever is in it -- so six marshalled shapes are pinned here, field for field. It is graded alone rather than pooled, and at the largest weight but one in this family. That is deliberately not a claim of parity with the graded probes next door: a weight here scales the multiplier and a weight there scales 0.55 of the body, so equal integers are not equal shares and this gate cannot be made to cost what failing the milestone costs. What it can do is stop a changed API from rounding away to nothing, which is what it was doing pooled among three. Requirement 5 says at length that a field renamed, a message that gained a prefix or a nested cause that renders as `{}` where it used to render as its text is a different API, and an envelope that merely looks right is the shape the cheapest answer to requirement 1 takes. Pooled with the two controls beside it that whole sentence was worth a third of a small weight: the tree that does the entire milestone correctly and quietly changes the JSON every error marshals to scored 0.981374 when this test was one of three in a gate worth 3, and scores 0.962308 with this gate standing on its own. It passes on the tree this step starts from."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus-controls",
+   "kind": "probe",
+   "tests": [
+    "TestPlainErrorsKeepTheirStatus",
+    "TestErrorResponseBodiesAreUnchanged"
+   ],
+   "weight": 2,
+   "why": "Requirement 5, observed from outside the process, on what the change is not allowed to cost. The first is the plain statuses the server already produces, which are what the three graded tests next door are required to preserve under wrapping and which a tree could otherwise satisfy by returning the same status for everything. The second is the body itself: both shapes an error response takes, field for field, which is what stops requirement 1 from being answered with an envelope that merely looks right. The rule that an error which answers for an outcome keeps its own answer was pooled in here and is now graded on its own next door, because it is a whole half of requirement 4 rather than a bound. Both of these pass on the tree this step starts from."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus-outcome",
+   "kind": "probe",
+   "tests": [
+    "TestAnErrorThatAnswersForTheOutcomeKeepsIt"
+   ],
+   "weight": 6,
+   "why": "Requirement 4's second half, alone, because it is the one a candidate is most likely to lose by doing everything else correctly. A partly completed batch reports its own outcome and is a server error whatever stopped it, so a chain walk that lets the innermost opinion win re-labels it as the client's fault. It is asked at two routes -- over a cause that is a 400 in its own right and over one that is a 404 -- because those two statuses fail through different branches of any status filter, and a walk that runs to the bottom gets a different wrong answer from each. The recorded wire suite reaches this rule too -- `detach-all-no-iid`, a bulk detach with no instance ID, is recorded at 500 over a cause that is a 400 on its own, and it appears in two scenarios -- but two exchanges out of 1 118 are worth 0.0006 of the reward, so the recording proves the rule and this gate is what prices it. It carries the largest weight in this family for that reason, and it carries it here rather than in the migrated family because it cannot go there: the tree this step starts from already answers both routes correctly, so moving it would raise the score of an untouched step-2 tree above the half that build-process item 6 requires of a step's floor. Measured: a tree that does the whole milestone and answers this rule with the innermost opinion keeps the migrated family at 1.0000 and scores 0.958743. It passes on the tree this step starts from, where the filter never looks past the value in its hand and so answers 500 for the batch by construction."
+  }
+ ],
+ "step": "03-error-wrapping"
+}

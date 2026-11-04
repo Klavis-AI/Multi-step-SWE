@@ -1,0 +1,48 @@
+# groups.txt -- step03
+#
+# name <tab> kind <tab> weight <tab> crate <tab> arg
+#
+#   kind   gate    proof of life + inherited regression. Binary, earns nothing,
+#                  vetoes the whole step. Weight column MUST be 0.
+#          scored  this step's new capability + peripheral breadth. Positive
+#                  integer weight; the scored weights sum to 100.
+#   crate  a crate name -> driver group; arg is the exact number of test cases
+#          @build       -> build group;  arg is a whole cargo invocation
+#
+#   reward = gate x score
+#
+# Gate groups carry no weight on purpose. Pricing inherited work is what let a
+# no-op collect a share of the score; under this model it collects nothing.
+#
+# Why `workspace-checks` is scored at THIS step and gate everywhere else.
+#
+# Step 03 is the band boundary. Its verifier runs rustc 1.59, but the
+# predecessor tree app-02 still pins `lexical-core 0.7.4` through
+# librocksdb-sys -> bindgen -> cexpr -> nom, and that crate assumes
+# `u32::BITS` does not exist. Running this step's own command against the tree
+# a no-op is handed fails outright:
+#
+#   cargo check --workspace --all-targets --all-features   (on app-02, 1.59.0)
+#   error: could not compile `lexical-core` due to 27 previous errors
+#
+# Carrying the dependency skeleton across that boundary IS step 03's milestone,
+# so by rule 3 the transition is new capability and cannot sit in the gate: a
+# no-op would be vetoed by it and report 0 without ever reaching the score.
+# Narrowing the command is not an option either -- from v1.0.0-alpha.8 on the
+# bare `--all-targets` form does not compile this step's own tree, because
+# zebra-chain/benches/block.rs reaches a module gated behind
+# `#[cfg(any(test, feature = "bench"))]`.
+#
+# `build -p zebra-chain --tests` stays the gate: it passes on app-02 and so
+# still proves life without pricing the migration.
+
+build	gate	0	@build	build -p zebra-chain --tests
+workspace-checks	scored	8	@build	check --workspace --all-targets --all-features
+tx-v5-zip225-codec	scored	20	zebra-chain	11
+tx-v5-sapling-transfers	scored	17	zebra-chain	11
+v5-consensus-branch-id	scored	16	zebra-chain	12
+serialization-at-least-one	scored	13	zebra-chain	10
+external-count-vectors	scored	13	zebra-chain	10
+orchard-redpallas-types	scored	13	zebra-chain	10
+inherited-block-codec	gate	0	zebra-chain	10
+inherited-sighash	gate	0	zebra-chain	8

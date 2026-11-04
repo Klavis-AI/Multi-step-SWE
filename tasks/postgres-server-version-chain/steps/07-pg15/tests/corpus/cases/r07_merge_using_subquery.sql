@@ -1,0 +1,10 @@
+CREATE TABLE x07_08a(id int PRIMARY KEY, v int);
+CREATE TABLE x07_08b(id int, v int);
+INSERT INTO x07_08a VALUES (1,10),(2,20);
+INSERT INTO x07_08b VALUES (1,1),(1,2),(3,3),(3,4);
+MERGE INTO x07_08a t USING (SELECT id, sum(v) AS v FROM x07_08b GROUP BY id) s
+  ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = t.v + s.v
+  WHEN NOT MATCHED THEN INSERT (id,v) VALUES (s.id, s.v);
+SELECT id, v FROM x07_08a ORDER BY id;
+DROP TABLE x07_08a, x07_08b;

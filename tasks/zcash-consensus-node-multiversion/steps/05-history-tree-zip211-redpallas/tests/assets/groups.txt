@@ -1,0 +1,57 @@
+# groups.txt -- step 05, ZIP-221 chain history / ZIP-211 Sprout freeze /
+#
+# name <tab> kind <tab> weight <tab> crate <tab> arg
+#
+#   kind   gate    proof of life + inherited regression. Binary, earns nothing,
+#                  vetoes the whole step. Weight column MUST be 0.
+#          scored  this step's new capability + peripheral breadth. Positive
+#                  integer weight; the scored weights sum to 100.
+#   crate  a crate name -> driver group; arg is the exact number of test cases
+#          @build       -> build group;  arg is a whole cargo invocation
+#
+#   reward = gate x score
+#
+# Gate groups carry no weight on purpose. Pricing inherited work is what let a
+# no-op collect a share of the score; under this model it collects nothing.
+#
+#                        batched RedPallas.
+#
+# `workspace-checks` runs `--all-features --all-targets`, not bare
+# `--all-targets`: from v1.0.0-alpha.8 on, zebra-chain/benches/block.rs uses
+# `zebra_chain::block::tests::generate::*` while block.rs gates that module
+# behind `#[cfg(any(test, feature = "bench"))]`, so the bare form does not
+# compile the released tree. Upstream CI runs `--all-features --all-targets`.
+#
+# Two headline items of this milestone have NO driver, because neither is
+# reachable from outside its crate in this codebase revision:
+#
+#   * The ZIP-221 MMR itself -- `zebra_chain::primitives::zcash_history` is
+#     `pub mod`, and `Tree`, `Entry` and `NodeData` are `pub struct`, but
+#     every constructor and method on them (`new_from_block`, `new_from_cache`,
+#     `append_leaf`, `append_leaf_iter`, `truncate_leaf`, `hash`, `new_leaf`,
+#     `new_node`) is private, and the struct fields are private too. An
+#     integration test is a separate crate, so the module is inert from there:
+#     the only observable output of the MMR is the root it produces, which is
+#     what `chain-history-commitment` scores through `ChainHistoryMmrRootHash`.
+#     Step 06 makes the tree itself public as `HistoryTree` and scores it.
+#   * The batched RedPallas *service* -- `zebra_consensus::primitives` is
+#     `mod primitives;` (private) in zebra-consensus/src/lib.rs, so
+#     `primitives::redpallas::{VERIFIER, Verifier, Item}` cannot be named from
+#     a test. The batch math underneath it lives in zebra-chain and is public,
+#     and that is what `redpallas-batch` scores.
+#
+# Likewise `zebra_consensus::transaction::check::disabled_add_to_sprout_pool`
+# (ZIP-211) and the v5-before-NU5 rule are behind `mod transaction;`, so
+# `consensus-error-surface` scores the public error surface those rules raise
+# rather than the rules themselves. See docsrc/step05/TEST_INTERFACE.md's
+# negative-space section.
+
+build	gate	0	@build	build -p zebra-chain --tests
+workspace-checks	gate	0	@build	check --workspace --all-targets --all-features
+tx-header-and-pool-fields	scored	30	zebra-chain	9
+network-upgrade-consistency	scored	24	zebra-chain	5
+redpallas-batch	scored	22	zebra-chain	4
+chain-history-commitment	scored	16	zebra-chain	4
+inherited-block-codec	gate	0	zebra-chain	8
+inherited-sighash	gate	0	zebra-chain	7
+consensus-error-surface	scored	8	zebra-consensus	4

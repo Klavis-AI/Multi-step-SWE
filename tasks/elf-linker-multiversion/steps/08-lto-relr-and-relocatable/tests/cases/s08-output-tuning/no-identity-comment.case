@@ -1,0 +1,55 @@
+# arch: x86_64
+# By default the linker signs .comment; --no-identity-comment suppresses only
+# that, leaving the compiler's own producer string alone.
+rt_obj rt.o
+cat > m.c <<'C'
+int g = 5;
+int entry(void) { return g + 20; }
+C
+cc_obj m.o m.c
+
+link_ok signed rt.o m.o --no-gc-sections
+link_ok quiet --no-identity-comment rt.o m.o --no-gc-sections
+
+# .comment entries, one per line, with the leading "[offset]" stripped. The
+# offsets shift as soon as an entry is removed, so they must not take part in
+# the comparison. The strip suits both llvm-readelf (no indent) and GNU readelf
+# (two spaces); the "String dump of section" banner carries no ']' and so drops
+# out on its own. Captured first, matched as a herestring -- see caselib's
+# SIGPIPE note.
+comment_strings() {
+  local t; t=$($READELF -p .comment "$1" 2>/dev/null)
+  sed -n 's/^[^]]*\] *//p' <<<"$t"
+}
+
+sc=$(comment_strings signed)
+qc=$(comment_strings quiet)
+[ -n "$sc" ] || die "no .comment strings in the default output"
+[ -n "$qc" ] || die "no .comment strings in the suppressed output"
+
+want_has "compiler producer string present"  "$sc" 'clang version'
+want_has "compiler producer string retained" "$qc" 'clang version'
+
+# The linker's identity is graded by DIFFERENCE, never by name. The contract
+# says only "the linker's own string kept out of .comment", and a correct
+# candidate signs .comment with ITS OWN name -- asserting a literal product
+# string here would fail every semantically correct solution, so it is the
+# presence of some extra entry, not its text, that is required.
+extra=$(grep -vxF -- "$qc" <<<"$sc")
+[ -n "$extra" ] || die "default output carries no identity entry beyond the compiler's"
+
+# Suppression may only remove entries; it may never add or rewrite one.
+added=$(grep -vxF -- "$sc" <<<"$qc")
+[ -z "$added" ] || die "--no-identity-comment added or rewrote .comment entries: $added"
+
+qs=$(sec_size quiet .comment)
+ss=$(sec_size signed .comment)
+[ -n "$qs" ] && [ -n "$ss" ] || die "no .comment section to compare"
+qv=$(python3 -c "import sys; print(int(sys.argv[1], 16))" "$qs")
+sv=$(python3 -c "import sys; print(int(sys.argv[1], 16))" "$ss")
+[ "$qv" -lt "$sv" ] || die ".comment did not shrink: $qv vs $sv"
+run_expect quiet "" 25
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 2

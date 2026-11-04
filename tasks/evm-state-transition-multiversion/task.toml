@@ -1,0 +1,142 @@
+schema_version = "1.4"
+
+# Task reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# The only way the cumulative /app reaches the separate verifier container.
+# `.git` is excluded because the candidate's working tree is a go-ethereum
+# checkout and its history is both large and irrelevant to grading; `build/`
+# is excluded so that every verifier rebuilds `build/t8n` from source and can
+# never grade a binary the candidate produced in the agent container.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "build", "build/**"] },
+]
+
+[task]
+name = "harbor/evm-state-transition-multiversion"
+version = "1.0.0"
+description = "Carry a 2021-era go-ethereum state-transition tool forward across seven consensus upgrades, from Berlin to Osaka, keeping every earlier fork exact."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["ethereum", "evm", "state-transition", "consensus", "go", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["ethereum", "evm", "go", "multi-step", "feature-implementation"]
+
+[environment]
+# The image installs a pinned Go toolchain from go.dev, so the build is longer
+# than an apt-only image's.
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 16384
+# A go-ethereum worktree (38-86 MB), the module cache and the Go build cache.
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context.
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# Installs the same pinned Go toolchain and prewarms the module cache for this
+# step's anchor, so grading does not depend on a live proxy.
+build_timeout_sec = 2700.0
+cpus = 4
+memory_mb = 16384
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# SIZING `[steps.verifier].timeout_sec` — derived, not copied.
+#
+# Worst case reachable by steps/NN-*/tests/test.sh, term by term. The image
+# build is not in this budget; it is `[verifier.environment].build_timeout_sec`.
+#
+#   /app artifact round trip (86 MB tree at the last step)                 120 s
+#   candidate build, attempt 1, as delivered, GOPROXY=off                  900 s
+#   candidate build, attempt 2, memsize stub forced, GOPROXY=off           900 s
+#   candidate build, attempt 3, network fallback                           600 s
+#   scored groups: each gets 90 + ceil(cases/4) * 30 s, and every group
+#     runs even after an earlier one fails. Step 01 is the widest step and
+#     ships 291 cases across seven groups (75 + 52 + 6 + 6 + 6 new,
+#     123 + 23 inherited), so the term is at most
+#       (90+19*30) + (90+13*30) + 3*(90+2*30) + (90+31*30) + (90+6*30)
+#     = 660 + 480 + 450 + 1020 + 270                               = 2880 s
+#     plus the schema probe group's fixed 6*120+90                  =  810 s
+#                                                                   -------
+#                                                                     3690 s
+#   interface gate `timeout 120`                                        120 s
+#                                                                   -------
+#                                                                     6330 s
+#
+# The ceiling below is 7200.0 -- above the 6330 s reachable worst case, with
+# ~14% left for a loaded grading host. Each group carries its own clock so that
+# a candidate whose tool hangs ends with a scorecard rather than a harness kill
+# -- a harness kill is what turns "the verifier never finished" into a
+# complete-looking partial score, so the ceiling has to sit above the reachable
+# worst case rather than above the typical run (about 300 s).
+[[steps]]
+name = "01-london-and-rlp-input"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "02-transaction-and-block-tools"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "03-the-merge"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "04-shanghai"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "05-cancun"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "06-prague"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "07-osaka"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0

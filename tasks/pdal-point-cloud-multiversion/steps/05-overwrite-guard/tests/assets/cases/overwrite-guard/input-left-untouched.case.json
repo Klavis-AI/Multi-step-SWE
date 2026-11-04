@@ -1,0 +1,83 @@
+{
+  "doc": "PROFILE.md 5.2: 'pdal translate f.las f.las now refuses. Exit status 255, the diagnostic `PDAL: Input and output filenames are equal and no --overwrite option was provided!`, and the input file left byte-for-byte untouched.' -- the refusal happens before the writer opens the file, so the 10x10x10 lattice is still there afterwards. At 2.4.0 the same command exits 0 and rewrites the file in place: 34227 bytes before and after, but the coordinates are all zero. Section 4 of TEST_INTERFACE.md rules out whole-file byte equality, so the untouched-file claim is graded at the content level: after the refusal the input still reads back as its 1000-point self with X/Y/Z min, max and mean unchanged.",
+  "files": {
+    "f.las": {
+      "fixture": "grid.las"
+    }
+  },
+  "run": [
+    {
+      "argv": [
+        "translate",
+        "f.las",
+        "f.las"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "kind": "exit",
+      "run": 0,
+      "equals": 255
+    },
+    {
+      "kind": "las",
+      "file": "f.las",
+      "header": {
+        "point_count": 1000
+      },
+      "dims": {
+        "X": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "equals": 9.0
+          },
+          "mean": {
+            "approx": 4.5,
+            "tol": 1e-09
+          }
+        },
+        "Y": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "equals": 9.0
+          },
+          "mean": {
+            "approx": 4.5,
+            "tol": 1e-09
+          }
+        },
+        "Z": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "equals": 9.0
+          },
+          "mean": {
+            "approx": 4.5,
+            "tol": 1e-09
+          }
+        },
+        "Classification": {
+          "count_equal": {
+            "1": 500,
+            "2": 500
+          }
+        },
+        "Intensity": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "equals": 999.0
+          }
+        }
+      }
+    }
+  ]
+}

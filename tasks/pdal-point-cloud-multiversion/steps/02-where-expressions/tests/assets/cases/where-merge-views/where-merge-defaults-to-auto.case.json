@@ -1,0 +1,76 @@
+{
+ "doc": "stages/filter_opts.rst: 'where_merge -- A strategy for merging points skipped by a `where' option when running in standard mode.  If ``true``, the skipped points are added to the first point view returned by the skipped filter.  If ``false``, skipped points are placed in their own point view.  If ``auto``, skipped points are merged into the returned point view provided that only one point view is returned and it has the same point count as it did when the filter was run. [Default: ``auto``]' and apps/pipeline.rst: '--nostream  Run in standard mode.' -- where_merge is defined for standard mode.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "def.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[1:1]\", \"where\": \"X < 3\"}, {\"type\": \"writers.las\", \"filename\": \"def_#.las\"}]}"
+  },
+  "auto.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[1:1]\", \"where\": \"X < 3\", \"where_merge\": \"auto\"}, {\"type\": \"writers.las\", \"filename\": \"auto_#.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "--nostream",
+    "def.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "--nostream",
+    "auto.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "file_exists",
+   "file": "def_2.las"
+  },
+  {
+   "kind": "file_exists",
+   "file": "auto_2.las"
+  },
+  {
+   "kind": "file_absent",
+   "file": "def_3.las"
+  },
+  {
+   "kind": "las_compare",
+   "a": "def_1.las",
+   "b": "auto_1.las",
+   "dims": [
+    "X",
+    "Y",
+    "Z",
+    "Classification"
+   ]
+  },
+  {
+   "kind": "las_compare",
+   "a": "def_2.las",
+   "b": "auto_2.las",
+   "dims": [
+    "X",
+    "Y",
+    "Z",
+    "Classification"
+   ]
+  }
+ ]
+}

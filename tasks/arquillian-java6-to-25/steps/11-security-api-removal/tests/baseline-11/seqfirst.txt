@@ -1,0 +1,45 @@
+# Step 10 -- C-4's frozen population: every read of a collection's first element
+# in this tree's MAIN sources, one row per site, with the verdict and the
+# reason.
+#
+#     <file>#<method> conv|hold <op> recv=<type> guard=<g> expr=<e>  # why
+#
+# 7 sites convert; 9 must not. 16 of the 26 the scan found are in main
+# sources.
+#
+# TWO INDEPENDENT CONDITIONS, AND A SITE CONVERTS ONLY IF IT PASSES BOTH.
+# `getFirst()` is on SequencedCollection (JEP 431), which List and Deque
+# extend and Set, Collection and a bare Iterable do not -- so a LinkedHashSet
+# held in a `Set` variable has a first element at run time and no
+# `getFirst()` at compile time. And the throw must not change:
+# `iterator().next()` and `getFirst()` both throw NoSuchElementException,
+# but `get(0)` throws IndexOutOfBoundsException, so a get0 site converts only
+# where an enclosing condition tests the SAME receiver expression.
+#
+# THE CONV HALF IS SCORED ON A PRESENCE. The method must have LOST its
+# seqfirst record AND GAINED a `seqnew` one whose op is `getFirst`
+# SPECIFICALLY. `getLast()` and `reversed()` are recorded by the same gate
+# and are filtered out of the arrival half: every site here reads the FIRST
+# element, `getLast()` reads a different one, and `reversed()` is not a read
+# at all. `seqnew` reads 0 across this whole tree on the way in, which is what
+# makes that a clean measurement rather than a threshold. Without it, deleting
+# the call would read exactly like rewriting it.
+#
+# Derived by mk-baseline-step10.sh from the seqfirst records of
+# baseline-step10-source.txt, via mk-census-step10.py.
+impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java#onlyOne hold iternext recv=java.util.Set guard=none expr=serviceImpls  # declared type java.util.Set is not sequenced
+impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java#onlyOne hold iternext recv=java.util.Set guard=size expr=serviceImpls  # declared type java.util.Set is not sequenced
+impl-base/src/main/java/org/jboss/arquillian/impl/EventTestRunnerAdaptor.java#test hold get0 recv=java.util.List guard=none expr=result  # unguarded get(0): IOOBE would become NSEE
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ContainerRegistry.java#findDefaultContainer conv get0 recv=java.util.List guard=size expr=containers  # guarded on the same receiver (size), so never empty
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ProtocolRegistry.java#findDefaultProtocol conv get0 recv=java.util.List guard=size expr=protocols  # guarded on the same receiver (size), so never empty
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/URLResourceProvider.java#lookup conv get0 recv=java.util.List guard=pred expr=context.getServlets()  # guarded on the same receiver (pred), so never empty
+junit/src/main/java/org/jboss/arquillian/junit/Arquillian.java#multiExecute conv get0 recv=java.util.List guard=size expr=exceptions  # guarded on the same receiver (size), so never empty
+junit/src/main/java/org/jboss/arquillian/junit/JUnitTestRunner.java#convertToTestResult hold get0 recv=java.util.List guard=none expr=result.getFailures()  # unguarded get(0): IOOBE would become NSEE
+protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXMethodExecutor.java#findOrCreateMBeanServer conv get0 recv=java.util.ArrayList guard=size expr=serverArr  # guarded on the same receiver (size), so never empty
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/v_2_5/ServletProtocolDeploymentPackager.java#handleArchive hold iternext recv=java.util.Collection guard=none expr=applicationArchiveWars.values()  # declared type java.util.Collection is not sequenced
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/v_3/ServletProtocolDeploymentPackager.java#handleArchive hold iternext recv=java.util.Collection guard=none expr=applicationArchiveWars.values()  # declared type java.util.Collection is not sequenced
+spi/src/main/java/org/jboss/arquillian/spi/client/deployment/DeploymentScenario.java#findDefaultDeployment conv get0 recv=java.util.List guard=size expr=deployments  # guarded on the same receiver (size), so never empty
+spi/src/main/java/org/jboss/arquillian/spi/util/TestRunners.java#getTestRunner hold iternext recv=org.jboss.arquillian.spi.util.ServiceLoader guard=none expr=serviceLoader  # declared type org.jboss.arquillian.spi.util.ServiceLoader is not sequenced
+testenrichers/osgi/src/main/java/org/jboss/arquillian/testenricher/osgi/OSGiTestEnricher.java#findOrCreateMBeanServer conv get0 recv=java.util.ArrayList guard=size expr=serverArr  # guarded on the same receiver (size), so never empty
+testng/src/main/java/org/jboss/arquillian/testng/TestListener.java#getTestResult hold iternext recv=java.util.Set guard=none expr=context.getFailedTests().getAllResults()  # declared type java.util.Set is not sequenced
+testng/src/main/java/org/jboss/arquillian/testng/TestListener.java#getTestResult hold iternext recv=java.util.Set guard=none expr=context.getPassedTests().getAllResults()  # declared type java.util.Set is not sequenced

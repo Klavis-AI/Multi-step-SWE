@@ -1,0 +1,91 @@
+{
+ "builds": {
+  "basic": "\ngit init -q -b main . &&\nprintf 'alpha\\n' > a.txt && mkdir -p dir/sub && printf 'beta\\n' > dir/sub/b.txt &&\nprintf 'run\\n' > run.sh && chmod +x run.sh && ln -s a.txt link.txt &&\nprintf '*.log\\nbuild/\\n' > .gitignore &&\ngit add -A && git commit -q -m 'initial import' &&\nprintf 'alpha2\\n' >> a.txt && git add a.txt &&\nGIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m 'second commit' &&\ngit tag -a v1.0 -m 'release 1.0' && git tag light-tag HEAD~1 &&\ngit branch topic HEAD~1 &&\ngit checkout -q topic &&\nprintf 'topic\\n' > t.txt && git add t.txt &&\nGIT_AUTHOR_DATE='@1112912100 +0000' GIT_COMMITTER_DATE='@1112912100 +0000' git commit -q -m 'topic work' &&\ngit checkout -q main &&\nGIT_AUTHOR_DATE='@1112912200 +0000' GIT_COMMITTER_DATE='@1112912200 +0000' git merge -q --no-ff -m 'merge topic' topic\n",
+  "deep": "\ngit init -q -b main . &&\nmkdir -p a/b/c/d/e &&\nprintf '1\\n' > a/b/c/d/e/deep.txt &&\nprintf '2\\n' > 'a/b/name with space.txt' &&\nprintf '3\\n' > 'a/quote\"name' &&\nprintf '4\\n' > 'a/utf8-\\303\\244\\303\\266.txt' &&\ngit add -A && git commit -q -m 'deep tree'\n",
+  "detached": "\ngit init -q -b main . &&\nprintf '1\\n' > f && git add f && git commit -q -m one &&\nprintf '2\\n' > f && git add f &&\nGIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m two &&\ngit checkout -q --detach HEAD~1\n",
+  "empty": "\ngit init -q -b main .\n",
+  "packed": "\ngit init -q -b main . &&\nprintf 'x\\n' > f && git add f && git commit -q -m one &&\nprintf 'y\\n' >> f && git add f &&\nGIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m two &&\ngit branch b1 && git branch b2 && git tag -a t1 -m tag && git tag t2 &&\ngit pack-refs --all\n",
+  "unborn-branch": "\ngit init -q -b main . &&\nprintf 'staged\\n' > s && git add s\n"
+ },
+ "corruptions": {
+  "corrupt-hash": "obj_mutate",
+  "corrupt-truncate": "obj_truncate",
+  "dangling": "dangle",
+  "missing-blob": "obj_delete"
+ },
+ "damaged": [],
+ "probes": [
+  "git rev-parse --show-object-format",
+  {
+   "clean_only": true,
+   "cmd": "git rev-parse HEAD 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git log --format='%H %T %P %an %ad %s' 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git log --oneline 2>&1 | head -20; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git ls-tree -r HEAD 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git ls-tree -r -t HEAD 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git cat-file -p HEAD 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git cat-file --batch-all-objects --batch-check 2>/dev/null | sort"
+  },
+  "git ls-files -s",
+  {
+   "clean_only": true,
+   "cmd": "git status --porcelain=v1 2>&1; echo exit=$?"
+  },
+  "git show-ref 2>&1; echo exit=$?",
+  {
+   "clean_only": true,
+   "cmd": "git for-each-ref --format='%(refname) %(objecttype) %(objectname)' 2>&1"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git rev-list --all --count 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git rev-list --objects --all 2>/dev/null | sort"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git fsck 2>&1 | sed 's/[0-9a-f]\\{40\\}/OID/g' | sort; echo exit=${PIPESTATUS[0]}"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git count-objects"
+  },
+  "git symbolic-ref -q HEAD; echo exit=$?",
+  "git branch 2>&1",
+  "git tag 2>&1",
+  {
+   "clean_only": true,
+   "cmd": "git merge-base --all HEAD HEAD 2>&1; echo exit=$?"
+  },
+  {
+   "clean_only": true,
+   "cmd": "git diff --stat HEAD 2>&1 | head -10; echo exit=$?"
+  },
+  {
+   "cmd": "git fsck >/dev/null 2>&1 && echo 'fsck clean' || echo 'fsck reports a problem'"
+  },
+  {
+   "cmd": "if git rev-parse -q --verify HEAD >/dev/null 2>&1; then git cat-file -e \"$(git rev-parse HEAD)\" 2>/dev/null; echo head-object-readable=$?; else echo 'no HEAD'; fi"
+  }
+ ]
+}

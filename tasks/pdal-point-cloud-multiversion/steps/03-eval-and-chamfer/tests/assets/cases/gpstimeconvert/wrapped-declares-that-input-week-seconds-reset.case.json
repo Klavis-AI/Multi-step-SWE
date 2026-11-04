@@ -1,0 +1,86 @@
+{
+ "doc": "stages/filters.gpstimeconvert.rst: '_`wrapped`  Specifies whether input GPS week seconds are wrapped (true) or unwrapped (false). [Default: false]' and 'Wrapped week seconds reset to 0 at the start of a new week; unwrapped week seconds are allowed to exceed 604800 (60x60x24x7) seconds.'",
+ "files": {
+  "in.txt": {
+   "text": "X,Y,Z,GpsTime\n0,0,0,604700\n1,0,0,604750\n2,0,0,0\n3,0,0,50\n"
+  },
+  "wrapped.json": {
+   "text": "{\n \"pipeline\": [\n  {\n   \"type\": \"readers.text\",\n   \"filename\": \"in.txt\"\n  },\n  {\n   \"type\": \"filters.gpstimeconvert\",\n   \"conversion\": \"gws2gt\",\n   \"start_date\": \"1980-01-06\",\n   \"wrapped\": true\n  },\n  \"wrapped.las\"\n ]\n}"
+  },
+  "unwrapped.json": {
+   "text": "{\n \"pipeline\": [\n  {\n   \"type\": \"readers.text\",\n   \"filename\": \"in.txt\"\n  },\n  {\n   \"type\": \"filters.gpstimeconvert\",\n   \"conversion\": \"gws2gt\",\n   \"start_date\": \"1980-01-06\",\n   \"wrapped\": false\n  },\n  \"unwrapped.las\"\n ]\n}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "wrapped.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "unwrapped.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "wrapped.las",
+   "header": {
+    "point_count": 4
+   },
+   "dims": {
+    "GpsTime": {
+     "min": {
+      "approx": 604700.0,
+      "tol": 0.001
+     },
+     "max": {
+      "approx": 604850.0,
+      "tol": 0.001
+     },
+     "sum": {
+      "approx": 2419100.0,
+      "tol": 0.01
+     }
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "unwrapped.las",
+   "header": {
+    "point_count": 4
+   },
+   "dims": {
+    "GpsTime": {
+     "min": {
+      "approx": 0.0,
+      "tol": 0.001
+     },
+     "max": {
+      "approx": 604750.0,
+      "tol": 0.001
+     },
+     "sum": {
+      "approx": 1209500.0,
+      "tol": 0.01
+     }
+    }
+   }
+  }
+ ]
+}

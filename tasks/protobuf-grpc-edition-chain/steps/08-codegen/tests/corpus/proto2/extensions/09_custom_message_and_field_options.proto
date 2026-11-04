@@ -1,0 +1,36 @@
+// DESC: Custom MessageOptions and FieldOptions extensions with aggregate values
+syntax = "proto2";
+package c2.extensions.custom_message_and_field_options;
+
+import "google/protobuf/descriptor.proto";
+
+message Rule {
+  optional bool required_rule = 1;
+  optional int32 min = 2;
+  optional int32 max = 3;
+  repeated string tags = 4;
+  optional Rule sub = 5;
+}
+
+extend google.protobuf.MessageOptions {
+  optional string msg_doc = 50201;
+  optional Rule msg_rule = 50202;
+  repeated int32 msg_codes = 50203;
+}
+
+extend google.protobuf.FieldOptions {
+  optional string field_doc = 50211;
+  optional Rule field_rule = 50212;
+  optional bool field_flag = 50213;
+}
+
+message Annotated {
+  option (msg_doc) = "a documented message";
+  option (msg_rule) = { required_rule: true min: 1 max: 10 tags: "x" sub { min: 2 } };
+  option (msg_codes) = 1;
+  option (msg_codes) = 2;
+
+  optional int32 a = 1 [(field_doc) = "field a", (field_flag) = true];
+  optional string b = 2 [(field_rule) = { min: 0 max: 255 tags: ["t1", "t2"] }];
+  repeated int32 c = 3 [packed = true, (field_doc) = "packed and annotated"];
+}

@@ -1,0 +1,27 @@
+# arch: x86_64
+# PROVIDE_HIDDEN supplies the same value but binds the symbol locally, so it is
+# not exported from a shared object.
+rt_obj rt.o
+cat > m.c <<'C'
+extern char provided_sym[];
+int entry(void) { return (int)((unsigned long)provided_sym & 0xff); }
+C
+cc_obj m.o m.c
+cat > h.ld <<'L'
+PROVIDE_HIDDEN(provided_sym = 0x2a);
+L
+cat > g.ld <<'L'
+PROVIDE(provided_sym = 0x2a);
+L
+
+link_ok hid -T h.ld rt.o m.o --no-gc-sections
+want_has "hidden provide is local" "$(symbols hid)" 'LOCAL +DEFAULT +ABS provided_sym'
+want "hidden provide value" "$(sym_value hid provided_sym)" "000000000000002a"
+run_expect hid "" 42
+
+link_ok vis -T g.ld rt.o m.o --no-gc-sections
+want_has "plain provide stays global" "$(symbols vis)" 'GLOBAL +DEFAULT +ABS provided_sym'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 3

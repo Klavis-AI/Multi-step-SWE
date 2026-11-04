@@ -1,0 +1,17 @@
+CREATE TABLE x07_16a(id int PRIMARY KEY, v int);
+CREATE TABLE x07_16b(id int PRIMARY KEY, v int);
+INSERT INTO x07_16a VALUES (1,10);
+INSERT INTO x07_16b VALUES (1,100);
+CREATE VIEW x07_16v AS SELECT * FROM x07_16a;
+MERGE INTO x07_16v t USING x07_16b s ON t.id = s.id WHEN MATCHED THEN DELETE;
+MERGE INTO x07_16a t USING x07_16b s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET nosuchcol = 1;
+ERROR:  column "nosuchcol" of relation "x07_16a" does not exist
+LINE 2:   WHEN MATCHED THEN UPDATE SET nosuchcol = 1;
+                                       ^
+MERGE INTO x07_16nosuch t USING x07_16b s ON t.id = s.id WHEN MATCHED THEN DELETE;
+ERROR:  relation "x07_16nosuch" does not exist
+LINE 1: MERGE INTO x07_16nosuch t USING x07_16b s ON t.id = s.id WHE...
+                   ^
+DROP VIEW x07_16v;
+DROP TABLE x07_16a, x07_16b;

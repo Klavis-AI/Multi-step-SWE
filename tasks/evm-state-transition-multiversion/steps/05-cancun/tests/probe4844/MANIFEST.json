@@ -1,0 +1,277 @@
+{
+  "driver": "tests/blobgas_probe.sh",
+  "file_count": 39,
+  "name": "probe4844",
+  "non_scenario_checks": {
+    "blob-tx-must-not-be-a-create": {
+      "fork": "Cancun",
+      "inputs": [
+        "env-one-blob.json",
+        "bad-create-txs.json"
+      ],
+      "rule": "eip-4844.md: the field `to` MUST NOT be `nil`. Either refusal layer counts; only acceptance fails"
+    },
+    "interface-control-clean-input-runs": {
+      "fork": "Cancun",
+      "inputs": [
+        "env-one-blob.json",
+        "txs-one-blob.json"
+      ],
+      "rule": "positive control for the four refusal checks below: a tool that refuses every Cancun input must not collect them for free"
+    },
+    "malformed-env-is-a-nonzero-exit": {
+      "fork": "Cancun",
+      "inputs": [
+        "bad-env-unparseable.json",
+        "txs-one-blob.json"
+      ],
+      "rule": "TEST_INTERFACE.md exit-status rule"
+    },
+    "malformed-txs-is-a-nonzero-exit": {
+      "fork": "Cancun",
+      "inputs": [
+        "env-one-blob.json",
+        "bad-txs-unparseable.rlp"
+      ],
+      "rule": "TEST_INTERFACE.md exit-status rule"
+    },
+    "schema-blob-fields-absent-at-shanghai": {
+      "fork": "Shanghai",
+      "inputs": [
+        "env-shanghai-schema.json",
+        "txs-shanghai-schema.json"
+      ],
+      "rule": "blobGasUsed and currentExcessBlobGas are a Cancun header extension and must not appear at an earlier fork"
+    },
+    "unknown-fork-is-a-nonzero-exit": {
+      "fork": "NoSuchFork",
+      "inputs": [
+        "env-one-blob.json",
+        "txs-one-blob.json"
+      ],
+      "rule": "TEST_INTERFACE.md exit-status rule"
+    }
+  },
+  "provenance": "synthetic (step 05); see scratch/05-cancun/mkprobe4844.py for the generator",
+  "scenario_count": 16,
+  "scenarios": {
+    "blob-gas-cap": {
+      "asserts": [
+        "result.blobGasUsed",
+        "result.gasUsed",
+        "rejected"
+      ],
+      "derivation": "eip-4844.md: `assert blob_gas_used <= MAX_BLOB_GAS_PER_BLOCK`, MAX_BLOB_GAS_PER_BLOCK = 786432. Two transactions of four blobs each would spend 8 * GAS_PER_BLOB(131072) = 1048576. The first fits (4 * 131072 = 524288 = 0x80000, 21000 gas), the second takes the running total past the cap and is excluded.",
+      "env": "env-blob-gas-cap.json",
+      "fork": "Cancun",
+      "txs": "txs-blob-gas-cap.json"
+    },
+    "blob-hash-version": {
+      "asserts": [
+        "result.blobGasUsed",
+        "rejected"
+      ],
+      "derivation": "eip-4844.md: `assert h[0] == VERSIONED_HASH_VERSION_KZG` for every blob_versioned_hash. The only hash here starts 0x02, so the transaction is invalid and spends no blob gas.",
+      "env": "env-blob-hash-version.json",
+      "fork": "Cancun",
+      "txs": "txs-blob-hash-version.json"
+    },
+    "blob-no-hashes": {
+      "asserts": [
+        "result.blobGasUsed",
+        "rejected"
+      ],
+      "derivation": "eip-4844.md: `assert len(tx.blob_versioned_hashes) > 0`. A type-3 transaction with an empty list is invalid and spends no blob gas.",
+      "env": "env-blob-no-hashes.json",
+      "fork": "Cancun",
+      "txs": "txs-blob-no-hashes.json"
+    },
+    "blobhash": {
+      "asserts": [
+        "result.blobGasUsed",
+        "rejected",
+        "storage"
+      ],
+      "derivation": "BLOBHASH replaces index with tx.blob_versioned_hashes[index] if index < len(...), and otherwise with a zeroed bytes32",
+      "env": "env-blobhash.json",
+      "fork": "Cancun",
+      "txs": "txs-blobhash.json"
+    },
+    "excess-above-target": {
+      "asserts": [
+        "result.blobGasUsed",
+        "result.currentExcessBlobGas",
+        "rejected"
+      ],
+      "derivation": "calc_excess_blob_gas: 786432 + 131072 - TARGET(393216) = 524288",
+      "env": "env-excess-above-target.json",
+      "fork": "Cancun",
+      "txs": "txs-excess-above-target.json"
+    },
+    "excess-below-target": {
+      "asserts": [
+        "result.blobGasUsed",
+        "result.currentExcessBlobGas",
+        "rejected"
+      ],
+      "derivation": "calc_excess_blob_gas: 65536 + 131072 < TARGET(393216), so 0 -- the running total is bounded at zero, it does not go negative",
+      "env": "env-excess-below-target.json",
+      "fork": "Cancun",
+      "txs": "txs-excess-below-target.json"
+    },
+    "maxfee-exactly-equal": {
+      "asserts": [
+        "result.blobGasUsed",
+        "result.gasUsed",
+        "rejected"
+      ],
+      "derivation": "max_fee_per_blob_gas == base_fee_per_blob_gas is >=, so valid",
+      "env": "env-maxfee-exactly-equal.json",
+      "fork": "Cancun",
+      "txs": "txs-maxfee-exactly-equal.json"
+    },
+    "maxfee-one-below": {
+      "asserts": [
+        "result.blobGasUsed",
+        "rejected"
+      ],
+      "derivation": "max_fee_per_blob_gas=18 < base_fee_per_blob_gas=19, so the transaction is invalid and spends no blob gas",
+      "env": "env-maxfee-one-below.json",
+      "fork": "Cancun",
+      "txs": "txs-maxfee-one-below.json"
+    },
+    "no-blob-tx": {
+      "asserts": [
+        "result.blobGasUsed",
+        "result.currentExcessBlobGas",
+        "rejected"
+      ],
+      "derivation": "no blob tx in the block, so blob_gas_used = 0",
+      "env": "env-no-blob-tx.json",
+      "fork": "Cancun",
+      "txs": "txs-no-blob-tx.json"
+    },
+    "one-blob": {
+      "asserts": [
+        "result.blobGasUsed",
+        "result.currentExcessBlobGas",
+        "result.gasUsed",
+        "rejected",
+        "balances"
+      ],
+      "derivation": "blobGasUsed = GAS_PER_BLOB(131072) * 1 = 131072; blob fee burned = 131072 * base_fee_per_blob_gas(excess=10000000)=19",
+      "env": "env-one-blob.json",
+      "fork": "Cancun",
+      "txs": "txs-one-blob.json"
+    },
+    "pe-noncanonical-z": {
+      "asserts": [
+        "rejected",
+        "storage"
+      ],
+      "derivation": "z == BLS_MODULUS is not a canonical field element (must be strictly less)",
+      "env": "env-pe-noncanonical-z.json",
+      "fork": "Cancun",
+      "txs": "txs-pe-noncanonical-z.json"
+    },
+    "pe-short-input": {
+      "asserts": [
+        "rejected",
+        "storage"
+      ],
+      "derivation": "len(input) == 191, and the precompile asserts len(input) == 192",
+      "env": "env-pe-short-input.json",
+      "fork": "Cancun",
+      "txs": "txs-pe-short-input.json"
+    },
+    "pe-valid": {
+      "asserts": [
+        "rejected",
+        "storage"
+      ],
+      "derivation": "a valid opening returns FIELD_ELEMENTS_PER_BLOB(4096) and BLS_MODULUS as padded 32-byte big-endian values",
+      "env": "env-pe-valid.json",
+      "fork": "Cancun",
+      "txs": "txs-pe-valid.json"
+    },
+    "pe-wrong-versioned-hash": {
+      "asserts": [
+        "rejected",
+        "storage"
+      ],
+      "derivation": "kzg_to_versioned_hash(commitment) != versioned_hash (version byte 0x02)",
+      "env": "env-pe-wrong-versioned-hash.json",
+      "fork": "Cancun",
+      "txs": "txs-pe-wrong-versioned-hash.json"
+    },
+    "pe-wrong-y": {
+      "asserts": [
+        "rejected",
+        "storage"
+      ],
+      "derivation": "verify_kzg_proof fails: p(2) = 0 for the zero polynomial, not 1",
+      "env": "env-pe-wrong-y.json",
+      "fork": "Cancun",
+      "txs": "txs-pe-wrong-y.json"
+    },
+    "two-blobs": {
+      "asserts": [
+        "result.blobGasUsed",
+        "result.currentExcessBlobGas",
+        "result.gasUsed",
+        "rejected",
+        "balances"
+      ],
+      "derivation": "blobGasUsed = GAS_PER_BLOB * 2 = 262144",
+      "env": "env-two-blobs.json",
+      "fork": "Cancun",
+      "txs": "txs-two-blobs.json"
+    }
+  },
+  "sha256": {
+    "alloc.json": "7755d26cd9b5c3cae876c7444a35bccc92faf7328b45d15dfbe2f8a3592305d2",
+    "bad-create-txs.json": "594c262a2bc27fefd951124206226a0e401e4ba950517922e7a62c8c66556121",
+    "bad-env-unparseable.json": "50e704f9c5908af4b2724e0a7de3727f4e77d78baf60e4563452cbd44b0e17c4",
+    "bad-txs-unparseable.rlp": "df8f18f95c31b2ec29073bab3abb8cd242e9c500e9fe78b35a4548245f756153",
+    "env-blob-gas-cap.json": "36ad4019b7afa6170ab959443039532f551b02d35f7538de70a49856e1fda485",
+    "env-blob-hash-version.json": "36ad4019b7afa6170ab959443039532f551b02d35f7538de70a49856e1fda485",
+    "env-blob-no-hashes.json": "36ad4019b7afa6170ab959443039532f551b02d35f7538de70a49856e1fda485",
+    "env-blobhash.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-excess-above-target.json": "55b5c609001bd285a2394cea2c75b9990135ff77dd43ed06002086e4a0ab87fe",
+    "env-excess-below-target.json": "4cf6c024fb2a52648276aaee40598cd9f6b2c494c0316ba572fa76c056fa37d4",
+    "env-maxfee-exactly-equal.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-maxfee-one-below.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-no-blob-tx.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-one-blob.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-pe-noncanonical-z.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-pe-short-input.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-pe-valid.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-pe-wrong-versioned-hash.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-pe-wrong-y.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "env-shanghai-schema.json": "2f006579ff9d8b58d18d6892023f7a28639f5229caf46856cd9b09350ec20cb2",
+    "env-two-blobs.json": "91614d3db2cce4eae982af82472815c6fb8f09ef7c335c2d83e4f523d759a15c",
+    "expect.json": "bd72fbfdcfa00d6810ab98e7878aa371e539b8145cefbc67759982dbf793af83",
+    "txs-blob-gas-cap.json": "71c778f32f244ddf0cdd21700057c00a7bbd409caf3bae62fde9ca5be5517ede",
+    "txs-blob-hash-version.json": "2e406562ff83077cc649533c6f5ff2478861ca5e80700c2816d8c55d09feea09",
+    "txs-blob-no-hashes.json": "ae647454834c0eb905ca420bb98db286473ae182e9a25e5637638d6cbf38f8ee",
+    "txs-blobhash.json": "eaf4adf6b5b3cf5fa327e2f5d8975b9284ada1f04e94c39fca18691a5a12802f",
+    "txs-excess-above-target.json": "c724db33972e8cbc8f7677d35dc2ea4b5d73df95f9c5c8ee8f66d5bc0eb92e59",
+    "txs-excess-below-target.json": "c724db33972e8cbc8f7677d35dc2ea4b5d73df95f9c5c8ee8f66d5bc0eb92e59",
+    "txs-maxfee-exactly-equal.json": "379807f578aa4e48a0d62e43eb2c231465362a2321d53705082e170f2bb5ecb4",
+    "txs-maxfee-one-below.json": "397ab69cfe477831ce31a0b2543311589c8a88322175342d9fc2e9ef2d54cb6f",
+    "txs-no-blob-tx.json": "c724db33972e8cbc8f7677d35dc2ea4b5d73df95f9c5c8ee8f66d5bc0eb92e59",
+    "txs-one-blob.json": "379807f578aa4e48a0d62e43eb2c231465362a2321d53705082e170f2bb5ecb4",
+    "txs-pe-noncanonical-z.json": "83df74f659970e7ac3d3a436e37464676372bad92e33bf6bd17c9976ae4927ae",
+    "txs-pe-short-input.json": "e4d388832b1c3d2667b7a27f42c742016918a8772c1a21d7e94e00487d9c2c1f",
+    "txs-pe-valid.json": "e190190546864fa4814613c99430c0e06e87f7aaf6142d19fdb2a471e6918ce1",
+    "txs-pe-wrong-versioned-hash.json": "c76be5f514e3ad1d26a2e831b435b12b4cb33ab6acdd781461f86f5592685534",
+    "txs-pe-wrong-y.json": "d06c3c8efa324463523b06560bebb610a7545d1d9d58cadb547f50bf599ed393",
+    "txs-shanghai-schema.json": "c724db33972e8cbc8f7677d35dc2ea4b5d73df95f9c5c8ee8f66d5bc0eb92e59",
+    "txs-two-blobs.json": "c28cb121e76427a05842b4393a7c7a4366e56eea2ab43b06c5c9048137bb925b"
+  },
+  "shared_inputs": {
+    "alloc.json": "the pre-state every scenario is run against",
+    "expect.json": "constants, addresses and the per-scenario expectations"
+  },
+  "what": "hand-authored inputs for the `eip4844-blobgas-and-precompile` scored group. Unlike the corpora under tests/corpora/, nothing here is derived from an upstream fixture release: every expected value is computed from workdir/docs/fork/cancun/eip-4844.md and recorded in the `derivation` string of the scenario that uses it."
+}

@@ -1,0 +1,65 @@
+{
+ "doc": "stages/expression.rst, the grammar filters.expression is built on: 'There is no automatic conversion of numeric values to logical values. For example, the following is not permitted: ((Intensity > 0) && Classification). Instead, you must write: ((Intensity > 0) && (Classification != 0)).' -- the page names a form the grammar forbids and the form that replaces it, so both are run here. Run 0 is the forbidden one: the stage must refuse it, the run must fail, and no out.las may be written. Run 1 is the page's own replacement and must succeed; in grid.las every point has a non-zero Classification (1 or 2) and Intensity runs 0..999, so it keeps the 999 points with Intensity >= 1, summing to 499500. The wording of the refusal is NOT asserted -- PROFILE.md 5.3 puts the wording of every rejection diagnostic at this step out of scope -- so what is graded is the exit status and the absence of the output file. The contrasting run is what separates 'the stage is absent' (both runs fail, which is what a 2.4.0 tree does) from 'the stage is present and rejects what the grammar forbids' (only run 0 fails).",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "bad.json": {
+   "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.expression\",\"expression\":\"((Intensity > 0) && Classification)\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"
+  },
+  "ok.json": {
+   "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.expression\",\"expression\":\"((Intensity > 0) && (Classification != 0))\"},{\"type\":\"writers.las\",\"filename\":\"ok.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "ok.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "not_equals": 0
+  },
+  {
+   "kind": "file_absent",
+   "file": "out.las"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "ok.las",
+   "header": {
+    "point_count": 999
+   },
+   "dims": {
+    "Intensity": {
+     "min": {
+      "equals": 1
+     },
+     "max": {
+      "equals": 999
+     },
+     "sum": {
+      "approx": 499500,
+      "tol": 1e-06
+     }
+    }
+   }
+  }
+ ]
+}

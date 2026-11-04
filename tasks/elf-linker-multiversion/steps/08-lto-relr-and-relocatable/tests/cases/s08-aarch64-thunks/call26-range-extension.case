@@ -1,0 +1,64 @@
+# arch: aarch64
+# R_AARCH64_CALL26 reaches +/-128 MiB. When the callee ends up further away
+# than that the linker must synthesise a range-extension thunk and retarget the
+# branch at it, rather than reporting an overflow. The distance here comes from
+# section content, which is the form the reference implements: 0x9000000 bytes
+# of padding between the caller and the callee.
+#
+# This case is deliberately the most expensive in the corpus -- it assembles and
+# links about 151 MB, roughly a second of each -- because +/-128 MiB is an
+# architectural constant and a smaller fixture cannot reach past it.
+rt_obj rt.o
+cat > near.s <<'S'
+        .text
+        .globl entry
+        .type entry,@function
+entry:
+        str     x30, [sp, #-16]!
+        bl      far_target
+        ldr     x30, [sp], #16
+        ret
+        .size entry, .-entry
+        .section .note.GNU-stack,"",@progbits
+S
+cat > far.s <<'S'
+        .text
+        .space  0x9000000
+        .globl far_target
+        .type far_target,@function
+far_target:
+        mov     w0, #7
+        ret
+        .size far_target, .-far_target
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj near.o near.s
+as_obj far.o far.s
+
+link_ok out rt.o near.o far.o --no-gc-sections
+
+ea=$(sym_value out entry)
+fa=$(sym_value out far_target)
+[ -n "$ea" ] && [ -n "$fa" ] || die "entry or far_target missing from the output"
+gap=$(( 16#$fa - 16#$ea ))
+[ "$gap" -gt 134217728 ] || die "the callee is only $gap bytes away; the fixture no longer exceeds CALL26 range"
+
+# Disassembling the whole 151 MB output would be absurd, so ask for one symbol.
+d=$($OBJDUMP -d --disassemble-symbols=entry out 2>/dev/null)
+want_has "the caller still ends in a bl" "$d" '[[:space:]]bl[[:space:]]'
+# mawk has no \b, so the branch line is selected with an explicit class.
+tgt=$(awk '/[ \t]bl[ \t]/ { for (i = 1; i <= NF; i++) if ($i ~ /^0x[0-9a-f]+$/) { print $i; exit } }' <<<"$d")
+[ -n "$tgt" ] || die "cannot read the branch target out of: $(printf '%s' "$d" | tr '\n' ' ' | head -c 200)"
+tv=$(( 16#${tgt#0x} ))
+[ "$tv" -ne "$((16#$fa))" ] \
+  || die "the bl still points straight at far_target, so no thunk was interposed"
+disp=$(( tv - 16#$ea ))
+[ "$disp" -lt 134217728 ] && [ "$disp" -gt -134217728 ] \
+  || die "the branch was retargeted to $tgt, which is still out of CALL26 range"
+
+# The thunk is only correct if it actually arrives.
+run_expect out "" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 1

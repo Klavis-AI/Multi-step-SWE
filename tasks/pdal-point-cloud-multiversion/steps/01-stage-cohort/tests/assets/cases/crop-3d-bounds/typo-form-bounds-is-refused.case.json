@@ -1,0 +1,61 @@
+{
+ "doc": "instruction.md 2, on stages/filters.crop.rst: 'One upstream typo to know about: its 3-D note reads `([xmin, xmax, zmax], [ymin, ymax, zmax])`, which the parser does not accept. The form it accepts, and the one every graded case uses, is the one in `PROFILE.md` 1.2: `([xmin,xmax],[ymin,ymax],[zmin,zmax])`'. Each group of a bounds string holds exactly a minimum and a maximum, so the page's two-groups-of-three form is a refusal -- non-zero exit, no output file -- not a silent fallback to some other reading of the numbers. Run 1 is the positive control: the documented form must be accepted AND must constrain Z -- `PROFILE.md` 1.2 says the three-dimensional form now constrains Z, and grid.las is a 10x10x10 integer lattice, so ([0,3],[0,3],[0,3]) keeps 4x4x4 = 64 points with Z in 0..3. A tree that refuses every bounds string, or that accepts the documented form while ignoring its Z range (the 2.0.1 behaviour), fails the control.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "out.las",
+    "crop",
+    "--filters.crop.bounds=([0,3,3],[0,3,3])"
+   ]
+  },
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "control.las",
+    "crop",
+    "--filters.crop.bounds=([0,3],[0,3],[0,3])"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "file_absent",
+   "file": "out.las"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "control.las",
+   "header": {
+    "point_count": 64
+   },
+   "dims": {
+    "Z": {
+     "unique": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  }
+ ]
+}

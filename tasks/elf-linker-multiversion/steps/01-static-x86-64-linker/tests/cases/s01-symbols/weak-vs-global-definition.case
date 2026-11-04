@@ -1,0 +1,32 @@
+# arch: x86_64
+# A STB_WEAK definition loses to a STB_GLOBAL definition of the same name
+# whichever order the objects are given in, and is used when it is the only
+# definition.
+rt_obj rt.o
+cat > w.c <<'C'
+#include "rt.h"
+__attribute__((weak)) int pick(void) { print("weak"); return 1; }
+C
+cat > s.c <<'C'
+#include "rt.h"
+int pick(void) { print("strong"); return 2; }
+C
+cat > m.c <<'C'
+int pick(void);
+int entry(void) { return pick(); }
+C
+cc_obj w.o w.c; cc_obj s.o s.c; cc_obj m.o m.c
+want_has  "weak definition really is STB_WEAK" "$(symbols w.o)" "FUNC +WEAK +DEFAULT .* pick"
+want_has  "strong definition really is STB_GLOBAL" "$(symbols s.o)" "FUNC +GLOBAL +DEFAULT .* pick"
+link_ok o1 rt.o w.o s.o m.o
+run_expect o1 "strong" 2
+link_ok o2 rt.o s.o w.o m.o
+run_expect o2 "strong" 2
+link_ok o3 rt.o w.o m.o
+run_expect o3 "weak" 1
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

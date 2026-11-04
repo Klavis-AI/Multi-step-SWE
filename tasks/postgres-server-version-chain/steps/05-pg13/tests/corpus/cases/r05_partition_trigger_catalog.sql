@@ -1,0 +1,11 @@
+CREATE TABLE x05_68a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x05_68a1 PARTITION OF x05_68a FOR VALUES FROM (0) TO (10);
+CREATE FUNCTION x05_68f() RETURNS trigger LANGUAGE plpgsql AS
+  $$ BEGIN RETURN NEW; END $$;
+CREATE TRIGGER x05_68t BEFORE UPDATE ON x05_68a FOR EACH ROW EXECUTE FUNCTION x05_68f();
+SELECT cl.relname, t.tgname, t.tgtype FROM pg_trigger t
+  JOIN pg_class cl ON cl.oid = t.tgrelid
+  WHERE NOT t.tgisinternal AND cl.relname LIKE 'x05\_68a%' ORDER BY cl.relname;
+SELECT count(*) FROM pg_trigger WHERE tgname='x05_68t';
+DROP TABLE x05_68a;
+DROP FUNCTION x05_68f();

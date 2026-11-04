@@ -1,0 +1,24 @@
+# `--cache-dir` names the persistent cache and `UV_CACHE_DIR` carries the same
+# value, with the flag winning over the variable; `--no-cache` is absent, so
+# the run is on its default and a persistent cache is used. The variable and
+# the flag name different directories here, and the setup run that creates the
+# environment names a third with its own `--cache-dir`, so nothing but the
+# graded install can write under either of the two the assertions read. What
+# comes out separates the three readings of the same pair: the directory the
+# flag named is there afterwards, and the directory the variable named was
+# never created. Nothing inside the cache is asserted -- the bucket names a
+# release writes change along the chain -- only which of the two directories
+# the run used.
+id = "global-cache-dir-flag-wins"
+step = 1
+group = "install-lifecycle"
+python = "3.12"
+mode = "bare"
+setup_argv = [["venv", "--cache-dir", "setupcache", "--python", "python3.12"]]
+argv = ["pip", "install", "--index-url", "{INDEX}", "--cache-dir", "flagcache", "alpha"]
+observe = ["setup_status", "status", "glob:.venv/lib/python3.12/site-packages/*.dist-info", "glob:flagcache", "glob:envcache", "glob:envcache/*"]
+
+[env]
+UV_CACHE_DIR = "envcache"
+
+[index.packages.alpha.versions."1.0.0"]

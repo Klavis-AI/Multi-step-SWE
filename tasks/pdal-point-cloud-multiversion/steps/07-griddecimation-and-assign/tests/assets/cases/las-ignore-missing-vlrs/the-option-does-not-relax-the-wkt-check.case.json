@@ -1,0 +1,66 @@
+{
+ "doc": "PROFILE.md §7.1, `readers.las` `ignore_missing_vlrs`: 'It does **not** relax any check made after the VLR block: in particular a LAS 1.4 file whose GlobalEncoding WKT bit is clear is refused with the option exactly as without it (see §7.3).'  PROFILE.md §7.3: 'the WKT / GlobalEncoding error-to-warning relaxation is a **2.7.2** change and is *not* part of this step: every release in this task refuses a LAS 1.4 file whose GlobalEncoding WKT bit is clear.'  This is the case that holds that scope boundary: a candidate who reached past 2.7.1 and turned the WKT error into a warning would pass everything else and fail here.  `nowkt14.las` is a LAS 1.4 point-format-6 file with the GlobalEncoding WKT bit clear.  Run 0 reads it *with* `ignore_missing_vlrs` set and must still be refused with no file written; run 1 reads the sound `grid.las` with the same option set and must succeed with all 1000 points, which is what proves run 0's refusal is the WKT check rather than the option being unrecognised.  The wording of either refusal is not graded — §7.3 grades only the non-zero exit and the absent output — but for the record 2.7.1 says `Global encoding WKT flag not set for point format 6 - 10.` on run 0.  Executed: 2.7.1 gives rc=1/no file then rc=0/1000 points; 2.6.0 fails run 1 as well (`Unexpected argument 'ignore_missing_vlrs'`), which is what makes the case discriminate.",
+ "files": {
+  "nowkt14.las": {
+   "fixture": "nowkt14.las"
+  },
+  "grid.las": {
+   "fixture": "grid.las"
+  },
+  "bad.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"nowkt14.las\", \"ignore_missing_vlrs\": true}, {\"type\": \"writers.las\", \"filename\": \"no.las\"}]"
+  },
+  "good.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"grid.las\", \"ignore_missing_vlrs\": true}, {\"type\": \"writers.las\", \"filename\": \"ok.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "good.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "file_absent",
+   "file": "no.las"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "ok.las",
+   "header": {
+    "point_count": {
+     "equals": 1000
+    }
+   },
+   "dims": {
+    "X": {
+     "min": 0,
+     "max": 9
+    },
+    "Z": {
+     "min": 0,
+     "max": 9
+    }
+   }
+  }
+ ]
+}

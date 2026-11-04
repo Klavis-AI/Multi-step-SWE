@@ -1,0 +1,22 @@
+CREATE TABLE q3_cvb(a int, b int, c text);
+CREATE INDEX q3_cvb_i ON q3_cvb (a) INCLUDE (b, c);
+INSERT INTO q3_cvb SELECT g, g * 2, 'v' || g FROM generate_series(1,10) g;
+SELECT a, b, c FROM q3_cvb WHERE a = 4;
+ a | b | c  
+---+---+----
+ 4 | 8 | v4
+(1 row)
+
+SELECT indexdef FROM pg_indexes WHERE indexname = 'q3_cvb_i';
+                               indexdef                                
+-----------------------------------------------------------------------
+ CREATE INDEX q3_cvb_i ON public.q3_cvb USING btree (a) INCLUDE (b, c)
+(1 row)
+
+SELECT count(*) FROM q3_cvb WHERE a > 5;
+ count 
+-------
+     5
+(1 row)
+
+DROP TABLE q3_cvb;

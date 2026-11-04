@@ -1,0 +1,33 @@
+How environment/docs/ was produced: the build stage below fetched each
+document from its official source, checked it against the pinned sha256,
+and made the text conversions. It ran at image build time until
+2026-10-20; the files are now stored in docs/ and copied in directly.
+Re-run these steps to refresh a document.
+
+# Documentation for the agent, which works with no network (wave N-docs,
+# 2026-10-19).  This stage fetches every file listed in docs-manifest.txt from
+# its official source, checks it against the pinned sha256, and the final stage
+# copies the result to /opt/docs.  /opt/docs is outside /app on purpose: /app is
+# the workspace collected for grading.
+FROM debian:bookworm-slim AS docs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+COPY docs-manifest.txt /opt/docs/SOURCES.txt
+RUN set -eu; \
+    cd /opt/docs; \
+    re='^[0-9a-f]\{64\}  '; \
+    : > /tmp/docs.sha256; \
+    grep "$re" SOURCES.txt | while read -r sum path url; do \
+      mkdir -p "$(dirname "$path")"; \
+      curl -fsSL --retry 5 --retry-delay 3 -o "$path" "$url"; \
+      printf '%s  %s\n' "$sum" "$path" >> /tmp/docs.sha256; \
+    done; \
+    test "$(wc -l < /tmp/docs.sha256)" -eq "$(grep -c "$re" SOURCES.txt)"; \
+    sha256sum -c --strict --quiet /tmp/docs.sha256; \
+    chmod -R a+rX /opt/docs
+# Plain-text edition of the `go` command's documentation: alldocs.go is one
+# long comment, so drop its `//` markers (and the trailing `package main`).
+RUN sed -n 's#^// \{0,1\}##p' /opt/docs/go/cmd-go/alldocs.go > /opt/docs/go/cmd-go/cmd-go.txt \
+    && test "$(wc -l < /opt/docs/go/cmd-go/cmd-go.txt)" -gt 1000 \
+    && chmod a+r /opt/docs/go/cmd-go/cmd-go.txt

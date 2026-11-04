@@ -1,0 +1,21 @@
+{
+  "doc": "stages/writers.copc.rst: 'The COPC Writer supports writing to `COPC format`_ files.' The COPC contract checked here is that an independent reader opens the file, finds the ('copc', 1) VLR, and answers a spatial query with the points actually inside the box. How many hierarchy nodes the writer uses is its own choice and is only required to be non-empty (PROFILE.md 4.3).",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "pipe.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"out.copc.laz\"}]"}
+  },
+  "run": [{"argv": ["pipeline", "pipe.json"]}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "las", "file": "out.copc.laz",
+     "header": {"point_count": {"equals": 1000},
+                "vlr_ids": {"contains": "copc/1"}}},
+    {"kind": "copc", "file": "out.copc.laz",
+     "point_count": {"equals": 1000},
+     "hierarchy_entries": {"min": 1},
+     "queries": [
+       {"bounds": [[0, 3], [0, 3], [0, 3]], "count": {"equals": 64}},
+       {"count": {"equals": 1000}}
+     ]}
+  ]
+}

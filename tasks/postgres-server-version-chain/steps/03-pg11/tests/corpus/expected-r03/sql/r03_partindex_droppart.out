@@ -1,0 +1,16 @@
+CREATE TABLE q3_pid(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q3_pid_1 PARTITION OF q3_pid FOR VALUES FROM (1) TO (10);
+CREATE INDEX q3_pid_b ON q3_pid (b);
+DROP INDEX q3_pid_1_b_idx;
+ERROR:  cannot drop index q3_pid_1_b_idx because index q3_pid_b requires it
+HINT:  You can drop index q3_pid_b instead.
+ALTER TABLE q3_pid_1 DROP COLUMN b;
+ERROR:  cannot drop inherited column "b"
+DROP INDEX q3_pid_b;
+SELECT count(*) FROM pg_class WHERE relname IN ('q3_pid_b','q3_pid_1_b_idx');
+ count 
+-------
+     0
+(1 row)
+
+DROP TABLE q3_pid;

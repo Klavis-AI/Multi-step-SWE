@@ -1,0 +1,132 @@
+# Step 05 -- C-2's frozen sink map: the 23 src/main accumulate buckets step 04
+# left behind, and the Collectors factory each one of them REQUIRES.
+#
+# Step 04 turned 24 collecting enhanced `for` loops into
+# `src.stream().map(..).forEach(dst::add)` and stopped there, by design: the
+# terminal operation is Java 8's LIBRARY and not its language, so it belongs to
+# this rung. NOTES 9.x line 12312 records that decision being taken at the time
+# and not rationalised afterwards.
+#
+# WHY THE FACTORY AND NOT THE SINK TYPE. baseline/source.txt's accum[...]
+# records carry `sinktype=`, and that is the sink's STATIC type -- all a gate
+# reading a call site can see. It splits 18 java.util.List / 5 java.util.Set /
+# 1 java.util.Collection, and it is the wrong thing to freeze, because
+#
+#      Set<T> providerImpls = new LinkedHashSet<>();        // DynamicServiceLoader:274
+#      providers.stream().map(sc -> createInstance(sc)).forEach(providerImpls::add);
+#
+# is `sinktype=java.util.Set` and `Collectors.toSet()` is documented to return
+# "no guarantees on the type, mutability, serializability, or thread-safety" of
+# the Set -- in practice a HashSet. Writing toSet() there REORDERS service
+# instantiation, and DynamicServiceLoader's order is recorded behaviour: family
+# A replays 935 recordings and the service order is in them. The correct answer
+# is Collectors.toCollection(LinkedHashSet::new), and that site is the one that
+# turns this gate from "did you call collect" into "did you read what you were
+# collecting into".
+#
+# So the factory is derived from the CONSTRUCTED type in the golden tree, not
+# from the declared one:
+#
+#   new ArrayList<>()      -> toList          18 buckets
+#   new HashSet<>()        -> toSet            4 buckets
+#   new LinkedHashSet<>()  -> toCollection     1 bucket
+#
+# and the derivation refuses to guess: a bucket whose sink name resolves to more
+# than one constructed type in its file comes out UNRESOLVED and this file does
+# not get written. (ExtensionImpl has three methods whose sink is named
+# `result` and ManagerImpl has two named `observers`; all five construct
+# ArrayList, which is why they collapse rather than conflict.)
+#
+# SCOPE IS src/main, SO THE DENOMINATOR IS 23 AND NOT 24. accum.size=24 in
+# baseline/source.txt; the 24th is
+# CDIInjectionEnricherTestCase#createDeployment, a Collection sink in
+# src/test. Family C grades the library the task publishes.
+#
+# BUCKETS, NOT LINES. Keyed <file>#<method>, never <file>:<line>: the site
+# moves when the loop becomes a pipeline. accum.methods=24 for accum.size=24
+# says every site is alone in its bucket, so the key is unique. `in=` is the
+# OUTERMOST enclosing method (SourceScan.enclosingMethod()), the same bucket
+# step 04's collectmethods.txt uses.
+#
+# How C-2 reads this file:
+#   departure  buckets with no accum record left
+#   arrival    buckets holding a collect record
+#   fidelity   buckets whose collect record's `to=` is ACCEPTED for the factory
+#              in column 2. A tree that collects all 23 into a List scores
+#              departure and arrival and loses this term -- and loses family A
+#              on the LinkedHashSet bucket as well.
+#
+# THE ACCEPTANCE RULE, AND WHY IT IS A RULE RATHER THAN AN EQUALITY. SourceScan
+# records `to=` as the SIMPLE NAME of the Collectors factory the argument binds
+# to -- toList, toSet, toCollection, or other -- and nothing else. It does not
+# record toCollection's supplier, because the supplier is a method reference
+# whose target type is not resolved at the call site the plugin sees. So the
+# scorer cannot ask "toCollection(LinkedHashSet::new)" directly, and asking for
+# the simple name alone would refuse a faithful answer:
+#
+#   want toList        accept toList, or toCollection
+#   want toSet         accept toSet, or toCollection
+#   want toCollection  accept toCollection ONLY
+#
+# toCollection is accepted wherever toList or toSet is wanted because
+# toCollection(ArrayList::new) and toCollection(HashSet::new) are the
+# pedantically faithful answers at the four mutating buckets named at the foot
+# of this header, and a rule that charged them would be scoring the golden's
+# spelling. toSet is NOT accepted where toCollection is wanted, because that is
+# the one substitution this tree can observe. Which collection a toCollection
+# actually builds is then enforced by family A and not by this file: the
+# LinkedHashSet bucket's iteration order is in the 935 recordings, and a
+# toCollection(HashSet::new) there fails family A at full weight, which is 21
+# times what this term is worth.
+#
+# WHAT THIS MAP DELIBERATELY DOES NOT ASK FOR. Four of the 23 buckets mutate
+# the collected result afterwards -- Reflections#getObserverMethods,
+# #getFieldInjectionPoints and #getEventPoints each call addAll() on it, and
+# MethodParameterInjectionPoint#getQualifiers adds a DefaultLiteral when the
+# result is empty. Collectors.toList() and toSet() make no guarantee of
+# mutability, so the pedantically faithful answer at those four is
+# toCollection(ArrayList::new) / toCollection(HashSet::new), and this map still
+# says toList and toSet.
+#
+# That is a decision and not an oversight. The LinkedHashSet bucket is gated
+# because its difference is OBSERVABLE -- service instantiation order is in the
+# recordings family A replays. The mutability difference is not observable on
+# any JDK this ladder grades on: toList() returns an ArrayList and toSet()
+# returns a HashSet on 8 through 25, so both trees behave identically and
+# family A cannot tell them apart. Gating the first is a measurement; gating
+# the second would be scoring a candidate's spelling against the golden's, which
+# is the failure mode rule 5 exists to prevent. The four buckets are named here
+# so that the choice is on the record rather than discovered later.
+#
+# Format: <path>#<method> <required factory> <constructed sink type>
+#
+# Column 3 is provenance, not a scorer input: it is the type the baseline tree
+# constructs at that bucket, read off the source, and it is what column 2 was
+# derived FROM. SourceScan's own `sinktype=` field records the sink's DECLARED
+# type (java.util.List / java.util.Set / java.util.Collection), which is the
+# wrong instrument for this question -- every one of the 19 List-and-Set buckets
+# declares the interface -- so column 3 is written here rather than lifted from
+# the record.
+impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java#createInstances toCollection LinkedHashSet
+impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/DeploymentGenerator.java#loadAuxiliaryArchives toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/ArquillianDescriptorImpl.java#getContainers toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/ArquillianDescriptorImpl.java#getExtensions toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/ArquillianDescriptorImpl.java#getGroups toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/ContainerDefImpl.java#getDependencies toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/ContainerDefImpl.java#getProtocols toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/GroupContainerDefImpl.java#getGroupContainers toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/GroupDefImpl.java#getGroupContainers toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ExtensionImpl.java#events toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ExtensionImpl.java#injections toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ExtensionImpl.java#observers toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ManagerImpl.java#resolveActiveContexts toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ManagerImpl.java#resolveObservers toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/core/Reflections.java#getEventPoints toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/core/Reflections.java#getFieldInjectionPoints toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/core/Reflections.java#getObserverMethods toList ArrayList
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/URLResourceProvider.java#allInSameContext toSet HashSet
+spi/src/main/java/org/jboss/arquillian/spi/TestClass.java#getMethods toList ArrayList
+spi/src/main/java/org/jboss/arquillian/spi/client/deployment/DeploymentScenario.java#getProtocols toSet HashSet
+spi/src/main/java/org/jboss/arquillian/spi/client/deployment/DeploymentScenario.java#getStartupDeploymentsFor toList ArrayList
+spi/src/main/java/org/jboss/arquillian/spi/client/deployment/DeploymentScenario.java#getTargets toSet HashSet
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/MethodParameterInjectionPoint.java#getQualifiers toSet HashSet

@@ -1,0 +1,86 @@
+# The scan substring assertion (*scs:(n)...) / (*scan_substring:(n)...)
+# applies a subpattern to the text captured by another group.
+# ChangeLog 10.45 item 17; pcre2pattern.3, "SCAN SUBSTRING ASSERTIONS";
+# pcre2syntax.3, "SUBSTRING SCAN ASSERTION".
+
+# The scan is anchored at the start of the substring; there is no bumpalong.
+/(\w+)=(\w+)(*scs:(2)qu)/
+    key=quartz
+ 0: key=quartz
+ 1: key
+ 2: quartz
+    key=aqua
+No match
+
+/(\w+)=(\w+)(*scan_substring:(2)qu)/
+    key=quartz
+ 0: key=quartz
+ 1: key
+ 2: quartz
+
+# End of subject is reset to the end of the substring, so \z matches there.
+/(\w+)=(\w+)(*scs:(2)\w+z\z)/
+    key=quartz junk
+ 0: key=quartz
+ 1: key
+ 2: quartz
+
+# Start of subject is not reset, so ^ matches only at the real start.
+/(\w+)=(\w+)(*scs:(1)^k)/
+    key=quartz
+ 0: key=quartz
+ 1: key
+ 2: quartz
+
+/(\w+)=(\w+)(*scs:(2)^q)/
+    key=quartz
+No match
+
+# A lookbehind inside the scan may reach back before the substring.
+/(\w+)=(\w+)(*scs:(2)(?<==)q)/
+    key=quartz
+ 0: key=quartz
+ 1: key
+ 2: quartz
+
+# The first group in the list that is set is the one scanned.
+/(?:(red)|(blue))(*scs:(1,2)b)/
+    blue
+ 0: blue
+ 1: <unset>
+ 2: blue
+    red
+No match
+
+# Names in single quotes, and relative group numbers.
+/(?<host>\w+)\.(?<tld>\w+)(*scs:('tld')or)/
+    perl.org
+ 0: perl.org
+ 1: perl
+ 2: org
+    perl.com
+No match
+
+/(\d+)-(\d+)(*scs:(-2)9)/
+    98-12
+ 0: 98-12
+ 1: 98
+ 2: 12
+    12-98
+No match
+
+# Captures made inside the scan are retained.
+/(\w+) (*scs:(1)\w(?<pair>l+))/
+    hello world
+ 0: ello 
+ 1: ello
+ 2: ll
+
+# The assertion fails if none of the listed groups is set.
+/(?:(cat))?dog(*scs:(1)c)/
+    dog
+No match
+
+# A reference to a group that does not exist is a compile error.
+/(x)(*scs:(4)y)/
+Failed: error 115 at offset 10: reference to non-existent subpattern

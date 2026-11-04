@@ -1,0 +1,45 @@
+# arch: x86_64
+# what: -u SYM, -uSYM and --undefined=SYM each create an undefined reference
+# strong enough to pull an otherwise unwanted member out of an archive, and
+# the whole member is linked in, not just the named symbol.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int needed_fn(void);
+int entry(void) { return needed_fn(); }
+C
+cc_obj m.o m.c
+cat > need.c <<'C'
+int needed_fn(void) { return 4; }
+C
+cat > force.c <<'C'
+int forced_fn(void) { return 7; }
+int forced_data = 0x3344;
+int forced_sibling(void) { return forced_fn(); }
+C
+cc_obj need.o need.c; cc_obj force.o force.c
+mkar libx.a need.o force.o
+seen() { symbols "$1" | awk -v n="$2" '$8 == n { c++ } END { print c + 0 }'; }
+# Nothing references force.o, so plainly it stays out of the link.
+link_ok plain --no-gc-sections rt.o m.o libx.a
+want "plain: needed_fn linked"     "$(seen plain needed_fn)" "1"
+want "plain: forced_fn not linked" "$(seen plain forced_fn)" "0"
+run_expect plain "" 4
+# Each spelling of --undefined must drag the member in.
+n=0
+for form in "-u forced_fn" "-uforced_fn" "--undefined=forced_fn"; do
+  n=$(( n + 1 ))
+  link_ok "out$n" --no-gc-sections rt.o m.o libx.a $form
+  want "form '$form': forced_fn linked" "$(seen out$n forced_fn)" "1"
+  want "form '$form': forced_fn defined" \
+    "$(symbols out$n | awk '$8=="forced_fn"{print ($7=="UND")?"UND":"def"}')" "def"
+  # The rest of the member comes along too.
+  want "form '$form': forced_data linked"    "$(seen out$n forced_data)"    "1"
+  want "form '$form': forced_sibling linked" "$(seen out$n forced_sibling)" "1"
+  run_expect "out$n" "" 4
+done
+# Naming a symbol that no member defines must not drag anything in.
+link_ok out4 --no-gc-sections rt.o m.o libx.a -u no_such_symbol
+want "unmatched -u pulls nothing" "$(seen out4 forced_fn)" "0"
+run_expect out4 "" 4
+asserts_at_least 15

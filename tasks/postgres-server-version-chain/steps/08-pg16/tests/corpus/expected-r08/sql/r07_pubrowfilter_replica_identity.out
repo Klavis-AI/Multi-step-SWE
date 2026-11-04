@@ -1,0 +1,26 @@
+CREATE TABLE x07_22a(a int PRIMARY KEY, b text, c int);
+CREATE PUBLICATION x07_22p FOR TABLE x07_22a WHERE (b = 'x');
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+INSERT INTO x07_22a VALUES (1,'x',1);
+UPDATE x07_22a SET c = 2 WHERE a = 1;
+ERROR:  cannot update table "x07_22a"
+DETAIL:  Column used in the publication WHERE expression is not part of the replica identity.
+DELETE FROM x07_22a WHERE a = 1;
+ERROR:  cannot delete from table "x07_22a"
+DETAIL:  Column used in the publication WHERE expression is not part of the replica identity.
+SELECT a, b, c FROM x07_22a ORDER BY a;
+ a | b | c 
+---+---+---
+ 1 | x | 1
+(1 row)
+
+DROP PUBLICATION x07_22p;
+UPDATE x07_22a SET c = 3 WHERE a = 1;
+SELECT a, b, c FROM x07_22a ORDER BY a;
+ a | b | c 
+---+---+---
+ 1 | x | 3
+(1 row)
+
+DROP TABLE x07_22a;

@@ -1,0 +1,26 @@
+CREATE TABLE r10tu3(id int4range, valid_at daterange, x int, UNIQUE (id, valid_at WITHOUT OVERLAPS));
+SELECT conname, contype, conperiod FROM pg_constraint WHERE conrelid = 'r10tu3'::regclass ORDER BY conname;
+        conname         | contype | conperiod 
+------------------------+---------+-----------
+ r10tu3_id_valid_at_key | u       | t
+(1 row)
+
+SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'r10tu3'::regclass AND contype = 'u';
+          pg_get_constraintdef          
+----------------------------------------
+ UNIQUE (id, valid_at WITHOUT OVERLAPS)
+(1 row)
+
+SELECT indexdef FROM pg_indexes WHERE tablename = 'r10tu3' ORDER BY indexname;
+                                       indexdef                                        
+---------------------------------------------------------------------------------------
+ CREATE UNIQUE INDEX r10tu3_id_valid_at_key ON public.r10tu3 USING gist (id, valid_at)
+(1 row)
+
+SELECT constraint_type FROM information_schema.table_constraints WHERE table_name = 'r10tu3' ORDER BY 1;
+ constraint_type 
+-----------------
+ UNIQUE
+(1 row)
+
+DROP TABLE r10tu3;

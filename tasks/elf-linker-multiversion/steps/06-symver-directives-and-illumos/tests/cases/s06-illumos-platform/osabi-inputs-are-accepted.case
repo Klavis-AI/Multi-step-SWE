@@ -1,0 +1,45 @@
+# arch: x86_64
+# An input's e_ident[EI_OSABI] never decides whether it can be linked: objects
+# marked ELFOSABI_GNU (3) and ELFOSABI_SOLARIS (6) link, and link together with
+# ordinary ELFOSABI_NONE (0) objects. The output is ELFOSABI_NONE regardless,
+# under the Solaris emulation as much as the default one.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int other(void);
+int entry(void) { return other(); }
+C
+cc_obj m.o m.c
+cat > o.c <<'C'
+int other(void) { return 7; }
+C
+cc_obj o.o o.c
+
+# Byte 7 of the ELF identification is EI_OSABI, byte 8 is EI_ABIVERSION.
+set_osabi() { # set_osabi <file> <value>
+  printf "$(printf '\\%03o' "$2")" | dd of="$1" bs=1 seek=7 count=1 conv=notrunc status=none
+}
+ident78() { local t; t=$(od -An -tu1 -j7 -N2 "$1"); tr -s ' ' <<<"$t" | sed 's/^ //'; }
+
+cp m.o mgnu.o; set_osabi mgnu.o 3
+cp o.o osol.o; set_osabi osol.o 6
+want "the GNU-marked input really is marked" "$(ident78 mgnu.o)" "3 0"
+want "the Solaris-marked input really is marked" "$(ident78 osol.o)" "6 0"
+
+# A mixed link of all three OS/ABI markings succeeds and runs.
+link_ok mixed rt.o mgnu.o osol.o
+run_expect mixed "" 7
+want "output is ELFOSABI_NONE with ABI version 0" "$(ident78 mixed)" "0 0"
+want_has "readelf agrees about the output OS/ABI" \
+         "$(hdr mixed)" 'OS/ABI: *UNIX - System V'
+
+# The same inputs under the Solaris emulation: still accepted, still
+# ELFOSABI_NONE on output -- the emulation changes the interpreter, not EI_OSABI.
+link_ok solmix -m elf_x86_64_sol2 rt.o mgnu.o osol.o
+want "Solaris emulation output is still ELFOSABI_NONE" "$(ident78 solmix)" "0 0"
+run_expect solmix "" 7
+want "the mixed OS/ABI inputs produced the same machine" \
+     "$(hdr solmix | awk '/^ *Machine:/{ $1=""; sub(/^ */,""); print }')" \
+     "Advanced Micro Devices X86-64"
+
+asserts_at_least 6

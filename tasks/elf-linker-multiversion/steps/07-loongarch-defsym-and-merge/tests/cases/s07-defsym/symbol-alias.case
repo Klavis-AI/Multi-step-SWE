@@ -1,0 +1,31 @@
+# arch: x86_64
+# --defsym=NAME=SYMBOL must alias an existing symbol: NAME gets SYMBOL's final
+# address, and calling through the alias reaches the same code.
+rt_obj rt.o
+cat > f.c <<'C'
+int real_fn(int x) { return x * 7; }
+C
+cc_obj f.o f.c
+cat > m.c <<'C'
+#include "rt.h"
+int alias_fn(int);
+int entry(void) { putdec(alias_fn(6)); print("\n"); return 0; }
+C
+cc_obj m.o m.c
+link_ok out --defsym=alias_fn=real_fn --no-gc-sections rt.o m.o f.o
+real=$(sym_value out real_fn); alias=$(sym_value out alias_fn)
+[ -n "$real" ] || die "real_fn has no value in the output"
+want "the alias carries the target's address" "$alias" "$real"
+# ...and the target's defining section index with it: the bare-symbol form of
+# --defsym is not the absolute-symbol form. Ndx is field 7 of readelf -s --wide.
+syms=$(symbols out)
+real_ndx=$(awk '$8 == "real_fn"  { print $7; exit }' <<<"$syms")
+alias_ndx=$(awk '$8 == "alias_fn" { print $7; exit }' <<<"$syms")
+[ -n "$alias_ndx" ] || die "alias_fn has no section index in the output"
+want "the alias copies the target's section index" "$alias_ndx" "$real_ndx"
+want_not "the alias is not SHN_ABS" "$alias_ndx" '^ABS$'
+run_expect out "42" 0
+# The aliased-to symbol is still there in its own right.
+want_has "real_fn survives as well" "$(symbols out)" 'FUNC +GLOBAL DEFAULT .* real_fn$'
+
+asserts_at_least 4

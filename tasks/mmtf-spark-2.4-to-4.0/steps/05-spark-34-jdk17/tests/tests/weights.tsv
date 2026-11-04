@@ -1,0 +1,360 @@
+# Step 5 (05-spark-34-jdk17): what each scored family is worth.
+#
+# Since 2026-10-13 (user decision, product scoring) the two families are
+# multiplied, not added: reward = T1 x T2, where T1 is the migrated family's
+# points over its total weight below and T2 is the behavior family's points
+# over its total weight below (score.py, product_reward). The weights still
+# sum to 1; they now set the proportions inside each factor. Where the prose
+# below speaks of a family's share of the reward, read it as that family's
+# share before this change.
+#
+# Two families, as rule 5 requires, and neither below ~30%:
+#
+#   behavior   0.34   the tree still does what it did      replay + the repo's own tests
+#   migrated   0.66   the build resolves Spark 3.4.4 on Scala 2.13, the
+#                     toolchain that produced the jar and the forked test JVM
+#                     are Java 17, and every csv read that asks the engine to
+#                     infer pins date inference off at the site
+#
+# The same .34/.66 balance steps 3 and 4 settled on, re-split inside itself.
+#
+# --- why three requirements here, and why they are cut where they are --------
+#
+# This step moves four things at once -- Spark 3.3.4 -> 3.4.4, Scala 2.12 ->
+# 2.13, JDK 8 -> 17, and the read sites -- and item 4.2's measurements decided
+# which of the four are separate claims and which are the same claim told
+# twice (NOTES 6.5.2):
+#
+#   the Scala axis    `_2.12` -> `_2.13` is a suffix on every Spark coordinate
+#                     and nothing else in this repository. There is no Scala
+#                     source here and the only `scala.*` the tree imports is
+#                     `Tuple2`/`Tuple4`, which is the same class in both binary
+#                     versions (measured: 25 files, no other scala import). It
+#                     is evidence about the pom, so it lives in m1 beside the
+#                     version rather than in a family of its own.
+#   the JDK axis      is a family, because at this rung it is three artifacts
+#                     rather than one setting: what the pom asks for, what
+#                     class-file version the jar actually carries, and whether
+#                     the forked test JVM is opened onto `java.base/sun.nio.ch`
+#                     -- without which the suite reports 256 errors before a
+#                     test body runs. `F_JAXB` is not part of it: the
+#                     jaxb-api/jaxb-runtime pin `sweep.py` adds at r07 was
+#                     measured inert here, because Spark 3.3.4 through 3.5.7
+#                     ship `jakarta.xml.bind-api-2.3.2` in `$SPARK_HOME/jars`
+#                     and it still carries the 121 `javax/xml/bind/*` classes.
+#                     Nothing under src/main imports `javax.xml.bind` at all
+#                     (measured, 0 occurrences); the need is biojava's, and it
+#                     first bites at Spark 4.0.1, which ships the renamed
+#                     `jakarta.xml.bind-api-4.0.2`. So it is step 8's
+#                     requirement, not this one's, and §3's rung table has been
+#                     corrected from r07 to r11.
+#   the reads         the step's source work, and the only one of the four a
+#                     pom cannot reach.
+#
+# So: m1 is the rung fence, four rules, 0.12. m2 is the Java-17 toolchain,
+# four rules, 0.18. m3 is the reads, six rules, 0.36.
+#
+# The ordering of those three numbers is the deliberate part, and it is not a
+# ranking of how much typing each takes. It is R4's question answered in the
+# weights: what a configuration change alone can earn. Everything in m1 and m2
+# lives in pom.xml -- a version, three artifactIds, a compiler level and an
+# `<argLine>` -- so a candidate who rewrites the pom correctly and touches no
+# source has done real work and has not done this step, and what that is worth
+# is 0.30. m3 is the half no edit to pom.xml can reach, and it carries more
+# than either of them for that reason. The automated-migrator reading, which
+# is the one rule 4.3 actually binds, is stricter still: an unattended tool
+# bumps `<spark.version>`, and a tool that has bumped `<spark.version>` and
+# nothing else resolves `spark-core_2.12:3.4.4`, fails `m1-spark-344`, and
+# earns 0.000000 of this step.
+#
+# --- the calibrations --------------------------------------------------------
+#
+# Measured rather than reasoned, and the measurements are item 4.3's, recorded
+# here when they are taken rather than predicted here now. What is already in
+# hand at the close of item 4.2, off the real scanners against the real trees
+# (NOTES 6.5.2):
+#
+#   the tree the agent is handed   17 `ast read` rows, all under src/main,
+#                                  7 csv / 4 parquet / 3 orc / 3 json, and
+#                                  `schema=no` on every one of the seventeen.
+#                                  Six of the seven csv sites pass
+#                                  `inferSchema=true` and none of the
+#                                  seventeen passes `preferDate`. So
+#                                  `m3-csv-dates-stated` is red on 6 rows,
+#                                  `m3-csv-dates-pinned` is red at 0 against a
+#                                  threshold of 6, and the `-sites-kept` guard
+#                                  is green at exactly its threshold.
+#   its pom                        the four rows m2 is red on, measured
+#                                  (/tmp/m5facts/handed8): `jdklevel source
+#                                  1.8 property` and `jdklevel target 1.8
+#                                  property`, `scalasuffix 2.12 33`, one
+#                                  `testjvmarg -Xmx4g` and no other, and
+#                                  `classversion 52 201` on the jar its own
+#                                  build produces.
+#   the moved pom                  the same four facts after the move
+#                                  (/tmp/m5facts/moved): `jdklevel source 17`
+#                                  and `target 17`, `scalasuffix 2.13 28`,
+#                                  two `testjvmarg` rows -- `-Xmx4g` and
+#                                  --add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+#                                  -- and `classversion 61 201`. Both jars
+#                                  were built by the same JDK 17 image, which
+#                                  is what makes the m2 pair a measurement
+#                                  rather than a belief about javac: the
+#                                  handed tree compiles to 52 there too.
+#   the JDK axis                   the same 15014 `ast` facts from the JDK 8
+#                                  image and the JDK 17 image, differing on two
+#                                  `call` lines that are the pretty-printer and
+#                                  not the facts (/tmp/xjdk.log). The gate does
+#                                  not move when the compiler does.
+#
+#   the tree the agent is handed   0.000000, scored end to end by
+#                                  gates/rehearse-step05.sh (all eight trees
+#                                  in one run, /tmp/rehearse5.log):
+#                                  11 of the 14 graded rules red -- m1's four
+#                                  pom rules, m2's four, m3's three -- so every
+#                                  family pays nothing, the milestone is shut,
+#                                  and the behaviour 0.34 is gated to 0 even
+#                                  though this tree replays 140 of the 141
+#                                  recordings byte for byte (measured,
+#                                  build/replay-p05.sh; the one it does not is
+#                                  `HarnessDriver-csvdates`, which is what that
+#                                  job is for). The replay only: the
+#                                  0.10 family is a different question, and
+#                                  this tree answers it at 0.092857, because
+#                                  its forked test JVM has no --add-opens and
+#                                  13 of the 140 graded tests are all that get
+#                                  through without a session.
+#   <spark.version> bumped, else nothing
+#                                  0.000000: one character of the pom, 10 red.
+#                                  `m1-spark-344-uniform` *passes* here --
+#                                  every resolved Spark artifact is at 3.4.4
+#                                  -- and `m1-scala-213` does not, which is
+#                                  the reason the uniform rule is not m1's
+#                                  only rule.
+#   the whole pom moved, no source edit
+#                                  0.30: m1 and m2 whole, m3 nothing, 3 red
+#                                  (`m3-csv-dates-stated`,
+#                                  `m3-csv-dates-pinned` and
+#                                  `m3-prefer-date-jar`), milestone shut. At
+#                                  the 0.30 bar and not over it.
+#   the golden solution            1.000000: 182 of 182 rules green, the
+#                                  milestone open, and the c09 replay off its
+#                                  own jar read **141 same / 0 different
+#                                  projected, of 141** -- re-measured after
+#                                  `HarnessDriver-csvdates` was recorded, so
+#                                  the figure now covers the one job the
+#                                  candidate's edits move -- against a
+#                                  corruption control
+#                                  that takes the same comparison from 0 to 1.
+#                                  The handed tree read 140 same / 1 different
+#                                  of the same 141, differing on that job and
+#                                  on nothing else, with its own control moving
+#                                  1 -> 2: the two arms together are what make
+#                                  this a measurement of the pin rather than of
+#                                  the image (build/replay-p05.sh, 06:25:03,
+#                                  REPLAY-RC=0).
+#
+# Four more trees were scored in the same run, because a calibration that only
+# ever moves the number down in the direction the author expected is not a
+# calibration: the two compiler properties deleted 0.48, `<release>8</release>`
+# written next to `source` and `target` 17 0.48 (the same price for the same
+# jar, reached two different ways), the six inferring reads turned into json
+# reads 0.30, and surefire told to skip the suite 0.000000 -- the last of them
+# with all fourteen graded rules green and one standing rule red, which is what
+# VOID means. The full table and its per-rule verdicts are CHECKLIST-4.2.md
+# section 5; the trees themselves are derived in gates/rehearse-step05.sh.
+#
+# Those four rows are the item-4.3 calibration and they were filled in from
+# the runs, not from this paragraph. The shape each was expected to take is
+# written in `CHECKLIST-4.2.md` section 5, before the run rather than after
+# it, so that a measurement agreeing with the prediction is a confirmation and
+# not a recollection (trap 6, applied to the author) -- and all eight agreed,
+# to the digit, including the four below. The third row is this step's
+# own addition to the two step 4 took: at a rung whose work is mostly build
+# configuration, "the pom, done properly, and nothing else" is the tree the
+# weights above are aimed at, and a number that came out much above 0.30 would
+# mean this file is wrong rather than that the tree is good.
+#
+# Two counted thresholds above one are graded, and both are in m3:
+# `m3-csv-sites-kept` (atleast:7) and `m3-csv-dates-pinned` (atleast:6). The
+# other six `atleast` rules are `atleast:1`, which is presence and not a count.
+# The two are not in the same position and this file used to claim they were.
+#
+# `m3-csv-sites-kept` is a count of *sites that already exist* rather than of
+# work done -- the lesson step 4's item 4.3 paid for (NOTES 6.4.8): a threshold
+# over work can be cleared by a class full of decoys, while an `absent` rule
+# over a per-site derived fact cannot be helped by an extra row. Its guard is
+# `atleast` at the handed tree's own count, so it is not clearable by adding
+# rows: adding a read site does not make an unstated read site stated.
+#
+# `m3-csv-dates-pinned` is a count of work done, and adding a row does raise
+# it. What it is, exactly: a floor over the number of reads under src/main that
+# both ask the engine to infer and pin `preferDate=false`. What that floor
+# closes is the vacancy round 2 found -- a tree that answers by hand-declaring
+# a StructType leaves this count at zero and goes red. What it does not do is
+# bind the identity of the six reads the tree was handed, and it cannot:
+# AstScan.java records `schema=yes` for any `.schema(` call whatever the
+# argument, so "is this one of the six" is not a fact this gate has. Six
+# declared originals standing beside six planted reads that ask and pin would
+# meet this count. That is open, it is not repaired here, and it is written
+# down in NOTES 6.5.9 rather than left for the next reader to find.
+#
+# --- the graded predicate ----------------------------------------------------
+#
+# Steps 2, 3 and 4 gate the behaviour family on a milestone, because a tree
+# that did not make the move preserves behaviour trivially and the marks are
+# for a tree that made it. Step 5 needs it for the same reason and a sharper
+# version of it: `spark-core` is `provided`, so the replay runs in the verifier
+# image's Spark whatever the candidate's pom says (NOTES 6.3.11). A tree that
+# edits nothing at all replays 140/141, and passes 13 of the 140 graded tests
+# without ever having opened the test JVM. Every one of this rung's fourteen
+# recorded behaviour changes -- the tie orderings, the JDK-17
+# helpful-NPE text, ReadLocalMmtfHadoopFile's counts -- is produced by the
+# image and not by the candidate, so not one of them is a must-flip a candidate
+# could earn, and 0.248643 of the family's 0.34 -- 0.239357 of the 0.24 of
+# replay and the 0.009286 the crippled suite leaves of the 0.10 -- would
+# otherwise be free to a tree nobody touched. The replay share is no longer
+# the whole 0.24 because of the one job such a tree stops matching whole,
+# `HarnessDriver-csvdates`. It is not 140/141 of the 0.24 either: replay
+# weights each job by the number of scored inputs it has, 249 across the
+# census and two of them that job's, and credits it with the fraction of its
+# recorded blocks that match, and an untouched tree still matches two of that
+# job's three. What it drops is 0.000643, and the milestone is what keeps the
+# rest from being free.
+#
+# `moved` in score.py is this step's milestone. It is the conjunction of two
+# predicates, both read out of the same report m1, m2 and m3 are scored from:
+#
+#   rung_adopted    m1-spark-344            spark-core_2.13 resolves at 3.4.4
+#                   m1-spark-344-uniform    and no org.apache.spark artifact
+#                                           resolves at another version
+#                   m1-scala-213            a _2.13 suffix is present
+#                   m1-scala-213-only       and no other suffix is
+#                   m2-classes-17           some class of this repository in
+#                                           the jar is class-file major 61
+#                   m2-classes-17-uniform   and none of them is anything else
+#   reads_stated    m3-csv-dates-stated     no inferring csv read is left
+#                                           unpinned about date handling
+#                   m3-csv-dates-pinned     and at least six reads still both
+#                                           ask and pin -- the positive half,
+#                                           which a declared schema cannot
+#                                           vacate. A count of such reads and
+#                                           not a bind on which six they are;
+#                                           see below
+#                   m3-csv-sites-kept       the seven csv reads are still there
+#                   m3-prefer-date-jar      and the statement reached the jar
+#
+# Why each half. `rung_adopted` is what the replay is a replay *of*: without
+# it the 141 jobs are a reading of the image. Its pom half is the claim and
+# its `bytecode class` half is the artifact-level check that the claim was
+# carried out -- a pom can say 17 and produce 52 if a plugin overrides it, and
+# the jar is the thing the replay runs. `reads_stated` is the source half, and
+# it is a conjunction rather than its first rule alone because
+# `m3-csv-dates-stated` is an `absent` rule and an `absent` rule is green over
+# zero rows: a tree that deletes the six inferring reads passes it and loses
+# the replay, which is the failure this task exists to catch.
+# `m3-csv-dates-pinned` is the rule that closes that vacancy, and it closes it
+# as a floor over reads that both ask and pin -- six of them -- rather than as
+# a bind on which reads those are. A tree that declares its way out and plants
+# nothing goes red here; a tree that declares its way out and plants six reads
+# that ask and pin does not, because the scanner cannot tell a planted read
+# from a handed one. The identity half is open (NOTES 6.5.9); what still
+# answers it is the replay, which runs the handed paths. `m3-csv-sites-kept`
+# is what stops "no unstated read" from meaning "no read", and
+# `m3-prefer-date-jar` is what stops a source edit that never compiled -- or
+# that was made in a file the build does not reach -- from counting as one. The
+# replay's 141 jobs run the jar.
+#
+# `m2-test-jvm-opens` is deliberately *not* in the milestone. It is the rule
+# the `tests` half of the behaviour family already prices directly: without the
+# open the suite reports 256 errors, only 13 of the 140 graded tests get
+# through, the family scores 0.092857 and nearly all of that 0.10 is gone on
+# its own. Gating the other 0.24 on it as well would charge twice for one
+# omission.
+#
+# What the milestone costs, stated rather than hidden. A candidate who moves
+# the rung completely and states five of the six inferring reads scores 0.30:
+# they lose m3 to the all-or-nothing rule below, and they lose the behaviour
+# family to this one. That is a cliff, it is the same cliff step 4 disclosed,
+# and the handoff puts it in those words -- WORKSPACE_HANDOFF.md section 3,
+# "the step is the rung *and* the reads". instruction.md states the same cliff
+# in its own words rather than in these. A step is made or it is not. The
+# item-6 floor -- step 4's finished solution scored by this verifier -- pays 0
+# for behaviour rather than the .34 an ungated family would pay it, and its
+# migrated share is 0 as well (m1 red at 3.3.4/2.12, m2 red at class-file 52,
+# m3 red on six sites), so the floor is 0.000000. That satisfies item 6's "<=
+# 0.5" with room and it is right for the reason it was right at steps 2, 3 and
+# 4: step 5 is not paid for step 4's work, which is what `hold m04.tsv` means.
+#
+# The rule ids in both conjunctions are parsed out of `m05.tsv` by pattern
+# rather than kept as a second copy here, and each one's selector is
+# shape-checked before it is believed -- `read_rule_ids` in score.py refuses a
+# `-csv-dates-stated` rule that is not `absent` over `ast.read` scoped to
+# `src/main`, a `-sites-kept` rule that is not `atleast` at or above the handed
+# tree's own count, a `-classes-17` pair that is not `atleast`/`absent` over
+# `bytecode.class` naming major 61, and a `-prefer-date-jar` rule that is not
+# `atleast` over `bytecode.strconst`. Each refusal is there because the rule
+# text it refuses is green on the tree the candidate is handed, so weakening
+# the rule file alone cannot lower the floor. score.py's selftest rehearses
+# every refusal and rehearse-step05.sh rehearses them against doctored copies
+# of the real file.
+#
+# --- within the families -----------------------------------------------------
+#
+# Within `migrated`, a requirement scores all or nothing: every rule carrying
+# its prefix must be PASS. For m1 that is trivially right -- "mostly at 3.4.4"
+# is not a state a build can be in, and a pom that resolves two Scala binary
+# versions is not 80% migrated but broken. The same holds for m2: a jar whose
+# classes are half at 61 and half at 52 is a build that compiled part of the
+# tree with something else, which is a worse answer than not having moved. For
+# m3 it is the substantive choice and it is the same one step 4 made: five of
+# the six inferring reads pinned is not 5/6 of the move, because the sixth
+# still asks the engine to guess at a column whose meaning changed under it,
+# and the claim -- "every read in this tree that infers comes back with the
+# type it came back with before the move" -- is false for that program.
+#
+# migration_prompt.md's rule 8 asks for proportional credit, and what this file
+# pays proportionally is the behaviour family -- the replay per block over 141
+# jobs, the suite per test over 140 tests -- and the three requirements against
+# each other. Inside a requirement the credit is all-or-nothing; across them it
+# is not; and both documents the candidate reads say so in those words. Six
+# sites is also a small enough denominator that "nearly all of them" is not a
+# meaningfully different state from "all but one".
+#
+# Within `behavior`, credit is proportional and the unit is rule 7's scored
+# input. The recordings are the c09 census: the same tree at Spark 3.4.4, Scala
+# 2.13, JDK 17 -- this step's own rung, because a step that moves the runtime
+# must be graded against recordings made on the runtime it runs on. 141 jobs,
+# 91.7% coverage as measured over the 140 of them that were recorded before
+# `HarnessDriver-csvdates` was planned, the map in §1.7.
+#
+# The suite's denominator is 140 and not 142 for the reason step 4 recorded:
+# `CustomReportServiceTest`'s two tests hardcode a `StructType.toString()`
+# rendering that changed at 3.3.4, and they are red at this rung for every tree
+# including the golden one. test.sh replaces `/app/src/test` with the commit's
+# own copy before the suite runs, so a candidate's correction is deleted before
+# it can be scored; scoring the two would cap the oracle below 1.0 and pay the
+# same for deleting the file as for repairing it. They are a precondition
+# (NOTES 6.4.2), and they stay one here.
+#
+# --- what it costs to score, measured -----------------------------------------
+#
+# MEASURED-AT-6: this step's wall clock, from its verifier container starting
+# to its reward.json, taken off the oracle run rather than estimated here. The
+# four steps before it read 24m24s, 25m31s, 27m45s and 31m40s on the run that
+# certifies the shipped bytes (m27-s4-oracle-rebuilt, §6.4.11). Step 5 replays
+# the same census, now 141 jobs, against the same 46-class suite, on a runtime
+# one rung newer, so the prediction registered before the run is "step 4's
+# figure, plus whatever JDK 17 costs at session start" -- and that prediction
+# is recorded in CHECKLIST-4.2.md, not settled here.
+#
+# The 141-job replay is the bulk of it, and neither it nor the 46-class suite
+# is reducible without asking a smaller question: rule 10's own instruction is
+# not to shrink a fixture set to fit a clock.
+#
+# family	key	weight	what it is a claim about
+behavior	replay	0.24	the 141 recorded jobs of the c09 census answer the same way, compared after norm.py and projection.tsv
+behavior	tests	0.10	the repository's own 46 graded test classes / 140 graded tests still pass, run from a pristine copy; CustomReportServiceTest's two are outside both baselines at this rung and are a precondition instead
+migrated	m1	0.12	the build resolves Spark 3.4.4 for Scala 2.13 and nothing else; the sessions the jar actually ran in are checked too, but as standing rules in gates/rules/rung5.tsv rather than here, because at this rung spark-core is provided and no candidate tree can fail them
+migrated	m2	0.18	the pom asks for Java 17, every class in the jar is class-file major 61, and the forked test JVM is opened onto java.base/sun.nio.ch
+migrated	m3	0.36	every csv read under src/main that asks the engine to infer pins date inference off at the site with preferDate=false, so the move to 3.4.4 does not change the types those readers produce, with the sites still there and the statement compiled into the jar

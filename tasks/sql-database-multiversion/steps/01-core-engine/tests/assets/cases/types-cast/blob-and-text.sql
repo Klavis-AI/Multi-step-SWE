@@ -1,0 +1,6 @@
+SELECT typeof(CAST('abc' AS BLOB)), hex(CAST('abc' AS BLOB));
+SELECT typeof(CAST(x'414243' AS TEXT)), CAST(x'414243' AS TEXT);
+SELECT typeof(CAST(65 AS TEXT)), CAST(65 AS TEXT);
+SELECT typeof(CAST(x'3132' AS INTEGER)), CAST(x'3132' AS INTEGER);
+SELECT typeof(CAST('abc' AS whatever)), CAST('abc' AS whatever);
+SELECT hex(CAST(123 AS BLOB));

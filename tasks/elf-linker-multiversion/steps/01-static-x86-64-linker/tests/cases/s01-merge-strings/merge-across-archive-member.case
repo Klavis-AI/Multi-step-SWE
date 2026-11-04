@@ -1,0 +1,32 @@
+# arch: x86_64
+# Deduplication also covers string sections that arrive from an archive
+# member extracted during resolution, not just from objects named directly.
+rt_obj rt.o
+cat > direct.c <<'C'
+const char *direct_copy(void) { return "a literal shared with the archive"; }
+C
+cat > memb.c <<'C'
+const char *member_copy(void) { return "a literal shared with the archive"; }
+C
+cat > spare.c <<'C'
+const char *unused_member(void) { return "never extracted"; }
+C
+cat > m.c <<'C'
+#include "rt.h"
+const char *direct_copy(void); const char *member_copy(void);
+int entry(void) {
+  print(direct_copy()); print("\n");
+  return direct_copy() == member_copy() ? 0 : 1;
+}
+C
+cc_obj direct.o direct.c; cc_obj memb.o memb.c; cc_obj spare.o spare.c; cc_obj m.o m.c
+mkar lib.a memb.o spare.o
+link_ok out rt.o direct.o m.o lib.a
+run_expect out "a literal shared with the archive" 0
+want_not "the unused member stayed out" "$(symbols out)" "unused_member"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

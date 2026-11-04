@@ -1,0 +1,2282 @@
+<!-- Copyright 1997 The Open Group, All rights reserved -->
+<html><head>
+
+
+<title>DCE 1.1: Remote Procedure Call - RPC PDU Encodings</title>
+</head><body><center><a href="chap11.htm">Previous section.</a></center>
+<p>
+<basefont size=3>
+<!-- CDE 1.1: Remote Procedure Call -->
+<basefont size=3>
+<center>
+<font size=2>
+CDE 1.1: Remote Procedure Call
+<br>
+Copyright &copy; 1997 The Open Group
+</center>
+</font>
+<hr size=2 noshade>
+<h2><a name = "tagcjh_17"></a>RPC PDU Encodings</h2>
+<xref type="1" name="chap12"></xref>
+<index term="Protocol Data Units"></index>
+<index term="PDU encodings"></index>
+This chapter specifies the encodings of the Protocol Data Units (PDUs)
+used by the connectionless and connection-oriented RPC protocols.
+The first section provides common information for the two protocols.
+Subsequent sections provide connectionless and connection-oriented
+protocol-specific information.
+<p>
+<xref href=tbl12-1><a href="#tagtcjh_28">
+RPC Protocol Data Units
+</a></xref>
+lists the  PDUs that are specified.
+<h3><a name = "tagcjh_17_01"></a>Generic PDU Structure</h3>
+<xref type="2" name="generic_pdu_struct"></xref>
+<index term="PDU encodings, generic structure"></index>
+<p>
+An RPC PDU contains up to three parts:
+<ul>
+<p>
+<li>
+A PDU header that contains protocol control information. A header is
+present in all PDUs.
+<p>
+<li>
+A PDU body that contains data. For example, the body of a <b>request</b> or
+<b>response</b> PDU contains data representing the input or output parameters
+for an operation. A body is present only in some types of PDUs.
+<p>
+<li>
+An authentication verifier that contains data specific to an
+authentication protocol. For example, an authentication protocol may
+ensure the integrity of a packet via inclusion of an encrypted
+checksum in the authentication verifier. The presence of an
+authentication verifier depends on the PDU type and whether
+authentication is being used.
+<p>
+</ul>
+<pre>
+<basefont size=2>
+</pre>
+<p><center><p><table  bordercolor=#000000 border=1 cellpadding=3 align=center>
+<tr valign=top><th align=center><b>PDU Type</b>
+<th align=center><b>Protocol</b>
+<th align=center><b>Type Value</b>
+<tr valign=top><th align=left><b>request</b>
+<th align=left>CO/CL
+<th align=left>0
+<tr valign=top><td align=left><b>ping</b>
+<td align=left>CL
+<td align=left>1
+<tr valign=top><td align=left><b>response</b>
+<td align=left>CO/CL
+<td align=left>2
+<tr valign=top><td align=left><b>fault</b>
+<td align=left>CO/CL
+<td align=left>3
+<tr valign=top><td align=left><b>working</b>
+<td align=left>CL
+<td align=left>4
+<tr valign=top><td align=left><b>nocall</b>
+<td align=left>CL
+<td align=left>5
+<tr valign=top><td align=left><b>reject</b>
+<td align=left>CL
+<td align=left>6
+<tr valign=top><td align=left><b>ack</b>
+<td align=left>CL
+<td align=left>7
+<tr valign=top><td align=left><b>cl_cancel</b>
+<td align=left>CL
+<td align=left>8
+<tr valign=top><td align=left><b>fack</b>
+<td align=left>CL
+<td align=left>9
+<tr valign=top><td align=left><b>cancel_ack</b>
+<td align=left>CL
+<td align=left>10
+<tr valign=top><td align=left><b>bind</b>
+<td align=left>CO
+<td align=left>11
+<tr valign=top><td align=left><b>bind_ack</b>
+<td align=left>CO
+<td align=left>12
+<tr valign=top><td align=left><b>bind_nak</b>
+<td align=left>CO
+<td align=left>13
+<tr valign=top><td align=left><b>alter_context</b>
+<td align=left>CO
+<td align=left>14
+<tr valign=top><td align=left><b>alter_context_resp</b>
+<td align=left>CO
+<td align=left>15
+<tr valign=top><td align=left><b>shutdown</b>
+<td align=left>CO
+<td align=left>17
+<tr valign=top><td align=left><b>co_cancel</b>
+<td align=left>CO
+<td align=left>18
+<tr valign=top><td align=left><b>orphaned</b>
+<td align=left>CO
+<td align=left>19
+</table>
+</center>
+<pre>
+<basefont size=3>
+</pre>
+<b><center><xref table="RPC Protocol Data Units"><a name="tagtcjh_28"></a></xref>Table: RPC Protocol Data Units</center></b>
+<xref type="7" name="tbl12-1"></xref>
+<h3><a name = "tagcjh_17_02"></a>Encoding Conventions</h3>
+<index term="PDU encodings, conventions"></index>
+<p>
+The encodings are provided here as IDL data type declarations. The
+actual declarations of PDU data types are implementation-dependent. 
+<p>
+The run-time system treats PDU headers as byte streams that are encoded
+according to the Network Data Representation (NDR, see
+<xref href=chap14><a href="chap14.htm#tagcjh_19">
+Transfer Syntax NDR
+</a></xref>)
+encoding rules. In PDUs containing stub data, the stub data may be
+encoded according to any of the negotiated presentation syntaxes.
+PDU-specific header fields identify the stub data presentation syntax.
+The run-time system identifies the presentation syntax from the PDU-specific
+header fields and interprets the stub data accordingly.
+<p>
+In order to encode and decode the header fields,
+implementations must support the following subset of NDR:
+<ul>
+<p>
+<li>
+integers: 1, 2 and 4 octet unsigned
+<p>
+<li>
+octet string
+<p>
+<li>
+record constructor for the preceding types
+<p>
+<li>
+conformant array constructor.
+<p>
+</ul>
+<p>
+Implementations must follow the rule that, beginning at the
+first octet of the PDU (or the first octet of the optional data
+field), each field is encoded in the order specified without any
+additional information such as type, length or padding.
+<h3><a name = "tagcjh_17_03"></a>Alignment</h3>
+<xref type="2" name="alignment"></xref>
+<index term="PDU encodings, alignment"></index>
+<p>
+For all the PDUs, the scalar header fields are aligned <b>[0 MOD
+min(8,sizeof(</b><i>field</i><b>))]</b>. For PDUs that contain stub data, the
+header is padded, if necessary, with zeros to an integral multiple of
+8 octets in length. This allows the stub data to assume it will
+always begin with <b>0 MOD 8</b> alignment. Padding, where necessary, is
+included in the type declarations. The <b>align(</b><i>n</i><b>)</b>
+function, which appears in some connection-oriented PDU declarations,
+identifies a function that returns the number of padding octets to force
+alignment to a natural multiple of <i>n</i>. Implementations should
+ensure that each message in memory begins on an 8 octet alignment
+boundary in order to preserve the natural alignment.
+<p>
+Refer to
+<xref href=chap13><a href="chap13.htm#tagcjh_18">
+Security
+</a></xref>
+for alignment requirements for the optional authentication verifiers.
+<h3><a name = "tagcjh_17_04"></a>Common Fields</h3>
+<index term="PDU encodings, common fields"></index>
+<p>
+Header encodings differ between connectionless and connection-oriented
+PDUs. However, certain fields use common sets of values with a
+consistent interpretation across the two protocols. These values are
+specified in the following sections.
+<h4><a name = "tagcjh_17_04_01"></a>PDU Types</h4>
+<p>
+Both connectionless and connection-oriented PDU headers contain a
+1-byte field that identifies the PDU type. The values are shown in
+the column marked <b>Type Value</b> in
+<xref href=tbl12-1><a href="#tagtcjh_28">
+RPC Protocol Data Units
+</a></xref>.
+<h4><a name = "tagcjh_17_04_02"></a>Protocol Version Numbers</h4>
+<index term="PDU encodings, protocol version numbers"></index>
+<index term="protocol version numbers"></index>
+<p>
+Both connectionless and connection-oriented PDU headers contain
+version number fields that indicate the RPC protocol version. The
+connectionless headers contain a single version field, while the
+connection-oriented headers contain both a major and a minor version
+field. Connectionless and connection-oriented protocol version
+numbers vary independently, so that a given version number is not
+necessarily unique to one of the protocols.
+<p>
+The version numbers for the protocols specified in this chapter are as
+follows:
+<ul>
+<p>
+<li>
+The major version number for the connection-oriented protocol is 5.
+<p>
+<li>
+The minor version numbers for the connection-oriented protocol are
+either 0 (zero) or 1.
+<p>
+The connection-oriented minor version number of 1 supports security
+credentials larger than 1400 bytes. The state machine automatically 
+falls back to the minor version number 0 (zero) style of security 
+credentials should the server return an RPC version mismatch error.
+<p>
+<li>
+The version number for the connectionless protocol is 4.
+<p>
+</ul>
+<h4><a name = "tagcjh_17_04_03"></a>Data Representation Format Labels</h4>
+<index term="PDU encodings, data representation format labels"></index>
+<index term="data representation format labels"></index>
+<p>
+Both connectionless and connection-oriented PDU headers contain an NDR
+data representation format label that identifies the formats used by
+the sender of a PDU to represent data in the PDU header, and when the
+transfer syntax is NDR, in the PDU body. (The representation of data
+in an authentication verifier is determined by the authentication
+protocol.)
+<xref href=chap14><a href="chap14.htm#tagcjh_19">
+Transfer Syntax NDR
+</a></xref>
+describes the NDR data representation format label.
+<p>
+As defined by NDR, the format label consists of 4 bytes, although
+the fourth byte is currently unused. Only the first 3 bytes
+appear in RPC connectionless PDU headers. Connection-oriented PDUs
+include space for all four bytes of the format label.
+<p>
+NDR defines only one bit layout for the format label itself, so its
+format is the same in all PDUs.
+<h4><a name = "tagcjh_17_04_04"></a>Reject Status Codes</h4>
+<xref type="3" name="reject_status_codes"></xref>
+<index term="PDU encodings, reject status codes"></index>
+<index term="reject status codes"></index>
+<p>
+Both <b>reject</b> and connection-oriented <b>fault</b> PDUs contain a
+32-bit field that indicates a server's reason for rejecting an RPC
+call request. This field is encoded as the body data of the
+<b>reject</b> PDU and as the <b>status</b> field of the
+connection-oriented <b>fault</b> PDU header.
+<xref href=tblE-1><a href="apdxe.htm#tagtcjh_43">
+Reject Status Codes
+</a></xref>
+lists the possible values of this field.
+<index term="PDU encodings, common fields"></index>
+<h3><a name = "tagcjh_17_05"></a>Connectionless RPC PDUs</h3>
+<xref type="2" name="connectionless_rpc_pdus"></xref>
+<index term="PDU encodings, connectionless"></index>
+<p>
+The RPC run-time system uses the connectionless PDUs for the client/server
+communications that are required by each remote procedure call over a
+connectionless transport. The following sections specify the
+encoding of each of the connectionless PDUs.
+<h4><a name = "tagcjh_17_05_01"></a>Connectionless PDU Structure</h4>
+<index term="connectionless PDUs, structure"></index>
+<p>
+Connectionless PDUs consist of a header, body data and an optional
+authentication verifier. The PDU header has a fixed length of 80
+bytes. The encoding is described in
+<xref href=hdr_encoding><a href="#tagcjh_17_05_02">
+Header Encoding
+</a></xref>.
+The PDU body can be defined as an array of the IDL <b>byte</b> type.
+The length of the PDU body is specified in the PDU header.
+<p>
+The authentication verifier can be defined as an array of the IDL
+<b>byte</b> type. The length of the authentication verifier depends on
+the authentication protocol specified in the PDU header. An
+authentication verifier is present in a PDU only if the
+<i>auth_proto</i> header field is not 0 (zero).
+<p>
+The maximum size of an RPC connectionless PDU is the fixed header
+length (80 bytes) plus the maximum body length plus the
+length of the authentication verifier, which is determined by the
+authentication protocol.
+The Open Group DCE defines a lower bound on the size of a single PDU that
+all implementations must be able to receive, <b>MustRecvFragSize</b>.
+A client and server may subsequently negotiate a large PDU size during
+the course of their conversation.
+This negotiation may take place explicitly (by conveying the value in
+the body of a <b>fack</b> PDU; see
+<xref href=fack_pdu><a href="#tagcjh_17_05_03_04">
+The fack PDU
+</a></xref>),
+or implicitly (by presuming that a peer can receive packets as large as
+those it has transmitted).
+<p>
+If the input data in a request or the output data in a response exceed
+the maximum PDU body size, the RPC connectionless protocols fragment
+the request or response into several PDUs, called fragments. The
+fragment number can be reused for a given call if the fragment number
+space is exhausted. If fragment numbers wrap around and are reused,
+the implementation must assure that these are unambiguous (for
+example, the first 50% of fragments must have been acknowledged).
+<p>
+Requests that are broadcast must fit in one PDU, and on some connectionless 
+transports they may be subject to further size limitations.
+<h4><a name = "tagcjh_17_05_02"></a>Header Encoding</h4>
+<xref type="3" name="hdr_encoding"></xref>
+<index term="connectionless PDU header encoding"></index>
+<p>
+The connectionless header can be defined as a structure in 
+Interface Definition Language (IDL):
+<code>
+<pre>
+<tt>typedef struct {
+    unsigned small rpc_vers = 4; /* RPC protocol major version (4 LSB only)*/
+    unsigned small ptype;      /* Packet type (5 LSB only) */
+    unsigned small flags1;     /* Packet flags */
+    unsigned small flags2;     /* Packet flags */
+    byte           drep[3];    /* Data representation format label */
+    unsigned small serial_hi;  /* High byte of serial number */
+    uuid_t         object;     /* Object identifier */
+    uuid_t         if_id;      /* Interface identifier */
+    uuid_t         act_id;     /* Activity identifier */
+    unsigned long  server_boot;/* Server boot time */
+    unsigned long  if_vers;    /* Interface version */
+    unsigned long  seqnum;     /* Sequence number */
+    unsigned short opnum;      /* Operation number */
+    unsigned short ihint;      /* Interface hint */
+    unsigned short ahint;      /* Activity hint */
+    unsigned short len;        /* Length of packet body */
+    unsigned short fragnum;    /* Fragment number */
+    unsigned small auth_proto; /* Authentication protocol identifier*/
+    unsigned small serial_lo;  /* Low byte of serial number */
+} dc_rpc_cl_pkt_hdr_t;
+</code>
+</pre>
+</tt><p>
+The bit layout of each field in a PDU header is determined by
+the following:
+<ul>
+<p>
+<li>
+The IDL type of the field, as shown in the definition 
+for <b>dc_rpc_cl_pkt_hdr_t</b>.
+<p>
+<li>
+The NDR representation for that IDL type, as specified in
+<xref href=chap14><a href="chap14.htm#tagcjh_19">
+Transfer Syntax NDR
+</a></xref>.
+<p>
+<li>
+The NDR character, integer and floating-point formats used by the
+RPC implementation that is sending the PDU.
+<p>
+</ul>
+<h5><a name = "tagcjh_17_05_02_01"></a>Protocol Version Number</h5>
+<index term="connectionless PDU header encoding, protocol version number"></index>
+<p>
+The protocol version number is a non-negative integer that is
+encoded in the 4 least significant bits of the <b>rpc_vers</b> field.
+(The remaining bits are reserved.) This number is incremented at each
+new release of the protocol. The protocol version number allows
+implementations of several versions of RPC to coexist in a distributed
+environment. The PDU formats given here are for version 4.
+<h5><a name = "tagcjh_17_05_02_02"></a>PDU Type</h5>
+<index term="connectionless PDU header encoding, PDU type"></index>
+<p>
+The PDU type is a non-negative integer that is encoded in
+the 5 least significant bits of the <b>ptype</b> field. (The remaining
+bits are reserved.)  The values for each type are shown in the column
+labelled <b>Type Value</b> in
+<xref href=tbl12-1><a href="#tagtcjh_28">
+RPC Protocol Data Units
+</a></xref>.
+<h5><a name = "tagcjh_17_05_02_03"></a>Flags Fields</h5>
+<index term="connectionless PDU header encoding, flags fields"></index>
+<p>
+Each of the flags fields is an 8-bit integer that is composed of bit flags 
+for use in protocol control.
+<p>
+This document currently specifies the use of 6 bits in the first set of PDU 
+flags. The other bits are either reserved for use by implementations 
+or reserved for future use, as indicated in
+<xref href=tbl12-3><a href="#tagtcjh_30">
+Second Set of PDU Flags
+</a></xref>
+and
+<xref href=tbl12-4><a href="#tagtcjh_31">
+Authentication Protocol Identifiers
+</a></xref>.
+<p>
+Some flags are meaningful only in PDUs that are sent from the client
+to the server. These flags are ignored in PDUs that are sent from the
+server to the client.
+<p>
+<xref href=tbl12-3><a href="#tagtcjh_30">
+Second Set of PDU Flags
+</a></xref>
+lists the bit flags in the first set of PDU flags.
+<basefont size=2>
+<p><center><p><table  bordercolor=#000000 border=1 cellpadding=3 align=center>
+<tr valign=top><th align=center><b>PDU Flag</b>
+<th align=center><b>Hex Value</b>
+<th align=center><b>Meaning </b>
+<tr valign=top><th align=left><b>reserved_01</b>
+<th align=left>01
+<th align=left><i>Reserved for use by implementations.
+</i><tr valign=top><td align=left><b>lastfrag</b>
+<td align=left>02
+<td align=left><i>Meaningful in either direction. If set, the PDU is the last 
+fragment of a multi-PDU transmission.
+</i><tr valign=top><td align=left><b>frag</b>
+<td align=left>04
+<td align=left><i>Meaningful in either direction. If set, the PDU is a fragment 
+of a multi-PDU transmission.
+</i><tr valign=top><td align=left><b>nofack</b>
+<td align=left>08
+<td align=left><i>Meaningful for fragments sent in either direction. If set, the 
+receiver is not requested to send a <b>fack</b> PDU for the fragment.
+Otherwise, if not set, the receiver acknowledges the
+received PDU with a <b>fack</b> PDU. Note that both client and server may 
+send <b>fack</b> PDUs independent of the status of this flag. 
+</i><tr valign=top><td align=left><b>maybe</b>
+<td align=left>10
+<td align=left><i>Meaningful only from client to server. If set, the PDU is for 
+a maybe request.
+</i><tr valign=top><td align=left><b>idempotent</b>
+<td align=left>20
+<td align=left><i>Meaningful only from client to server. If set, the PDU is for 
+an idempotent request.
+</i><tr valign=top><td align=left><b>broadcast</b>
+<td align=left>40
+<td align=left><i>Meaningful only from client to server. If set, the PDU is for 
+a broadcast request.
+</i><tr valign=top><td align=left><b>reserved_80</b>
+<td align=left>80
+<td align=left><i>Reserved for use by implementations.
+</i></table>
+</center>
+<basefont size=3>
+<b><center><xref table="The First Set of PDU Flags"><a name="tagtcjh_29"></a></xref>Table: The First Set of PDU Flags</center></b>
+<xref type="7" name="tbl12-2"></xref>
+<p>
+<xref href=tbl12-4><a href="#tagtcjh_31">
+Authentication Protocol Identifiers
+</a></xref>
+lists the bit flags in the second set of PDU flags.
+<basefont size=2>
+<p><center><p><table  bordercolor=#000000 border=1 cellpadding=3 align=center>
+<tr valign=top><th align=center><b>PDU Flag</b>
+<th align=center><b>Hex Value</b>
+<th align=center><b>Meaning</b>
+<tr valign=top><th align=left><b>reserved_01</b>
+<th align=left>01
+<th align=left><i>Reserved for use by implementations.
+</i><tr valign=top><td align=left><b>cancel_pending</b>
+<td align=left>02
+<td align=left><i>Cancel pending at the call end.
+</i><tr valign=top><td align=left><b>reserved_04</b>
+<td align=left>04
+<td align=left><i>Reserved for future use. Must be set to 0.
+</i><tr valign=top><td align=left><b>reserved_08</b>
+<td align=left>08
+<td align=left><i>Reserved for future use. Must be set to 0.
+</i><tr valign=top><td align=left><b>reserved_10</b>
+<td align=left>10
+<td align=left><i>Reserved for future use. Must be set to 0.
+</i><tr valign=top><td align=left><b>reserved_20</b>
+<td align=left>20
+<td align=left><i>Reserved for future use. Must be set to 0.
+</i><tr valign=top><td align=left><b>reserved_40</b>
+<td align=left>40
+<td align=left><i>Reserved for future use. Must be set to 0.
+</i><tr valign=top><td align=left><b>reserved_80</b>
+<td align=left>80
+<td align=left><i>Reserved for future use. Must be set to 0.
+</i></table>
+</center>
+<basefont size=3>
+<b><center><xref table="Second Set of PDU Flags"><a name="tagtcjh_30"></a></xref>Table: Second Set of PDU Flags</center></b>
+<xref type="7" name="tbl12-3"></xref>
+<h5><a name = "tagcjh_17_05_02_04"></a>Data Representation Format Label</h5>
+<index term="connectionless PDU header encoding, data representation format label"></index>
+<p>
+The data representation format label is described in
+<xref href=chap14><a href="chap14.htm#tagcjh_19">
+Transfer Syntax NDR
+</a></xref>.
+As defined by NDR, the format label consists of 4 bytes, although the
+fourth byte is currently unused. Only the first 3 bytes appear in
+connectionless PDUs.
+<h5><a name = "tagcjh_17_05_02_05"></a>Serial Number</h5>
+<index term="connectionless PDU header encoding, serial number"></index>
+<p>
+The serial number is a 16-bit non-negative integer that identifies a
+transmission of a fragment.
+<p>
+The serial number is set to 0 (zero) when a remote procedure call 
+is initiated, and is incremented after each time a fragment is sent 
+or resent on behalf of that call.
+<p>
+In a <b>request</b> or <b>response</b> PDU that is part of a multi-PDU 
+transmission, the serial number provides information to help determine
+the temporal order of fragment transmissions and retransmissions.
+In other types of PDUs, the serial number is meaningless.
+<p>
+The 2 bytes of the serial number do not occupy contiguous positions in
+the PDU header. The most significant byte follows the data
+representation format label. The least significant byte follows the
+authentication protocol number.
+<h5><a name = "tagcjh_17_05_02_06"></a>Object Identifier</h5>
+<index term="connectionless PDU header encoding, object identifier"></index>
+<p>
+The object identifier is a UUID that uniquely identifies the object 
+on which a remote procedure call is operating. If the call does not 
+operate on an object, this field contains the nil UUID.
+<p>
+The server uses the object UUID, the interface UUID, the interface 
+version number, and the operation number to select the operation to 
+execute on the client's behalf.
+<h5><a name = "tagcjh_17_05_02_07"></a>Interface Identifier</h5>
+<index term="connectionless PDU header encoding, interface identifier"></index>
+<p>
+The interface identifier is a UUID that uniquely identifies the interface 
+being called.
+<p>
+The server uses the object UUID, the interface UUID, the interface 
+version number, and the operation number to select the operation to 
+execute on the client's behalf.
+<h5><a name = "tagcjh_17_05_02_08"></a>Activity Identifier</h5>
+<index term="connectionless PDU header encoding, activity identifier"></index>
+<p>
+The activity identifier is a UUID that uniquely identifies the client 
+activity that is making a remote procedure call. The server can use 
+the activity UUID as a communications key between it and the client.
+<h5><a name = "tagcjh_17_05_02_09"></a>Server Boot Time</h5>
+<index term="connectionless PDU header encoding, server boot time"></index>
+<p>
+The server boot time is a 32-bit non-negative integer that 
+indicates the time at which the current instantiation of a server 
+was booted; that is, the time at which the process in which the server 
+is running was created, not the time at which the server host was 
+booted. Server boot time is represented as time in seconds since 
+1 January 1970 and must increase with each boot of the server.
+<p>
+A server passes its boot time in all the PDUs that it sends to a
+client. The client passes back this value in all the PDUs that it
+subsequently sends to the same server. When a client sends its first
+PDU to a server, it does not know the server boot time, and it passes
+a value of 0 (zero). The server boot time field enables the RPC
+connectionless protocols to prevent nonidempotent operations from
+being executed more than once in the face of a server crash.
+<p>
+The protocol also allows for PDUs to be transmitted by the endpoint
+mapper on behalf of a server process; for example, the endpoint mapper
+may return a reject PDU upon receipt of a request sent to a server
+that is not currently running.
+In such cases, any PDUs transmitted by the endpoint mapper must carry
+a 0 boot time, to differentiate them from PDUs that might subsequently
+be received by the target server.
+<h5><a name = "tagcjh_17_05_02_10"></a>Interface Version</h5>
+<index term="connectionless PDU header encoding, interface version"></index>
+<p>
+The interface version is a 32-bit non-negative integer that 
+identifies the version number of the interface being called. This 
+field allows servers to implement several versions of one interface.
+<p>
+The server uses the object UUID, the interface UUID, the interface 
+version number, and the operation number to select the operation to 
+execute on the client's behalf.
+<h5><a name = "tagcjh_17_05_02_11"></a>Sequence Number</h5>
+<index term="connectionless PDU header encoding, sequence number"></index>
+<p>
+The sequence number is a 32-bit non-negative integer that 
+identifies the remote procedure call that an activity is making.
+<p>
+Each remote procedure call invoked by an activity has a unique sequence 
+number that is assigned when the call is initiated. All RPC connectionless 
+PDUs sent on behalf of that particular call have the same sequence 
+number, whether the PDUs are from client to server or from server 
+to client.
+<p>
+When an activity initiates a new remote procedure call, it increases 
+the sequence number, so that each subsequent call has a larger sequence 
+number. Together, the activity UUID and the sequence number uniquely 
+identify a remote procedure call.
+<h5><a name = "tagcjh_17_05_02_12"></a>Operation Number</h5>
+<index term="connectionless PDU header encoding, operation number"></index>
+<p>
+The operation number is a 16-bit non-negative integer that 
+identifies a particular operation within the interface being called.
+<h5><a name = "tagcjh_17_05_02_13"></a>Interface Hint</h5>
+<index term="connectionless PDU header encoding, interface hint"></index>
+<p>
+The interface hint is a 16-bit non-negative integer. Although 
+an implementation can use this field for any purpose, its intended 
+use is to allow a server to optimise lookups of information about 
+interfaces.
+<h5><a name = "tagcjh_17_05_02_14"></a>Activity Hint</h5>
+<index term="connectionless PDU header encoding, activity hint"></index>
+<p>
+The activity hint is a 16-bit non-negative integer. Although 
+an implementation can use this field for any purpose, its intended 
+use is to allow a server to optimise lookups of information about 
+the state of its communications with an activity. 
+<h5><a name = "tagcjh_17_05_02_15"></a>PDU Body Length</h5>
+<index term="connectionless PDU header encoding, body length"></index>
+<p>
+The PDU body length is a 16-bit non-negative integer that
+indicates the length in bytes of the PDU body. The maximum PDU body
+size is 65528 bytes. The alignment requirements for the PDU header
+(see
+<xref href=alignment><a href="#tagcjh_17_03">
+Alignment
+</a></xref>)
+also apply to the PDU body data.
+<h5><a name = "tagcjh_17_05_02_16"></a>Fragment Number</h5>
+<index term="connectionless PDU header encoding, fragment number"></index>
+<p>
+The fragment number is a 16-bit non-negative integer that 
+identifies a PDU within a multi-PDU transmission.
+<p>
+In a <b>request</b> or <b>response</b> PDU that is part of a multi-PDU
+transmission, the fragment number indicates the fragment that is being
+sent. The fragment number is incremented for each fragment. The first
+fragment is fragment 0, the second is fragment 1, and so on.
+<p>
+In a <b>fack</b> PDU and a <b>nocall</b> PDU with a body, the
+fragment number indicates the fragments that have been received in
+order, as follows:
+<ul>
+<p>
+<li>
+If fragment 0 through fragment <i>n</i> have been 
+received, and fragment <i>n</i>+1 has not been received, 
+the fragment number field should be <i>n</i>.
+<p>
+<li>
+If fragment 0 has not been received, the fragment 
+number field should contain the hexadecimal value FFFF.
+<p>
+</ul>
+<p>
+In effect, fragments received out of order are not acknowledged.
+<h5><a name = "tagcjh_17_05_02_17"></a>Authentication Protocol Identifier</h5>
+<index term="connectionless PDU header encoding, authentication protocol identifier"></index>
+<p>
+The authentication protocol identifier is an 8-bit non-negative 
+integer that identifies an authentication protocol.
+<p>
+<xref href=tbl12-4><a href="#tagtcjh_31">
+Authentication Protocol Identifiers
+</a></xref>
+lists the possible values for the authentication protocol
+identifier field and briefly describes the authentication protocol
+identified by each value. All other values are reserved for future use.
+<pre>
+<basefont size=2>
+</pre>
+<p><center><p><table  bordercolor=#000000 border=1 cellpadding=3 align=center>
+<tr valign=top><th align=center><b>Identifier</b>
+<th align=center><b>Protocol Used</b>
+<tr valign=top><th align=left>0
+<th align=left>None
+<tr valign=top><td align=left>1
+<td align=left>OSF DCE Private Key Authentication
+</table>
+</center>
+<pre>
+<basefont size=3>
+</pre>
+<b><center><xref table="Authentication Protocol Identifiers"><a name="tagtcjh_31"></a></xref>Table: Authentication Protocol Identifiers</center></b>
+<xref type="7" name="tbl12-4"></xref>
+<h4><a name = "tagcjh_17_05_03"></a>Connectionless PDU Definitions</h4>
+<p>
+The following sections describe the contents and use of each of the
+connectionless PDUs.
+<h5><a name = "tagcjh_17_05_03_01"></a>The ack PDU</h5>
+<index term="connectionless PDUs, ack"></index>
+<p>
+A client sends an <b>ack</b> PDU after it has received a
+response to an <b>at-most-once</b> request. An <b>ack</b> PDU
+explicitly acknowledges that the client has received the response; it
+tells the server to cease resending the response and discard the
+response PDU. (A client can also implicitly acknowledge receipt of a
+response by sending a new request to the server.)
+<p>
+An <b>ack</b> PDU contains no body data.
+<h5><a name = "tagcjh_17_05_03_02"></a>The cancel_ack PDU</h5>
+<index term="connectionless PDUs, cancel_ack"></index>
+<p>
+A server sends a <b>cancel_ack</b> PDU after it has received a
+<b>cancel</b> PDU. A <b>cancel_ack</b> PDU acknowledges that
+the server has cancelled or orphaned a remote call or indicates that
+the server is not accepting cancels.
+<p>
+A <b>cancel_ack</b> PDUs can optionally have a body. A
+<b>cancel_ack</b> PDU without a body acknowledges orphaning of a
+call, whereas a <b>cancel_ack</b> PDU with a body acknowledges
+cancellation of a call. Orphaned calls do not perform any further
+processing. Canceled calls transparently deliver a notification to
+the server manager routine without 
+altering the run-time system state of the call.
+The run-time system's processing 
+of a cancelled call continues uninterrupted.
+<p>
+When a <b>cancel_ack</b> PDU has a body, its format is specified by the
+following IDL declaration:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct 
+{
+    unsigned32  vers = 0; /* cancel-request body format version */
+    unsigned32  cancel_id;/* id of a cancel-request event being ack'd */
+    boolean     server_is_accepting; /* server accepting cancels ? */
+} rpc_dg_cancel_ack_body_t;
+</dl>
+</code>
+</pre>
+</tt><ul>
+<p>
+<li>
+An NDR <b>unsigned long</b> that indicates the version number of the
+<b>cancel_ack</b> PDU body. This is independent of the protocol
+version number contained in the PDU header. This specification is for
+version 0.
+<p>
+<li>
+An NDR <b>unsigned long</b> that identifies the cancel request 
+event that is being acknowledged. 
+<p>
+<li>
+An NDR <b>boolean</b> that indicates whether the server is accepting 
+the cancel request. TRUE means that it is accepting.
+<p>
+</ul>
+The version number for the format of the <b>cancel_ack</b> body is the
+first byte of the body. This version number changes independently of
+the protocol version number in the PDU header.
+<h5><a name = "tagcjh_17_05_03_03"></a>The cancel PDU</h5>
+<index term="connectionless PDUs, cancel"></index>
+<p>
+A client sends a <b>cancel</b> PDU when it has incurred a cancel fault.
+A <b>cancel</b> PDU tells the server to cancel or orphan a remote
+operation. Canceled calls transparently deliver a notification to the
+server manager routine without 
+altering the run-time system state of the call.
+The run-time system's processing of a 
+cancelled call continues uninterrupted.
+<p>
+The <b>cancel</b> PDU body format is specified by the following IDL
+declaration:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct 
+{
+    unsigned32  vers = 0; /* cancel body format version */
+    unsigned32  cancel_id;/* id of a cancel-request event */
+} rpc_dg_cancel_body_t;
+</dl>
+</code>
+</pre>
+</tt><ul>
+<p>
+<li>
+An NDR <b>unsigned long</b> that indicates the version number of
+the <b>cancel</b> PDU body. This is independent of the protocol version
+number contained in the PDU header. This specification is for
+version 0.
+<p>
+<li>
+An NDR <b>unsigned long</b> that identifies a cancel request event.
+<p>
+</ul>
+<p>
+The version number for the format of the <b>cancel</b> body is the
+first byte of the body. This version number changes independently of
+the protocol version number in the PDU header.
+<h5><a name = "tagcjh_17_05_03_04"></a>The fack PDU</h5>
+<xref type="4" name="fack_pdu"></xref>
+<index term="connectionless PDUs, fack"></index>
+<p>
+Both clients and servers send <b>fack</b> PDUs.
+<p>
+A <i>client</i> sends a <b>fack</b> PDU after it has received a fragment
+of a multi-PDU response. A <b>fack</b> PDU explicitly acknowledges that
+the client has received the fragment; it may tell the sender to stop
+sending for a while.
+<p>
+A <i>server</i> sends a <b>fack</b> PDU after it has received a fragment
+of a multi-PDU request. A <b>fack</b> PDU explicitly acknowledges that
+the server has received the fragment; it may tell the sender to stop
+sending for a while.
+<p>
+The <b>nofack</b> bit flag in a request or response fragment header can
+be used to control the sending of <b>fack</b> PDUs by the
+receiver as follows:
+<ul>
+<p>
+<li>
+The receiver of a fragment must send an <b>fack</b> if the
+fragment's <b>nofack</b> flag is not set.
+<p>
+<li>
+The receiver of a fragment may choose not to send a <b>fack</b>
+if the fragment's <b>nofack</b> flag is set.
+<p>
+</ul>
+<p>
+A <b>fack</b> PDU may contain a body with data that can be used
+by the sender of a request or response to increase the efficiency of a
+multi-PDU transmission. The contents of a <b>fack</b> PDU body are specified,
+but use of the data is left to implementations. Implementations
+must be able to receive <b>fack</b> PDUs without bodies.
+<p>
+The first byte of a <b>fack</b> PDU body is a version number for the
+format of the <b>fack</b> body. This version number can change
+independently of the protocol version number in the PDU header.
+<p>
+At version 0, the <b>fack</b> PDU body format is specified by the
+following IDL declaration:
+<code>
+<pre>
+<tt>typedef struct
+{
+    unsigned8 vers = 0;       /* Fack packet body version */
+    u_char pad1;
+    unsigned16 window_size;   /* Sender's receive window size (in pkts) */
+    unsigned32 max_tsdu;      /* largest local TPDU size */
+    unsigned32 max_frag_size; /* largest TPDU not fragmented */
+    unsigned16 serial_num;    /* serial # of packet that induced this fack */
+    unsigned16 selack_len;    /* number of elements in the selack array    */
+    unsigned32 selack[1];     /* variable number of 32 bit selective ack   */
+                              /* bit masks.                               */
+} rpc_dg_fack_body_t;
+</code>
+</pre>
+</tt><ul>
+<p>
+<li>
+An NDR <b>unsigned short</b> integer indicates the version 
+number of the <b>fack</b> PDU body.
+<p>
+<li>
+An uninitialised pad byte.
+<p>
+<li>
+An NDR <b>unsigned short</b> integer indicates the size 
+in KB of the receive window at the sender of the <b>fack</b>. 
+The window size indicates how much additional data the sender of the 
+<b>fack</b> is prepared to receive. The window size field can be used by 
+senders and receivers to coordinate their rates of transmission and 
+reception.
+<p>
+<li>
+An NDR <b>unsigned long</b> integer indicates the size in 
+bytes of the largest Transport Protocol Data Unit (TPDU) that can 
+be passed through the local transport service interface at the sender 
+of the <b>fack</b>. 
+<p>
+<li>
+An NDR <b>unsigned long</b> integer indicating the <b>fack</b> sender's
+suggested maximum PDU size for this conversation.
+The actual PDU size used may be further limited by the <b>fack</b>
+receiver.
+<p>
+<li>
+An NDR <b>unsigned short</b> integer indicates the serial number
+of the fragment transmission that the sender of the <b>fack</b> is
+acknowledging. See
+<xref href=serial_numbers><a href="chap9.htm#tagcjh_14_05_05">
+Serial Numbers
+</a></xref>
+for the semantics of serial numbers.
+<p>
+<li>
+An NDR <b>unsigned short</b> integer that indicates the number of
+elements in the array of selective acknowledgement bit masks.
+Selective acknowledgement bit masks identify any fragments that the
+sender of the <b>fack</b> has received out of order; that is, any
+fragments whose fragment numbers are greater than the fragment number
+in the header of the <b>fack</b>.
+<p>
+<li>
+An array of NDR <b>unsigned long</b> integers that function as bit
+masks, indicating any fragments that the sender of the <b>fack</b> has
+received out of order.
+<p>
+</ul>
+<p>
+Suppose that the sender of a <b>fack</b> has received fragments 0
+through <i>n</i>, but not fragment <i>n</i>+1 of a multi-PDU
+transmission; <i>n</i> is therefore the fragment number in the header
+of the <b>fack</b>. Let <i>m</i> be an index for a bit mask in the bit
+mask array, where a value of <i>m</i>=0 indicates the first bit mask
+in the array. Let <i>b</i> be an index for a bit in a bit mask, where a
+value of <i>b</i>=0 indicates the least significant bit and a value
+of <i>b</i>=31 indicates the most significant bit. The value of bit
+<i>b</i> in mask <i>m</i> indicates whether the sender of the <b>fack</b>
+has received the fragment with fragment number <i>n</i>+32<i>m</i>+<i>b</i>+1.
+A value of 1 indicates that the fragment has
+been received, and a value of 0 indicates that the fragment has not
+been received.
+<p>
+The first bit in the first mask (<i>m</i>=0 and <i>b</i>=0) 
+must always have a value of 0, since fragment <i>n</i>+1 
+is the first missing fragment.
+<p>
+A <b>fack</b> body contains only as many selective acknowledgement bit masks 
+as are necessary to acknowledge fragments received out of order. The 
+last bit mask in the <b>fack</b> body must always have at least one
+non-zero bit. 
+<p>
+The information in selective acknowledgement bit masks is intended 
+to tell the sender of a multi-PDU transmission which fragments it 
+may need to resend.
+<h5><a name = "tagcjh_17_05_03_05"></a>The fault PDU</h5>
+<index term="connectionless PDUs, fault"></index>
+<p>
+A server sends a <b>fault</b> PDU if an operation incurs a
+fault while executing on the server side. 
+<p>
+The <b>fault</b> PDU body format is specified by the following IDL
+declaration:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct
+{
+    unsigned32 st; /* status code */
+} rpc_dg_fault_body_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The body of a <b>fault</b> PDU contains a status code that indicates
+the fault that a requested operation incurred. The status code is
+represented by an NDR <b>unsigned long</b>. The fault status values
+and the corresponding application level <b>fault_status</b> parameter
+values are listed in
+<xref href=apdxe><a href="apdxe.htm#tagcjh_24">
+Reject Status Codes and Parameters
+</a></xref>.
+<h5><a name = "tagcjh_17_05_03_06"></a>The nocall PDU</h5>
+<index term="connectionless PDUs, nocall"></index>
+<p>
+A server sends a <b>nocall</b> PDU in reply to a <b>ping</b> PDU. This
+reply indicates that the server is not currently processing the
+client's call. The server may have never received the request, or
+some of the request fragments may have been lost and need to be
+retransmitted.
+<p>
+A <b>nocall</b> PDU can optionally carry a body whose format is the
+same as the optional <b>fack</b> PDU body. (See
+<xref href=fack_pdu><a href="#tagcjh_17_05_03_04">
+The fack PDU
+</a></xref>.)
+If the server wants to indicate that the call in question is queued but
+not yet processed, it sets the receive window size to zero to indicate
+to the client that it need not resend the request.
+<h5><a name = "tagcjh_17_05_03_07"></a>The ping PDU</h5>
+<index term="connectionless PDUs, ping"></index>
+<p>
+A client sends a <b>ping</b> PDU when it wants to inquire
+about an outstanding request. 
+<p>
+A <b>ping</b> PDU contains no body data.
+<h5><a name = "tagcjh_17_05_03_08"></a>The reject PDU</h5>
+<index term="connectionless PDUs, reject"></index>
+<p>
+A server sends a <b>reject</b> PDU if an RPC request is rejected.
+The body of a <b>reject</b> PDU contains a status code indicating why a
+callee is rejecting a <b>request</b> PDU from a caller. The body format
+is the same as that of the <b>fault PDU</b>. (See
+<xref href=fault_pdu><a href="#tagcjh_17_06_04_07">
+The fault PDU
+</a></xref>.)
+The status code is represented by an NDR <b>unsigned long</b>. Reject
+status codes are listed
+<xref href=apdxe><a href="apdxe.htm#tagcjh_24">
+Reject Status Codes and Parameters
+</a></xref>.
+<p>
+Note that reject status codes map to application level <b>comm_status</b>
+parameter values. This mapping is given in
+<xref href=apdxe><a href="apdxe.htm#tagcjh_24">
+Reject Status Codes and Parameters
+</a></xref>.
+<h5><a name = "tagcjh_17_05_03_09"></a>The request PDU</h5>
+<index term="connectionless PDUs, request"></index>
+<p>
+A client sends a <b>request</b> PDU when it wants to execute a remote 
+operation. In a multi-PDU request, the request consists of a series 
+of <b>request</b> PDUs with the same sequence number and monotonically 
+increasing fragment numbers. The body of a <b>request</b> PDU contains 
+data that represents input parameters for the operation.
+<p>
+A <b>request</b> PDU may have one of the following types:
+<dl compact>
+<p>
+<dt><b>idempotent</b><dd>The request is for an idempotent operation. An idempotent request 
+has the <b>idempotent</b> bit flag set.
+<p>
+<dt><b>broadcast</b><dd>The request is to be broadcast to all hosts on the local network. 
+A broadcast request has the <b>idempotent</b> and <b>broadcast</b>
+bit flags set. Broadcast calls are never authenticated.
+The request must be sent in one PDU.
+<p>
+<dt><b>maybe</b><dd>The client does not expect a response. The protocols do not guarantee 
+that the server will receive the request. A maybe request has the 
+<b>idempotent</b> and <b>maybe</b> bit flags set.
+<p>
+<dt><b>broadcast/maybe</b><dd>The request is to be broadcast to all hosts on the local network and 
+the client does not expect a response. A broadcast/maybe request has 
+the <b>idempotent</b>, <b>broadcast</b> and <b>maybe</b> bit flags set. 
+The request must be sent in one PDU.
+<p>
+<dt><b>at-most-once</b><dd>The request is for an operation that cannot be executed more than 
+once. An at-most-once request is the default; none of the
+<b>idempotent</b>, <b>broadcast</b> or <b>maybe</b> bit flags is set.
+<p>
+</dl>
+<p>
+The body of a <b>request</b> PDU consists of an NDR
+representation of the input parameters for the request.
+<h5><a name = "tagcjh_17_05_03_10"></a>The response PDU</h5>
+<index term="connectionless PDUs, response"></index>
+<p>
+A server sends a <b>response</b> PDU if an operation invoked by
+an idempotent, broadcast or at-most-once request
+executes successfully. Servers do not send responses for maybe
+or broadcast/maybe requests. A multi-PDU response consists of a
+series of <b>response</b> PDUs with the same sequence number and
+monotonically increasing fragment numbers.
+<p>
+The body of a <b>response</b> PDU consists of the NDR
+representation of the output parameters for the response.
+<h5><a name = "tagcjh_17_05_03_11"></a>The working PDU</h5>
+<index term="connectionless PDUs, working"></index>
+<p>
+A server sends a <b>working</b> PDU in reply to a <b>ping</b>
+PDU. This reply indicates that the server is processing the
+client's call. 
+<p>
+A <b>working</b> PDU contains no body data.
+<h3><a name = "tagcjh_17_06"></a>Connection-oriented RPC PDUs</h3>
+<xref type="2" name="connection-oriented_rpc_pdus"></xref>
+<p>
+The RPC run-time system uses the connection-oriented PDUs for the
+client/server communications required by each remote procedure call
+over a connection-oriented transport. This section specifies the
+encoding of each of the connection-oriented PDUs listed in
+<xref href=tbl12-1><a href="#tagtcjh_28">
+RPC Protocol Data Units
+</a></xref>.
+<p>
+The client and server <b>CALL</b> protocol machines communicate using a
+set of call PDUs, and the client and server <b>ASSOCIATION</b>
+protocol machines communicate using a set of association PDUs. (The
+<b>ASSOCIATION GROUP</b> state machines are purely local to the client
+and server and exchange no PDUs.)  The PDUs in each group are:
+<dl compact>
+<p>
+<dt>Association<dd><b>bind</b>  
+<br>
+<b>bind_ack</b>  
+<br>
+<b>bind_nak</b> 
+<br>
+<b>alter_context</b>  
+<br>
+<b>alter_context_response</b>
+<br>
+<p>
+<dt>Call<dd><b>request</b>  
+<br>
+<b>response</b>  
+<br>
+<b>fault</b>  
+<br>
+<b>shutdown</b> 
+<br>
+<b>cancel</b>  
+<br>
+<b>orphaned</b>
+<br>
+<p>
+</dl>
+<p>
+The association and call PDUs are encoded by the RPC run-time system and
+delivered to the underlying transport for transmission. This document
+does not specify encoding of any connection PDUs. In the RPC connection
+management model, connections are established by the underlying
+transport. The RPC run-time system assumes that the underlying transport
+provides certain services (see
+<xref href=chap9><a href="chap9.htm#tagcjh_14">
+RPC Protocol Definitions
+</a></xref>),
+but it does not specify the concrete implementation of these services
+or any protocol encodings.
+<h4><a name = "tagcjh_17_06_01"></a>Connection-oriented PDU Structure</h4>
+<index term="PDU encodings, connection-oriented"></index>
+<index term="connection-oriented PDUs, structure"></index>
+<p>
+The connection-oriented PDUs follow the general structure described in
+<xref href=generic_pdu_struct><a href="#tagcjh_17_01">
+Generic PDU Structure
+</a></xref>;
+that is, a header followed by body data and an optional authentication 
+verifier. Connection-oriented PDU headers vary in 
+size; every header includes a set of common header fields, but in some 
+connection-oriented PDUs, this is followed by PDU specific header 
+fields. The authentication verifier may be present in <b>bind</b>,
+<b>bind_ack</b>, <b>alter_context</b> and <b>alter_context_response</b>
+PDUs; it is never present in <b>bind_nak</b> and <b>shutdown</b> PDUs;
+and it is optionally present, depending on security protocol, in the
+other PDUs. In minor version 1 the connection-oriented authentication 
+verifier data may be larger than can fit into a single Transport 
+Service Data Unit (TSDU). These PDUs must be fragmented by the RPC 
+run-time system.
+<h4><a name = "tagcjh_17_06_02"></a>Fragmentation and Reassembly</h4>
+<xref type="3" name="frag_and_reassembly"></xref>
+<index term="connection-oriented PDUs, fragmentation and reassembly"></index>
+<p>
+The connection-oriented PDUs for minor version 1 may contain 
+arbitrary amounts of authentication verification data. If 
+the PDU has a minor version number of 0 (zero), the run-time 
+assumes no fragmentation. If the minor version number is 1 and the
+<b>PFC_LAST_FRAG</b> flag is not set, the PDU is fragmented. The
+authentication data is reassembled by concatenating all authentication
+data until a PDU arrives with the <b>PFC_LAST_FRAG</b> flag set, 
+this is the last PDU containing authentication data. No other flags 
+or fields will change while reassembling the authentication data. 
+Only <b>bind</b>, <b>bind_ack</b>, <b>alter_context</b> and 
+<b>alter_context_response</b> PDUs will be
+fragmented. Since the connection-oriented transport guarantees
+sequentiality, the receiver will always receive the fragments in
+order.
+<p>
+RPC request and response service requests may contain arbitrary
+amounts of stub data. Either of these requests may be fragmented by
+the RPC run-time system into multiple Transport Service Data Units (TSDUs) and
+reassembled by the receiving RPC run-time system before or during
+unmarshalling.
+<p>
+Each fragment is labelled as such using the <b>PFC_FIRST_FRAG</b> and
+<b>PFC_LAST_FRAG</b> flags in the header <b>pfc_flags</b> field. If a
+service request needs only a single fragment, that fragment will have
+both the <b>PFC_FIRST_FRAG</b> and <b>PFC_LAST_FRAG</b> flags set to TRUE.
+Since the connection-oriented transport guarantees sequentiality, the
+receiver will always receive the fragments in order.
+<basefont size=2>
+<dl><dt><b>Note:</b>
+<dd>The flags encoding for the connectionless and connection-oriented
+protocols is different. The connectionless <b>PF_FRAG</b> flag is not
+required in the connection-based encoding, which explicitly labels
+both the first and last fragment.
+</dl>
+<basefont size=3>
+<p>
+The Open Group DCE defines a lower bound on the size of a single fragment
+(TSDU) that all implementations must be able to receive,
+<b>MustRecvFragSize</b>. A client and server may also negotiate larger
+fragment sizes as part of the binding operation.
+<p>
+The client determines, and then sends in the <b>bind</b> PDU, its
+desired maximum size for transmitting fragments, and its desired
+maximum receive fragment size. Similarly, the server determines its
+desired maximum sizes for transmitting and receiving fragments.
+Transmit and receive sizes may be different to help preserve
+buffering. When the server receives the client's values, it sets its
+operational transmit size to the minimum of the client's receive size
+(from the <b>bind</b> PDU) and its own desired transmit size. Then it sets
+its actual receive size to the minimum of the client's transmit size
+(from the <b>bind</b>) and its own desired receive size. The server
+then returns its operational values in the <b>bind_ack</b> PDU. The
+client then sets its operational values from the received
+<b>bind_ack</b> PDU. The received transmit size becomes the client's
+receive size, and the received receive size becomes the client's
+transmit size.
+<p>
+Either party may use receive buffers larger than negotiated-
+although this will not provide any advantage-but may
+not transmit larger fragments than negotiated.
+<basefont size=2>
+<dl><dt><b>Note:</b>
+<dd>An implementation may ignore the negotiation by always specifying the
+default encodings of 0 (zero) in the PDUs. This is consistent with the
+negotiation algorithm described here.
+<p>
+An implementation may wish to adjust its desired fragment sizes to tune
+them to the most common data links expected. 
+</dl>
+<basefont size=3>
+<p>
+When receiving a <b>request</b> PDU, the <b>PFC_PENDING_CANCEL</b> and
+<b>PFC_MAYBE</b> flag values on the <b>first_frag</b> are authoritative.
+When receiving a <b>response</b> or <b>fault</b> PDU, the
+<b>PFC_DID_NOT_EXECUTE</b> and <b>PFC_PENDING_CANCEL</b> flag values and
+the <b>cancel_count</b> and <b>status</b> fields of the <b>last_frag</b>
+are authoritative.
+<h4><a name = "tagcjh_17_06_03"></a>Connection-oriented PDU Data Types</h4>
+<xref type="3" name="conn-oriented_pdu"></xref>
+<index term="connection-oriented PDU data types"></index>
+<p>
+The following sections provide IDL declarations for header data
+types. These include both the common header fields and other header
+fields that appear in various PDUs. These sections also discuss
+the use of several fields and data types by the connection-oriented RPC
+protocol.
+<h5><a name = "tagcjh_17_06_03_01"></a>Declarations</h5>
+<p>
+The following synonyms appear in many of the declarations:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef     unsigned hyper  u_int64;
+typedef     unsigned long   u_int32;
+typedef     unsigned short  u_int16;
+typedef     unsigned small  u_int8;   /* single octet unsigned int */
+</dl>
+</code>
+</pre>
+</tt><p>
+The common header fields, which appear in all PDU types, are as
+follows. The comment fields show the exact octet alignment and octet
+length of each element.
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+/* start 8-octet aligned */
+u_int8  rpc_vers = 5;        /* 00:01 RPC version */
+u_int8  rpc_vers_minor;      /* 01:01 minor version */
+u_int8  PTYPE;               /* 02:01 packet type */
+u_int8  pfc_flags;           /* 03:01 flags (see PFC_... ) */
+byte    packed_drep[4];   /* 04:04 NDR data representation format label */
+u_int16 frag_length;         /* 08:02 total length of fragment */
+u_int16 auth_length;         /* 10:02 length of auth_value */
+u_int32 call_id;             /* 12:04 call identifier */
+</dl>
+</code>
+</pre>
+</tt><p>
+The NDR data representation format label is discussed in
+<xref href=chap14><a href="chap14.htm#tagcjh_19">
+Transfer Syntax NDR
+</a></xref>.
+<p>
+This document defines the following values for the common header
+<b>pfc_flags</b> field:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+#define PFC_FIRST_FRAG           0x01/* First fragment */
+#define PFC_LAST_FRAG            0x02/* Last fragment */
+#define PFC_PENDING_CANCEL       0x04/* Cancel was pending at sender */
+#define PFC_RESERVED_1           0x08  
+#define PFC_CONC_MPX             0x10/* supports concurrent multiplexing
+                                        * of a single connection. */
+#define PFC_DID_NOT_EXECUTE      0x20/* only meaningful on `fault' packet;
+                                        * if true, guaranteed call did not
+                                        * execute. */
+#define PFC_MAYBE                0x40/* `maybe' call semantics requested */
+#define PFC_OBJECT_UUID          0x80/* if true, a non-nil object UUID
+                                        * was specified in the handle, and
+                                        * is present in the optional object
+                                        * field. If false, the object field
+                                        * is omitted. */
+</dl>
+</code>
+</pre>
+</tt><p>
+Several elements are used for presentation context identification and
+negotiation. Local context identifiers are defined as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef   u_int16   p_context_id_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+Presentation syntax is identified by:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef   struct   {
+             uuid_t   if_uuid;
+             u_int32   if_version;
+          } p_syntax_id_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+For abstract syntax, <b>if_uuid</b> is set to the interface UUID, and
+<b>if_version</b> is set to the interface version. For transfer
+syntax, these are set to the UUID and version created for the data
+representation. The major version is encoded in the 16
+least significant bits of <b>if_version</b> and the minor version in
+the 16 most significant bits.
+<p>
+One element in a presentation context list is defined as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef   struct {
+          p_context_id_t   p_cont_id;
+          u_int8           n_transfer_syn;     /* number of items */
+          u_int8           reserved;           /* alignment pad, m.b.z. */
+          p_syntax_id_t    abstract_syntax;    /* transfer syntax list */
+          p_syntax_id_t [size_is(n_transfer_syn)] transfer_syntaxes[];
+          } p_cont_elem_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The whole list is defined as:
+<code>
+<pre>
+<tt>typedef   struct {
+          u_int8          n_context_elem;      /* number of items */
+          u_int8          reserved;            /* alignment pad, m.b.z. */
+          u_short         reserved2;           /* alignment pad, m.b.z. */
+          p_cont_elem_t [size_is(n_cont_elem)] p_cont_elem[];
+          } p_cont_list_t;
+</code>
+</pre>
+</tt><p>
+The following declarations are for the results of a presentation
+context negotiation. Result types are defined as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef  short enum {
+         acceptance, user_rejection, provider_rejection
+         } p_cont_def_result_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+Reasons for rejection of a context element are defined as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef   short enum {
+          reason_not_specified,
+          abstract_syntax_not_supported,
+          proposed_transfer_syntaxes_not_supported,
+          local_limit_exceeded     
+          } p_provider_reason_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The meanings of these rejection reasons are defined in Section 2 of
+the ISO 8823 standard.
+<p>
+A result list returns the results of the context negotiation. A
+list element is declared as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+        p_cont_def_result_t   result;
+        p_provider_reason_t   reason;  /* only relevant if result !=
+                                             * acceptance */
+        p_syntax_id_t         transfer_syntax;/* tr syntax selected 
+                                                 * 0 if result not
+                                                 * accepted */
+        } p_result_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The entire list is defined as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+/* Same order and number of elements as in bind request */
+
+typedef struct {
+        u_int8   n_results;      /* count */
+        u_int8   reserved;       /* alignment pad, m.b.z. */
+        u_int16 reserved2;       /* alignment pad, m.b.z. */
+        p_result_t [size_is(n_results)] p_results[];
+        } p_result_list_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The protocol version data type is defined as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+        u_int8   major;
+        u_int8   minor;
+        } version_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The run-time version data type is synonymous:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef   version_t   p_rt_version_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+When the protocol negotiation fails, the list of supported protocols
+is returned as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+        u_int8   n_protocols;   /* count */
+        p_rt_version_t  [size_is(n_protocols)] p_protocols[];
+        } p_rt_versions_supported_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following data structure is used when a bind request returns a
+secondary address. It holds a string representation of the local port
+part of the address only. The length includes the C NULL string
+termination.
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+        u_int16 length;
+        char   [size_is(length)] port_spec; /* port string spec */
+        } port_any_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+Reasons for rejection of an association are returned in the
+<b>bind_nak</b> PDU. These are defined as:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+#define REASON_NOT_SPECIFIED            0
+#define TEMPORARY_CONGESTION            1
+#define LOCAL_LIMIT_EXCEEDED            2
+#define CALLED_PADDR_UNKNOWN            3 /* not used */
+#define PROTOCOL_VERSION_NOT_SUPPORTED  4
+#define DEFAULT_CONTEXT_NOT_SUPPORTED   5 /* not used */
+#define USER_DATA_NOT_READABLE          6 /* not used */
+#define NO_PSAP_AVAILABLE               7 /* not used */
+</dl>
+</code>
+</pre>
+</tt><h5><a name = "tagcjh_17_06_03_02"></a>Connection-Oriented Protocol Versions</h5>
+<index term="connection-oriented PDUs, protocol versions"></index>
+<p>
+Each PDU contains the sender's major and minor RPC run-time protocol
+version numbers. The client's and server's major versions must be
+equal. Backward compatible changes in the protocol are indicated by
+higher minor version numbers. Therefore, a server's minor version must
+be greater than or equal to the client's. 
+However, for
+connection-oriented minor version numbers of 0 (zero) and 1, 
+both the server and the client are backwards compatible. 
+That is, if a client with minor version 1 contacts a lower 
+versioned server, the association open will fail. If this 
+condition occurs the client will try to open the association 
+again using the lower minor version number and the old
+style of authorisation. 
+However, if the server's
+minor version exceeds the client's minor version, it must return the
+client's minor version and restrict its use of the protocol to the
+minor version specified by the client. A protocol version mismatch
+causes the <b>nca_s_rpc_version_mismatch</b> error status to be
+returned.
+<p>
+The PDU formats given here are for major version
+<b>DC_PROTO_VERS_MAJOR_1</b>, as defined in
+<xref href=tbl12-2><a href="#tagtcjh_29">
+The First Set of PDU Flags
+</a></xref>,
+minor version 0.
+<p>
+The protocol version is negotiated using the <b>bind</b>,
+<b>bind_ack</b> and <b>bind_nak</b> messages. For all other messages,
+the protocol version in the header only serves as a sanity check; if
+it is incorrect, it indicates a massive error and the connection
+should be terminated with the error <b>nca_s_rpc_version_mismatch</b>.
+<h5><a name = "tagcjh_17_06_03_03"></a>The frag_length Field</h5>
+<index term="connection-oriented PDUs, frag_length field"></index>
+<p>
+The <b>frag_length</b> field represents the length of the
+entire PDU, including all of the header, optional header fields, stub
+body and optional authentication verifier, if applicable. 
+<h5><a name = "tagcjh_17_06_03_04"></a>Context Identifiers</h5>
+<index term="connection-oriented PDUs, context identifiers"></index>
+<p>
+Presentation context identifiers are transmitted on each request or
+response. The client defines the values of the context identifiers,
+and both the client and server must be able to map between the
+specific client's context identifier and the selected abstract and
+transfer syntax, which indicate the interface and data representation.
+<p>
+The client must assign context identifiers that are unique within at
+least a single association. Context identifiers may also be unique
+within an association group or across the entire client instantiation.
+A server must interpret context identifiers relative to each
+particular association; that is, different associations within the
+same association group from the same client to the same server may
+legally use the same context identifier with a different meaning.
+<h5><a name = "tagcjh_17_06_03_05"></a>The call_id Field</h5>
+<index term="connection-oriented PDUs, call_id field"></index>
+<p>
+Each run-time protocol message contains a <b>call_id</b> field. This
+field is used by the caller to guarantee that it is matching the
+proper response and request. Otherwise, responses for the wrong call,
+or orphaned responses from calls that were cancelled, and the cancel
+timed out, could be confused with current responses. The caller must
+guarantee that at any time, all <b>call_id</b>s for all outstanding
+messages for the same association group are distinct. The server just
+returns the <b>call_id</b> on the corresponding message.
+<p>
+The <b>call_id</b> field is also used to guarantee proper matching of
+<b>bind_ack</b>, <b>bind_nak</b> or <b>alter_context_response</b>
+messages in order to guarantee proper behaviour under certain
+conditions; for example, cancel timeout causes an orphan.
+<basefont size=2>
+<dl><dt><b>Note:</b>
+<dd>The most straightforward implementation is for each client process to
+maintain a single <b>u_int32</b> sequence number counter to use for the
+<b>call_id</b>. Alternatively, the client may assign a value
+representing a call data structure, and use that, provided it does
+sufficient bookkeeping to insure that it cannot be reused if a call is
+cancelled and times out, at least until the the entire orphaned response
+is received.
+</dl>
+<basefont size=3>
+<h5><a name = "tagcjh_17_06_03_06"></a>The assoc_group_id Field</h5>
+<index term="connection-oriented PDUs, assoc_group_id field"></index>
+<p>
+The client should set the <b>assoc_group_id</b> field either to 0
+(zero), to indicate a new association group, or to the known value.
+When the server receives a value of 0, this indicates that the client
+has requested a new association group, and it assigns a server unique
+value to the group. This value is returned in the <b>rpc_bind_ack</b> PDU.
+<h5><a name = "tagcjh_17_06_03_07"></a>The alloc_hint Field</h5>
+<index term="connection-oriented PDUs, alloc_hint field"></index>
+<p>
+The <b>alloc_hint</b> field may be used by the transmitter as a hint to
+the receiver, informing it how much buffer space, in units of octets,
+to allocate contiguously for fragmented requests. This is only a potential
+optimisation; a receiver is required to work correctly regardless of
+the value passed. The value 0 (zero) is reserved to indicate that the
+transmitter is not supplying any information.
+<h5><a name = "tagcjh_17_06_03_08"></a>Authentication Data</h5>
+<index term="connection-oriented PDUs, auth_length field"></index>
+<index term="connection-oriented PDUs, authentication verifier"></index>
+<p>
+If the <b>auth_length</b> header field value is non-zero, then the
+message contains optional authentication and/or authorisation data in
+an authentication verifier. Each message format specifies the location
+of the verifier, which always follows any stub data, if applicable.
+<p>
+The contents of the authentication verifier are specified in
+<xref href=chap13><a href="chap13.htm#tagcjh_18">
+Security
+</a></xref>.
+<h5><a name = "tagcjh_17_06_03_09"></a>Optional Connect Reject and Disconnect Data</h5>
+<index term="connection-oriented PDUs, connect reject and disconnect data"></index>
+<p>
+If the transport supports optional connect reject or disconnect data,
+the RPC run-time system may transmit additional error information as the
+optional data. The following data types are used to declare this
+optional data:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef  u_int16 rpcrt_reason_code_t;/* 0..65535 */
+
+typedef  struct {
+         u_int8    rpc_vers;        
+         u_int8    rpc_vers_minor; 
+         u_int8    reserved[2];/* must be zero */   
+         byte      packed_drep[4];
+         u_int32   reject_status;
+         u_int8    reserved[4];
+         } rpcrt_optional_data_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The format for optional reject data is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+        rpcrt_reason_code_t     reason_code;  /* 0..65535   */
+        rpcrt_optional_data_t   rpc_info;     /* may be RPC specific */
+        }  rpcconn_reject_optional_data_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The format for optional disconnect data is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+        rpcrt_reason_code_t     reason_code;  /* 0..65535 */
+        rpcrt_optional_data_t   rpc_info;     /* may be RPC-specific */ 
+        } rpcconn_disc_optional_data_t; 
+</dl>
+</code>
+</pre>
+</tt><index term="connection-oriented PDU data types"></index>
+<h4><a name = "tagcjh_17_06_04"></a>Connection-oriented PDU Definitions</h4>
+<p>
+The following sections give IDL declarations and descriptions for
+each of the the connection-oriented PDUs.
+<h5><a name = "tagcjh_17_06_04_01"></a>The alter_context PDU</h5>
+<index term="connection-oriented PDUs, alter_context"></index>
+<p>
+The IDL declaration of the <b>alter_context</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+      /* start 8-octet aligned */
+
+      /* common fields */
+        u_int8  rpc_vers = 5;          /* 00:01 RPC version */
+        u_int8  rpc_vers_minor ;       /* 01:01 minor version */
+        u_int8  PTYPE = alter_context; /* 02:01 alter context PDU */
+        u_int8  pfc_flags;             /* 03:01 flags */
+        byte    packed_drep[4];        /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;           /* 08:02 total length of fragment */
+        u_int16 auth_length;           /* 10:02 length of auth_value */
+        u_int32  call_id;              /* 12:04 call identifier */
+
+      /* end common fields */
+
+        u_int16 max_xmit_frag;         /* ignored */
+        u_int16 max_recv_frag;         /* ignored */
+        u_int32 assoc_group_id;        /* ignored */
+
+      /* presentation context list */
+
+        p_cont_list_t  p_context_elem; /* variable size */
+    
+      /* optional authentication verifier */
+      /* following fields present iff auth_length != 0 */
+
+        auth_verifier_co_t   auth_verifier; 
+
+        } rpcconn_alter_context_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>alter_context</b> PDU is used to request additional
+presentation negotiation for another interface and/or version, or to
+negotiate a new security context, or both. The
+format is identical to the <b>bind</b> PDU, except that the value
+of the <b>PTYPE</b> field is set to <b>alter_context</b>. The
+<b>max_xmit_frag</b>, <b>max_recv_frag</b> and <b>assoc_group_id</b>
+fields are be ignored.
+<hr>
+<h5><a name = "tagcjh_17_06_04_02"></a>The alter_context_resp PDU</h5>
+<index term="connection-oriented PDUs, alter_context_resp"></index>
+<p>
+The IDL declaration of the <b>alter_context_resp</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+      /* start 8-octet aligned */
+
+      /* common fields */
+	u_int8  rpc_vers = 5;       /* 00:01 RPC version */
+	u_int8  rpc_vers_minor      /* 01:01 minor version */
+        u_int8  PTYPE = alter_context_response; /* 02:01 alter
+                                                 context response PDU */
+        u_int8  pfc_flags;          /* 03:01 flags */
+        byte    packed_drep[4];     /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;        /* 08:02 total length of fragment */
+        u_int16 auth_length;        /* 10:02 length of auth_value */
+        u_int32  call_id;           /* 12:04 call identifier */
+
+      /* end common fields */
+
+        u_int16 max_xmit_frag;      /* ignored */
+        u_int16 max_recv_frag;      /* ignored */
+        u_int32 assoc_group_id;     /* ignored */
+        port_any_t sec_addr;        /* ignored */
+
+      /* restore 4-octet alignment */
+
+        u_int8 [size_is(align(4))] pad2;
+
+      /* presentation context result list, including hints */
+
+        p_result_list_t     p_result_list;    /* variable size */
+
+      /* optional authentication verifier */
+      /* following fields present iff auth_length != 0 */
+
+        auth_verifier_co_t   auth_verifier; /* xx:yy */
+    } rpcconn_alter_context_response_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>alter_context_response</b> PDU is used to indicate the server's
+response to an <b>alter_context</b> request. The PDU format is
+identical to <b>bind_ack</b>, except that the value of the <b>PTYPE</b>
+field is set to <b>alter_context_response</b>. The
+<b>max_xmit_frag</b>, <b>max_recv_frag</b>, <b>assoc_group_id</b> and
+<b>sec_addr</b> fields are ignored.
+<hr>
+<h5><a name = "tagcjh_17_06_04_03"></a>The bind PDU</h5>
+<index term="connection-oriented PDUs, bind"></index>
+<p>
+The IDL declaration of the <b>bind</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+/*  bind header */                
+typedef struct {
+
+      /* start 8-octet aligned */
+
+      /* common fields */
+        u_int8  rpc_vers = 5;        /* 00:01 RPC version */
+        u_int8  rpc_vers_minor;      /* 01:01 minor version */
+        u_int8  PTYPE = bind;        /* 02:01 bind PDU */
+        u_int8  pfc_flags;           /* 03:01 flags */
+        byte    packed_drep[4];      /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;         /* 08:02 total length of fragment */
+        u_int16 auth_length;         /* 10:02 length of auth_value */
+        u_int32  call_id;            /* 12:04 call identifier */
+
+      /* end common fields */
+
+        u_int16 max_xmit_frag;     /* 16:02 max transmit frag size, bytes */
+        u_int16 max_recv_frag;     /* 18:02 max receive  frag size, bytes */
+        u_int32 assoc_group_id;    /* 20:04 incarnation of client-server
+                                                            * assoc group */
+      /* presentation context list */
+
+        p_cont_list_t  p_context_elem; /* variable size */
+    
+      /* optional authentication verifier */
+      /* following fields present iff auth_length != 0 */
+
+        auth_verifier_co_t   auth_verifier; 
+
+        } rpcconn_bind_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>bind</b> PDU is used to initiate the presentation negotiation
+for the body data, and optionally, authentication. The presentation
+negotiation follows the model of the OSI presentation layer.
+<p>
+The PDU contains a priority-ordered list of supported presentation
+syntaxes, both abstract and transfer, and context identifiers (local
+handles). (This differs from OSI, which does not specify any order
+for the list.) The abstract and transfer syntaxes are represented as a
+record of interface UUID and interface version. (These may map
+one-to-one into OSI object identifiers by providing suitable prefixes
+and changing the encoding.)  Each supported data representation, such
+as NDR, will be assigned an interface UUID, and will use that UUID as
+part of its transfer syntax value. Each stub computes its abstract
+syntax value given its interface UUID and interface version. The
+transfer syntax value for NDR is defined in
+<xref href=apdxi><a href="apdxi.htm#tagcjh_28">
+Protocol Identifiers
+</a></xref>.
+<p>
+If <b>pfc_flags</b> does not have <b>PFC_LAST_FRAG</b> set and 
+<b>rpc_vers_minor</b> is 1, then the PDU has fragmented 
+<b>auth_verifier</b> data. The server will assemble the data 
+concatenating sequentially each <b>auth_verifier</b> field
+until a PDU is sent with <b>PFC_LAST_FRAG</b> flag set. 
+This completed buffer is then used as <b>auth_verifier</b> data.
+<p>
+The fields <b>max_xmit_frag</b> and <b>max_recv_frag</b> are used for
+fragment size negotiation as described in
+<xref href=conn-oriented_pdu><a href="#tagcjh_17_06_03">
+Connection-oriented PDU Data Types
+</a></xref>.
+<p>
+The <b>assoc_group_id</b> field contains either an association group
+identifier that was created during a previous bind negotiation or 0
+(zero) to indicate a request for a new group.
+<p>
+This PDU shall not exceed the <b>MustRecvFragSize</b>, since no size
+negotiation has yet occurred. If the <b>p_context_elem</b> is too long,
+the leading subset should be transmitted, and additional presentation
+context negotiation can occur in subsequent <b> alter_context</b>
+PDUs, as needed, after a successful <b>bind_ack</b>.
+<hr>
+<h5><a name = "tagcjh_17_06_04_04"></a>The bind_ack PDU</h5>
+<index term="connection-oriented PDUs, bind_ack"></index>
+<p>
+The IDL declaration of the <b>bind_ack</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+
+      /* start 8-octet aligned */
+
+      /* common fields */
+        u_int8  rpc_vers = 5;       /* 00:01 RPC version */
+        u_int8  rpc_vers_minor ;    /* 01:01 minor version */
+        u_int8  PTYPE = bind_ack;   /* 02:01 bind ack PDU */
+        u_int8  pfc_flags;          /* 03:01 flags */
+        byte    packed_drep[4];     /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;        /* 08:02 total length of fragment */
+        u_int16 auth_length;        /* 10:02 length of auth_value */
+        u_int32  call_id;           /* 12:04 call identifier */
+
+      /* end common fields */
+
+        u_int16 max_xmit_frag;      /* 16:02 max transmit frag size */
+        u_int16 max_recv_frag;      /* 18:02 max receive  frag size */
+        u_int32 assoc_group_id;     /* 20:04 returned assoc_group_id */
+        port_any_t sec_addr;        /* 24:yy optional secondary address 
+                                     * for process incarnation; local port
+                                     * part of address only */
+      /* restore 4-octet alignment */
+
+        u_int8 [size_is(align(4))] pad2;
+
+      /* presentation context result list, including hints */
+
+        p_result_list_t     p_result_list;    /* variable size */
+
+      /* optional authentication verifier */
+      /* following fields present iff auth_length != 0 */
+
+        auth_verifier_co_t   auth_verifier; /* xx:yy */
+    } rpcconn_bind_ack_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>bind_ack</b> PDU is returned by the server when it accepts a
+bind request initiated by the client's <b>bind</b> PDU. It contains
+the results of presentation context and fragment size negotiations.
+It may also contain a new association group identifier if one was
+requested by the client.
+<p>
+The <b>max_xmit_frag</b> and <b>max_recv_frag</b> fields contain the
+maximum transmit and receive fragment sizes as determined by the
+server in response to the client's desired sizes.
+<p>
+The <b>p_result_list</b> contains the results of the presentation
+context negotiation initiated by the client. It is possible for a
+<b>bind_ack</b> not to contain any mutually supported syntaxes.
+<p>
+If the client requested a new association group, <b>assoc_group_id</b>
+contains the identifier of the new association group created by the
+server. Otherwise, it contains the identifier of the previously
+created association group requested by the client.
+<hr>
+<h5><a name = "tagcjh_17_06_04_05"></a>The bind_nak PDU</h5>
+<index term="connection-oriented PDUs, bind_nak"></index>
+<p>
+The IDL declaration of the <b>bind_nak</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+
+  /* start 8-octet aligned */
+
+  /* common fields */
+    u_int8  rpc_vers = 5;       /* 00:01 RPC version */
+    u_int8  rpc_vers_minor ;    /* 01:01 minor version */
+    u_int8  PTYPE = bind_nak;   /* 02:01 bind nak PDU */
+    u_int8  pfc_flags;          /* 03:01 flags */
+    byte    packed_drep[4];     /* 04:04 NDR data rep format label*/
+    u_int16 frag_length;        /* 08:02 total length of fragment */
+    u_int16 auth_length;        /* 10:02 length of auth_value */
+    u_int32  call_id;           /* 12:04 call identifier */
+
+  /* end common fields */
+
+    p_reject_reason_t provider_reject_reason; /* 16:02 presentation
+                                                  context reject */
+
+    p_rt_versions_supported_t versions; /* 18:yy array of protocol 
+                                         * versions supported */
+    } rpcconn_bind_nak_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>bind_nak</b> PDU is returned by the server when it rejects an
+association request initiated by the client's <b>bind</b> PDU. The
+<b>provider_reject_reason</b> field holds the rejection reason code.
+When the reject reason is <b>protocol_version_not_supported</b>, the
+<b>versions</b> field contains a list of run-time protocol versions
+supported by the server.
+<p>
+The <b>bind_nak</b> PDU never contains an authentication verifier.
+<hr>
+<h5><a name = "tagcjh_17_06_04_06"></a>The cancel PDU</h5>
+<index term="connection-oriented PDUs, cancel"></index>
+<p>
+The IDL declaration of the <b>cancel</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+
+      /* start 8-octet aligned */
+
+      /* common fields */
+        u_int8  rpc_vers = 5 ;        /* 00:01 RPC version */
+        u_int8  rpc_vers_minor;       /* 01:01 minor version */
+        u_int8  PTYPE = co_cancel;    /* 02:01 CO cancel PDU */
+        u_int8  pfc_flags;            /* 03:01 flags */
+        byte    packed_drep[4];       /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;          /* 08:02 total length of fragment */
+        u_int16 auth_length;          /* 10:02 length of auth_value */
+        u_int32  call_id;             /* 12:04 call identifier */
+
+      /* end common fields */
+
+      /* optional authentication verifier 
+         * following fields present iff auth_length != 0 */ 
+
+        auth_verifier_co_t   auth_verifier; /* xx:yy */
+
+} rpcconn_cancel_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>cancel</b> PDU is used to forward a cancel.
+<hr>
+<h5><a name = "tagcjh_17_06_04_07"></a>The fault PDU</h5>
+<xref type="4" name="fault_pdu"></xref>
+<index term="connection-oriented PDUs, fault"></index>
+<p>
+The IDL declaration of the <b>fault</b> PDU is as follows:
+<code>
+<pre>
+<tt>typedef struct {
+
+      /* start 8-octet aligned */
+
+      /* common fields */
+        u_int8  rpc_vers = 5;        /* 00:01 RPC version */
+        u_int8  rpc_vers_minor;      /* 01:01 minor version */
+        u_int8  PTYPE = fault;       /* 02:01 fault PDU */
+        u_int8  pfc_flags;           /* 03:01 flags */
+        byte    packed_drep[4];      /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;         /* 08:02 total length of fragment */
+        u_int16 auth_length;         /* 10:02 length of auth_value */
+        u_int32  call_id;            /* 12:04 call identifier */
+
+      /* end common fields */
+
+      /* needed for request, response, fault */
+
+        u_int32  alloc_hint;      /* 16:04 allocation hint */
+        p_context_id_t p_cont_id; /* 20:02 pres context, i.e. data rep */
+
+      /* needed for response or fault */
+
+        u_int8  cancel_count      /* 22:01 received cancel count */
+        u_int8  reserved;         /* 23:01 reserved, m.b.z. */
+
+      /* fault code  */      
+
+        u_int32  status           /* 24:04 run-time fault code or zero */ 
+
+      /* always pad to next 8-octet boundary */
+
+        u_int8  reserved2[4];     /* 28:04 reserved padding, m.b.z. */
+
+      /* stub data here, 8-octet aligned
+               .
+               .
+               .                          */
+
+      /* optional authentication verifier */
+      /* following fields present iff auth_length != 0 */
+ 
+       auth_verifier_co_t   auth_verifier; /* xx:yy */
+
+} rpcconn_fault_hdr_t;
+</code>
+</pre>
+</tt><p>
+The <b>fault</b> PDU is used to indicate either an RPC run-time,
+RPC stub, or RPC-specific exception to the client. 
+The <b>p_cont_id</b> field holds a context identifier that
+identifies the data representation.
+<p>
+The <b>alloc_hint</b> field is optionally used by the client to
+provide a hint to the receiver of the amount of buffer space to
+allocate contiguously for fragmented requests. This is only a
+potential optimisation. The server must work correctly
+regardless of the value passed. The value 0 (zero) is reserved to
+indicate that the transmitter is not supplying any information.
+<p>
+The <b>status</b> field indicates run-time status. The value may
+either be an architected non-zero value, indicating a run-time error,
+such as an interface version mismatch, or 0 (zero), indicating a stub
+defined exception that is specified with the stub data. If a non-zero
+value is present, no stub data is allowed. Possible values are given in
+<xref href=tblE-1><a href="apdxe.htm#tagtcjh_43">
+Reject Status Codes
+</a></xref>.
+<p>
+Certain status values imply that the call did not execute. To keep
+such status values consistent with the flag, an implementation should
+model all fault messages as being initialised with the
+PFC_DID_NOT_EXECUTE flag set to TRUE, then cleared when the
+run-time system (or stub, if the implementation allows) passes control to the
+server stub routine.
+<hr>
+<h5><a name = "tagcjh_17_06_04_08"></a>The orphaned PDU</h5>
+<index term="connection-oriented PDUs, orphaned"></index>
+<p>
+The IDL declaration of the <b>orphaned</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+
+      /* start 8-octet aligned */
+
+      /* common fields */
+        u_int8  rpc_vers = 5;        /* 00:01 RPC version */
+        u_int8  rpc_vers_minor;      /* 01:01 minor version */
+        u_int8  PTYPE = orphaned;    /* 02:01 orphaned PDU */
+        u_int8  pfc_flags;           /* 03:01 flags */
+        byte    packed_drep[4];      /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;         /* 08:02 total length of fragment */
+        u_int16 auth_length;         /* 10:02 length of auth_value */
+        u_int32  call_id;            /* 12:04 call identifier */
+
+      /* end common fields */
+
+      /* optional authentication verifier 
+         * following fields present iff auth_length != 0 */ 
+
+        auth_verifier_co_t   auth_verifier; /* xx:yy */
+
+} rpcconn_orphaned_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>orphaned</b> PDU is used by a client to notify a server that it
+is aborting a request in progress that has not been entirely
+transmitted yet, or that it is aborting a (possibly lengthy) response
+in progress.
+<hr>
+<h5><a name = "tagcjh_17_06_04_09"></a>The request PDU</h5>
+<index term="connection-oriented PDUs, request"></index>
+<p>
+The IDL declaration of the <b>request</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+
+      /* start 8-octet aligned */
+
+      /* common fields */
+        u_int8  rpc_vers = 5;       /* 00:01 RPC version */
+        u_int8  rpc_vers_minor;     /* 01:01 minor version */
+        u_int8  PTYPE = request ;   /* 02:01 request PDU */
+        u_int8  pfc_flags;          /* 03:01 flags */
+        byte    packed_drep[4];     /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;        /* 08:02 total length of fragment */
+        u_int16 auth_length;        /* 10:02 length of auth_value */
+        u_int32  call_id;           /* 12:04 call identifier */
+
+      /* end common fields */
+
+      /* needed on request, response, fault */
+
+        u_int32  alloc_hint;        /* 16:04 allocation hint */
+        p_context_id_t p_cont_id    /* 20:02 pres context, i.e. data rep */
+        u_int16 opnum;              /* 22:02 operation # 
+                                     * within the interface */
+
+      /* optional field for request, only present if the PFC_OBJECT_UUID
+         * field is non-zero */
+
+        uuid_t  object;              /* 24:16 object UID */
+
+      /* stub data, 8-octet aligned 
+                   .
+                   .
+                   .                 */
+
+      /* optional authentication verifier */
+      /* following fields present iff auth_length != 0 */
+ 
+        auth_verifier_co_t   auth_verifier; /* xx:yy */
+
+} rpcconn_request_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>request</b> PDU is used for an initial call request. The
+<b>p_cont_id</b> field holds a presentation context identifier that
+identifies the data representation. The <b>opnum</b> field identifies
+the operation being invoked within the interface.
+<p>
+The PDU may also contain an object UUID. In this case the
+PFC_OBJECT_UUID flag is set in <b>pfc_flags</b>, and the PDU
+includes the <b>object</b> field. If the PFC_OBJECT_UUID flag is
+not set, the PDU does not include the <b>object</b> field.
+<p>
+The <b>alloc_hint</b> field is optionally used by the client to provide
+a hint to the receiver of the amount of buffer space to allocate
+contiguously for fragmented requests. This is only a potential
+optimisation. The server must work correctly regardless of the value
+passed. The value 0 (zero) is reserved to indicate that the
+transmitter is not supplying any information.
+<p>
+The minimum size of an <b>rpcconn_request_hdr_t</b> is 24 octets. If a
+non-nil object UUID or authentication and/or integrity or privacy
+services are used, the size will be larger.
+<p>
+The size of the stub data is calculated as follows:
+<code>
+<pre>
+<tt>stub_data_length = frag_length - fixed_header_length - auth_length;
+if pfc_flags &amp; PFC_OBJECT_UUID {
+    stub_data_length = stub_data_length - sizeof(uuid_t);
+    }
+</code>
+</pre>
+</tt><p>
+where the current value of <b>fixed_header_length</b> is 24 octets.
+<hr>
+<h5><a name = "tagcjh_17_06_04_10"></a>The response PDU</h5>
+<index term="connection-oriented PDUs, response"></index>
+<p>
+The IDL declaration of the <b>response</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+
+      /* start 8-octet aligned */
+
+      /* common fields */
+	u_int8  rpc_vers = 5;        /* 00:01 RPC version */
+	u_int8  rpc_vers_minor;      /* 01:01 minor version */
+        u_int8  PTYPE = response;    /* 02:01 response PDU */
+        u_int8  pfc_flags;           /* 03:01 flags */
+        byte    packed_drep[4];      /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;         /* 08:02 total length of fragment */
+        u_int16 auth_length;         /* 10:02 length of auth_value */
+        u_int32 call_id;             /* 12:04 call identifier */
+
+      /* end common fields */
+
+      /* needed for request, response, fault */
+
+        u_int32  alloc_hint;         /* 16:04 allocation hint */
+        p_context_id_t p_cont_id;    /* 20:02 pres context, i.e. 
+                                      * data rep */
+
+      /* needed for response or fault */
+
+        u_int8  cancel_count         /* 22:01 cancel count */
+        u_int8  reserved;            /* 23:01 reserved, m.b.z. */
+
+      /* stub data here, 8-octet aligned
+               .
+               .
+               .                          */
+
+      /* optional authentication verifier */
+      /* following fields present iff auth_length != 0 */
+
+        auth_verifier_co_t   auth_verifier; /* xx:yy */
+
+} rpcconn_response_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>response</b> PDU is used to respond to an active call. The
+<b>p_cont_id</b> field holds a context identifier that identifies the
+data representation. The <b>cancel_count</b> field holds a count of
+cancels received.
+<p>
+The <b>alloc_hint</b> field is optionally used by the transmitter to
+provide a hint to the receiver of the amount of buffer space to
+allocate contiguously for fragmented requests. This is only a
+potential optimisation. The receiver must work correctly regardless
+of the value passed. The value 0 (zero) is reserved to indicate that
+the transmitter is not supplying any information.
+<hr>
+<h5><a name = "tagcjh_17_06_04_11"></a>The shutdown PDU</h5>
+<index term="connection-oriented PDUs, shutdown"></index>
+<p>
+The IDL declaration of the <b>shutdown</b> PDU is as follows:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+
+      /* start 8-octet aligned */
+
+      /* common fields */
+        u_int8  rpc_vers = 5;        /* 00:01 RPC version */
+        u_int8  rpc_vers_minor;      /* 01:01 minor version */
+        u_int8  PTYPE = shutdown ;   /* 02:01 shutdown PDU */
+        u_int8  pfc_flags;           /* 03:01 flags */
+        byte    packed_drep[4];      /* 04:04 NDR data rep format label*/
+        u_int16 frag_length;         /* 08:02 total length of fragment */
+        u_int16 auth_length;         /* 10:02 */
+        u_int32  call_id;            /* 12:04 call identifier */
+
+      /* end common fields */
+
+} rpcconn_shutdown_hdr_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The <b>shutdown</b> PDU is sent by the server to request that a client
+terminate the connection, freeing the related resources.
+<p>
+The <b>shutdown</b> PDU never contains an 
+authentication verifier even if authentication services are in use.
+<index term="PDU encodings"></index>
+<hr>
+<basefont size=2>
+<blockquote>
+Please note that the html version of this specification
+may contain formatting aberrations. The definitive version
+is available as an <i>electronic publication</i> on CD-ROM
+from The Open Group.
+</blockquote>
+<font size=3>
+<p><center><table border=0 cellspacing=12><tr>
+<td align="left"><a href="toc.htm">Contents</a>
+<td align="center"><a href="chap13.htm">Next&nbsp;section</a>
+<td align="right"><a href="docix.htm">Index</a></tr></table></center>
+</body></html>

@@ -1,0 +1,69 @@
+{
+ "doc": "stages/writers.pcd.rst: 'compression  Level of PCD compression to use (ascii, binary, compressed) [Default: \"ascii\"]' together with 'X, Y, and Z dimensions will be written as single-precision floats by default'",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "w.json": {
+   "text": "{\n \"pipeline\": [\n  \"in.las\",\n  {\n   \"type\": \"filters.crop\",\n   \"bounds\": \"([0,2],[0,2],[0,2])\"\n  },\n  {\n   \"type\": \"writers.pcd\",\n   \"filename\": \"out.pcd\",\n   \"compression\": \"binary\",\n   \"order\": \"X,Y,Z\",\n   \"keep_unspecified\": false\n  }\n ]\n}"
+  },
+  "r.json": {
+   "text": "{\n \"pipeline\": [\n  {\n   \"type\": \"readers.pcd\",\n   \"filename\": \"out.pcd\"\n  },\n  \"back.las\"\n ]\n}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "w.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "r.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "file_text_regex",
+   "file": "out.pcd",
+   "regex": "(?m)^SIZE 4 4 4\\s*$"
+  },
+  {
+   "kind": "las",
+   "file": "back.las",
+   "header": {
+    "point_count": 27
+   },
+   "dims": {
+    "X": {
+     "min": 0,
+     "max": 2,
+     "sum": 27
+    },
+    "Y": {
+     "min": 0,
+     "max": 2,
+     "sum": 27
+    },
+    "Z": {
+     "min": 0,
+     "max": 2,
+     "sum": 27
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+# Upstream repository and the exact revision every level of this ladder comes
+# from. The repository moves fast: an unpinned HEAD does not reproduce.
+VORTEX_REPO=https://github.com/spiraldb/vortex.git
+VORTEX_SHA=d1fe2dc46d2b947a2304122d0d0423332fcb77a3
+VORTEX_TAG=0.86.1
+
+# Every stage the base tree has removed, in ladder order. Consumed by
+# vendor/strip.py, which is deleted from the agent image and kept only in the
+# verifier image.
+#
+# All seven, not the five that are steps. `select` and `take` have no reachable
+# headroom at this envelope and are not steps -- but their optimized code is
+# stripped anyway, because leaving it in is a worked example for the five that
+# remain: `bit/select.rs`'s `select_in_word_bmi2` is
+# `_tzcnt_u64(_pdep_u64(1 << nth, word))`, which is the same function step 05
+# restores as `select_bit_position_bmi2`, and its three `CpuKernel` selectors
+# are the literal template for the three dispatch bodies step 05 must write.
+#
+# The base is still complete and correct: both stages keep their portable
+# implementations and the library passes its own suite, which is the same
+# standard every ladder stage is held to.
+STAGES="count_ones pack select simd_compress take bool_filter intersect"
+
+# The five that are steps, in ladder order. Each step's oracle patch restores
+# one of these on top of the seven-stage base.
+LADDER="count_ones pack simd_compress bool_filter intersect"

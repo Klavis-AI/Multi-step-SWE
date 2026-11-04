@@ -1,0 +1,22 @@
+# Capability envelope of the graded build for this step -- the machine the
+# reference and the candidate are both allowed.  Stated in instruction.md
+# ("This family is scored on SSE4.1 through AVX2 ... SIMD_AVX512=OFF in the
+# build command means it is not even compiled") and in the package README's
+# "Capability envelope" section.  Read by vendor/envelope_scan.py.
+#
+# ceiling: the widest instruction set either side may use.  The grading host
+# provides AVX2 and no AVX-512, so an AVX-512 body is never selected and never
+# timed.
+ceiling=sse41,avx2
+#
+# uncompiled: src/Simd back ends the graded build does not compile, under the
+# task's pinned flags -- SIMD_AVX512=OFF and SIMD_AVX512VNNI=OFF (set by the
+# agent's own build command, the verifier's, and solve.sh), SIMD_AMXBF16 off
+# by default in prj/cmake/x86.cmake, and the non-x86 back ends (Neon, Sve2,
+# Hvx, Vmx, Vsx) selected only by their own architectures' cmake files.  prj/
+# is restored from the pin before the build, so no candidate can turn any of
+# them on.  Code under these prefixes is dead on this host, exactly like the
+# reference's own AVX-512 files, and is reported as ignored rather than
+# checked -- and the gate asserts that claim against the build's own source
+# list instead of trusting it.
+uncompiled=SimdAvx512bw SimdAvx512vnni SimdAmxBf16 SimdNeon SimdSve2 SimdHvx SimdVmx SimdVsx

@@ -1,0 +1,50 @@
+# arch: x86_64
+# st_other visibility survives the link unchanged for every point of the gABI
+# lattice, and a hidden or internal definition is still reachable from the
+# objects linked with it.
+rt_obj rt.o
+cat > v.s <<'S'
+        .text
+        .globl  v_default
+v_default:      mov $1, %eax
+        ret
+        .globl  v_hidden
+        .hidden v_hidden
+v_hidden:       mov $2, %eax
+        ret
+        .globl  v_internal
+        .internal v_internal
+v_internal:     mov $4, %eax
+        ret
+        .globl  v_protected
+        .protected v_protected
+v_protected:    mov $8, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj v.o v.s
+cat > m.c <<'C'
+#include "rt.h"
+int v_default(void); int v_hidden(void); int v_internal(void); int v_protected(void);
+int entry(void) {
+  int r = v_default() + v_hidden() + v_internal() + v_protected();
+  putdec(r); print("\n");
+  return r;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o v.o m.o
+so=$(symbols out)
+want_has  "default visibility preserved"   "$so" "GLOBAL +DEFAULT .* v_default"
+want_has  "hidden visibility preserved"    "$so" "GLOBAL +HIDDEN .* v_hidden"
+want_has  "internal visibility preserved"  "$so" "GLOBAL +INTERNAL .* v_internal"
+want_has  "protected visibility preserved" "$so" "GLOBAL +PROTECTED .* v_protected"
+# A static link has no .dynsym at all, so no visibility can leak into one.
+has_section out ".dynsym" && die "static output has a .dynsym"
+run_expect out "15" 15
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

@@ -1,0 +1,53 @@
+{
+  "doc": "stages/filters.geomdistance.rst: '``ring`` of ``True`` causes the polygon external ring to be used for distance computation, resulting in distances **inside** the polygon to be computed.' -- with ring true the same [0,9]x[0,9] polygon measures to its edge: a lattice point (x,y) is min(x, y, 9-x, 9-y) from the boundary, which is 0 on the 36 boundary columns (360 points) and at most 4 at the four central columns. The whole value set is {0,1,2,3,4}.",
+  "files": {
+    "in.las": {
+      "fixture": "grid.las"
+    },
+    "p.json": {
+      "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.geomdistance\",\"geometry\":\"POLYGON ((0 0, 9 0, 9 9, 0 9, 0 0))\",\"ring\":true},{\"type\":\"filters.assign\",\"value\":\"Z = distance\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"
+    }
+  },
+  "run": [
+    {
+      "argv": [
+        "pipeline",
+        "p.json"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "kind": "exit",
+      "run": 0,
+      "equals": 0
+    },
+    {
+      "kind": "las",
+      "file": "out.las",
+      "header": {
+        "point_count": 1000
+      },
+      "dims": {
+        "Z": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "equals": 4.0
+          },
+          "unique": [
+            0.0,
+            1.0,
+            2.0,
+            3.0,
+            4.0
+          ],
+          "count_equal": {
+            "0": 360
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,109 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. A step's reward is
+# `correctness x mean_f( ln(max(1, speedup_f)) )` over the functions in its
+# scope -- i.e. correctness x ln(geometric mean of the per-function speedups).
+# Correctness is binary and multiplies, so a tree that changes behaviour scores
+# 0 however fast it is; a correct but unimproved tree scores 0 too.
+multi_step_reward_strategy = "mean"
+
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build", "boringssl/build"] },
+]
+
+[task]
+name = "harbor/boringssl-crypto-asm"
+version = "1.0.0"
+description = "Optimize BoringSSL's AES and public-key primitives one kernel group at a time, five cumulative steps, each rewarded by measured per-function speedup gated on bit-exact output."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "cryptography", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c++", "assembly", "cryptography"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 16384
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# The verifier copies the candidate's tree, builds it cleanly, runs upstream's
+# crypto_test suite, and then times each scoped entry point in both trees.
+# cpus must stay >= 2 because measurement pins to core 0.
+[verifier.environment]
+# The image clones the pin, strips it, builds it at -j4 and runs the project's
+# suite once to record the base's own failures. On this shared host that is
+# about half an hour; the default allowance is not enough for a busy one.
+build_timeout_sec = 5400.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 16384
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-aes-block"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier copies the candidate's tree, builds it cleanly at -j4 (~15 min on
+# this host), runs the project's suite filtered (~4 min) and then times both
+# trees for five alternating rounds per function.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "02-aes-gcm"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier copies the candidate's tree, builds it cleanly at -j4 (~15 min on
+# this host), runs the project's suite filtered (~4 min) and then times both
+# trees for five alternating rounds per function.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "03-gcm-siv"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier copies the candidate's tree, builds it cleanly at -j4 (~15 min on
+# this host), runs the project's suite filtered (~4 min) and then times both
+# trees for five alternating rounds per function.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "04-bn-mont"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier copies the candidate's tree, builds it cleanly at -j4 (~15 min on
+# this host), runs the project's suite filtered (~4 min) and then times both
+# trees for five alternating rounds per function.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "05-p256"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier copies the candidate's tree, builds it cleanly at -j4 (~15 min on
+# this host), runs the project's suite filtered (~4 min) and then times both
+# trees for five alternating rounds per function.
+timeout_sec = 7200.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

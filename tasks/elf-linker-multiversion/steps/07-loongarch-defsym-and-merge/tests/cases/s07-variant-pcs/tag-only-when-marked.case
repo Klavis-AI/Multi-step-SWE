@@ -1,0 +1,40 @@
+# arch: aarch64
+# The tag is conditional on the marking, not on merely importing a function:
+# the identical link against an unmarked symbol must not carry it, and the
+# tag must not leak into an unrelated static link either.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int impfunc(void);
+int entry(void) { return impfunc(); }
+C
+cc_obj m.o m.c
+
+mklib() { # mklib <out.so> <directive-or-empty>
+  cat > s.s <<S
+        .text
+        .globl impfunc
+        .type impfunc, %function
+        $2
+impfunc:
+        mov w0, #7
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+  as_obj s.o s.s
+  link_ok "$1" -shared --no-gc-sections s.o
+}
+mklib libplain.so ''
+mklib libmark.so '.variant_pcs impfunc'
+
+link_ok marked   --no-gc-sections -pie -dynamic-linker /lib/ld.so rt.o m.o libmark.so
+link_ok unmarked --no-gc-sections -pie -dynamic-linker /lib/ld.so rt.o m.o libplain.so
+want_has "the marked import gets the tag" "$(dynamic marked)" 'AARCH64_VARIANT_PCS'
+want_not "the unmarked import does not"   "$(dynamic unmarked)" 'AARCH64_VARIANT_PCS'
+# Both executables are otherwise the same shape.
+for f in marked unmarked; do
+  want "$f e_type" "$(hdr $f | awk '/^ *Type:/{print $2}')" "DYN"
+  want_has "$f imports impfunc" "$(dynsyms $f)" 'UND impfunc'
+done
+
+asserts_at_least 6

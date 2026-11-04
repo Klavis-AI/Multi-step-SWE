@@ -1,0 +1,162 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of the ten steps' `reward` values. There is no
+# min_reward gate, so no step can abort the trial: every step runs and every
+# verifier reports its OWN milestone's reward in [0, 1] - a gate in {0,1} over
+# the step's gate groups MULTIPLIED BY the share-weighted pass fraction over
+# its scored groups - never a running total and never a literal credit for a
+# predecessor. The gate earns nothing: one gate-group failure zeroes the step
+# however complete the new work is.
+multi_step_reward_strategy = "mean"
+
+# A separate verifier receives the cumulative source only through this declared
+# artifact. The verifier rebuilds from source, so no agent build output is
+# required in the snapshot - and the exclusions below keep a 1.7 GB tree of
+# downloaded third-party binaries out of it if a candidate fetches them.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [
+      ".git", ".git/**",
+      "bin", "bin/**",
+      "build", "build/**",
+      "cmake_build", "cmake_build/**",
+      "externals/osg", "externals/osg/**",
+      "externals/osi", "externals/osi/**",
+      "externals/proj", "externals/proj/**",
+      "externals/sumo", "externals/sumo/**",
+      "externals/googletest", "externals/googletest/**",
+      "externals/implot", "externals/implot/**",
+  ] },
+]
+
+[task]
+name = "harbor/openscenario-engine-multiversion"
+version = "1.0.0"
+description = "Grow a C++17 ASAM OpenSCENARIO / OpenDRIVE scenario engine across ten cumulative upstream releases: scenario action and condition coverage, road geometry and lane navigation, the two published C ABIs, deterministic state logging and recording replay, controller plug-ins, and multi-version standard support."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["openscenario", "opendrive", "asam", "cpp", "simulation", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["openscenario", "opendrive", "asam", "cpp", "cmake", "simulation", "multi-step"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# The agent may use the network for official documentation and dependencies.
+network_mode = "public"
+
+# Grade each step in an isolated verifier container built from that step's
+# tests/Dockerfile. The cumulative /app artifact is restored into the image
+# before /tests/test.sh runs.
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# The verifier image carries its own pinned toolchain and every third-party
+# source the build can need, so grading does not depend on a live network for
+# anything the task ships.
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local 0-1>} to reward.json. No
+# min_reward: a zero or partial score never stops the trial.
+#
+# [steps.verifier].timeout_sec below is DERIVED, not copied. build-package.sh
+# computes it per step as
+#
+#     BUILD_BUDGET + DRIVER_BUDGET + CASE_WALL * <that step's case count> + SLACK
+#
+# from the same constants it substitutes into that step's test.sh, so the
+# ceiling cannot drift away from the worst case the script can actually reach.
+# A ceiling that cannot be reached costs nothing; one that can costs silent
+# wrong scores, because test.sh's EXIT trap turns a harness kill into a
+# complete-looking but partial scorecard.
+
+[[steps]]
+name = "01-lane-geometry-queries"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7590.0
+
+[[steps]]
+name = "02-parameter-distributions"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7680.0
+
+[[steps]]
+name = "03-scenario-variables"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7590.0
+
+[[steps]]
+name = "04-bounding-box-and-alignment"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7680.0
+
+[[steps]]
+name = "05-option-registry"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7680.0
+
+[[steps]]
+name = "06-motion-state-queries"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7680.0
+
+[[steps]]
+name = "07-drivable-lane-queries"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7680.0
+
+[[steps]]
+name = "08-positional-scenario-arg"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7680.0
+
+[[steps]]
+name = "09-double-precision-abi"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7680.0
+
+[[steps]]
+name = "10-geo-and-collision-queries"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 7590.0

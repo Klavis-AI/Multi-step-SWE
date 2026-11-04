@@ -1,0 +1,20 @@
+Bug4438 = '[ruby-core:35364]'
+begin
+      p(true)
+      begin
+	p(true)
+	raise
+	p(false)
+      rescue
+	p(true)
+      else
+	p(false)
+      end
+      p(true)
+      raise
+      p(false)
+    rescue
+      p(true)
+    else
+      p(false)
+    end

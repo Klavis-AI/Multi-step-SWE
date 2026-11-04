@@ -1,0 +1,122 @@
+# Step 11 -- C-2's frozen population: every use of the security API this
+# rung deletes, one row per site.
+#
+#     <file>:<line> form=call|typeref name=<n> in=<method>
+#
+# The record as the plugin wrote it, line and all. THE GATE KEYS BY <file>#<method>
+# and never by line, for the reason the banner of this script gives; the line is
+# here so that a reader of a failed run can find the site.
+#
+# 67 sites in 27 methods across 7 files: 20 CALLS to
+# AccessController.doPrivileged and 47 TYPE REFERENCES to AccessController,
+# PrivilegedAction, PrivilegedActionException or PrivilegedExceptionAction.
+#
+# THE SEVEN FILES ARE THE SEVEN SecurityActions CLASSES, and that is the fact
+# this leg rests on:
+#
+#   impl-base/.../impl/SecurityActions.java
+#   impl-base/.../impl/enricher/resource/SecurityActions.java
+#   protocols/servlet/.../protocol/servlet/runner/SecurityActions.java
+#   spi/.../spi/util/SecurityActions.java
+#   testenrichers/cdi/.../testenricher/cdi/SecurityActions.java
+#   testenrichers/ejb/.../testenricher/ejb/SecurityActions.java
+#   testenrichers/resource/.../testenricher/resource/SecurityActions.java
+#
+# Every one of the 67 sites is inside one of them. Nothing else on this
+# tree touches the security API, so the migration is a DELETION and not an
+# edit-in-place, and the population this leg scores is the population the
+# deletion removes.
+#
+# WHY IT IS SCORED AS A POPULATION AND NOT AS "no doPrivileged remains". Two
+# ways out of an AccessController are not edits at all. A tree that deletes a
+# SecurityActions class WITHOUT removing its callers does not compile, which
+# C-1 catches. A tree that replaces the body of every doPrivileged with a
+# direct call and LEAVES the seven classes as empty shells compiles, behaves
+# identically, and leaves 67 records standing -- because the plugin reads
+# references, and a class that still imports AccessController still refers to
+# it. That tree is what this population is for.
+#
+# AND THE LEG IS NOT ONLY THIS FILE. A departure scored alone pays deletion,
+# so C-2 is min()'d against the PAYLOAD the deletion has to leave behind:
+# 13 sites in these same 7 files -- the 7 `newinstance form=ctor`
+# calls the unwrap ladders existed to unwrap, and the 6
+# `setAccessible` reads in the annotation scanners, each of those six inside
+# a method that also held a doPrivileged. They are counted against the file
+# list THIS file's rows imply, not against a second frozen list, and they are
+# the same 13 on the golden. target.priv.hold and its two parts carry them.
+#
+# OF THE FOUR NAMES, TWO ARE THE SAME DEPARTURE. PrivilegedActionException and
+# PrivilegedExceptionAction are both in JEP 486's list and the classes that
+# declare them are deleted whole; the plugin counts them separately because
+# they are separate types, and both must reach zero.
+#
+# Derived by mk-baseline-step11.sh from the priv records of
+# baseline-step11-source.txt. Keyed by method and never by line: see the banner
+# of this script.
+impl-base/src/main/java/org/jboss/arquillian/impl/SecurityActions.java:163 form=typeref name=PrivilegedAction in=-
+impl-base/src/main/java/org/jboss/arquillian/impl/SecurityActions.java:58 form=call name=doPrivileged in=getThreadContextClassLoader
+impl-base/src/main/java/org/jboss/arquillian/impl/SecurityActions.java:58 form=typeref name=AccessController in=getThreadContextClassLoader
+impl-base/src/main/java/org/jboss/arquillian/impl/SecurityActions.java:73 form=call name=doPrivileged in=getConstructor
+impl-base/src/main/java/org/jboss/arquillian/impl/SecurityActions.java:73 form=typeref name=AccessController in=getConstructor
+impl-base/src/main/java/org/jboss/arquillian/impl/SecurityActions.java:74 form=typeref name=PrivilegedExceptionAction in=getConstructor
+impl-base/src/main/java/org/jboss/arquillian/impl/SecurityActions.java:77 form=typeref name=PrivilegedActionException in=getConstructor
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:176 form=call name=doPrivileged in=getFieldsWithAnnotation
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:176 form=typeref name=AccessController in=getFieldsWithAnnotation
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:176 form=typeref name=PrivilegedAction in=getFieldsWithAnnotation
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:203 form=typeref name=PrivilegedAction in=-
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:62 form=call name=doPrivileged in=getThreadContextClassLoader
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:62 form=typeref name=AccessController in=getThreadContextClassLoader
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:77 form=call name=doPrivileged in=getConstructor
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:77 form=typeref name=AccessController in=getConstructor
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:78 form=typeref name=PrivilegedExceptionAction in=getConstructor
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:81 form=typeref name=PrivilegedActionException in=getConstructor
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/SecurityActions.java:163 form=typeref name=PrivilegedAction in=-
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/SecurityActions.java:58 form=call name=doPrivileged in=getThreadContextClassLoader
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/SecurityActions.java:58 form=typeref name=AccessController in=getThreadContextClassLoader
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/SecurityActions.java:73 form=call name=doPrivileged in=getConstructor
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/SecurityActions.java:73 form=typeref name=AccessController in=getConstructor
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/SecurityActions.java:74 form=typeref name=PrivilegedExceptionAction in=getConstructor
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/SecurityActions.java:77 form=typeref name=PrivilegedActionException in=getConstructor
+spi/src/main/java/org/jboss/arquillian/spi/util/SecurityActions.java:163 form=typeref name=PrivilegedAction in=-
+spi/src/main/java/org/jboss/arquillian/spi/util/SecurityActions.java:58 form=call name=doPrivileged in=getThreadContextClassLoader
+spi/src/main/java/org/jboss/arquillian/spi/util/SecurityActions.java:58 form=typeref name=AccessController in=getThreadContextClassLoader
+spi/src/main/java/org/jboss/arquillian/spi/util/SecurityActions.java:73 form=call name=doPrivileged in=getConstructor
+spi/src/main/java/org/jboss/arquillian/spi/util/SecurityActions.java:73 form=typeref name=AccessController in=getConstructor
+spi/src/main/java/org/jboss/arquillian/spi/util/SecurityActions.java:74 form=typeref name=PrivilegedExceptionAction in=getConstructor
+spi/src/main/java/org/jboss/arquillian/spi/util/SecurityActions.java:77 form=typeref name=PrivilegedActionException in=getConstructor
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:176 form=call name=doPrivileged in=getFieldsWithAnnotation
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:176 form=typeref name=AccessController in=getFieldsWithAnnotation
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:176 form=typeref name=PrivilegedAction in=getFieldsWithAnnotation
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:199 form=typeref name=PrivilegedAction in=-
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:62 form=call name=doPrivileged in=getThreadContextClassLoader
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:62 form=typeref name=AccessController in=getThreadContextClassLoader
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:77 form=call name=doPrivileged in=getConstructor
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:77 form=typeref name=AccessController in=getConstructor
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:78 form=typeref name=PrivilegedExceptionAction in=getConstructor
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:81 form=typeref name=PrivilegedActionException in=getConstructor
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:177 form=call name=doPrivileged in=getFieldsWithAnnotation
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:177 form=typeref name=AccessController in=getFieldsWithAnnotation
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:177 form=typeref name=PrivilegedAction in=getFieldsWithAnnotation
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:199 form=call name=doPrivileged in=getMethodsWithAnnotation
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:199 form=typeref name=AccessController in=getMethodsWithAnnotation
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:199 form=typeref name=PrivilegedAction in=getMethodsWithAnnotation
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:222 form=typeref name=PrivilegedAction in=-
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:63 form=call name=doPrivileged in=getThreadContextClassLoader
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:63 form=typeref name=AccessController in=getThreadContextClassLoader
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:78 form=call name=doPrivileged in=getConstructor
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:78 form=typeref name=AccessController in=getConstructor
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:79 form=typeref name=PrivilegedExceptionAction in=getConstructor
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:82 form=typeref name=PrivilegedActionException in=getConstructor
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:177 form=call name=doPrivileged in=getFieldsWithAnnotation
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:177 form=typeref name=AccessController in=getFieldsWithAnnotation
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:177 form=typeref name=PrivilegedAction in=getFieldsWithAnnotation
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:199 form=call name=doPrivileged in=getMethodsWithAnnotation
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:199 form=typeref name=AccessController in=getMethodsWithAnnotation
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:199 form=typeref name=PrivilegedAction in=getMethodsWithAnnotation
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:222 form=typeref name=PrivilegedAction in=-
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:63 form=call name=doPrivileged in=getThreadContextClassLoader
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:63 form=typeref name=AccessController in=getThreadContextClassLoader
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:78 form=call name=doPrivileged in=getConstructor
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:78 form=typeref name=AccessController in=getConstructor
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:79 form=typeref name=PrivilegedExceptionAction in=getConstructor
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:82 form=typeref name=PrivilegedActionException in=getConstructor

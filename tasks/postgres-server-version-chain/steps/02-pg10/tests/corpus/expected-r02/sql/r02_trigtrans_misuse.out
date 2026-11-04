@@ -1,0 +1,22 @@
+CREATE TABLE q2_ttx(i int);
+CREATE FUNCTION q2_ttx_f() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RETURN NULL; END $$;
+CREATE TRIGGER q2_ttx_a AFTER UPDATE ON q2_ttx
+  REFERENCING OLD TABLE AS q2_ttx_o FOR EACH ROW EXECUTE PROCEDURE q2_ttx_f();
+CREATE TRIGGER q2_ttx_b BEFORE UPDATE ON q2_ttx
+  REFERENCING OLD TABLE AS q2_ttx_o FOR EACH STATEMENT EXECUTE PROCEDURE q2_ttx_f();
+ERROR:  transition table name can only be specified for an AFTER trigger
+CREATE TRIGGER q2_ttx_c AFTER INSERT ON q2_ttx
+  REFERENCING OLD TABLE AS q2_ttx_o FOR EACH STATEMENT EXECUTE PROCEDURE q2_ttx_f();
+ERROR:  OLD TABLE can only be specified for a DELETE or UPDATE trigger
+CREATE TRIGGER q2_ttx_d AFTER UPDATE ON q2_ttx
+  REFERENCING OLD TABLE AS q2_ttx_o OLD TABLE AS q2_ttx_o2 FOR EACH STATEMENT EXECUTE PROCEDURE q2_ttx_f();
+ERROR:  OLD TABLE cannot be specified multiple times
+SELECT count(*) FROM pg_trigger WHERE tgrelid = 'q2_ttx'::regclass AND NOT tgisinternal;
+ count 
+-------
+     1
+(1 row)
+
+DROP TABLE q2_ttx;
+DROP FUNCTION q2_ttx_f();

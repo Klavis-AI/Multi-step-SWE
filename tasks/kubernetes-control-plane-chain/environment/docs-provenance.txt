@@ -1,0 +1,27 @@
+How environment/docs/ was produced: the build stage below fetched each
+document from its official source, checked it against the pinned sha256,
+and made the text conversions. The files are stored in docs/ and copied
+into the image directly. Re-run these steps to refresh a document.
+
+# Documentation for the agent, which works with no network.  This stage
+# fetches every file listed in docs-manifest.txt from its official source,
+# checks it against the pinned sha256, and the final stage copies the result
+# to /opt/docs.  /opt/docs is outside /app because /app is the workspace
+# collected for grading.
+FROM debian:bookworm-slim AS docs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+COPY docs-manifest.txt /opt/docs/SOURCES.txt
+RUN set -eu; \
+    cd /opt/docs; \
+    re='^[0-9a-f]\{64\}  '; \
+    : > /tmp/docs.sha256; \
+    grep "$re" SOURCES.txt | while read -r sum path url; do \
+      mkdir -p "$(dirname "$path")"; \
+      curl -fsSL --retry 5 --retry-delay 3 -o "$path" "$url"; \
+      printf '%s  %s\n' "$sum" "$path" >> /tmp/docs.sha256; \
+    done; \
+    test "$(wc -l < /tmp/docs.sha256)" -eq "$(grep -c "$re" SOURCES.txt)"; \
+    sha256sum -c --strict --quiet /tmp/docs.sha256; \
+    chmod -R a+rX /opt/docs

@@ -1,0 +1,22 @@
+CREATE TABLE q3_cvk(a int, b int, c text);
+CREATE INDEX q3_cvk_plain ON q3_cvk (a, b);
+CREATE INDEX q3_cvk_incl ON q3_cvk (a) INCLUDE (b, c);
+SELECT c.relname, i.indnatts, i.indnkeyatts, i.indkey::text FROM pg_index i
+  JOIN pg_class c ON c.oid = i.indexrelid
+  WHERE c.relname IN ('q3_cvk_plain','q3_cvk_incl') ORDER BY c.relname;
+   relname    | indnatts | indnkeyatts | indkey 
+--------------+----------+-------------+--------
+ q3_cvk_incl  |        3 |           1 | 1 2 3
+ q3_cvk_plain |        2 |           2 | 1 2
+(2 rows)
+
+SELECT attname FROM pg_attribute WHERE attrelid = 'q3_cvk_incl'::regclass
+  AND attnum > 0 ORDER BY attnum;
+ attname 
+---------
+ a
+ b
+ c
+(3 rows)
+
+DROP TABLE q3_cvk;

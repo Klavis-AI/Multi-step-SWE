@@ -1,0 +1,37 @@
+# arch: x86_64
+# .init_array/.fini_array entries are GC roots: an unreferenced constructor or
+# destructor function must survive the default section garbage collection even
+# though nothing in the call graph reaches it directly.
+rt_obj rt.o
+cat > arrays.s <<'S'
+        .section .init_array,"aw",@init_array
+        .quad   ctor_fn
+        .section .fini_array,"aw",@fini_array
+        .quad   dtor_fn
+        .text
+        .globl  ctor_fn
+ctor_fn:
+        ret
+        .globl  dtor_fn
+dtor_fn:
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj arrays.o arrays.s
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("arr"); return 0; }
+C
+cc_obj m.o m.c
+link_ok out rt.o arrays.o m.o
+has_section out "\.init_array" || die ".init_array was collected though nothing referenced it"
+has_section out "\.fini_array" || die ".fini_array was collected though nothing referenced it"
+want "ctor_fn survived" "$(symbols out | awk '$8=="ctor_fn"' | grep -c .)" "1"
+want "dtor_fn survived" "$(symbols out | awk '$8=="dtor_fn"' | grep -c .)" "1"
+run_expect out "arr" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

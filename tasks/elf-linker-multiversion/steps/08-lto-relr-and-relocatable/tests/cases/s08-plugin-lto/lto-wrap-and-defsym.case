@@ -1,0 +1,62 @@
+# arch: x86_64
+# --wrap must redirect a reference that comes out of a bitcode input, and a
+# --defsym target must survive the link even when nothing else refers to it --
+# the plugin's resolution feedback has to report it as needed before the
+# garbage collector runs. Both are measured here with the plugin in the loop.
+rt_obj rt.o
+plugin=""
+for p in /usr/lib/llvm-16/lib/LLVMgold.so /usr/lib/bfd-plugins/LLVMgold-16.so \
+         /usr/lib/bfd-plugins/LLVMgold.so; do
+  [ -f "$p" ] && { plugin=$p; break; }
+done
+[ -n "$plugin" ] || die "no LLVMgold.so in this image (llvm-16-linker-tools)"
+
+# The wrapped definition and the wrapper are ordinary objects; the caller is
+# bitcode, so the reference the linker has to redirect is one the plugin
+# produced. -ffunction-sections puts elf_only in a section of its own, so that
+# it is collected unless something keeps it.
+cat > h.c <<'C'
+int helper(int x) { return x + 7; }
+int elf_only(int x) { return x - 1; }
+C
+cat > w.c <<'C'
+int __real_helper(int);
+int __wrap_helper(int x) { return __real_helper(x) * 2; }
+C
+cat > m.c <<'C'
+int helper(int);
+int entry(void) { return helper(52); }
+C
+cc_obj h.o h.c -ffunction-sections
+cc_obj w.o w.c
+cc_obj m.o m.c -flto
+want_has "the caller really is bitcode" "$(file m.o)" 'LLVM IR bitcode'
+
+# Baseline: no --wrap, so the bitcode call reaches helper itself. 52 + 7.
+link_ok direct --plugin "$plugin" rt.o m.o h.o w.o
+run_expect direct "" 59
+
+# --wrap sends the bitcode's call to __wrap_helper, whose __real_helper still
+# reaches the original definition. (52 + 7) * 2.
+link_ok wrapped --plugin "$plugin" --wrap helper rt.o m.o h.o w.o
+run_expect wrapped "" 118
+want_has "the wrapper survived into the output" "$(symbols wrapped)" '__wrap_helper'
+want_not "and __real_helper is not left undefined" \
+         "$(symbols wrapped | awk '$5 == "GLOBAL" && $7 == "UND" { print $8 }')" '__real_helper'
+
+# Without a --defsym naming it, elf_only is unreferenced and is collected.
+[ -z "$(sym_value wrapped elf_only)" ] \
+  || die "elf_only survived with nothing referring to it; the case cannot show what --defsym keeps"
+
+# With one, the target must be kept alive and the alias must take its address.
+link_ok aliased --plugin "$plugin" --wrap helper --defsym ds_alias=elf_only rt.o m.o h.o w.o
+tgt=$(sym_value aliased elf_only)
+als=$(sym_value aliased ds_alias)
+[ -n "$tgt" ] || die "--defsym did not keep its target alive across the LTO link"
+[ -n "$als" ] || die "--defsym defined no ds_alias"
+want "the alias has the target's address" "$als" "$tgt"
+run_expect aliased "" 118
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 4

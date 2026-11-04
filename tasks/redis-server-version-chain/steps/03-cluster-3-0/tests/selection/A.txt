@@ -1,0 +1,174 @@
+# step: 03-cluster-3-0
+# 03-cluster-3-0 component A: 136 scored tests
+# --- 00-base.tcl (10) ---
+00-base.tcl::(init) Restart killed instances
+00-base.tcl::After the join, every node gets a different config epoch
+00-base.tcl::Before slots allocation, all nodes report cluster failure
+00-base.tcl::Cluster Join and auto-discovery test
+00-base.tcl::Cluster nodes are reachable
+00-base.tcl::Cluster nodes hard reset
+00-base.tcl::Different nodes have different IDs
+00-base.tcl::It is possible to perform slot allocation
+00-base.tcl::It is possible to write and read from the cluster
+00-base.tcl::Nodes should report cluster_state is ok now
+# --- 01-faildet.tcl (13) ---
+01-faildet.tcl::(init) Restart killed instances
+01-faildet.tcl::Before slots allocation, all nodes report cluster failure
+01-faildet.tcl::Cluster Join and auto-discovery test
+01-faildet.tcl::Cluster nodes are reachable
+01-faildet.tcl::Cluster nodes hard reset
+01-faildet.tcl::Cluster should be down now
+01-faildet.tcl::Cluster should be still up
+01-faildet.tcl::Cluster should be up again
+01-faildet.tcl::Cluster should start ok
+01-faildet.tcl::Create a 5 nodes cluster
+01-faildet.tcl::Killing one master node
+01-faildet.tcl::Killing two slave nodes
+01-faildet.tcl::Restarting master node
+# --- 02-failover.tcl (12) ---
+02-failover.tcl::(init) Restart killed instances
+02-failover.tcl::Before slots allocation, all nodes report cluster failure
+02-failover.tcl::Cluster Join and auto-discovery test
+02-failover.tcl::Cluster is up
+02-failover.tcl::Cluster is writable
+02-failover.tcl::Cluster nodes are reachable
+02-failover.tcl::Cluster nodes hard reset
+02-failover.tcl::Cluster should eventually be up again
+02-failover.tcl::Create a 5 nodes cluster
+02-failover.tcl::Killing one master node
+02-failover.tcl::Restarting the previously killed master node
+02-failover.tcl::Wait for failover
+# --- 03-failover-loop.tcl (12) ---
+03-failover-loop.tcl::(init) Restart killed instances
+03-failover-loop.tcl::Before slots allocation, all nodes report cluster failure
+03-failover-loop.tcl::Cluster Join and auto-discovery test
+03-failover-loop.tcl::Cluster is up
+03-failover-loop.tcl::Cluster is writable again
+03-failover-loop.tcl::Cluster is writable before failover
+03-failover-loop.tcl::Cluster nodes are reachable
+03-failover-loop.tcl::Cluster nodes hard reset
+03-failover-loop.tcl::Cluster should eventually be up again
+03-failover-loop.tcl::Create a 5 nodes cluster
+03-failover-loop.tcl::Post condition: current_epoch >= my_epoch everywhere
+03-failover-loop.tcl::We can read back the value we set before
+# --- 04-resharding.tcl (12) ---
+04-resharding.tcl::(init) Restart killed instances
+04-resharding.tcl::Before slots allocation, all nodes report cluster failure
+04-resharding.tcl::Cluster Join and auto-discovery test
+04-resharding.tcl::Cluster is up
+04-resharding.tcl::Cluster nodes are reachable
+04-resharding.tcl::Cluster nodes hard reset
+04-resharding.tcl::Cluster should eventually be up again
+04-resharding.tcl::Crash and restart all the instances
+04-resharding.tcl::Create a 5 nodes cluster
+04-resharding.tcl::Disable AOF in all the instances
+04-resharding.tcl::Enable AOF in all the instances
+04-resharding.tcl::Verify slaves consistency
+# --- 05-slave-selection.tcl (10) ---
+05-slave-selection.tcl::(init) Restart killed instances
+05-slave-selection.tcl::Before slots allocation, all nodes report cluster failure
+05-slave-selection.tcl::Cluster Join and auto-discovery test
+05-slave-selection.tcl::Cluster is up
+05-slave-selection.tcl::Cluster nodes are reachable
+05-slave-selection.tcl::Cluster nodes hard reset
+05-slave-selection.tcl::Cluster should eventually be up again
+05-slave-selection.tcl::Create a 5 nodes cluster
+05-slave-selection.tcl::Slaves are both able to receive and acknowledge writes
+05-slave-selection.tcl::The first master has actually two slaves
+# --- 06-slave-stop-cond.tcl (15) ---
+#
+# A cluster unit is one sequential script, not a bag of independent cases: the
+# adapter skips the BODY of an unselected test, so dropping a name here deletes
+# whatever that body set up for the names that follow. Four of this unit's names
+# are load-bearing and must stay selected:
+#   "Slaves of #0 is instance #5 as expected"  sets $port0, which
+#       "Break master-slave link ..." passes to CLIENT KILL;
+#   "Instance #5 synced with the master"       waits for master_link_status:up,
+#       without which that CLIENT KILL has no master link to kill, EXEC returns
+#       {ERR No such client, OK}, and the test aborts leaving R 5 deferred with
+#       an unread reply -- a connection the harness then reuses for every later
+#       unit, which reads the stale +QUEUED and dies on "Cluster nodes are
+#       reachable";
+#   "Slave #5 is reachable and alive"          is the direct check that the
+#       connection above is not poisoned;
+#   "Slave #5 should not be able to failover"  carries the `after 10000` that
+#       lets cluster-slave-validity-factor take effect before
+#       "Cluster should be down" reads cluster_state.
+# Selection is by name, so each of these also runs (unscored) in the other units
+# that contain it, which is what restores their sequencing too.
+06-slave-stop-cond.tcl::(init) Restart killed instances
+06-slave-stop-cond.tcl::Before slots allocation, all nodes report cluster failure
+06-slave-stop-cond.tcl::Break master-slave link and prevent further reconnections
+06-slave-stop-cond.tcl::Cluster Join and auto-discovery test
+06-slave-stop-cond.tcl::Cluster is up
+06-slave-stop-cond.tcl::Cluster nodes are reachable
+06-slave-stop-cond.tcl::Cluster nodes hard reset
+06-slave-stop-cond.tcl::Cluster should be down
+06-slave-stop-cond.tcl::Create a 5 nodes cluster
+06-slave-stop-cond.tcl::Instance #5 synced with the master
+06-slave-stop-cond.tcl::Lower the slave validity factor of #5 to the value of 2
+06-slave-stop-cond.tcl::Slave #5 is reachable and alive
+06-slave-stop-cond.tcl::Slave #5 should not be able to failover
+06-slave-stop-cond.tcl::Slaves of #0 is instance #5 as expected
+06-slave-stop-cond.tcl::The first master has actually one slave
+# --- 07-replica-migration.tcl (3) ---
+07-replica-migration.tcl::(init) Restart killed instances
+07-replica-migration.tcl::Cluster nodes are reachable
+07-replica-migration.tcl::Cluster nodes hard reset
+# --- 08-update-msg.tcl (16) ---
+# "Killing the new master #5" is the same kind of load-bearing name as unit 06's:
+# it is the kill that "Cluster should be down now" asserts the consequence of,
+# and the instance that "Restarting the new master node" restarts.
+08-update-msg.tcl::(init) Restart killed instances
+08-update-msg.tcl::Before slots allocation, all nodes report cluster failure
+08-update-msg.tcl::Cluster Join and auto-discovery test
+08-update-msg.tcl::Cluster is up
+08-update-msg.tcl::Cluster is up again
+08-update-msg.tcl::Cluster is writable
+08-update-msg.tcl::Cluster nodes are reachable
+08-update-msg.tcl::Cluster nodes hard reset
+08-update-msg.tcl::Cluster should be down now
+08-update-msg.tcl::Cluster should eventually be up again
+08-update-msg.tcl::Create a 5 nodes cluster
+08-update-msg.tcl::Killing one master node
+08-update-msg.tcl::Killing the new master #5
+08-update-msg.tcl::Restarting the new master node
+08-update-msg.tcl::Restarting the old master node
+08-update-msg.tcl::Wait for failover
+# --- 09-pubsub.tcl (8) ---
+09-pubsub.tcl::(init) Restart killed instances
+09-pubsub.tcl::Before slots allocation, all nodes report cluster failure
+09-pubsub.tcl::Cluster Join and auto-discovery test
+09-pubsub.tcl::Cluster nodes are reachable
+09-pubsub.tcl::Cluster nodes hard reset
+09-pubsub.tcl::Create a 5 nodes cluster
+09-pubsub.tcl::Test publishing to master
+09-pubsub.tcl::Test publishing to slave
+# --- 10-manual-failover.tcl (12) ---
+10-manual-failover.tcl::(init) Restart killed instances
+10-manual-failover.tcl::Before slots allocation, all nodes report cluster failure
+10-manual-failover.tcl::Cluster Join and auto-discovery test
+10-manual-failover.tcl::Cluster is up
+10-manual-failover.tcl::Cluster is writable
+10-manual-failover.tcl::Cluster nodes are reachable
+10-manual-failover.tcl::Cluster nodes hard reset
+10-manual-failover.tcl::Cluster should eventually be up again
+10-manual-failover.tcl::Create a 5 nodes cluster
+10-manual-failover.tcl::Send CLUSTER FAILOVER to #5, during load
+10-manual-failover.tcl::Verify 50000 keys for consistency with logical content
+10-manual-failover.tcl::Wait for failover
+# --- 11-manual-takeover.tcl (13) ---
+11-manual-takeover.tcl::(init) Restart killed instances
+11-manual-takeover.tcl::Before slots allocation, all nodes report cluster failure
+11-manual-takeover.tcl::Cluster Join and auto-discovery test
+11-manual-takeover.tcl::Cluster is up
+11-manual-takeover.tcl::Cluster is writable
+11-manual-takeover.tcl::Cluster nodes are reachable
+11-manual-takeover.tcl::Cluster nodes hard reset
+11-manual-takeover.tcl::Cluster should eventually be down
+11-manual-takeover.tcl::Cluster should eventually be up again
+11-manual-takeover.tcl::Create a 5 nodes cluster
+11-manual-takeover.tcl::Killing majority of master nodes
+11-manual-takeover.tcl::Restarting the previously killed master nodes
+11-manual-takeover.tcl::Use takeover to bring slaves back
+# collision-pad: ..

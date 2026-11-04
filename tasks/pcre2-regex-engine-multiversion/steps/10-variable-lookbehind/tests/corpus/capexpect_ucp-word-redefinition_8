@@ -1,0 +1,51 @@
+# In UCP mode \w now matches L, N, Mn and Pc, and \b and \B follow it.
+# ChangeLog 10.43 items 32 and 35; pcre2pattern.3, "Generic character types"
+# and "Simple assertions".
+
+/^\w+$/utf,ucp
+    caf\x{e9}
+ 0: caf\x{e9}
+    ma\x{301}nana
+ 0: ma\x{301}nana
+    tie\x{203f}bar
+ 0: tie\x{203f}bar
+    under\x{2040}tie
+ 0: under\x{2040}tie
+    \x{5f}plain
+ 0: _plain
+    no\x{2d}dash
+No match
+    \x{2018}quote
+No match
+
+/^\W$/utf,ucp
+    \x{300}
+No match
+    \x{203f}
+No match
+    \x{2d}
+ 0: -
+
+# \b now sees a combining mark as part of the word.
+/\bQ/utf,ucp
+    a\x{300}Q
+No match
+    a Q
+ 0: Q
+    \x{2040}Q
+No match
+
+/\BQ/utf,ucp
+    a\x{300}Q
+ 0: Q
+    \x{2d}Q
+No match
+
+# Outside UCP mode nothing here changes.
+/^\w+$/utf
+    ma\x{301}nana
+No match
+    tie\x{203f}bar
+No match
+    plain
+ 0: plain

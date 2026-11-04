@@ -1,0 +1,4 @@
+SELECT 5 !;
+SELECT !! 5;
+SELECT 5 ! + 1;
+SELECT (5) !;

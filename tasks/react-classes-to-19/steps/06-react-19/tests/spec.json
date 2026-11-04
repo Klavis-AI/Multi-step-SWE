@@ -1,0 +1,1235 @@
+{
+ "step": "06",
+ "requireLockfile": true,
+ "devConsole": true,
+ "entryCost": true,
+ "comment": [
+  "Step 6 - React 19.",
+  "",
+  "This is the version the whole migration line is named for, and this is the",
+  "step it arrives at.  The line's plan gives this step five React 19 constructs:",
+  "use(), Actions with useActionState/useFormStatus, ref as prop, <Context> as",
+  "provider, and propTypes/defaultProps removed.  Measured on the tree this step",
+  "starts from, four of the five have no subject at all: zero createContext, zero",
+  "forwardRef and zero callback refs, zero <form> and zero onSubmit, zero",
+  "defaultProps, and no promise or context anywhere for use() to read - the",
+  "sixty-four context reads in this tree are the router's useOutletContext, which",
+  "is not React context, and the data layer is RTK Query, which does not suspend.",
+  "Manufacturing a subject for each of them would be writing new features and",
+  "calling it a migration.  The fifth has a subject: three components carry a",
+  "propTypes object and the package that builds it is still a dependency.",
+  "",
+  "So the step is the upgrade and its own consequences, which is what the survey",
+  "of this tree says a React 19 migration of it actually is:",
+  "",
+  "  - react and react-dom to 19;",
+  "  - react-redux from 7.2.9, whose peer range stops at React 18, to a release",
+  "    that declares React 19.  This is the forcing function.  npm ci - which",
+  "    this step's spec requires, the same as the four before it - fails outright",
+  "    on React 19 beside react-redux 7.2.9, so the tree does not install, does",
+  "    not build, and scores nothing.  Measured: a probe of exactly that pairing",
+  "    finished in seven seconds with 'dependency install failed' and every gate",
+  "    unevaluated.  react-redux is also the only dependency of this tree whose",
+  "    peer range excludes React 19: react-icons declares '*', react-router-dom",
+  "    '>=16.8', and @reduxjs/toolkit already lists ^19.  One edge, and it is a",
+  "    hard one.",
+  "  - the propTypes layer gone: the three declarations, the three imports, and",
+  "    the dependency.",
+  "",
+  "and everything the five steps before it built, held.",
+  "",
+  "What this step does NOT gate, and why:",
+  "",
+  "  - Anything about use(), Actions, ref-as-prop or <Context>.  There is no",
+  "    subject; a gate would be asking a candidate to invent one.",
+  "  - An absence of overrides or of legacy-peer-deps in the tree.  It was",
+  "    considered and rejected on a measurement rather than on taste: react-redux",
+  "    is the only package whose peers block React 19, so once the bindings are",
+  "    required to be on a release that supports 19 there is nothing left for an",
+  "    override to suppress.  A check for the mechanism instead of the property",
+  "    would be a check of how, and this file grades what is true of the tree.",
+  "  - Manual memoisation, the ninety-four sites of it.  That is the compiler",
+  "    step's subject and removing it here would spend it early.",
+  "  - The router major.  Also a later step's.",
+  "",
+  "The guard used on everything carried forward is react at major 19 together",
+  "with bindings that support it.  It is the marker for 'this step has begun',",
+  "the same role concurrent-hooks-used played at step 5: a tree that has not",
+  "moved the runtime has not done this step, and the fifteen checks that ask",
+  "whether it broke anything must not pay it for standing still.  Both halves",
+  "are read off the installed tree, not off package.json, and the built-from-",
+  "source precondition is what ties the tree those readings come from to the",
+  "site the behavior family drove.",
+  "",
+  "Measured before this file was written, all on the step-5 reference solution:",
+  "  - untouched, under this spec: every check 0, reward 0.45.",
+  "  - upgraded (react 19.3.0, react-dom 19.3.0, react-redux 9.3.0, propTypes",
+  "    removed) under step 5's spec: 210/210 behavior, entry 133,024 gzipped",
+  "    before the screen in one chunk, 62 chunks, strict run 17/17/17 with 0",
+  "    messages and React's development text present, and every step-5 gate at",
+  "    1.0 except the two that pin major 18.",
+  "  - React 19 with react-redux 7.2.9 forced by an overrides entry: installs,",
+  "    builds, and reproduces the recorded behavior.  That is the shortcut",
+  "    bindings-support-19 exists to close."
+ ],
+ "guard": [
+  {
+   "id": "site-is-live",
+   "why": "The tree still builds, serves and behaves like the application, so that what the gates measure is a migration of it rather than its absence.",
+   "kind": "json-flag",
+   "file": "/logs/verifier/behavior.json",
+   "field": "passed",
+   "min": 10,
+   "unmet": "the built site did not reproduce the application, so there is no migrated application to credit: the tree did not build, did not serve, or reproduced almost none of the behavior it must preserve"
+  },
+  {
+   "id": "built-from-source",
+   "why": "The site that is served is built from this repository's own source, so that the behavior the one family reproduces and the code the other family reads are the same program.",
+   "kind": "built-from-source",
+   "minModules": 1,
+   "unmet": "the site that was served is not built from this tree: what the build compiled and what the tree contains are different code, so the behavior it reproduced is no evidence about the tree the gates read"
+  }
+ ],
+ "checks": [
+  {
+   "id": "react-19",
+   "why": "The React that is installed is version 19. This is the version this whole migration line is named for and the step it is reached at: every earlier step was a move towards a runtime that had not arrived yet, and this is where it does. The reading is of the installed tree rather than of the range in package.json, and a tree with more than one major of React installed fails it, because a second copy left behind is the case a declared range cannot show.",
+   "kind": "dep-version",
+   "package": "react",
+   "major": 19,
+   "weight": 4
+  },
+  {
+   "id": "react-dom-19",
+   "why": "And the renderer moved with it. React and its DOM renderer are one release in two packages and a tree holding them apart is not on either version; the separate id is here because the two are separately declared and separately installable, and the failure of leaving one behind is worth reading off gates.json by name.",
+   "kind": "dep-version",
+   "package": "react-dom",
+   "major": 19,
+   "weight": 4
+  },
+  {
+   "id": "bindings-support-19",
+   "why": "The store bindings are from a release that supports React 19. This is the step's own forcing function and the reason it is a migration rather than a version string: the tree arrives holding react-redux 7.2.9, whose peer range stops at React 18, so an install of React 19 beside it fails outright and a half-done upgrade does not build at all. Two majors separate 7 from the first release that declares React 19 - v8 rewrote the subscription onto useSyncExternalStore and v9 dropped React below 18 - and that is the distance this step actually travels in the dependency graph. It is a check of its own rather than a consequence of the install because the conflict can be suppressed: an overrides entry in package.json makes npm install 7.2.9 beside React 19 without complaint, the application still builds, and it was measured reproducing every one of the recorded scenarios. A tree that did that is running a package outside the support its own author declares, which is the opposite of having migrated to one that supports the runtime.",
+   "kind": "dep-version",
+   "package": "react-redux",
+   "major": 9,
+   "minMinor": 2,
+   "weight": 6
+  },
+  {
+   "id": "prop-types-declarations-gone",
+   "why": "No component still hangs a propTypes object on itself. React 19 removed propTypes from function components: the declarations are not checked, not warned about and not read - they are inert text that tells a reader the props are validated when nothing validates them. The tree arrives with three of them, one on each of the carousel's three components. This is the one construct of the five React 19 items this step's line names that has a subject in this repository, and it is graded as the step's own work rather than as tidying. It is also the key the inherited family is credited against: a tree still carrying the declarations has not done the one thing this step asks of its source, and the five steps behind it are not paid out to a tree that has not started. Keyed here rather than on the manifest line because the manifest line is clerical and this is the work.",
+   "kind": "ast-max",
+   "gate": "prop-types",
+   "max": 0,
+   "baseline": 3,
+   "weight": 4
+  },
+  {
+   "id": "prop-types-imports-gone",
+   "why": "And nothing imports the package any more. Deleting the assignment while leaving the import behind leaves the package in the module graph and in the bytes the browser downloads, doing nothing; leaving the object the assignment referred to while deleting the import is worse, because the object's own body reads PropTypes.array at module scope and the module throws before it exports anything. The second one is not hypothetical - it is what a first attempt at this removal actually produced here - and the two counts together are what make the removal complete rather than partial.",
+   "kind": "ast-max",
+   "gate": "pkg-prop-types",
+   "max": 0,
+   "baseline": 3,
+   "weight": 4
+  },
+  {
+   "id": "prop-types-uninstalled",
+   "why": "And it is not a dependency any more. A package nothing imports but package.json still declares is installed on every machine that builds this tree and audited on every machine that scans it; the source having stopped referring to it is half of removing it. Scored rather than made the key to the checks the tree carried in: leaving the line behind is one clerical omission in a file the candidate is already editing, and a step that has removed the declarations and the imports has happened whether or not the line went with them.",
+   "kind": "dep-absent",
+   "package": "prop-types",
+   "weight": 4
+  },
+  {
+   "id": "entry-budget",
+   "why": "What a visitor waits for before anything renders is still under 140 KB gzipped, measured the way the step before this one measured it: the built site is opened at an address that renders the application's own no-such-route screen, and every piece of javascript the page asked for between the navigation and that screen appearing is summed gzipped. This is the one number the upgrade actually threatens. The tree arrives at 111,325 bytes there; React 19's runtime is larger than React 18's, and the same tree on 19 with the bindings that support it was measured at 133,024 - just under 22 KB more, and under 7 KB of room left against a budget that does not move. The budget does not move because the step before this one is what earned it, and a runtime upgrade is not a licence to hand back what was earned. A wall rather than a slope. It was written as a slope for one round, full weight at 140 KB and nothing at 160 KB, and the slope could never pay: the guard beside it reads the same 140,000 out of the settled total, the settled total is the sum the reading before the screen is a part of, so a tree over the budget at the cut is over it settled and the guard has already scored the check zero before the slope is consulted. Grading an interval no tree can be scored in is a sentence about the spec rather than about any tree, and §4 asks for a number, not for a gradient.",
+   "kind": "json-flag",
+   "file": "/logs/verifier/entrycost.json",
+   "field": "jsGzipBeforeScreen",
+   "max": 140000,
+   "weight": 4,
+   "guard": [
+    {
+     "id": "assets-self-contained",
+     "kind": "assets-self-contained",
+     "unmet": "the page the site serves reaches for an asset it does not ship, so what the browser downloaded is not what this tree builds"
+    },
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "the-page-stopped-fetching",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "jsGzipTotal",
+     "max": 140000,
+     "unmet": "the page went on fetching javascript well past its first screen: what a visitor waits for was moved past the measurement rather than made smaller, so the number the budget is scored on is not what this tree costs"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ]
+  },
+  {
+   "id": "strict-console-clean",
+   "why": "React's development build, running the application under StrictMode at seventeen addresses, reports nothing. The tree arrives with this already true under React 18, and the question this step asks is whether it is still true under a new major whose development checks are not the same checks. Measured on the upgraded tree: seventeen addresses, seventeen rendered, seventeen showing their own screen, fifteen of the application's endpoints reached, zero messages. So the answer here is that React 19 says nothing about this tree that React 18 did not - which is a finding rather than an assumption, and it is worth a gate precisely because the cheap way to make a new major quiet is to stop listening.",
+   "kind": "json-flag",
+   "file": "/logs/verifier/strict.json",
+   "field": "errors",
+   "max": 0,
+   "weight": 4,
+   "guard": [
+    {
+     "id": "dev-run-complete",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "addresses",
+     "min": 17,
+     "unmet": "the development run did not visit all seventeen addresses, so a count of zero would be a count of nothing"
+    },
+    {
+     "id": "dev-run-rendered",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "rendered",
+     "min": 17,
+     "unmet": "the development build did not render at every address it was opened at, so a console that said nothing said nothing about a working application"
+    },
+    {
+     "id": "dev-run-screens",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "intact",
+     "min": 17,
+     "unmet": "the development build rendered something other than the screen its address is for, so what the console did not say was not said about these screens"
+    },
+    {
+     "id": "dev-run-reached-api",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "apiPaths",
+     "min": 5,
+     "unmet": "the development run reached almost none of the application's own endpoints, so the code paths that fetch were never entered and the console count covers a fraction of the application"
+    },
+    {
+     "id": "dev-build-is-development",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "devReact",
+     "equals": true,
+     "unmet": "the build the development run served carries none of React's development text, so it is a production build and React's development checks never ran in it"
+    },
+    {
+     "id": "strict-mode-on",
+     "kind": "ast-min",
+     "gate": "strict-mode-root",
+     "min": 1,
+     "scope": "reachable",
+     "unmet": "the root the application renders through is not wrapped in StrictMode, so the double-invocation the count is about never happened"
+    },
+    {
+     "id": "every-root-render-wrapped",
+     "kind": "ast-max",
+     "gate": "root-render-unwrapped",
+     "max": 0,
+     "scope": "reachable",
+     "unmet": "a root is rendered without StrictMode around it, so part of the application was exercised with the checks switched off"
+    },
+    {
+     "id": "console-not-replaced",
+     "kind": "ast-max",
+     "gate": "console-suppressions",
+     "max": 0,
+     "scope": "reachable",
+     "unmet": "the code the build compiles replaces or silences the console, so a count of zero is a count of what was allowed through"
+    },
+    {
+     "id": "console-not-dropped-by-the-build",
+     "kind": "ast-max",
+     "gate": "build-console-dropped",
+     "max": 0,
+     "unmet": "the build this tree configures strips or rewrites console calls before they run, so a development run that reports nothing is reporting what the build left in rather than what the application said"
+    },
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ]
+  },
+  {
+   "id": "deferred-seller-list",
+   "why": "The deferred read the step before this one added is still there and still read. react-redux 9 delivers store updates through useSyncExternalStore rather than through its own subscription, which is a change to when a selector's result reaches a render; a candidate who found the concurrent work confusing under new bindings and deleted it would have undone the previous step to make this one quiet.",
+   "kind": "ast-min",
+   "gate": "deferred-value-used",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "range-changes-are-transitions",
+   "why": "And the range changes are still started as transitions, in the three places they were.",
+   "kind": "ast-min",
+   "gate": "transition-start",
+   "min": 3,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "chart-bodies-lazy",
+   "why": "The chart bodies are still behind React's lazy, in at least the twelve places the split takes. React 19 changed how Suspense pre-renders siblings, which is the kind of change that tempts a candidate to take the boundaries out rather than find out what they do now.",
+   "kind": "ast-min",
+   "gate": "react-lazy",
+   "min": 12,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "suspense-boundary-present",
+   "why": "And there is still a boundary for them to suspend at.",
+   "kind": "ast-min",
+   "gate": "suspense",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "code-split-grew",
+   "why": "And the build still emits the chunks that split produced.",
+   "kind": "min-chunks",
+   "min": 42,
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "create-root-kept",
+   "why": "The application is still mounted through createRoot. React 19 removed the legacy renderer entry points outright, so a tree that went back to them would not build - but the check is here rather than assumed, because what does not build is scored by the behavior family and this family has to be able to say why.",
+   "kind": "ast-min",
+   "gate": "create-root",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "strict-mode-kept",
+   "why": "And it is still mounted under StrictMode.",
+   "kind": "ast-min",
+   "gate": "strict-mode-root",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "legacy-render-stays-gone",
+   "why": "And the render call it replaced has not come back.",
+   "kind": "ast-max",
+   "gate": "legacy-render",
+   "max": 0,
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "react-icons-v2-stays-gone",
+   "why": "No module has gone back to reaching an icon through react-icons 2's per-icon path.",
+   "kind": "ast-max",
+   "gate": "react-icons-deep-import",
+   "max": 0,
+   "baseline": 56,
+   "guard": [
+    {
+     "id": "react-icons-major-kept",
+     "kind": "dep-version",
+     "package": "react-icons",
+     "minMajor": 5,
+     "unmet": "the icon package was moved back to a major whose per-icon paths are the ordinary way to import from it, so a count of zero says nothing"
+    },
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "classes-stay-gone",
+   "why": "No component goes back to being a class.",
+   "kind": "ast-max",
+   "gate": "class-components",
+   "max": 0,
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "route-fetching-absent",
+   "why": "No route fetches for itself.",
+   "kind": "ast-max",
+   "gate": "route-loader",
+   "max": 0,
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "data-layer-owns-fetching",
+   "why": "And no component fetches around the data layer.",
+   "kind": "ast-max",
+   "gate": "raw-fetch",
+   "max": 0,
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "data-layer-kept",
+   "why": "The data layer is still the query hooks, in the thirty-odd places that read it.",
+   "kind": "ast-min",
+   "gate": "rtk-query-hooks",
+   "min": 30,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "data-router-kept",
+   "why": "And the router is still the data router.",
+   "kind": "ast-min",
+   "gate": "router-data-api",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "vite-declared",
+   "why": "The build tool this step inherits is not replaced along the way: the project's declared build tool is still Vite. The byte budget is a claim about what this build emits, and a tree that answered it by changing bundlers answered a different question.",
+   "kind": "dep-declared",
+   "package": "vite",
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "parses",
+   "why": "And every module of the tree parses. A tree that stopped parsing is one the other gates read nothing from, and reading nothing is not the same as reading zero.",
+   "kind": "parse-errors",
+   "max": 0,
+   "baseline": 1,
+   "weight": 1,
+   "guard": [
+    {
+     "id": "react-19-installed",
+     "kind": "dep-version",
+     "package": "react",
+     "major": 19,
+     "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    },
+    {
+     "id": "bindings-support-19",
+     "kind": "dep-version",
+     "package": "react-redux",
+     "major": 9,
+     "minMinor": 2,
+     "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+    },
+    {
+     "id": "the-validation-layer-is-gone",
+     "kind": "ast-max",
+     "gate": "prop-types",
+     "max": 0,
+     "unmet": "components in this tree still declare propTypes objects, so the one construct this step has is not done, and the work the tree arrived with is not credited a second time for a dependency bump"
+    },
+    {
+     "id": "the-screen-was-reached",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "screenSeen",
+     "equals": true,
+     "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+    },
+    {
+     "id": "entry-cost-measured",
+     "kind": "json-flag",
+     "file": "/logs/verifier/entrycost.json",
+     "field": "complete",
+     "equals": true,
+     "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+    },
+    {
+     "id": "chart-panels-left-the-entry",
+     "kind": "ast-max",
+     "gate": "entry-echarts",
+     "max": 1,
+     "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+    }
+   ]
+  }
+ ]
+}

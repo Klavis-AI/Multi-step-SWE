@@ -1,0 +1,162 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every milestone runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# The cumulative /app is how the next milestone inherits the previous one, and
+# with a separate verifier it is also the only way the implementation reaches
+# grading. `target/` is excluded so the verifier builds the candidate from the
+# source it shipped rather than grading a binary produced somewhere else.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "target", "target/**"] },
+]
+
+[task]
+name = "harbor/tree-sitter-multiversion"
+version = "1.0.0"
+description = "Build an incremental parser generator and its C runtime, then carry it through nine real releases of its upstream history: query and scanner contracts, a capture-precedence reversal, corpus-discovery narrowing, a parse-table optimisation revert, a generated-ABI bump, a workspace restructure, and a capture-contamination fix."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["parser-generator", "incremental-parsing", "compilers", "glr", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["parsing", "code-generation", "runtime", "multi-step", "cumulative"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 8
+memory_mb = 16384
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet: a parser generator's own build resolves dependencies.
+network_mode = "public"
+
+# Grade each milestone in its own container, built from
+# steps/<name>/tests/Dockerfile with steps/<name>/tests/ as the build context.
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# The verifier BUILDS the candidate (see steps/*/tests/test.sh), so it needs a
+# real toolchain and real cores. Sized for a release build of a workspace the
+# size of a parser generator plus its CLI, not for the check corpus, which is
+# tiny by comparison.
+build_timeout_sec = 2400.0
+cpus = 8
+memory_mb = 16384
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+# Grading does not depend on a live network: the verifier image bakes the union
+# of every anchor's locked dependency graph at build time (prewarm/), and the
+# grading corpus is shipped in the image and checksummed before use. The
+# network stays available only as a fallback for a candidate whose own lockfile
+# names a crate outside that union.
+network_mode = "public"
+
+# ---------------------------------------------------------------------------
+# [steps.verifier].timeout_sec
+#
+# Worst case reachable inside steps/*/tests/test.sh, which is identical in
+# every step:
+#
+#     fixture checksum verification (assets.sha256, ~1400 files)        ~10 s
+#     candidate build: `timeout $BUILD_TIMEOUT bash /app/build.sh`     1800 s
+#     proof of life:   `timeout 120 tree-sitter --version`              120 s
+#     check battery:   `timeout $((CHECK_BUDGET + 120)) driver.py`     1920 s
+#       (driver.py enforces total_budget=1800 itself and marks every
+#        check it could not reach as failed-for-budget, so the outer
+#        timeout is only a backstop against a hung child)
+#     scoring and reporting                                             ~10 s
+#                                                                    -------
+#                                                                     3860 s
+#
+# The ceiling must also cover the verifier image build and the /app artifact
+# round trip. Image build is bounded separately by
+# [verifier.environment].build_timeout_sec = 2400, and the artifact is ~50 MB
+# after target/ is excluded. 5400 leaves ~1500 s of headroom over the reachable
+# worst case on a loaded host, which is the point: an unreachable ceiling costs
+# nothing, a reachable one silently marks correct solutions down.
+#
+# There is no per-group term: the driver runs ONE process per check under a
+# single shared aggregate budget, so adding checks moves work inside
+# `total_budget` instead of adding another multiple of it. Raising
+# `total_budget` in checks.json is therefore the only change that requires
+# revisiting this number.
+# ---------------------------------------------------------------------------
+
+[[steps]]
+name = "01-generator-and-runtime"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "02-queries-and-scanner-serialization"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "03-highlight-tags-and-runtime-consolidation"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "04-last-wins-captures"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "05-corpus-discovery-build-and-attributes"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "06-interning-revert-and-query-api"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "07-abi15-reserved-and-supertypes"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "08-crates-layout-and-cst"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "09-capture-contamination"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 5400.0

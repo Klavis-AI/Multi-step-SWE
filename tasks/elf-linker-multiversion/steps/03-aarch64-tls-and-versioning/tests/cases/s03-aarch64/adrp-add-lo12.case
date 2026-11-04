@@ -1,0 +1,38 @@
+# arch: aarch64
+# R_AARCH64_ADR_PREL_PG_HI21 + R_AARCH64_ADD_ABS_LO12_NC must together
+# reconstruct the exact final address of a datum: page base from adrp, low 12
+# bits from the add. The program prints both the address and the value.
+rt_obj rt.o
+cat > d.s <<'S'
+        .data
+        .p2align 12
+        .space 0x123
+        .globl datum
+        .p2align 3
+datum:  .quad 987654321
+        .section .note.GNU-stack,"",@progbits
+S
+cat > a.s <<'S'
+        .text
+        .globl datum_addr
+datum_addr:
+        adrp    x0, datum
+        add     x0, x0, :lo12:datum
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+cat > m.c <<'C'
+#include "rt.h"
+long *datum_addr(void);
+int entry(void) { long *p = datum_addr(); putdec((long)p); print("\n"); putdec(*p); return 0; }
+C
+as_obj d.o d.s; as_obj a.o a.s; cc_obj m.o m.c
+relocs a.o > a.rel
+grep -q 'R_AARCH64_ADR_PREL_PG_HI21' a.rel || die "input lacks ADR_PREL_PG_HI21: $(cat a.rel)"
+grep -q 'R_AARCH64_ADD_ABS_LO12_NC'  a.rel || die "input lacks ADD_ABS_LO12_NC: $(cat a.rel)"
+link_ok out rt.o a.o m.o d.o
+addr=$(sym_value out datum)
+[ -n "$addr" ] || die "datum not in the output symbol table"
+[ $(( 0x$addr & 0xfff )) -ne 0 ] || die "test is vacuous: datum landed on a page boundary"
+run_expect out "$((0x$addr))
+987654321" 0

@@ -1,0 +1,24 @@
+CREATE TABLE q3_hsm(a int) PARTITION BY HASH (a);
+CREATE TABLE q3_hsm_0 PARTITION OF q3_hsm FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+CREATE TABLE q3_hsm_x PARTITION OF q3_hsm FOR VALUES WITH (MODULUS 3, REMAINDER 0);
+ERROR:  every hash partition modulus must be a factor of the next larger modulus
+DETAIL:  The new modulus 3 is not a factor of 4, the modulus of existing partition "q3_hsm_0".
+CREATE TABLE q3_hsm_y PARTITION OF q3_hsm FOR VALUES WITH (MODULUS 4, REMAINDER 0);
+ERROR:  partition "q3_hsm_y" would overlap partition "q3_hsm_0"
+LINE 1: ...ATE TABLE q3_hsm_y PARTITION OF q3_hsm FOR VALUES WITH (MODU...
+                                                             ^
+CREATE TABLE q3_hsm_z PARTITION OF q3_hsm FOR VALUES WITH (MODULUS 4, REMAINDER 4);
+ERROR:  remainder for hash partition must be less than modulus
+CREATE TABLE q3_hsm_w PARTITION OF q3_hsm FOR VALUES WITH (MODULUS 0, REMAINDER 0);
+ERROR:  modulus for hash partition must be an integer value greater than zero
+CREATE TABLE q3_hsm_v PARTITION OF q3_hsm FOR VALUES FROM (1) TO (10);
+ERROR:  invalid bound specification for a hash partition
+LINE 1: ...ATE TABLE q3_hsm_v PARTITION OF q3_hsm FOR VALUES FROM (1) T...
+                                                             ^
+SELECT count(*) FROM pg_inherits WHERE inhparent = 'q3_hsm'::regclass;
+ count 
+-------
+     1
+(1 row)
+
+DROP TABLE q3_hsm;

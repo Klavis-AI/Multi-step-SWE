@@ -1,0 +1,48 @@
+# arch: x86_64
+# DT_INIT/DT_FINI address the .init/.fini sections and DT_INIT_ARRAY /
+# DT_FINI_ARRAY carry *SZ tags derived from the real section sizes.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+dv()  { dynamic "$1" | sed -n "s/.*($2)[ \t]*//p" | sed -n 1p | awk '{print $1}'; }
+cat > ini.s <<'S'
+        .section .init,"ax",@progbits
+        .globl _init
+_init:  ret
+        .section .fini,"ax",@progbits
+        .globl _fini
+_fini:  ret
+        .text
+        .globl ctor_a
+ctor_a: ret
+        .globl ctor_b
+ctor_b: ret
+        .globl dtor_a
+dtor_a: ret
+        .section .init_array,"aw",@init_array
+        .quad ctor_a
+        .quad ctor_b
+        .section .fini_array,"aw",@fini_array
+        .quad dtor_a
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj ini.o ini.s
+link_ok libi.so -shared --no-gc-sections ini.o
+DYN=$(dynamic libi.so)
+for t in INIT FINI INIT_ARRAY INIT_ARRAYSZ FINI_ARRAY FINI_ARRAYSZ; do
+  wre "DT_$t" "$DYN" "\($t\)"
+done
+want "DT_INIT == addr(.init)" "$(( $(dv libi.so INIT) ))" "$(( 16#$(sec_addr libi.so .init) ))"
+want "DT_FINI == addr(.fini)" "$(( $(dv libi.so FINI) ))" "$(( 16#$(sec_addr libi.so .fini) ))"
+want "DT_INIT_ARRAY == addr"   "$(( $(dv libi.so INIT_ARRAY) ))"   "$(( 16#$(sec_addr libi.so .init_array) ))"
+want "DT_INIT_ARRAYSZ == size" "$(( $(dv libi.so INIT_ARRAYSZ) ))" "$(( 16#$(sec_size libi.so .init_array) ))"
+want "DT_FINI_ARRAY == addr"   "$(( $(dv libi.so FINI_ARRAY) ))"   "$(( 16#$(sec_addr libi.so .fini_array) ))"
+want "DT_FINI_ARRAYSZ == size" "$(( $(dv libi.so FINI_ARRAYSZ) ))" "$(( 16#$(sec_size libi.so .fini_array) ))"
+want "two init_array slots" "$(( $(dv libi.so INIT_ARRAYSZ) ))" "16"
+want "one fini_array slot"  "$(( $(dv libi.so FINI_ARRAYSZ) ))" "8"
+want "DT_INIT == _init" "$(( $(dv libi.so INIT) ))" "$(( 16#$(sym_value libi.so _init) ))"
+want "DT_FINI == _fini" "$(( $(dv libi.so FINI) ))" "$(( 16#$(sym_value libi.so _fini) ))"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 16

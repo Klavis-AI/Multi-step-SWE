@@ -1,0 +1,11 @@
+CREATE TABLE x05_13a(a int, b text) PARTITION BY LIST (a);
+CREATE TABLE x05_13a1 PARTITION OF x05_13a FOR VALUES IN (1,2);
+CREATE PUBLICATION x05_13p FOR TABLE x05_13a;
+SELECT pubname, pubviaroot FROM pg_publication WHERE pubname='x05_13p';
+ALTER PUBLICATION x05_13p SET (publish_via_partition_root = true);
+SELECT pubname, pubviaroot FROM pg_publication WHERE pubname='x05_13p';
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_13p' ORDER BY tablename;
+ALTER PUBLICATION x05_13p SET (publish_via_partition_root = false);
+SELECT pubname, pubviaroot FROM pg_publication WHERE pubname='x05_13p';
+DROP PUBLICATION x05_13p;
+DROP TABLE x05_13a;

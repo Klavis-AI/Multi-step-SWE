@@ -1,0 +1,197 @@
+diff --git a/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c b/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c
+index d5fbd01..951933b 100644
+--- a/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c
++++ b/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c
+@@ -5,11 +5,106 @@
+ 
+ #include <immintrin.h>
+ #include "RateControl_avx2.h"
++#include "rate_control_helper_avx2.h"
+ #include "encoder_dsp_rtcd.h"
+ #include "EncDec.h"
+ #include <string.h>
+ 
++uint32_t rate_control_calc_vpred_cost_nosigf_avx2(uint32_t gcli_width, uint8_t *gcli_data_top_ptr, uint8_t *gcli_data_ptr,
++                                                  uint8_t *vpred_bits_pack, uint8_t gtli, uint8_t gtli_max) {
++    uint32_t pack_size_gcli_no_sigf = 0;
++    uint32_t leftover = gcli_width % 16;
+ 
++    __m256i sum_avx2 = _mm256_setzero_si256();
++    const __m256i gtli_max_avx2 = _mm256_set1_epi16(gtli_max);
++    const __m256i gtli_avx2 = _mm256_set1_epi16(gtli);
++
++    for (uint32_t i = 0; i < gcli_width / 16; ++i) {
++        //uint8_t m_top = MAX(gcli_data_top_ptr[i], gtli_max);
++        __m256i m_top = _mm256_max_epi16(_mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)gcli_data_top_ptr)), gtli_max_avx2);
++
++        //uint8_t gcli = MAX(gcli_data_ptr[i], gtli);
++        __m256i gcli = _mm256_max_epi16(_mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i *)gcli_data_ptr)), gtli_avx2);
++
++        //int8_t delta_m = gcli - m_top; //Can be negative!!!
++        __m256i delta_m = _mm256_sub_epi16(gcli, m_top);
++
++        //uint8_t bits = vlc_encode_get_bits(delta_m, m_top, gtli);
++        __m256i bits = vlc_encode_get_bits_avx2(delta_m, m_top, gtli_avx2);
++
++        //vpred_bits_pack[i] = bits;
++        _mm_storeu_si128((__m128i *)vpred_bits_pack,
++                         _mm_packs_epi16(_mm256_castsi256_si128(bits), _mm256_extracti128_si256(bits, 0x1)));
++
++        //pack_size_gcli_no_sigf += bits;
++        sum_avx2 = _mm256_add_epi16(sum_avx2, bits);
++
++        gcli_data_top_ptr += 16;
++        gcli_data_ptr += 16;
++        vpred_bits_pack += 16;
++    }
++
++    __m128i sum_sse = _mm_hadd_epi16(_mm256_castsi256_si128(sum_avx2), _mm256_extracti128_si256(sum_avx2, 0x1)); // 0..7 16bit
++    if (leftover) {
++        uint32_t leftover_sse = leftover % 8;
++        const __m128i gtli_max_sse = _mm_set1_epi16(gtli_max);
++        const __m128i gtli_sse = _mm_set1_epi16(gtli);
++        if (leftover / 8) {
++            //uint8_t m_top = MAX(gcli_data_top_ptr[i], gtli_max);
++            __m128i m_top = _mm_max_epi16(_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i *)gcli_data_top_ptr)), gtli_max_sse);
++
++            //uint8_t gcli = MAX(gcli_data_ptr[i], gtli);
++            __m128i gcli = _mm_max_epi16(_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i *)gcli_data_ptr)), gtli_sse);
++
++            //int8_t delta_m = gcli - m_top; //Can be negative!!!
++            __m128i delta_m = _mm_sub_epi16(gcli, m_top);
++
++            //uint8_t bits = vlc_encode_get_bits(delta_m, m_top, gtli);
++            __m128i bits = vlc_encode_get_bits_sse(delta_m, m_top, gtli_sse);
++
++            //vpred_bits_pack[i] = bits;
++            _mm_storel_epi64((__m128i *)vpred_bits_pack, _mm_packs_epi16(bits, bits));
++
++            //pack_size_gcli_no_sigf += bits;
++            sum_sse = _mm_add_epi16(sum_sse, bits);
++
++            gcli_data_top_ptr += 8;
++            gcli_data_ptr += 8;
++            vpred_bits_pack += 8;
++        }
++
++        if (leftover_sse) {
++            // Zero-init: only leftover_sse of 8 bytes get memcpy'd below, but the SIMD load
++            // right after reads all 8 unconditionally (MSan use-of-uninitialized-value). The
++            // padding lanes' computed result is never read back (output copy/sum below are
++            // both bounded by leftover_sse), so zero-filling them cannot change behavior.
++            DECLARE_ALIGNED(16, uint8_t, gcli_top_tmp[8]) = {0};
++            DECLARE_ALIGNED(16, uint8_t, gcli_tmp[8]) = {0};
++            DECLARE_ALIGNED(16, uint8_t, vpred_bits_tmp[8]);
++
++            memcpy(gcli_top_tmp, gcli_data_top_ptr, sizeof(uint8_t) * leftover_sse);
++            memcpy(gcli_tmp, gcli_data_ptr, sizeof(uint8_t) * leftover_sse);
++
++            __m128i m_top = _mm_max_epi16(_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i *)gcli_top_tmp)), gtli_max_sse);
++            __m128i gcli = _mm_max_epi16(_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i *)gcli_tmp)), gtli_sse);
++            __m128i delta_m = _mm_sub_epi16(gcli, m_top);
++            __m128i bits = vlc_encode_get_bits_sse(delta_m, m_top, gtli_sse);
++
++            _mm_storel_epi64((__m128i *)vpred_bits_tmp, _mm_packs_epi16(bits, bits));
++            memcpy(vpred_bits_pack, vpred_bits_tmp, sizeof(uint8_t) * leftover_sse);
++
++            for (uint32_t i = 0; i < leftover_sse; ++i) {
++                pack_size_gcli_no_sigf += vpred_bits_tmp[i];
++            }
++        }
++    }
++    sum_sse = _mm_hadd_epi16(sum_sse, sum_sse);                 // 0..3, 0..3 16bit
++    sum_sse = _mm_unpacklo_epi16(sum_sse, _mm_setzero_si128()); //0..3 32bit
++    sum_sse = _mm_hadd_epi32(sum_sse, sum_sse);                 // 0..1, 0..1 32bit
++    pack_size_gcli_no_sigf += _mm_cvtsi128_si32(sum_sse);
++    pack_size_gcli_no_sigf += _mm_extract_epi32(sum_sse, 1);
++    return pack_size_gcli_no_sigf;
++}
+ 
+ void gc_precinct_stage_scalar_avx2(uint8_t *gcli_data_ptr, uint16_t *coeff_data_ptr_16bit, uint32_t group_size, uint32_t width) {
+     UNUSED(group_size);
+diff --git a/Source/Lib/Encoder/ASM_AVX2/rate_control_helper_avx2.h b/Source/Lib/Encoder/ASM_AVX2/rate_control_helper_avx2.h
+new file mode 100644
+index 0000000..15e96a6
+--- /dev/null
++++ b/Source/Lib/Encoder/ASM_AVX2/rate_control_helper_avx2.h
+@@ -0,0 +1,67 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#include "Definitions.h"
++#include <immintrin.h>
++
++static INLINE __m256i vlc_encode_get_bits_avx2(__m256i x, __m256i r, __m256i t) {
++    //    assert(x < 32);
++    //    int32_t max = r - t;
++    //    if (max < 0) {
++    //        max = 0;
++    //    }
++    __m256i max_avx2 = _mm256_subs_epu16(r, t);
++    //    int n = 0;
++    //    if (x > max) {
++    const __m256i cmp = _mm256_cmpgt_epi16(x, max_avx2);
++    //        n = x + max;
++    __m256i n1 = _mm256_add_epi16(x, max_avx2);
++    //    }
++    //    else {
++    //        x = x * 2;
++    x = _mm256_slli_epi16(x, 1);
++    //        if (x < 0) {
++    const __m256i cmp2 = _mm256_cmpgt_epi16(_mm256_setzero_si256(), x);
++    //            n = -x - 1;
++    __m256i n2 = _mm256_sub_epi16(_mm256_abs_epi16(x), _mm256_set1_epi16(1));
++    //        }
++    //        else {
++    //            n = x;
++    //        }
++    __m256i n3 = _mm256_blendv_epi8(x, n2, cmp2);
++    //    }
++    __m256i n = _mm256_blendv_epi8(n3, n1, cmp);
++    return n;
++}
++
++static INLINE __m128i vlc_encode_get_bits_sse(__m128i x, __m128i r, __m128i t) {
++    //    assert(x < 32);
++    //    int32_t max = r - t;
++    //    if (max < 0) {
++    //        max = 0;
++    //    }
++    __m128i max_avx2 = _mm_subs_epu16(r, t);
++    //    int n = 0;
++    //    if (x > max) {
++    const __m128i cmp = _mm_cmpgt_epi16(x, max_avx2);
++    //        n = x + max;
++    __m128i n1 = _mm_add_epi16(x, max_avx2);
++    //    }
++    //    else {
++    //        x = x * 2;
++    x = _mm_slli_epi16(x, 1);
++    //        if (x < 0) {
++    const __m128i cmp2 = _mm_cmpgt_epi16(_mm_setzero_si128(), x);
++    //            n = -x - 1;
++    __m128i n2 = _mm_sub_epi16(_mm_abs_epi16(x), _mm_set1_epi16(1));
++    //        }
++    //        else {
++    //            n = x;
++    //        }
++    __m128i n3 = _mm_blendv_epi8(x, n2, cmp2);
++    //    }
++    __m128i n = _mm_blendv_epi8(n3, n1, cmp);
++    return n;
++}
+diff --git a/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c b/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
+index 6b9b555..873d000 100644
+--- a/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
++++ b/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
+@@ -141,7 +141,7 @@ void setup_encoder_rtcd_internal(CPU_FLAGS flags) {
+ #endif /* ARCH_X86_64 */
+     SET_AVX2_AVX512(gc_histogram_16, gc_histogram_16_c, gc_histogram_16_avx2, NULL);
+     SET_SSE41(gc_precinct_sigflags_max, gc_precinct_sigflags_max_c, gc_precinct_sigflags_max_sse4_1);
+-    SET_ONLY_C(rate_control_calc_vpred_cost_nosigf, rate_control_calc_vpred_cost_nosigf_c);
++    SET_AVX2_AVX512(rate_control_calc_vpred_cost_nosigf, rate_control_calc_vpred_cost_nosigf_c, rate_control_calc_vpred_cost_nosigf_avx2, NULL);
+     SET_ONLY_C(rate_control_calc_vpred_cost_sigf_nosigf, rate_control_calc_vpred_cost_sigf_nosigf_c);
+ 
+     SET_AVX2_AVX512(convert_packed_to_planar_rgb_8bit, convert_packed_to_planar_rgb_8bit_c, convert_packed_to_planar_rgb_8bit_avx2, NULL);

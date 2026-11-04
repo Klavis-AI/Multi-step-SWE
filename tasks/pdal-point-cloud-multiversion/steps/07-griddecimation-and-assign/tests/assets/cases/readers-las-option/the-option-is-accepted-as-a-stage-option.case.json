@@ -1,0 +1,48 @@
+{
+ "doc": "apps/index.rst: 'Additional driver-specific options may be specified by using a namespace-prefixed option name. For example, it is possible to set the LAS day of year at translation time with the following option: `$ pdal translate --writers.las.creation_doy=\"42\" input.las output.las`', and apps/translate.rst Example 1 shows the same form for four options at once.  PROFILE.md 7.1: '**`readers.las` `ignore_missing_vlrs`.** Lets the reader carry on past a VLR it cannot use instead of refusing the file. By default `readers.las` refuses a file whose VLR block it cannot walk to the end — a record header that runs off the end of the file, or a record whose declared payload length runs past the start of the point data — and writes no output. With the option set the reader stops reading VLRs at that record, keeps the ones it already has, and returns the file's points normally.'  What this case grades is that `ignore_missing_vlrs` is a real registered option of `readers.las` and not merely a string in a help listing: it is set through the documented namespace-prefixed command-line form, on a sound file where the profile says it changes nothing, and the translation has to succeed with all one thousand points intact.  A reader that does not register the option refuses the invocation outright and writes no file -- which is what 2.0.1 and 2.6.0 both do.  This is a different observation from the `--options readers.las --showjson` presence grep in `las-ignore-missing-vlrs`: that one reads the registry, this one exercises it.  Neither the diagnostic text nor the option's help string is asserted anywhere.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "out.las",
+    "--readers.las.ignore_missing_vlrs=true"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "file_exists",
+   "file": "out.las"
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": {
+     "equals": 1000
+    }
+   },
+   "dims": {
+    "X": {
+     "min": 0,
+     "max": 9
+    },
+    "Z": {
+     "min": 0,
+     "max": 9
+    }
+   }
+  }
+ ]
+}

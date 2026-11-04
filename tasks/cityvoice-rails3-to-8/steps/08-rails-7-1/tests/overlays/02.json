@@ -1,0 +1,3959 @@
+{
+ "cases": {
+  "empty/locations": {
+   "cite": "actionpack-5.0.7.2/lib/action_controller/metal/implicit_render.rb:34-43 -- `if template_exists?(...) ... elsif any_templates?(action_name.to_s, _prefixes) ... raise ActionController::UnknownFormat` -- against actionpack-4.2.11.3/lib/action_controller/metal/implicit_render.rb:9-11, which is `def default_render(*args); render(*args); end`. The status mapping is unchanged and is in both gems at action_dispatch/middleware/exception_wrapper.rb:14 (`'ActionController::UnknownFormat' => :not_acceptable`); `ActionView::MissingTemplate` appears only in `rescue_templates` (4.2's exception_wrapper.rb:25), which is why the 4.2 answer is a 500.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": null,
+     "data": [],
+     "forms": [],
+     "headings": [],
+     "images": [],
+     "kind": "html",
+     "links": [],
+     "tables": [],
+     "text": "",
+     "title": null
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations"
+    },
+    "status": 406
+   },
+   "why": "A request for a format `LocationsController#index` has no template for -- HTML at `GET /locations`, whose only index template is `index.json.jbuilder`, and `GET /export.csv`-style CSV against an HTML-only action. On 4.2 `ImplicitRender#default_render` was `render(*args)`, so the miss surfaced as `ActionView::MissingTemplate`, which has no entry in `rescue_responses` and is therefore a 500 -- rendered by `PublicExceptions` as the \"We're sorry, but something went wrong (500)\" page. Rails 5.0 rewrote `default_render` to look the template up first and raise `ActionController::UnknownFormat` when the action has templates for other formats but not this one; that exception is mapped to `:not_acceptable`, so the same request is a 406 with an empty body. The status and the whole body change, and the decision is made in the framework's implicit-render path, which the application does not enter."
+  },
+  "http_edges/format_csv_on_html_only": {
+   "cite": "actionpack-5.0.7.2/lib/action_controller/metal/implicit_render.rb:34-43 -- `if template_exists?(...) ... elsif any_templates?(action_name.to_s, _prefixes) ... raise ActionController::UnknownFormat` -- against actionpack-4.2.11.3/lib/action_controller/metal/implicit_render.rb:9-11, which is `def default_render(*args); render(*args); end`. The status mapping is unchanged and is in both gems at action_dispatch/middleware/exception_wrapper.rb:14 (`'ActionController::UnknownFormat' => :not_acceptable`); `ActionView::MissingTemplate` appears only in `rescue_templates` (4.2's exception_wrapper.rb:25), which is why the 4.2 answer is a 500.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": null,
+     "data": [],
+     "forms": [],
+     "headings": [],
+     "images": [],
+     "kind": "html",
+     "links": [],
+     "tables": [],
+     "text": "",
+     "title": null
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations.csv"
+    },
+    "status": 406
+   },
+   "why": "A request for a format `LocationsController#index` has no template for -- HTML at `GET /locations`, whose only index template is `index.json.jbuilder`, and `GET /export.csv`-style CSV against an HTML-only action. On 4.2 `ImplicitRender#default_render` was `render(*args)`, so the miss surfaced as `ActionView::MissingTemplate`, which has no entry in `rescue_responses` and is therefore a 500 -- rendered by `PublicExceptions` as the \"We're sorry, but something went wrong (500)\" page. Rails 5.0 rewrote `default_render` to look the template up first and raise `ActionController::UnknownFormat` when the action has templates for other formats but not this one; that exception is mapped to `:not_acceptable`, so the same request is a 406 with an empty body. The status and the whole body change, and the decision is made in the framework's implicit-render path, which the application does not enter."
+  },
+  "http_edges/format_json_on_export": {
+   "cite": "actionpack-5.0.7.2/lib/action_dispatch/middleware/public_exceptions.rb:20 -- `status = request.path_info[1..-1].to_i` -- against actionpack-4.2.11.3/lib/action_dispatch/middleware/public_exceptions.rb:20 -- `status = env[\"PATH_INFO\"][1..-1]` -- with the same line in both gems putting `status` into the body hash (`body = { :status => status, :error => ... }`).",
+   "obs": {
+    "body": {
+     "data": {
+      "error": "Not Acceptable",
+      "status": 406
+     },
+     "kind": "json"
+    },
+    "headers": {
+     "content-type": "application/json; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/export.json"
+    },
+    "status": 406
+   },
+   "why": "The JSON error document `ActionDispatch::PublicExceptions` returns when the request asks for JSON and no page under `public/` matches. Rails 5.0 changed the middleware to derive the status from the request object and to coerce it to an Integer, so the `status` member of that JSON body is the number 406/404 rather than the string \"406\"/\"404\" 4.2 put there. Only the JSON type of that one member changes; the status line, the error text and everything else are the same. The document is built by the middleware, above the application."
+  },
+  "http_edges/path_dot_segments": {
+   "cite": "actionpack-5.0.7.2/lib/action_dispatch/middleware/public_exceptions.rb:20 -- `status = request.path_info[1..-1].to_i` -- against actionpack-4.2.11.3/lib/action_dispatch/middleware/public_exceptions.rb:20 -- `status = env[\"PATH_INFO\"][1..-1]` -- with the same line in both gems putting `status` into the body hash (`body = { :status => status, :error => ... }`).",
+   "obs": {
+    "body": {
+     "data": {
+      "error": "Not Found",
+      "status": 404
+     },
+     "kind": "json"
+    },
+    "headers": {
+     "content-type": "application/json; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/../locations"
+    },
+    "status": 404
+   },
+   "why": "The JSON error document `ActionDispatch::PublicExceptions` returns when the request asks for JSON and no page under `public/` matches. Rails 5.0 changed the middleware to derive the status from the request object and to coerce it to an Integer, so the `status` member of that JSON body is the number 406/404 rather than the string \"406\"/\"404\" 4.2 put there. Only the JSON type of that one member changes; the status line, the error text and everything else are the same. The document is built by the middleware, above the application."
+  },
+  "http_edges/path_encoded_slash": {
+   "cite": "actionpack-5.0.7.2/lib/action_dispatch/middleware/public_exceptions.rb:20 -- `status = request.path_info[1..-1].to_i` -- against actionpack-4.2.11.3/lib/action_dispatch/middleware/public_exceptions.rb:20 -- `status = env[\"PATH_INFO\"][1..-1]` -- with the same line in both gems putting `status` into the body hash (`body = { :status => status, :error => ... }`).",
+   "obs": {
+    "body": {
+     "data": {
+      "error": "Not Found",
+      "status": 404
+     },
+     "kind": "json"
+    },
+    "headers": {
+     "content-type": "application/json; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations%2F1"
+    },
+    "status": 404
+   },
+   "why": "The JSON error document `ActionDispatch::PublicExceptions` returns when the request asks for JSON and no page under `public/` matches. Rails 5.0 changed the middleware to derive the status from the request object and to coerce it to an Integer, so the `status` member of that JSON body is the number 406/404 rather than the string \"406\"/\"404\" 4.2 put there. Only the JSON type of that one member changes; the status line, the error text and everything else are the same. The document is built by the middleware, above the application."
+  },
+  "http_edges/path_uppercase": {
+   "cite": "actionpack-5.0.7.2/lib/action_dispatch/middleware/public_exceptions.rb:20 -- `status = request.path_info[1..-1].to_i` -- against actionpack-4.2.11.3/lib/action_dispatch/middleware/public_exceptions.rb:20 -- `status = env[\"PATH_INFO\"][1..-1]` -- with the same line in both gems putting `status` into the body hash (`body = { :status => status, :error => ... }`).",
+   "obs": {
+    "body": {
+     "data": {
+      "error": "Not Found",
+      "status": 404
+     },
+     "kind": "json"
+    },
+    "headers": {
+     "content-type": "application/json; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/LOCATIONS"
+    },
+    "status": 404
+   },
+   "why": "The JSON error document `ActionDispatch::PublicExceptions` returns when the request asks for JSON and no page under `public/` matches. Rails 5.0 changed the middleware to derive the status from the request object and to coerce it to an Integer, so the `status` member of that JSON body is the number 406/404 rather than the string \"406\"/\"404\" 4.2 put there. Only the JSON type of that one member changes; the status line, the error text and everything else are the same. The document is built by the middleware, above the application."
+  },
+  "ivr_adversarial/after_abuse.location_1": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE11.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE11.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE11",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 1 Disagree 1 Voice Messages date: <TS:1> Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "ivr_adversarial/after_abuse.location_2": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "ivr_adversarial/after_abuse.location_3": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "ivr_happy/after_calls.location_1": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02.wav",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02",
+       "Click here to play voice message"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 2 Disagree 0 Voice Messages date: <TS:1> from: 510-XXX-XX02 Click here to play voice message date: <TS:1> from: 510-XXX-XX01 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "ivr_happy/after_calls.location_2": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 1 Voice Messages date: <TS:1> from: 510-XXX-XX03 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "ivr_happy/after_calls.location_3": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "ivr_happy/after_playback_call.location_1": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE04.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE04.wav",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02.wav",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE04",
+       "Click here to play voice message"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE02",
+       "Click here to play voice message"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE01",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 2 Disagree 1 Voice Messages date: <TS:1> from: 510-XXX-XX04 Click here to play voice message date: <TS:1> from: 510-XXX-XX02 Click here to play voice message date: <TS:1> from: 510-XXX-XX01 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "ivr_happy/after_playback_call.location_2": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE03",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 1 Voice Messages date: <TS:1> from: 510-XXX-XX03 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "ivr_happy/after_playback_call.location_3": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "migrate/migrate.create": {
+   "cite": "activerecord-5.0.7.2/lib/active_record/tasks/database_tasks.rb:110 `$stdout.puts \"Created database '#{configuration['database']}'\"` and :137 `$stdout.puts \"Dropped database '...'\"`. Neither string occurs anywhere in activerecord-4.2.11.3/lib/active_record/tasks/database_tasks.rb, whose only message is :95 `$stderr.puts \"#{configuration['database']} already exists\"`.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "Created database 'cityvoice_production'"
+    ],
+    "task": "db:create"
+   },
+   "why": "`rake db:create` / `rake db:drop`. Rails 5.0 made both tasks announce themselves on standard output; 4.2 printed nothing on success (it printed only the `... already exists` notice, on standard error). The recorded stdout therefore gains one line and nothing else about either task changes -- same exit status, same database. The line is written by the framework's own `DatabaseTasks`, which the application does not define."
+  },
+  "migrate/migrate.drop": {
+   "cite": "activerecord-5.0.7.2/lib/active_record/tasks/database_tasks.rb:110 `$stdout.puts \"Created database '#{configuration['database']}'\"` and :137 `$stdout.puts \"Dropped database '...'\"`. Neither string occurs anywhere in activerecord-4.2.11.3/lib/active_record/tasks/database_tasks.rb, whose only message is :95 `$stderr.puts \"#{configuration['database']} already exists\"`.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "Dropped database 'cityvoice_production'"
+    ],
+    "task": "db:drop"
+   },
+   "why": "`rake db:create` / `rake db:drop`. Rails 5.0 made both tasks announce themselves on standard output; 4.2 printed nothing on success (it printed only the `... already exists` notice, on standard error). The recorded stdout therefore gains one line and nothing else about either task changes -- same exit status, same database. The line is written by the framework's own `DatabaseTasks`, which the application does not define."
+  },
+  "migrate/migrate.location_1": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE40.mp3",
+      "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE40.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:0>/Accounts/AC1/Recordings/RE40",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 1 Disagree 0 Voice Messages date: <TS:1> from: 510-XXX-XX40 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "migrate/migrate.location_2": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "migrate/migrate.location_3": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "migrate/migrate.up": {
+   "cite": "activerecord-5.0.7.2/lib/active_record/migration/compatibility.rb:30-40 (`FourTwoShared#create_table` -- `super(table_name, options) do |t| ... end`) and :56-59 (`add_reference(*, **options)` -- `options[:index] ||= false; super`), reached because the migrations declare `ActiveRecord::Migration[4.2]` and `Compatibility.find` resolves that to `V4_2`. activerecord-4.2.11.3 has no lib/active_record/migration/compatibility.rb at all: on 4.2 the migration's own call reaches the adapter directly and the logger sees the arguments the migration wrote.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": {
+     "events": [
+      [
+       "migrating",
+       "CreateVoiceTranscriptions"
+      ],
+      [
+       "op",
+       "create_table(:voice_transcriptions, {})"
+      ],
+      [
+       "migrated",
+       "CreateVoiceTranscriptions"
+      ],
+      [
+       "migrating",
+       "CreateSubjects"
+      ],
+      [
+       "op",
+       "create_table(:subjects, {})"
+      ],
+      [
+       "migrated",
+       "CreateSubjects"
+      ],
+      [
+       "migrating",
+       "CreateFeedbackInputs"
+      ],
+      [
+       "op",
+       "create_table(:feedback_inputs, {})"
+      ],
+      [
+       "migrated",
+       "CreateFeedbackInputs"
+      ],
+      [
+       "migrating",
+       "CreateQuestions"
+      ],
+      [
+       "op",
+       "create_table(:questions, {})"
+      ],
+      [
+       "migrated",
+       "CreateQuestions"
+      ],
+      [
+       "migrating",
+       "AddPropertyCodeToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :property_code, :integer)"
+      ],
+      [
+       "migrated",
+       "AddPropertyCodeToSubjects"
+      ],
+      [
+       "migrating",
+       "CreateVoiceFiles"
+      ],
+      [
+       "op",
+       "create_table(:voice_files, {})"
+      ],
+      [
+       "migrated",
+       "CreateVoiceFiles"
+      ],
+      [
+       "migrating",
+       "AddVoiceFileToQuestion"
+      ],
+      [
+       "op",
+       "add_reference(:questions, :voice_file, {:index=>false})"
+      ],
+      [
+       "migrated",
+       "AddVoiceFileToQuestion"
+      ],
+      [
+       "migrating",
+       "AddShortNameToVoiceFile"
+      ],
+      [
+       "op",
+       "add_column(:voice_files, :short_name, :string)"
+      ],
+      [
+       "migrated",
+       "AddShortNameToVoiceFile"
+      ],
+      [
+       "migrating",
+       "CreatePropertyInfoSets"
+      ],
+      [
+       "op",
+       "create_table(:property_info_sets, {})"
+      ],
+      [
+       "migrated",
+       "CreatePropertyInfoSets"
+      ],
+      [
+       "migrating",
+       "AddParcelIdToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :parcel_id, :string)"
+      ],
+      [
+       "migrated",
+       "AddParcelIdToSubjects"
+      ],
+      [
+       "migrating",
+       "AddLatLongToPropertyInfoSet"
+      ],
+      [
+       "op",
+       "add_column(:property_info_sets, :lat, :string)"
+      ],
+      [
+       "op",
+       "add_column(:property_info_sets, :long, :string)"
+      ],
+      [
+       "migrated",
+       "AddLatLongToPropertyInfoSet"
+      ],
+      [
+       "migrating",
+       "AddCallSourceToFeedbackInputs"
+      ],
+      [
+       "op",
+       "add_column(:feedback_inputs, :call_source, :string)"
+      ],
+      [
+       "migrated",
+       "AddCallSourceToFeedbackInputs"
+      ],
+      [
+       "migrating",
+       "ChangePropertyCodeToString"
+      ],
+      [
+       "op",
+       "change_column(:subjects, :property_code, :string)"
+      ],
+      [
+       "migrated",
+       "ChangePropertyCodeToString"
+      ],
+      [
+       "migrating",
+       "CreateNotificationSubscriptions"
+      ],
+      [
+       "op",
+       "create_table(:notification_subscriptions, {})"
+      ],
+      [
+       "migrated",
+       "CreateNotificationSubscriptions"
+      ],
+      [
+       "migrating",
+       "AddMostRecentActivityToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :most_recent_activity, :datetime)"
+      ],
+      [
+       "migrated",
+       "AddMostRecentActivityToSubjects"
+      ],
+      [
+       "migrating",
+       "AddLastEmailSentAtToNotificationSubscriptions"
+      ],
+      [
+       "op",
+       "add_column(:notification_subscriptions, :last_email_sent_at, :datetime)"
+      ],
+      [
+       "migrated",
+       "AddLastEmailSentAtToNotificationSubscriptions"
+      ],
+      [
+       "migrating",
+       "CreateAppContentSets"
+      ],
+      [
+       "op",
+       "create_table(:app_content_sets, {})"
+      ],
+      [
+       "migrated",
+       "CreateAppContentSets"
+      ],
+      [
+       "migrating",
+       "AddLatAndLongToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :lat, :string)"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :long, :string)"
+      ],
+      [
+       "migrated",
+       "AddLatAndLongToSubjects"
+      ],
+      [
+       "migrating",
+       "AddHeaderColorAndShortTitleToAppContentSet"
+      ],
+      [
+       "op",
+       "add_column(:app_content_sets, :header_color, :string)"
+      ],
+      [
+       "op",
+       "add_column(:app_content_sets, :short_title, :string)"
+      ],
+      [
+       "migrated",
+       "AddHeaderColorAndShortTitleToAppContentSet"
+      ],
+      [
+       "migrating",
+       "AddDescriptionToSubjects"
+      ],
+      [
+       "op",
+       "add_column(:subjects, :description, :text)"
+      ],
+      [
+       "migrated",
+       "AddDescriptionToSubjects"
+      ],
+      [
+       "migrating",
+       "AllCallInCodeDigitsToAppContentSet"
+      ],
+      [
+       "op",
+       "add_column(:app_content_sets, :call_in_code_digits, :string, {:limit=>1})"
+      ],
+      [
+       "migrated",
+       "AllCallInCodeDigitsToAppContentSet"
+      ],
+      [
+       "migrating",
+       "AddFeedbackFormUrlToAppContentSet"
+      ],
+      [
+       "op",
+       "add_column(:app_content_sets, :feedback_form_url, :string)"
+      ],
+      [
+       "migrated",
+       "AddFeedbackFormUrlToAppContentSet"
+      ],
+      [
+       "migrating",
+       "ChangeLearnTextFromStringToText"
+      ],
+      [
+       "op",
+       "change_column(:app_content_sets, :learn_text, :text, {:limit=>400})"
+      ],
+      [
+       "migrated",
+       "ChangeLearnTextFromStringToText"
+      ],
+      [
+       "migrating",
+       "CreateCallers"
+      ],
+      [
+       "op",
+       "create_table(:callers, {})"
+      ],
+      [
+       "migrated",
+       "CreateCallers"
+      ],
+      [
+       "migrating",
+       "AddBulkAddedToNotificationSubscription"
+      ],
+      [
+       "op",
+       "add_column(:notification_subscriptions, :bulk_added, :boolean)"
+      ],
+      [
+       "migrated",
+       "AddBulkAddedToNotificationSubscription"
+      ],
+      [
+       "migrating",
+       "RemovePropertyCode"
+      ],
+      [
+       "op",
+       "remove_column(:subjects, :property_code)"
+      ],
+      [
+       "migrated",
+       "RemovePropertyCode"
+      ],
+      [
+       "migrating",
+       "RemoveNeighborhoodAndParcelFromSubject"
+      ],
+      [
+       "op",
+       "remove_column(:subjects, :neighborhood_id)"
+      ],
+      [
+       "op",
+       "remove_column(:subjects, :parcel_id)"
+      ],
+      [
+       "migrated",
+       "RemoveNeighborhoodAndParcelFromSubject"
+      ],
+      [
+       "migrating",
+       "DropAppContentSets"
+      ],
+      [
+       "op",
+       "drop_table(:app_content_sets)"
+      ],
+      [
+       "migrated",
+       "DropAppContentSets"
+      ],
+      [
+       "migrating",
+       "DropVoiceTextFromQuestions"
+      ],
+      [
+       "op",
+       "remove_column(:questions, :voice_text)"
+      ],
+      [
+       "migrated",
+       "DropVoiceTextFromQuestions"
+      ],
+      [
+       "migrating",
+       "RemoveVoiceTranscriptions"
+      ],
+      [
+       "op",
+       "drop_table(:voice_transcriptions)"
+      ],
+      [
+       "migrated",
+       "RemoveVoiceTranscriptions"
+      ],
+      [
+       "migrating",
+       "RemoveNeighborhoodFromFeedbackInputs"
+      ],
+      [
+       "op",
+       "remove_column(:feedback_inputs, :neighborhood_id)"
+      ],
+      [
+       "migrated",
+       "RemoveNeighborhoodFromFeedbackInputs"
+      ],
+      [
+       "migrating",
+       "RemoveTypeFromSubject"
+      ],
+      [
+       "op",
+       "remove_column(:subjects, :type)"
+      ],
+      [
+       "migrated",
+       "RemoveTypeFromSubject"
+      ],
+      [
+       "migrating",
+       "RemovePropertyFromFeedbackInput"
+      ],
+      [
+       "op",
+       "remove_column(:feedback_inputs, :property_id)"
+      ],
+      [
+       "migrated",
+       "RemovePropertyFromFeedbackInput"
+      ],
+      [
+       "migrating",
+       "RemovePropertyInfoSets"
+      ],
+      [
+       "op",
+       "drop_table(:property_info_sets)"
+      ],
+      [
+       "migrated",
+       "RemovePropertyInfoSets"
+      ],
+      [
+       "migrating",
+       "RenameNotificationSubscriptionPropertyIdToSubjectId"
+      ],
+      [
+       "op",
+       "rename_column(:notification_subscriptions, :property_id, :subject_id)"
+      ],
+      [
+       "migrated",
+       "RenameNotificationSubscriptionPropertyIdToSubjectId"
+      ],
+      [
+       "migrating",
+       "RemoveVoiceFileIdFromQuestions"
+      ],
+      [
+       "op",
+       "remove_column(:questions, :voice_file_id)"
+      ],
+      [
+       "migrated",
+       "RemoveVoiceFileIdFromQuestions"
+      ],
+      [
+       "migrating",
+       "RemoveVoiceFiles"
+      ],
+      [
+       "op",
+       "drop_table(:voice_files)"
+      ],
+      [
+       "migrated",
+       "RemoveVoiceFiles"
+      ],
+      [
+       "migrating",
+       "RenameSubjectsToLocations"
+      ],
+      [
+       "op",
+       "rename_table(:subjects, :locations)"
+      ],
+      [
+       "op",
+       "rename_column(:feedback_inputs, :subject_id, :location_id)"
+      ],
+      [
+       "op",
+       "rename_column(:notification_subscriptions, :subject_id, :location_id)"
+      ],
+      [
+       "migrated",
+       "RenameSubjectsToLocations"
+      ],
+      [
+       "migrating",
+       "RenameFeedbackInputsToAnswers"
+      ],
+      [
+       "op",
+       "rename_table(:feedback_inputs, :answers)"
+      ],
+      [
+       "migrated",
+       "RenameFeedbackInputsToAnswers"
+      ],
+      [
+       "migrating",
+       "CreateSubscribersFromNotificationSubscriptions"
+      ],
+      [
+       "op",
+       "create_table(:subscribers, {})"
+      ],
+      [
+       "op",
+       "add_column(:notification_subscriptions, :subscriber_id, :integer)"
+      ],
+      [
+       "op",
+       "remove_columns(:notification_subscriptions, :email)"
+      ],
+      [
+       "migrated",
+       "CreateSubscribersFromNotificationSubscriptions"
+      ],
+      [
+       "migrating",
+       "RenameNotificationSubscriptionsToLocationSubscriptions"
+      ],
+      [
+       "op",
+       "rename_table(:notification_subscriptions, :location_subscriptions)"
+      ],
+      [
+       "migrated",
+       "RenameNotificationSubscriptionsToLocationSubscriptions"
+      ],
+      [
+       "migrating",
+       "CreateCalls"
+      ],
+      [
+       "op",
+       "create_table(:calls, {})"
+      ],
+      [
+       "migrated",
+       "CreateCalls"
+      ],
+      [
+       "migrating",
+       "NormalizeAnswersAndCallersToCalls"
+      ],
+      [
+       "op",
+       "add_column(:answers, :call_id, :integer)"
+      ],
+      [
+       "op",
+       "remove_columns(:answers, :location_id, :call_source, :phone_number)"
+      ],
+      [
+       "op",
+       "remove_columns(:callers, :consented_to_callback)"
+      ],
+      [
+       "migrated",
+       "NormalizeAnswersAndCallersToCalls"
+      ]
+     ]
+    },
+    "task": "db:migrate"
+   },
+   "why": "`rake db:migrate` from an empty database, whose per-migration log lines name each schema statement and its arguments. Rails 5.0 requires every migration to declare the Rails version it was written for, and runs a migration declared `ActiveRecord::Migration[4.2]` through a compatibility shim. That shim is what preserves 4.2's semantics -- `add_reference` still defaults to no index, `timestamps` still defaults to `null: true` -- and it does it by passing the options hash on explicitly, so the arguments the logger prints now include the hash: `create_table(:questions, {})` and `add_reference(:questions, :voice_file, {:index=>false})`. The schema produced is the same schema; what changed is the framework's own record of how it got there. Restoring the 4.2 text would mean declaring the migrations at `[5.0]`, which would silently change what `add_reference` and `timestamps` do."
+  },
+  "seeded/after_seed.location_1": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "seeded/after_seed.location_2": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "seeded/after_seed.location_3": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "seeded/slug_correct": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1-eli-s-mile-high-club"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "seeded/slug_wrong": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1-completely-wrong-slug"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "subscriptions/after_subscriptions.location_1": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [
+      "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE21.mp3",
+      "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE21.wav",
+      "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE20.mp3",
+      "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE20.wav"
+     ],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE21",
+       "Click here to play voice message"
+      ],
+      [
+       "http://api.twilio.com/<TS:1>/Accounts/AC1/Recordings/RE20",
+       "Click here to play voice message"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 1 Disagree 1 Voice Messages date: <TS:0> from: 510-XXX-XX21 Click here to play voice message date: <TS:0> from: 510-XXX-XX20 Click here to play voice message Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "subscriptions/after_subscriptions.location_2": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "2"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Beer Revolution"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Beer Revolution Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 002 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/2"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "subscriptions/after_subscriptions.location_3": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "3"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Stork Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Stork Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 003 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/3"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "subscriptions/notify.after_answers": {
+   "cite": "actionview-5.0.7.2/lib/action_view/log_subscriber.rb:33-39 -- `def start(name, id, payload); if name == \"render_template.action_view\"; log_rendering_start(payload); end; super; end` -- and :68-74, which is `log_rendering_start` building `\"  Rendering #{from_rails_root(...)}\"`. actionview-4.2.11.3/lib/action_view/log_subscriber.rb defines neither method (its first method is `render_template` at :15, the \"Rendered\" line), so 4.2 logs only on completion.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendering notification_mailer/weekly_activity.html.erb",
+     "  Rendered notification_mailer/weekly_activity.html.erb (<MS>)",
+     "Sent mail to resident@example.com (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "`rake notifications:send`, whose recorded stdout is the mailer's log. Rails 5.0 added a \"Rendering <template>\" line, logged when the `render_template.action_view` instrumentation *starts*, beside the \"Rendered <template> (Nms)\" line 4.2 already logged when it finished. The recorded stdout therefore gains one line before the two it had; the mail sent, its recipient and its body are unchanged. The line comes from Action View's own log subscriber."
+  },
+  "subscriptions/notify.again": {
+   "cite": "actionview-5.0.7.2/lib/action_view/log_subscriber.rb:33-39 -- `def start(name, id, payload); if name == \"render_template.action_view\"; log_rendering_start(payload); end; super; end` -- and :68-74, which is `log_rendering_start` building `\"  Rendering #{from_rails_root(...)}\"`. actionview-4.2.11.3/lib/action_view/log_subscriber.rb defines neither method (its first method is `render_template` at :15, the \"Rendered\" line), so 4.2 logs only on completion.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendering notification_mailer/weekly_activity.html.erb",
+     "  Rendered notification_mailer/weekly_activity.html.erb (<MS>)",
+     "Sent mail to resident@example.com (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "`rake notifications:send`, whose recorded stdout is the mailer's log. Rails 5.0 added a \"Rendering <template>\" line, logged when the `render_template.action_view` instrumentation *starts*, beside the \"Rendered <template> (Nms)\" line 4.2 already logged when it finished. The recorded stdout therefore gains one line before the two it had; the mail sent, its recipient and its body are unchanged. The line comes from Action View's own log subscriber."
+  },
+  "subscriptions/notify.new_activity": {
+   "cite": "actionview-5.0.7.2/lib/action_view/log_subscriber.rb:33-39 -- `def start(name, id, payload); if name == \"render_template.action_view\"; log_rendering_start(payload); end; super; end` -- and :68-74, which is `log_rendering_start` building `\"  Rendering #{from_rails_root(...)}\"`. actionview-4.2.11.3/lib/action_view/log_subscriber.rb defines neither method (its first method is `render_template` at :15, the \"Rendered\" line), so 4.2 logs only on completion.",
+   "obs": {
+    "aborted": false,
+    "exception": null,
+    "exit_ok": true,
+    "stdout": [
+     "  Rendering notification_mailer/weekly_activity.html.erb",
+     "  Rendered notification_mailer/weekly_activity.html.erb (<MS>)",
+     "Sent mail to resident@example.com (<MS>)"
+    ],
+    "task": "notifications:send"
+   },
+   "why": "`rake notifications:send`, whose recorded stdout is the mailer's log. Rails 5.0 added a \"Rendering <template>\" line, logged when the `render_template.action_view` instrumentation *starts*, beside the \"Rendered <template> (Nms)\" line 4.2 already logged when it finished. The recorded stdout therefore gains one line before the two it had; the mail sent, its recipient and its body are unchanged. The line comes from Action View's own log subscriber."
+  },
+  "subscriptions/sub.location_after_confirm": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  },
+  "subscriptions/sub.location_page": {
+   "cite": "actionview-5.0.7.2/lib/action_view/helpers/form_helper.rb:1812-1815 -- `FormBuilder#submit` is `@template.submit_tag(value, options)`, so `f.submit` in the template is the helper below. actionview-5.0.7.2/lib/action_view/base.rb:165-166 -- `cattr_accessor :automatically_disable_submit_tag` / `@@automatically_disable_submit_tag = true`; applied in actionview-5.0.7.2/lib/action_view/helpers/form_tag_helper.rb:444-449 (`submit_tag` calls `set_default_disable_with`) and :889-890 (`return unless ActionView::Base.automatically_disable_submit_tag`). actionview-4.2.11.3/lib/action_view/helpers/form_tag_helper.rb:441-445 is the whole of 4.2's `submit_tag`: `tag :input, {...}.update(options)`, with no `data-disable-with` and no such accessor anywhere in the gem.",
+   "obs": {
+    "body": {
+     "audio": [],
+     "body_class": "locations show",
+     "data": [
+      [
+       "nav",
+       [
+        "data-topbar",
+        null
+       ]
+      ],
+      [
+       "input",
+       [
+        "data-disable-with",
+        "Subscribe"
+       ]
+      ]
+     ],
+     "forms": [
+      {
+       "action": "/subscription",
+       "fields": [
+        [
+         "subscription[email]",
+         "text",
+         ""
+        ],
+        [
+         "subscription[location_id]",
+         "hidden",
+         "1"
+        ]
+       ],
+       "method": "post"
+      }
+     ],
+     "headings": [
+      [
+       "h1",
+       "CityVoice"
+      ],
+      [
+       "h3",
+       "Eli's Mile High Club"
+      ],
+      [
+       "h3",
+       "Email Notifications"
+      ],
+      [
+       "h3",
+       "Call"
+      ],
+      [
+       "h4",
+       "415-767-2676"
+      ],
+      [
+       "h3",
+       "Property Outcome"
+      ],
+      [
+       "h4",
+       "Agree"
+      ],
+      [
+       "h4",
+       "Disagree"
+      ],
+      [
+       "h3",
+       "Voice Messages"
+      ]
+     ],
+     "images": [],
+     "kind": "html",
+     "links": [
+      [
+       "/",
+       "CityVoice"
+      ],
+      [
+       "#",
+       "Menu"
+      ],
+      [
+       "/numerical_answers",
+       "Activity"
+      ],
+      [
+       "/voice_answers",
+       "All messages"
+      ],
+      [
+       "/pages/contact",
+       "Contact"
+      ],
+      [
+       "/pages/about",
+       "About"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ],
+      [
+       "http://cityvoiceapp.com",
+       "CityVoice"
+      ],
+      [
+       "http://codeforamerica.org",
+       "Code for America"
+      ],
+      [
+       "http://southbendin.gov",
+       "City of South Bend"
+      ],
+      [
+       "http://example.com",
+       "Feedback"
+      ]
+     ],
+     "tables": [],
+     "text": "CityVoice Menu Activity All messages Eli's Mile High Club Email Notifications Sign up to receive an email when there is new information on this location. Emails are sent out once a week and only if there is new information. Call 415-767-2676 Call-in Code: 001 Property Outcome Should this property be removed or repaired? Press 1 to remove or 2 to repair. Agree 0 Disagree 0 Voice Messages Contact About Feedback CityVoice Code for America City of South Bend Feedback",
+     "title": "CITYVOICE"
+    },
+    "headers": {
+     "content-type": "text/html; charset=utf-8"
+    },
+    "request": {
+     "method": "GET",
+     "path": "/locations/1"
+    },
+    "status": 200
+   },
+   "why": "A location page (`locations/show`), whose subscription form ends in `f.submit 'Subscribe'` (app/views/locations/_email_notifications.html.erb:10, the partial `show.html.erb:8` renders). `FormBuilder#submit` is `submit_tag` with the form's own default label filled in, and Rails 5.0 turned on `ActionView::Base.automatically_disable_submit_tag`, so every `submit_tag` now emits `data-disable-with` carrying its own label unless the call opts out. The recorded input element therefore gains `data-disable-with=\"Subscribe\"`; nothing else about the page moves. The default is the framework's, above the template, and restoring the 4.2 markup would mean either setting the flag back to false or passing `data: { disable_with: false }` at the call site -- both of them code written to undo a documented change."
+  }
+ },
+ "step": "02-rails-5-0"
+}

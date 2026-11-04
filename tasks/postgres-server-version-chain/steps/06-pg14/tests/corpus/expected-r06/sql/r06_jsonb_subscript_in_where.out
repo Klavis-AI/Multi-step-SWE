@@ -1,0 +1,31 @@
+CREATE TABLE x06_29a(id int, j jsonb);
+INSERT INTO x06_29a VALUES (1,'{"k":"a","n":1}'),(2,'{"k":"b","n":2}'),(3,'{"k":"a","n":3}');
+SELECT id FROM x06_29a WHERE j['k'] = '"a"' ORDER BY id;
+ id 
+----
+  1
+  3
+(2 rows)
+
+SELECT id, j['n'] AS n FROM x06_29a WHERE (j['n'])::text::int > 1 ORDER BY id;
+ id | n 
+----+---
+  2 | 2
+  3 | 3
+(2 rows)
+
+SELECT j['k'] AS k, count(*) FROM x06_29a GROUP BY j['k'] ORDER BY k;
+  k  | count 
+-----+-------
+ "a" |     2
+ "b" |     1
+(2 rows)
+
+CREATE INDEX x06_29i ON x06_29a ((j['k']));
+SELECT count(*) FROM x06_29a WHERE j['k'] = '"b"';
+ count 
+-------
+     1
+(1 row)
+
+DROP TABLE x06_29a;

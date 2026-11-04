@@ -1,0 +1,21 @@
+CREATE TABLE q2_ppo(i int primary key);
+CREATE PUBLICATION q2_ppo_ins FOR TABLE q2_ppo WITH (publish = 'insert');
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to logical before creating subscriptions.
+CREATE PUBLICATION q2_ppo_all FOR TABLE q2_ppo WITH (publish = 'insert, update, delete');
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to logical before creating subscriptions.
+CREATE PUBLICATION q2_ppo_none FOR TABLE q2_ppo WITH (publish = '');
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to logical before creating subscriptions.
+SELECT pubname, pubinsert, pubupdate, pubdelete FROM pg_publication
+  WHERE pubname IN ('q2_ppo_ins','q2_ppo_all','q2_ppo_none') ORDER BY pubname;
+   pubname   | pubinsert | pubupdate | pubdelete 
+-------------+-----------+-----------+-----------
+ q2_ppo_all  | t         | t         | t
+ q2_ppo_ins  | t         | f         | f
+ q2_ppo_none | f         | f         | f
+(3 rows)
+
+DROP PUBLICATION q2_ppo_ins, q2_ppo_all, q2_ppo_none;
+DROP TABLE q2_ppo;

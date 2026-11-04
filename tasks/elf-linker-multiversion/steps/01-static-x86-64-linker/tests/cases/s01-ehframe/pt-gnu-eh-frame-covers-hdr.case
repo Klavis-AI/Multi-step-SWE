@@ -1,0 +1,39 @@
+# arch: x86_64
+# PT_GNU_EH_FRAME describes exactly the .eh_frame_hdr section -- same address,
+# same size, read-only -- and the header's eh_frame_ptr points at .eh_frame.
+rt_obj rt.o
+cat > a.c <<'C'
+#include "rt.h"
+int fa(void) { print("a"); return 1; }
+int fb(void) { print("b"); return 2; }
+C
+cat > m.c <<'C'
+int fa(void); int fb(void);
+int entry(void) { return fa() + fb(); }
+C
+cc_obj a.o a.c -fasynchronous-unwind-tables
+cc_obj m.o m.c -fasynchronous-unwind-tables
+link_ok out rt.o a.o m.o --eh-frame-hdr
+want "exactly one PT_GNU_EH_FRAME" \
+     "$(segments out | grep -cE '^ *GNU_EH_FRAME ')" "1"
+seg=$(segments out | awk '$1=="GNU_EH_FRAME"{f=""; for (i=7;i<NF;i++) f=f $i; print $3, $5, $6, f}')
+sa=$(sec_addr out .eh_frame_hdr); sz=$(sec_size out .eh_frame_hdr)
+[ -n "$sa" ] || die "no .eh_frame_hdr section"
+want "p_vaddr is the .eh_frame_hdr address" \
+     "$(( $(printf '%s' "$seg" | awk '{print $1}') ))" "$((0x$sa))"
+want "p_filesz is the .eh_frame_hdr size" \
+     "$(( $(printf '%s' "$seg" | awk '{print $2}') ))" "$((0x$sz))"
+want "p_memsz is the .eh_frame_hdr size" \
+     "$(( $(printf '%s' "$seg" | awk '{print $3}') ))" "$((0x$sz))"
+want "PT_GNU_EH_FRAME is read-only" "$(printf '%s' "$seg" | awk '{print $4}')" "R"
+hp=$($READELF --unwind out | sed -n '1,/^\.eh_frame section/p')
+ptr=$(printf '%s\n' "$hp" | sed -n 's/.*eh_frame_ptr: 0x0*\([0-9a-f]*\).*/\1/p')
+want "eh_frame_ptr points at .eh_frame" \
+     "$ptr" "$(printf '%s' "$(sec_addr out .eh_frame)" | sed 's/^0*//')"
+run_expect out "ab" 3
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 6

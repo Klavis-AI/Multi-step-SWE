@@ -1,0 +1,15 @@
+SET enable_partition_pruning = on;
+CREATE TABLE q3_ppj(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q3_ppj_1 PARTITION OF q3_ppj FOR VALUES FROM (1) TO (10);
+CREATE TABLE q3_ppj_2 PARTITION OF q3_ppj FOR VALUES FROM (10) TO (20);
+CREATE TABLE q3_ppj_side(a int);
+INSERT INTO q3_ppj SELECT g, 'v' || g FROM generate_series(1,19) g;
+INSERT INTO q3_ppj_side VALUES (3),(13);
+SELECT p.a, p.b FROM q3_ppj p JOIN q3_ppj_side s ON s.a = p.a ORDER BY p.a;
+SELECT count(*) FROM q3_ppj p WHERE p.a IN (SELECT a FROM q3_ppj_side);
+SET enable_partitionwise_join = on;
+SELECT count(*) FROM q3_ppj p JOIN q3_ppj_side s ON s.a = p.a;
+RESET enable_partitionwise_join;
+RESET enable_partition_pruning;
+DROP TABLE IF EXISTS q3_ppj;
+DROP TABLE IF EXISTS q3_ppj_side;

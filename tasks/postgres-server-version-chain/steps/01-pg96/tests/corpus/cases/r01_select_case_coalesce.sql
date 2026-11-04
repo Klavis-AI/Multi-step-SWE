@@ -1,0 +1,5 @@
+SELECT CASE WHEN 1>2 THEN 'a' WHEN 2>1 THEN 'b' ELSE 'c' END;
+SELECT CASE 2 WHEN 1 THEN 'one' WHEN 2 THEN 'two' END;
+SELECT CASE WHEN false THEN 1 END;
+SELECT coalesce(NULL,NULL,3), coalesce(NULL::int), nullif(1,1), nullif(1,2);
+SELECT CASE WHEN NULL THEN 'x' ELSE 'y' END;

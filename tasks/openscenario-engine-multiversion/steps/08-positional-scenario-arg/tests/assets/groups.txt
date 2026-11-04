@@ -1,0 +1,71 @@
+# <group> <case-count> <kind> <share>
+#
+# kind is a graded property, not a label: the scorer reads it.
+#   gate    proof of life + inherited regression. Binary as a SET: if any
+#           gate group fails the step scores 0 however good the new work
+#           is. Earns nothing of its own. Share column is '-'.
+#   scored  this step's new capability. Shares are integers and the scorer
+#           normalises them, so the weights sum to exactly 1.0.
+#
+# reward = gate x score. A no-op preserves inherited behaviour (gate=1) and
+# implements nothing new (score=0), so it scores exactly 0.
+#
+# Step 08 - v2.51.1 -> v2.59.0
+# The .dat recording format is rewritten to a packet format, dat2csv becomes
+# a real CLI with option parsing, and --osc becomes a positional argument.
+
+# SCORED (7 groups, 12 cases) - this step's new capability
+# ess-dat-version          req 1: .dat packet format v4.3
+# dat2csv-output-target    req 2: output path derives from input path
+# dat2csv-extended         req 3: --extended adds road-manager columns
+# dat2csv-cli-surface      req 4: real option parser (--help/-h, --version, --file as
+#                          default argument, --csv, --extended, --print_csv, --file_refs)
+# Authoring note: the usage block also lists --path, which comes for free with the shared
+# SE_Options store rather than from dat2csv itself. No case asserts it and instruction.md
+# does not require it -- do not add an assertion on it later.
+# dat2csv-rejects-old-dat  req 5: v4.3 reader rejects v2 .dat files
+# ess-osc-positional       req 6: --osc becomes a positional argument, and the rest of
+#                          the bracketed-default notation that comes with it
+#                          (--ghost_trail_dt and the regenerated docs/commands.txt)
+# ess-route-info           req 7: SE_GetRoadInfoAlongRoute follows the assigned route,
+#                          plus req 7a/7b - the ABI reshaping around it (model_3d on the
+#                          object-injection calls, lane_type on the road-info structs,
+#                          a negative lookahead code at the end of a road) and the
+#                          rotation of a superelevated road. Those four have no group of
+#                          their own because this step is at 14/14 groups and 22/22
+#                          cases; they are graded here.
+
+# GATE, inherited (4 groups, 6 cases) - obligations from earlier steps
+# rm-core-queries          road-manager initialization and position round-trips
+# rm-lane-geometry         lane width and type queries
+# ess-status-dat           scenario lifecycle, pause, wheel status, simple-vehicle deceleration
+# esmini-cli-headless      headless fixed-timestep scenario runs
+
+# GATE, proof of life (3 groups, 4 cases) - documented breadth at the edges
+# artifacts-present        the six required artifacts exist
+# odrplot-output           odrplot still produces track.csv with the documented shape
+# csv-logger-shape         --csv_logger still produces the documented CSV shape
+#
+# Gate:    7 groups / 10 cases  (earns nothing; vetoes)
+# Scored:  7 groups / 12 cases  (shares sum to 9)
+#   ess-route-info carries share 3, the other six share 1 each. That group is the
+#   whole of the new esminiLib/esminiRMLib surface (req 7 and 7a/7b: the route
+#   lookahead, model_3d on both object-injection calls, lane_type on both road-info
+#   structs, the negative code at the end of a road, and the superelevated rotation),
+#   and it has no groups of its own to spread that across because the step is at
+#   14/14 groups. At share 1 a solution that did the entire dat2csv rewrite and
+#   skipped the C ABI still scored 0.86; at share 3 it scores 0.67.
+ess-dat-version          2  scored  1
+dat2csv-output-target    2  scored  1
+dat2csv-extended         1  scored  1
+dat2csv-cli-surface      1  scored  1
+dat2csv-rejects-old-dat  1  scored  1
+ess-osc-positional       2  scored  1
+ess-route-info           3  scored  3
+rm-core-queries          2  gate    -
+rm-lane-geometry         2  gate    -
+ess-status-dat           1  gate    -
+esmini-cli-headless      1  gate    -
+artifacts-present        1  gate    -
+odrplot-output           2  gate    -
+csv-logger-shape         1  gate    -

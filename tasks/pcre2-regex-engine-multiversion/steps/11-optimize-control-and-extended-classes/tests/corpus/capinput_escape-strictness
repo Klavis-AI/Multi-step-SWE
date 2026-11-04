@@ -1,0 +1,38 @@
+# \x not followed by { or a hexadecimal digit is now a compile error; it
+# previously meant NUL.  PCRE2_EXTRA_NO_BS0 and PCRE2_EXTRA_PYTHON_OCTAL
+# change the reading of \0 and of backslash followed by a digit.
+# ChangeLog 10.45 items 25 and 31; pcre2pattern.3, "Non-printing characters"
+# and "Python rules for non-class backslash 1-9".
+
+/mo\xrn/
+
+/mo\x/
+
+/[mo\xrn]/
+
+/mo\x{72}n/
+    morn
+
+/mo\x72n/
+    morn
+
+# \0 on its own is still a NUL unless PCRE2_EXTRA_NO_BS0 is set.
+/mo\0rn/
+    mo\x{00}rn
+
+/mo\0rn/no_bs0
+
+/mo\00rn/no_bs0
+    mo\x{00}rn
+
+# Python's unambiguous rules for backslash followed by a digit.
+/(m)(o)\2/python_octal
+    moo
+
+/mo\12/python_octal
+
+/mo\012/python_octal
+    mo\x{0a}
+
+/mo\12/
+    mo\x{0a}

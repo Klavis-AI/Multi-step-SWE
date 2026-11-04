@@ -1,0 +1,38 @@
+# PROFILE.md 8 "Build options from the environment": "`UV_NO_BINARY` ... when
+# set, every distribution is built from source." bothpkg publishes a wheel and
+# an sdist, so an installer that ignored the variable would take the wheel and
+# still exit 0 with the same dist-info present. The `WHEEL` file inside the
+# installed dist-info is what separates the two: the fixture's built-from-sdist
+# wheel records its own generator, as 1 fixes for reading which artefact was
+# installed. `sync-uv-no-binary-env` is the refusal side, where no sdist
+# exists to build.
+id = "sync-uv-no-binary-builds-sdist"
+step = 8
+group = "build-options-env"
+python = "3.12"
+mode = "bare"
+argv = ["sync"]
+observe = [
+  "status",
+  "glob:.venv/lib/python3.12/site-packages/*.dist-info",
+  "file:.venv/lib/python3.12/site-packages/bothpkg-1.0.0.dist-info/WHEEL",
+]
+timeout = 300
+
+[env]
+UV_NO_BINARY = "1"
+
+[files]
+"pyproject.toml" = """
+[project]
+name = "proj"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["bothpkg"]
+
+[tool.uv]
+index-url = "{INDEX}"
+"""
+
+[index.packages.bothpkg.versions."1.0.0"]
+sdist = true

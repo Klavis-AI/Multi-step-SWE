@@ -1,0 +1,35 @@
+# arch: loongarch64
+# The LoongArch64 backend must build a shared object with a .dynsym, and then
+# link a dynamic executable against it: the imported function and data land in
+# the GOT behind R_LARCH_64 dynamic relocations and a .plt.got stub.
+cat > lib.c <<'C'
+int api(int x) { return x * 3; }
+int gv = 17;
+C
+cc_obj lib.o lib.c -fPIC
+link_ok libx.so -shared --no-gc-sections lib.o
+want "shared e_type" "$(hdr libx.so | awk '/^ *Type:/{print $2}')" "DYN"
+want_has "shared machine" "$(hdr libx.so)" 'Machine: +LoongArch'
+want_has "api is exported"  "$(dynsyms libx.so)" 'FUNC +GLOBAL +DEFAULT .* api$'
+want_has "gv is exported"   "$(dynsyms libx.so)" 'OBJECT +GLOBAL +DEFAULT .* gv$'
+
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int api(int); extern int gv;
+int entry(void) { return api(gv); }
+C
+cc_obj m.o m.c
+link_ok exe --no-gc-sections -pie -dynamic-linker /lib/ld.so rt.o m.o libx.so
+want "exe e_type" "$(hdr exe | awk '/^ *Type:/{print $2}')" "DYN"
+want_has "libx.so is recorded as NEEDED" "$(dynamic exe)" 'NEEDED.*libx\.so'
+r=$(relocs exe)
+want_has "api goes through a R_LARCH_64 GOT slot" "$r" 'R_LARCH_64 .* api \+ 0'
+want_has "gv goes through a R_LARCH_64 GOT slot"  "$r" 'R_LARCH_64 .* gv \+ 0'
+has_section exe '\.got' || die "no .got in a dynamic executable: $(sections exe)"
+# The call to an imported function must be routed through a PLT-style stub in
+# an executable section, not left as a direct branch.
+s=$(sections exe)
+want_has "a PLT stub section exists" "$s" '\.plt(\.got)? +PROGBITS'
+
+asserts_at_least 9

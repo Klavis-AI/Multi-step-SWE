@@ -1,0 +1,60 @@
+# arch: x86_64
+# name@version and name@@version are different definitions. An executable
+# that references both must end up with two distinct dynamic symbols, two
+# distinct version indices and two distinct GOT slots -- and an executable
+# that references only the unversioned name must request only the default
+# version.
+rt_obj rt.o
+cat > v.s <<'S'
+        .text
+        .globl getval_v1
+getval_v1: movl $11, %eax; ret
+        .globl getval_v2
+getval_v2: movl $22, %eax; ret
+        .symver getval_v1, getval@VER_1
+        .symver getval_v2, getval@@VER_2
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj v.o v.s -fPIC
+cat > v.map <<'M'
+VER_1 { global: getval; local: *; };
+VER_2 { global: getval; } VER_1;
+M
+ld -shared -soname libver.so.1 --version-script=v.map -o libver.so v.o 2> ld.err \
+  || die "fixture ld failed: $(tail -2 ld.err)"
+cat > both.c <<'C'
+__asm__(".symver getval_old, getval@VER_1");
+int getval_old(void); int getval(void);
+int entry(void) { return getval_old() + getval(); }
+C
+cc_obj both.o both.c
+link_ok both rt.o both.o libver.so -dynamic-linker /lib64/ld-linux-x86-64.so.2
+dynsyms both > d.txt; relocs both > r.txt; vernum both > v.txt
+grep -q 'UND getval@VER_1' d.txt || die "no dynamic symbol getval@VER_1: $(cat d.txt)"
+grep -q 'UND getval@VER_2' d.txt || die "no dynamic symbol getval@VER_2: $(cat d.txt)"
+want "two getval dynamic symbols" "$(grep -c 'UND getval@' d.txt)" "2"
+want "two GLOB_DAT slots" "$(grep -c 'R_X86_64_GLOB_DAT .* getval@' r.txt)" "2"
+o1=$(awk '/getval@VER_1/ { print $1; exit }' r.txt)
+o2=$(awk '/getval@VER_2/ { print $1; exit }' r.txt)
+[ -n "$o1" ] && [ -n "$o2" ] && [ "$o1" != "$o2" ] \
+  || die "the two versions share a GOT slot ($o1 / $o2)"
+sed -n '/Version symbols section/,/^$/p' v.txt | sed -n 's/^ *[0-9]\+: *//p' | grep -oE '\([^)]+\)' | tr -d '()' > vers.txt
+grep -qx 'VER_1' vers.txt || die "VER_1 is not in .gnu.version: $(cat vers.txt)"
+grep -qx 'VER_2' vers.txt || die "VER_2 is not in .gnu.version: $(cat vers.txt)"
+# Referencing only the unversioned name picks the @@ default, and only it.
+cat > def.c <<'C'
+int getval(void);
+int entry(void) { return getval(); }
+C
+cc_obj def.o def.c
+link_ok def rt.o def.o libver.so -dynamic-linker /lib64/ld-linux-x86-64.so.2
+dynsyms def > d2.txt; vernum def > v2.txt
+grep -q 'UND getval@VER_2' d2.txt || die "unversioned reference did not bind to the @@ default: $(cat d2.txt)"
+! grep -q 'getval@VER_1' d2.txt || die "unversioned reference dragged in VER_1: $(cat d2.txt)"
+grep -qE 'File: libver\.so\.1 +Cnt: 1' v2.txt || die "expected exactly one version needed: $(cat v2.txt)"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

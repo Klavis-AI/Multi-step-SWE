@@ -1,0 +1,11 @@
+CREATE TABLE ja(i int primary key, t text);
+CREATE TABLE jb(i int, v int);
+INSERT INTO ja VALUES (1,'one'),(2,'two'),(3,'three');
+INSERT INTO jb VALUES (1,10),(1,11),(2,20),(4,40);
+SELECT a.i,a.t,b.v FROM ja a JOIN jb b USING (i) ORDER BY a.i,b.v;
+SELECT a.i,b.v FROM ja a LEFT JOIN jb b ON a.i=b.i ORDER BY a.i,b.v NULLS LAST;
+SELECT a.i,b.v FROM ja a RIGHT JOIN jb b ON a.i=b.i ORDER BY b.v;
+SELECT a.i,b.v FROM ja a FULL JOIN jb b ON a.i=b.i ORDER BY a.i NULLS LAST,b.v NULLS LAST;
+SELECT count(*) FROM ja CROSS JOIN jb;
+SELECT * FROM ja NATURAL JOIN jb ORDER BY i,v;
+DROP TABLE ja, jb;

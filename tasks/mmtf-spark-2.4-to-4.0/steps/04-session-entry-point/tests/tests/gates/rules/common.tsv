@@ -1,0 +1,41 @@
+# Standing gate rules. Every step's rules file includes this one.
+#
+# Nothing here is about a particular Spark version. These are the rules that
+# say the four instruments actually ran and that the tree they read is one a
+# human would accept -- a tree that parses, a build that resolves, a job that
+# started. A step-specific rule that came back PASS over a tree whose POM did
+# not resolve would be measuring nothing, so these run first and their failure
+# is meant to be read as "the reading is void", not "the candidate is wrong".
+#
+# The last two implement rule 11's "count suppressions as findings". The
+# baseline carries exactly ten @SuppressWarnings, six `resource` and four
+# `rawtypes` (NOTES 4.8.1); none of them silences a deprecation. An agent that
+# answers a deprecation warning with an annotation instead of a call change has
+# not migrated anything, and the budget catches the general case of the same
+# move under any other warning name.
+#
+# `probe-ran` keys on app.id and not on spark.version because spark.version is
+# read off the session and 62 of this codebase's 78 mains never make one
+# (NOTES 4.8.7). app.id is emitted from the application-start callback whatever
+# the job is, so the rule says "a job ran and the listener was on it" and
+# nothing more -- which is all a standing rule can honestly say here.
+#
+# `probe-submit-ok` is the rest of that sentence, and it is here because a run
+# went green without it. A job that builds a session and then dies on its first
+# read still emits app.id: the first real step-1 verifier run had submit.rc 1,
+# zero Spark jobs started, and a `probe-ran` that passed. app.id says a session
+# existed; submit.rc says the job the probe was pointed at finished. A gate that
+# reads the first as the second is reporting facts gathered from a process that
+# crashed, which is the definition of a void reading.
+#
+# id	mode	selector	counterexample	reason
+ast-parses	absent	ast.error\t*\t*\t*\t*	ast-error.tsv	the source tree does not parse, or the scanner that reads it did not run; either way every ast rule below is void
+pom-resolves	absent	pom.error\t*\t*	pom-error.tsv	Maven could not produce an effective POM or a dependency list
+classes-readable	absent	bytecode.error\t*\t*	bytecode-error.tsv	a class file under target/ could not be read
+probe-clean	absent	probe.error\t*\t*	probe-error.tsv	the in-job probe reported an error instead of a reading
+ast-nonempty	atleast:200	ast.file\t*\t*	ast-thin.tsv	fewer than 200 source files were scanned; the scan did not see the tree
+classes-nonempty	atleast:150	bytecode.class\t*\t*	bytecode-thin.tsv	fewer than 150 project classes were compiled; the build did not run
+probe-ran	atleast:1	probe.probe\tapp.id\t.+	probe-thin.tsv	the job never started, or the probe was not attached to it
+probe-submit-ok	atleast:1	probe.probe\tsubmit.rc\t0	probe-submit-fail.tsv	the probe's job did not exit 0; every fact beside this one came from a job that failed
+no-deprecation-suppression	absent	ast.suppress\t*\t*\t(deprecation|removal|unchecked|serial|all)\t*	suppress-deprecation.tsv	a deprecation warning was silenced with an annotation rather than answered
+suppression-budget	atmost:10	ast.suppress\t*\t*\t*\t*	suppress-budget.tsv	more @SuppressWarnings than the ten the baseline carries

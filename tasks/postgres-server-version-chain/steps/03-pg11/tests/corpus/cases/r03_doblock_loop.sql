@@ -1,0 +1,11 @@
+CREATE TABLE q3_dbl(i int);
+DO $$
+DECLARE k int;
+BEGIN
+  FOR k IN 1..4 LOOP
+    INSERT INTO q3_dbl VALUES (k);
+    IF k % 2 = 0 THEN COMMIT; ELSE ROLLBACK; END IF;
+  END LOOP;
+END $$;
+SELECT i FROM q3_dbl ORDER BY i;
+DROP TABLE q3_dbl;

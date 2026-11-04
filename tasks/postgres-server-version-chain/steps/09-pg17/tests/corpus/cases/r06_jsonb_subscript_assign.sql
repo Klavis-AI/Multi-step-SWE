@@ -1,0 +1,6 @@
+CREATE TABLE x06_25a(id int, j jsonb);
+INSERT INTO x06_25a VALUES (1,'{"a":1}'),(2,'{"a":{"b":2}}');
+UPDATE x06_25a SET j['a'] = '99' WHERE id = 1;
+UPDATE x06_25a SET j['a']['b'] = '"x"' WHERE id = 2;
+SELECT id, j FROM x06_25a ORDER BY id;
+DROP TABLE x06_25a;

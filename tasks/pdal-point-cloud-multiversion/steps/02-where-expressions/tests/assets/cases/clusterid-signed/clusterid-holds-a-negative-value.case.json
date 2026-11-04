@@ -1,0 +1,46 @@
+{
+ "doc": "stages/filters.dbscan.rst: 'Points that do not belong to a cluster are given a Cluster ID of -1.' with stages/filters.cluster.rst: 'It creates a new dimension ``ClusterID`` that contains the cluster ID value.' and types.rst 'PDAL supports the standard integral and floating point types for dimensions' -- ClusterID must therefore be a signed type, which ``pdal info --schema`` reports.",
+ "files": {
+  "dups.las": {
+   "fixture": "dups.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"dups.las\"}, {\"type\": \"filters.cluster\", \"tolerance\": 0.5, \"min_points\": 3}, {\"type\": \"filters.assign\", \"assignment\": \"ClusterID[:]=-5\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\", \"minor_version\": 4, \"extra_dims\": \"all\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": 60
+   },
+   "dims": {
+    "ClusterID": {
+     "unique": [
+      -5
+     ],
+     "min": -5,
+     "max": -5,
+     "sum": {
+      "approx": -300,
+      "tol": 0.5
+     }
+    }
+   }
+  }
+ ]
+}

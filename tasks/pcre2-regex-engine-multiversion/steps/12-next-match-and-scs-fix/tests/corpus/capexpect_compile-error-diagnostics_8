@@ -1,0 +1,59 @@
+# Error offsets and diagnostics for compile-time syntax errors are improved,
+# and pcre2test now shows the offending position in the pattern.
+# ChangeLog 10.47 item 13.
+
+/^(abc/
+Failed: error 114 at offset 5: missing closing parenthesis
+        here: ^(abc |<--|
+
+/^a{2,1}b/
+Failed: error 104 at offset 6: numbers out of order in {} quantifier
+        here: ^a{2,1 |<--| }b
+
+/[z-a]/
+Failed: error 108 at offset 4: range out of order in character class
+        here: [z-a |<--| ]
+
+/(?<dup>a)(?<dup>b)/
+Failed: error 143 at offset 16: two named subpatterns have the same name (PCRE2_DUPNAMES not set)
+        here: ...>a)(?<dup> |<--| b)
+
+/^ab\g<1>/
+Failed: error 115 at offset 8: reference to non-existent subpattern
+        here: ^ab\g<1> |<-->|
+
+/a(?P<>)b/
+Failed: error 162 at offset 5: subpattern name expected
+        here: a(?P< |<--| >)b
+
+/x(?#unterminated/
+Failed: error 118 at offset 16: missing ) after (?# comment
+        here: ...terminated |<--|
+
+/a**b/
+Failed: error 109 at offset 3: quantifier does not follow a repeatable item
+        here: a** |<--| b
+
+/(?(1)a)/
+Failed: error 115 at offset 2: reference to non-existent subpattern
+        here: (? |<-->| (1)a)
+
+/\p{Wibble}/utf
+Failed: error 147 at offset 10: unknown property after \P or \p
+        here: \p{Wibble} |<--|
+
+/(?<=a*)b/
+Failed: error 125 at offset 0: length of lookbehind assertion is not limited
+        here: |-->| (?<=a*)b
+
+/[[:nosuch:]]/
+Failed: error 130 at offset 11: unknown POSIX class name
+        here: ...[:nosuch:] |<--| ]
+
+/a(?'')b/
+Failed: error 162 at offset 4: subpattern name expected
+        here: a(?' |<--| ')b
+
+/(*scs:(9)x)/
+Failed: error 115 at offset 7: reference to non-existent subpattern
+        here: (*scs:( |<-->| 9)x)

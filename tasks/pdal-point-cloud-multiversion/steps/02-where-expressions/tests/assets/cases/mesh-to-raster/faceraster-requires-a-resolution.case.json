@@ -1,0 +1,53 @@
+{
+ "doc": "stages/filters.faceraster.rst: 'resolution -- Length of raster cell edges in X/Y units.  [Required]'",
+ "files": {
+  "plane.txt": {
+   "text": "X,Y,Z\n0,0,0\n4,0,4\n0,4,0\n4,4,4\n"
+  },
+  "bad.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"plane.txt\"}, {\"type\": \"filters.delaunay\"}, {\"type\": \"filters.faceraster\"}, {\"type\": \"writers.raster\", \"filename\": \"bad.tif\"}]}"
+  },
+  "good.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"plane.txt\"}, {\"type\": \"filters.delaunay\"}, {\"type\": \"filters.faceraster\", \"resolution\": 1, \"origin_x\": 0.5, \"origin_y\": 0.5, \"width\": 4, \"height\": 4}, {\"type\": \"writers.raster\", \"filename\": \"good.tif\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "good.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "filters\\.faceraster"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad.tif"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "file_exists",
+   "file": "good.tif"
+  }
+ ]
+}

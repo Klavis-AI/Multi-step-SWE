@@ -1,0 +1,5 @@
+SELECT to_timestamp('2020-01-01 25:00','YYYY-MM-DD HH24:MI');
+SELECT to_timestamp('2020-01-01 12:60','YYYY-MM-DD HH24:MI');
+SELECT to_timestamp('2020-01-01 12:00:61','YYYY-MM-DD HH24:MI:SS');
+SELECT to_timestamp('2020-01-32','YYYY-MM-DD');
+SELECT to_timestamp('2020-01-01 13','YYYY-MM-DD HH');

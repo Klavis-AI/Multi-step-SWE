@@ -1,0 +1,54 @@
+# <group> <case-count> <kind> <share>
+#
+# kind is a graded property, not a label: the scorer reads it.
+#   gate    proof of life + inherited regression. Binary as a SET: if any
+#           gate group fails the step scores 0 however good the new work
+#           is. Earns nothing of its own. Share column is '-'.
+#   scored  this step's new capability. Shares are integers and the scorer
+#           normalises them, so the weights sum to exactly 1.0.
+#
+# reward = gate x score. A no-op preserves inherited behaviour (gate=1) and
+# implements nothing new (score=0), so it scores exactly 0.
+#
+# Step 02 - parameter-distributions (v2.23.1 -> v2.27.0)
+#
+# Scored must not be outnumbered by gate (8 scored, 5 gate here), and the gate
+# holds at most 10 cases: it is one end-to-end path per inherited milestone,
+# not breadth.
+# The count column must equal the number of .sh files in cases/<group>/ exactly;
+# test.sh.in:205-211 fails the WHOLE step on any mismatch.
+#
+# FORMAT WARNING: test.sh.in:193 parses each line with `read -r gname gcount
+# gkind gshare`, so gshare absorbs the rest of the line -- a trailing # comment
+# would be read as part of the share and corrupt the weight arithmetic. Keep
+# every comment on its own line.
+#
+# scored groups, and the instruction.md requirement each one grades:
+#   param-dist-load        req 1  SE_SetParameterDistribution / SE_ResetParameterDistribution
+#   param-permutation-pick req 2  SE_GetNumberOfPermutations / SE_SelectPermutation / SE_GetPermutationIndex
+#   param-dist-cli         req 3  --param_dist sweep and --param_permutation select
+#   param-save-xosc        req 4  the resolved scenario can be written back out
+#   se-lib-additions       req 5  SE_SetDatFilePath, SE_GetIdByName, SE_GetSimulationTimeDouble
+#   storyboard-callback    req 6  SE_RegisterStoryBoardElementStateChangeCallback
+#   event-callback-removed req 7  SE_RegisterEventCallback is retired
+#   abi-new-symbols        req 8  all ten additions exported with C linkage
+# gate: surfaces that predate this step and must not regress across it -- every
+# value these assert was measured identical at v2.23.1 and v2.27.0 -- plus proof
+# of life: the build still publishes its six artifacts and the CLI still runs a
+# scenario headless. The gate earns nothing; it only vetoes.
+#
+# Gate:    5 groups /  7 cases  (earns nothing; vetoes)
+# Scored:  8 groups / 15 cases  (share 1 each -> weight 0.125000)
+param-dist-load          3  scored  1
+param-permutation-pick   2  scored  1
+param-dist-cli           2  scored  1
+param-save-xosc          1  scored  1
+se-lib-additions         3  scored  1
+storyboard-callback      2  scored  1
+event-callback-removed   1  scored  1
+abi-new-symbols          1  scored  1
+rm-core-queries          2  gate    -
+rm-lane-geometry         2  gate    -
+se-simple-vehicle-decel  1  gate    -
+artifacts-present        1  gate    -
+esmini-cli-headless      1  gate    -

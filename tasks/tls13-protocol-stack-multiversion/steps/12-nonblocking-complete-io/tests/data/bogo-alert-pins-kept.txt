@@ -1,0 +1,37 @@
+# Documentation. No code reads this file.
+#
+# The alert pins this verifier compares, and the ones it relaxes.
+#
+# The runner's effective expectation for a case is the value in `config.json`'s
+# `TestLocalErrorMap` when the case name is a key there, and the case's own
+# built-in `expectedLocalError` otherwise; that is what `-loose-errors` cannot
+# relax, and it is what this file audits. A pin is kept only where a document
+# in this step's `workdir/docs/specs/` states that alert for the situation the
+# case drives (or where the string is the runner's own, which no candidate can
+# choose). Where the alert is one implementation's pick from a menu the
+# specifications leave open, the pin has been relaxed to the empty string: the
+# case still has to fail, but not with a particular alert. Relaxed names are
+# listed at the bottom with their reason.
+
+## Pins still compared
+
+* `EchoTLS13CompatibilitySessionID`
+    pinned:   remote error: illegal parameter
+    citation: instruction.md:25 now states the rule and the verdict -- a server echoing the TLS 1.3 compatibility session id back is rejected with illegal_parameter -- and RFC 8446 s4.1.2 pairs that alert with an echo violation.
+
+* `SendEmptySessionTicket-TLS13`
+    pinned:   remote error: error decoding message
+    citation: instruction.md:25 now states that a TLS 1.3 NewSessionTicket whose ticket field is empty is rejected as a decode error (the field is `opaque ticket<1..2^16-1>`), which is RFC 8446 s4.6.1 read with s6.2's decode_error.
+
+* `ClientOCSPCallback-Fail-TLS12-TLS-Sync`, `ClientOCSPCallback-Fail-TLS12-TLS-Sync-ImplicitHandshake`, `ClientOCSPCallback-Fail-TLS12-TLS-Sync-PackHandshake`, `ClientOCSPCallback-Fail-TLS12-TLS-Sync-SplitHandshakeRecords`, `ClientOCSPCallback-Fail-TLS13-TLS-Sync`, `ClientOCSPCallback-Fail-TLS13-TLS-Sync-ImplicitHandshake`, `ClientOCSPCallback-Fail-TLS13-TLS-Sync-PackHandshake`, `ClientOCSPCallback-Fail-TLS13-TLS-Sync-SplitHandshakeRecords`
+    pinned:   remote error: bad certificate status response
+    citation: RFC 6066 s8: 'Clients requesting an OCSP response and receiving an OCSP response in a "CertificateStatus" message MUST check the OCSP response and abort the handshake if the response is not satisfactory with bad_certificate_status_response(113) alert'; RFC 8446 s6.2 defines the alert as 'Sent by clients when an invalid or unacceptable OCSP response is provided by the server via the "status_request" extension'. These are the staple-present siblings of the `FailNoStaple-*` names relaxed below: the server did staple a response, the shim's callback rejects it, and s8 names the alert for exactly that leg -- which is why they keep their pin while the no-staple leg does not.
+
+* `TLS12-NoTicket-NoOffer`
+    pinned:   remote error: illegal parameter
+    citation: instruction.md:25 states the rule and the verdict for this case verbatim -- 'a server that echoes the TLS 1.3 compatibility session id back must be rejected with `illegal_parameter` -- the client generated that id at random, so a server, including one that then negotiates TLS 1.2, is echoing a session it could not have known'. RFC 8446 s4.1.2 (with Appendix D.4) is the rule's source: the client generates a fresh 32-byte `legacy_session_id` it has no session for, and s4.1.3 pairs an echo violation with illegal_parameter. Measured on this release: the shim answers the runner's echoed id with `PeerMisbehaved(ServerEchoedCompatibilitySessionId)`, which reaches the wire as illegal_parameter. Same rule as the `EchoTLS13CompatibilitySessionID` entry above; this case is the leg where the server negotiates TLS 1.2 after the echo.
+
+## Pins relaxed (the case must still fail; the alert is not compared)
+
+* `ClientOCSPCallback-FailNoStaple-TLS12-TLS-Sync`, `ClientOCSPCallback-FailNoStaple-TLS12-TLS-Sync-ImplicitHandshake`, `ClientOCSPCallback-FailNoStaple-TLS12-TLS-Sync-PackHandshake`, `ClientOCSPCallback-FailNoStaple-TLS12-TLS-Sync-SplitHandshakeRecords`, `ClientOCSPCallback-FailNoStaple-TLS13-TLS-Sync`, `ClientOCSPCallback-FailNoStaple-TLS13-TLS-Sync-ImplicitHandshake`, `ClientOCSPCallback-FailNoStaple-TLS13-TLS-Sync-PackHandshake`, `ClientOCSPCallback-FailNoStaple-TLS13-TLS-Sync-SplitHandshakeRecords`
+    reason: RFC 6066 s8 names bad_certificate_status_response only for an OCSP response that was *received* and found unsatisfactory; on this leg the server stapled nothing at all, so no specification names the alert. The staple-present sibling cases keep their pin, because s8 does name the alert there. The callback must still run and its rejection must still fail the handshake -- that is what the case continues to require.

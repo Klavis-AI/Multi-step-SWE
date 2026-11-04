@@ -1,0 +1,49 @@
+# The experimental foreign-pattern conversion facility: a converted pattern is
+# printed and then compiled, and a failed conversion reports an offset and a
+# message.  ChangeLog 10.30 item 50; pcre2convert.3, "THE CONVERSION FUNCTION" /
+# "CONVERTING GLOBS" / "CONVERTING POSIX PATTERNS"; pcre2test.1, "Testing
+# foreign pattern conversion".
+
+/*.tar.gz/convert=glob
+(?s)\A[^/]*?\.tar\.gz\z
+    notes.tar.gz
+ 0: notes.tar.gz
+    deep/notes.tar.gz
+No match
+
+!data/**/report?.txt!convert=glob,convert_glob_separator=/
+(?s)\Adata/(*COMMIT)(?:.*?/)??report[^/]\.txt\z
+    data/q1/q2/reportA.txt
+ 0: data/q1/q2/reportA.txt
+    data/reportA.txt
+ 0: data/reportA.txt
+
+/*.tar.gz/convert=glob:glob_no_wild_separator
+(?s)\.tar\.gz\z
+    deep/notes.tar.gz
+ 0: .tar.gz
+
+/^ab*\(c\)$/convert=posix_basic,info
+(*NUL)^ab*(c)$
+Capturing subpattern count = 1
+Compile options: <none>
+Overall options: anchored
+Forced newline is NUL
+First code unit = 'a'
+Last code unit = 'c'
+Subject length lower bound = 2
+    abbbc
+ 0: abbbc
+ 1: c
+
+/^a(b|c)+d$/convert=posix_extended
+(*NUL)^a(b|c)+d$
+    abcbd
+ 0: abcbd
+ 1: b
+
+/[abc/convert=posix_extended
+** Pattern conversion error at offset 4: missing terminating ] for character class
+
+/*.log/convert=glob,convert_length=4
+** Pattern conversion error at offset 5: no more memory

@@ -1,0 +1,568 @@
+Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+ MVAR — Metrics Variations Table
+
+ Feedback
+
+ Summarize this article for me
+
+ The metrics variations table is used in variable fonts to provide variations for font-wide metric values found in the OS/2 table and other font tables. For a general overview of OpenType Font Variation and terminology related to variations, see the chapter, OpenType Font Variations Overview.
+
+The metrics variations table contains an item variation store structure to represent variation data. The item variation store and constituent formats are described in the chapter, OpenType Font Variations Common Table Formats. The item variation store is also used in the HVAR and GDEF tables, but is different from the formats for variation data used in the 'cvar' or 'gvar' tables.
+
+The item variation store format uses delta-set indices to reference variation delta data for particular target font-data items to which they are applied. Data external to the item variation store identifies the delta-set index to be used for each given target item. Within the MVAR table, an array of value tag records identifies a set of target items, and provides the delta-set index used for each. The target items are identified by four-byte tags, with a given tag representing some font-wide value found in another table. For example, the tag 'hasc' represents the OS/2.sTypoAscender value. More details on tags are provided below.
+
+The item variation store format uses a two-level organization for variation data: a store can have multiple item variation data subtables, and each subtable has multiple delta-set rows. A delta-set index is a two-part index: an outer index that selects a particular item variation data subtable, and an inner index that selects a particular delta-set row within that subtable. A value record specifies both the outer and inner portions of the delta-set index.
+
+Note: Apple platforms allow for use of a font metrics ('fmtx') table to specify various font-wide metric values by reference to the X or Y coordinates of contour points for a specified “magic” glyph. OpenType Font Variations does not use the font metrics table.
+
+The metrics variations table must be used in combination with a font variations ('fvar') table and other required or optional tables used in variable fonts. See Variation Data Tables and Miscellaneous Requirements in the OpenType Font Variations Overview chapter for additional details.
+
+Table Formats
+
+The metrics variations table has the following format.
+
+Metrics variations table:
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+uint16 | 
+majorVersion | 
+Major version number of the metrics variations table — set to 1. | 
+
+ROW 
+uint16 | 
+minorVersion | 
+Minor version number of the metrics variations table — set to 0. | 
+
+ROW 
+uint16 | 
+(reserved) | 
+Not used; set to 0. | 
+
+ROW 
+uint16 | 
+valueRecordSize | 
+The size in bytes of each value record — must be greater than zero. | 
+
+ROW 
+uint16 | 
+valueRecordCount | 
+The number of value records — may be zero. | 
+
+ROW 
+Offset16 | 
+itemVariationStoreOffset | 
+Offset in bytes from the start of this table to the item variation store table. If valueRecordCount is zero, set to zero; if valueRecordCount is greater than zero, must be greater than zero. | 
+
+ROW 
+ValueRecord | 
+valueRecords[valueRecordCount] | 
+Array of value records that identify target items and the associated delta-set index for each. The valueTag records must be in binary order of their valueTag field. | 
+
+The valueRecordSize field indicates the size of each value record. Future, minor version updates of the MVAR table may define compatible extensions to the value record format with additional fields. Implementations must use the valueRecordSize field to determine the start of each record.
+
+The valueRecords array is an array of value records that identify the target, font-wide measures for which variation adjustment data is provided (target items), and outer and inner delta-set indices for each item into the item variation store data.
+
+ValueRecord:
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+Tag | 
+valueTag | 
+Four-byte tag identifying a font-wide measure. | 
+
+ROW 
+uint16 | 
+deltaSetOuterIndex | 
+A delta-set outer index — used to select an item variation data subtable within the item variation store. | 
+
+ROW 
+uint16 | 
+deltaSetInnerIndex | 
+A delta-set inner index — used to select a delta-set row within an item variation data subtable. | 
+
+The value records must be given in binary order of the valueTag values. Each tag identifies a font-wide measure found in some other font table. For example, if a value record has a value tag of 'hasc', this corresponds to the OS/2.sTypoAscender field. Details on the tags used within the MVAR table are provided below.
+
+Processing
+
+When reading a value within a variable font, such as the OS/2.sCapHeight value (the target item), the value tags array in the metrics variations table is scanned to find the tag that corresponds to that target item. Records in the array are stored in binary order of values in the valueTag fields. If the tag does not occur in the tag array, then the item is constant across the font’s variation space. If the tag does occur, however, then the delta-set index is used to reference a set of deltas within the item variation store. The two-level organization of data within the item variation store is described in the chapter OpenType Font Variations Common Table Formats. Each delta set includes different deltas that apply to variation instances falling within different regions of the variation space. The process by which the deltas are processed to derive an interpolated value for a given target item is described in the chapter, OpenType Font Variations Overview.
+
+Value Tags
+
+Four-byte tags are used to represent particular metric or other values. For example, the tag 'hasc' (horizontal ascent) is used to represent the OS/2.sTypoAscender value. Tags are defined for various values found in the OS/2 and Windows metrics (OS/2) table, the horizontal header ('hhea') table, the grid-fitting and scan-conversion ('gasp') table, the PostScript ('post') table, and the vertical metrics header ('vhea') table.
+
+Note: The OS/2.usWeightClass, OS/2.usWidthClass and post.italicAngle values are not supported by variation data in the MVAR table. This is because values for these three fields correspond directly to input axis values for the 'wght', 'wdth' and 'slnt' variation axes. See the discussion of these axes in the OpenType Design-Variation Axis Tag Registry for details on the relationship between these fields and the corresponding design axes.
+
+Tags in the metrics variations table are case sensitive. Tags defined in this table use only lowercase letters or digits.
+
+Tags that are used in a font’s metrics variations table should be those that are documented in this table specification. A font may also use privately-defined tags, which have semantics known only by private agreement. Private-use tags must begin with an uppercase letter and use only uppercase letters or digits. If a private-use tag is used in a given font, any application that does not recognize that tag should ignore it.
+
+The following tags are defined:
+
+Value tags, ordered by logical groupings:
+
+ROW 
+Tag | 
+Mnemonic | 
+Value represented | 
+
+ROW 
+'hasc' | 
+horizontal ascender | 
+OS/2.sTypoAscender | 
+
+ROW 
+'hdsc' | 
+horizontal descender | 
+OS/2.sTypoDescender | 
+
+ROW 
+'hlgp' | 
+horizontal line gap | 
+OS/2.sTypoLineGap | 
+
+ROW 
+'hcla' | 
+horizontal clipping ascent | 
+OS/2.usWinAscent | 
+
+ROW 
+'hcld' | 
+horizontal clipping descent | 
+OS/2.usWinDescent | 
+
+ROW 
+'vasc' | 
+vertical ascender | 
+vhea.ascent | 
+
+ROW 
+'vdsc' | 
+vertical descender | 
+vhea.descent | 
+
+ROW 
+'vlgp' | 
+vertical line gap | 
+vhea.lineGap | 
+
+ROW 
+'hcrs' | 
+horizontal caret rise | 
+hhea.caretSlopeRise | 
+
+ROW 
+'hcrn' | 
+horizontal caret run | 
+hhea.caretSlopeRun | 
+
+ROW 
+'hcof' | 
+horizontal caret offset | 
+hhea.caretOffset | 
+
+ROW 
+'vcrs' | 
+vertical caret rise | 
+vhea.caretSlopeRise | 
+
+ROW 
+'vcrn' | 
+vertical caret run | 
+vhea.caretSlopeRun | 
+
+ROW 
+'vcof' | 
+vertical caret offset | 
+vhea.caretOffset | 
+
+ROW 
+'xhgt' | 
+x height | 
+OS/2.sxHeight | 
+
+ROW 
+'cpht' | 
+cap height | 
+OS/2.sCapHeight | 
+
+ROW 
+'sbxs' | 
+subscript em x size | 
+OS/2.ySubscriptXSize | 
+
+ROW 
+'sbys' | 
+subscript em y size | 
+OS/2.ySubscriptYSize | 
+
+ROW 
+'sbxo' | 
+subscript em x offset | 
+OS/2.ySubscriptXOffset | 
+
+ROW 
+'sbyo' | 
+subscript em y offset | 
+OS/2.ySubscriptYOffset | 
+
+ROW 
+'spxs' | 
+superscript em x size | 
+OS/2.ySuperscriptXSize | 
+
+ROW 
+'spys' | 
+superscript em y size | 
+OS/2.ySuperscriptYSize | 
+
+ROW 
+'spxo' | 
+superscript em x offset | 
+OS/2.ySuperscriptXOffset | 
+
+ROW 
+'spyo' | 
+superscript em y offset | 
+OS/2.ySuperscriptYOffset | 
+
+ROW 
+'strs' | 
+strikeout size | 
+OS/2.yStrikeoutSize | 
+
+ROW 
+'stro' | 
+strikeout offset | 
+OS/2.yStrikeoutPosition | 
+
+ROW 
+'unds' | 
+underline size | 
+post.underlineThickness | 
+
+ROW 
+'undo' | 
+underline offset | 
+post.underlinePosition | 
+
+ROW 
+'gsp0' | 
+gaspRange[0] | 
+gasp.gaspRange[0].rangeMaxPPEM | 
+
+ROW 
+'gsp1' | 
+gaspRange[1] | 
+gasp.gaspRange[1].rangeMaxPPEM | 
+
+ROW 
+'gsp2' | 
+gaspRange[2] | 
+gasp.gaspRange[2].rangeMaxPPEM | 
+
+ROW 
+'gsp3' | 
+gaspRange[3] | 
+gasp.gaspRange[3].rangeMaxPPEM | 
+
+ROW 
+'gsp4' | 
+gaspRange[4] | 
+gasp.gaspRange[4].rangeMaxPPEM | 
+
+ROW 
+'gsp5' | 
+gaspRange[5] | 
+gasp.gaspRange[5].rangeMaxPPEM | 
+
+ROW 
+'gsp6' | 
+gaspRange[6] | 
+gasp.gaspRange[6].rangeMaxPPEM | 
+
+ROW 
+'gsp7' | 
+gaspRange[7] | 
+gasp.gaspRange[7].rangeMaxPPEM | 
+
+ROW 
+'gsp8' | 
+gaspRange[8] | 
+gasp.gaspRange[8].rangeMaxPPEM | 
+
+ROW 
+'gsp9' | 
+gaspRange[9] | 
+gasp.gaspRange[9].rangeMaxPPEM | 
+
+Value tags, in alphabetical order of tags:
+
+ROW 
+Tag | 
+Mnemonic | 
+Value represented | 
+
+ROW 
+'cpht' | 
+cap height | 
+OS/2.sCapHeight | 
+
+ROW 
+'gsp0' | 
+gaspRange[0] | 
+gasp.gaspRange[0].rangeMaxPPEM | 
+
+ROW 
+'gsp1' | 
+gaspRange[1] | 
+gasp.gaspRange[1].rangeMaxPPEM | 
+
+ROW 
+'gsp2' | 
+gaspRange[2] | 
+gasp.gaspRange[2].rangeMaxPPEM | 
+
+ROW 
+'gsp3' | 
+gaspRange[3] | 
+gasp.gaspRange[3].rangeMaxPPEM | 
+
+ROW 
+'gsp4' | 
+gaspRange[4] | 
+gasp.gaspRange[4].rangeMaxPPEM | 
+
+ROW 
+'gsp5' | 
+gaspRange[5] | 
+gasp.gaspRange[5].rangeMaxPPEM | 
+
+ROW 
+'gsp6' | 
+gaspRange[6] | 
+gasp.gaspRange[6].rangeMaxPPEM | 
+
+ROW 
+'gsp7' | 
+gaspRange[7] | 
+gasp.gaspRange[7].rangeMaxPPEM | 
+
+ROW 
+'gsp8' | 
+gaspRange[8] | 
+gasp.gaspRange[8].rangeMaxPPEM | 
+
+ROW 
+'gsp9' | 
+gaspRange[9] | 
+gasp.gaspRange[9].rangeMaxPPEM | 
+
+ROW 
+'hasc' | 
+horizontal ascender | 
+OS/2.sTypoAscender | 
+
+ROW 
+'hcla' | 
+horizontal clipping ascent | 
+OS/2.usWinAscent | 
+
+ROW 
+'hcld' | 
+horizontal clipping descent | 
+OS/2.usWinDescent | 
+
+ROW 
+'hcof' | 
+horizontal caret offset | 
+hhea.caretOffset | 
+
+ROW 
+'hcrn' | 
+horizontal caret run | 
+hhea.caretSlopeRun | 
+
+ROW 
+'hcrs' | 
+horizontal caret rise | 
+hhea.caretSlopeRise | 
+
+ROW 
+'hdsc' | 
+horizontal descender | 
+OS/2.sTypoDescender | 
+
+ROW 
+'hlgp' | 
+horizontal line gap | 
+OS/2.sTypoLineGap | 
+
+ROW 
+'sbxo' | 
+subscript em x offset | 
+OS/2.ySubscriptXOffset | 
+
+ROW 
+'sbxs' | 
+subscript em x size | 
+OS/2.ySubscriptXSize | 
+
+ROW 
+'sbyo' | 
+subscript em y offset | 
+OS/2.ySubscriptYOffset | 
+
+ROW 
+'sbys' | 
+subscript em y size | 
+OS/2.ySubscriptYSize | 
+
+ROW 
+'spxo' | 
+superscript em x offset | 
+OS/2.ySuperscriptXOffset | 
+
+ROW 
+'spxs' | 
+superscript em x size | 
+OS/2.ySuperscriptXSize | 
+
+ROW 
+'spyo' | 
+superscript em y offset | 
+OS/2.ySuperscriptYOffset | 
+
+ROW 
+'spys' | 
+superscript em y size | 
+OS/2.ySuperscriptYSize | 
+
+ROW 
+'stro' | 
+strikeout offset | 
+OS/2.yStrikeoutPosition | 
+
+ROW 
+'strs' | 
+strikeout size | 
+OS/2.yStrikeoutSize | 
+
+ROW 
+'undo' | 
+underline offset | 
+post.underlinePosition | 
+
+ROW 
+'unds' | 
+underline size | 
+post.underlineThickness | 
+
+ROW 
+'vasc' | 
+vertical ascender | 
+vhea.ascent | 
+
+ROW 
+'vcof' | 
+vertical caret offset | 
+vhea.caretOffset | 
+
+ROW 
+'vcrn' | 
+vertical caret run | 
+vhea.caretSlopeRun | 
+
+ROW 
+'vcrs' | 
+vertical caret rise | 
+vhea.caretSlopeRise | 
+
+ROW 
+'vdsc' | 
+vertical descender | 
+vhea.descent | 
+
+ROW 
+'vlgp' | 
+vertical line gap | 
+vhea.lineGap | 
+
+ROW 
+'xhgt' | 
+x height | 
+OS/2.sxHeight | 
+
+Note that the tags 'gsp0' to 'gsp9' are used to provide variation data for the rangeMaxPPEM member of records in a grid-fitting and scan-conversion procedure ('gasp') table. The last 'gasp' table entry always uses a rangeMaxPPEM value of 0xFFFF. The maximum number of value records for 'gasp' entries must never be more than one less the number of entries in the 'gasp' table.
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ OpenType specification
+
+ Open a documentation issue
+
+ Provide product feedback
+
+ Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2022-10-20

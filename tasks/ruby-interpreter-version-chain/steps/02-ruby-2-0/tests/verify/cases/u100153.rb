@@ -1,0 +1,17 @@
+def nan_test(x,y)
+    extend Test::Unit::Assertions
+    assert(x != y)
+    assert_equal(false, (x < y))
+    assert_equal(false, (x > y))
+    assert_equal(false, (x <= y))
+    assert_equal(false, (x >= y))
+  end
+p(2.6.floor)
+    p((-2.6).floor)
+    p(2.6.ceil)
+    p((-2.6).ceil)
+    p(2.6.truncate)
+    p((-2.6).truncate)
+    p(2.6.round)
+    p((-2.4).truncate)
+    p((13.4 % 1 - 0.4).abs < 0.0001)

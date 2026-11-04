@@ -1,0 +1,1323 @@
+{
+ "per_check_timeout": 300,
+ "total_budget": 1800,
+ "checks": [
+  {
+   "id": "g01_expr_parse",
+   "stage": {
+    "s09/expr-lang": "."
+   },
+   "write": {
+    "in.alx": "1 + 2 * x;\n(a+b)*3;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [2, 0]\n  (bin [0, 0] - [0, 9]\n    (num [0, 0] - [0, 1])\n    (bin [0, 4] - [0, 9]\n      (num [0, 4] - [0, 5])\n      (ident [0, 8] - [0, 9])))\n  (bin [1, 0] - [1, 7]\n    (paren [1, 0] - [1, 5]\n      (bin [1, 1] - [1, 4]\n        (ident [1, 1] - [1, 2])\n        (ident [1, 3] - [1, 4])))\n    (num [1, 6] - [1, 7])))"
+   }
+  },
+  {
+   "id": "g02_prec_assoc",
+   "stage": {
+    "s09/prec-lang": "."
+   },
+   "write": {
+    "left.alx": "a - b - c",
+    "right.alx": "a ^ b ^ c",
+    "unary.alx": "- a - b"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "left.alx",
+     "prefix": "left_"
+    },
+    {
+     "kind": "parse",
+     "input": "right.alx",
+     "prefix": "right_"
+    },
+    {
+     "kind": "parse",
+     "input": "unary.alx",
+     "prefix": "unary_"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "left_parse_exit_zero": true,
+    "left_tree": "(source_file [0, 0] - [0, 9]\n  (add [0, 0] - [0, 9]\n    (add [0, 0] - [0, 5]\n      (id [0, 0] - [0, 1])\n      (id [0, 4] - [0, 5]))\n    (id [0, 8] - [0, 9])))",
+    "right_parse_exit_zero": true,
+    "right_tree": "(source_file [0, 0] - [0, 9]\n  (pow [0, 0] - [0, 9]\n    (id [0, 0] - [0, 1])\n    (pow [0, 4] - [0, 9]\n      (id [0, 4] - [0, 5])\n      (id [0, 8] - [0, 9]))))",
+    "unary_parse_exit_zero": true,
+    "unary_tree": "(source_file [0, 0] - [0, 7]\n  (add [0, 0] - [0, 7]\n    (neg [0, 0] - [0, 3]\n      (id [0, 2] - [0, 3]))\n    (id [0, 6] - [0, 7])))"
+   }
+  },
+  {
+   "id": "g03_glr_dynamic",
+   "stage": {
+    "s09/glr-lang": "."
+   },
+   "write": {
+    "in.alx": "f(x)"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [0, 4]\n  (call [0, 0] - [0, 4]\n    (id [0, 0] - [0, 1])\n    (id [0, 2] - [0, 3])))"
+   }
+  },
+  {
+   "id": "g04_extras",
+   "stage": {
+    "s09/extras-lang": "."
+   },
+   "write": {
+    "in.alx": "a; # hi\nb;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [2, 0]\n  (item [0, 0] - [0, 2]\n    (id [0, 0] - [0, 1]))\n  (comment [0, 3] - [0, 7])\n  (item [1, 0] - [1, 2]\n    (id [1, 0] - [1, 1])))"
+   }
+  },
+  {
+   "id": "g05_token_immediate",
+   "stage": {
+    "s09/immediate-lang": "."
+   },
+   "write": {
+    "glued.alx": "a!",
+    "loose.alx": "a ?"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "glued.alx",
+     "prefix": "glued_"
+    },
+    {
+     "kind": "parse",
+     "input": "loose.alx",
+     "prefix": "loose_"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "glued_parse_exit_zero": true,
+    "glued_tree": "(source_file [0, 0] - [0, 2]\n  (item [0, 0] - [0, 2]\n    (glued [0, 0] - [0, 2]\n      (id [0, 0] - [0, 1]))))",
+    "loose_parse_exit_zero": true,
+    "loose_tree": "(source_file [0, 0] - [0, 3]\n  (item [0, 0] - [0, 3]\n    (loose [0, 0] - [0, 3]\n      (id [0, 0] - [0, 1]))))"
+   }
+  },
+  {
+   "id": "g06_alias_inline",
+   "stage": {
+    "s09/alias-lang": "."
+   },
+   "write": {
+    "in.alx": "let a; var b; kw\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (decl [0, 0] - [0, 6]\n    name: (id [0, 4] - [0, 5]))\n  (decl [0, 7] - [0, 13]\n    name: (varname [0, 11] - [0, 12]))\n  (keyword [0, 14] - [0, 16]))"
+   }
+  },
+  {
+   "id": "g07_unicode_class",
+   "stage": {
+    "s09/unicode-lang": "."
+   },
+   "write": {
+    "in.alx": "caf\u00e9 \u03b1\u03b2\u03b3 plain\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (word [0, 0] - [0, 5])\n  (word [0, 6] - [0, 12])\n  (word [0, 13] - [0, 18]))"
+   }
+  },
+  {
+   "id": "g08_error_recovery",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "missing.alx": "let a",
+    "extra.alx": "let a ; )( let b ;"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "missing.alx",
+     "prefix": "missing_"
+    },
+    {
+     "kind": "parse",
+     "input": "extra.alx",
+     "prefix": "extra_"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "missing_parse_exit_zero": false,
+    "missing_tree": "(source_file [0, 0] - [0, 5]\n  (item [0, 0] - [0, 5]\n    (id [0, 4] - [0, 5])))",
+    "extra_parse_exit_zero": false,
+    "extra_tree": "(source_file [0, 0] - [0, 18]\n  (item [0, 0] - [0, 7]\n    (id [0, 4] - [0, 5]))\n  (ERROR [0, 8] - [0, 10]\n    (ERROR [0, 8] - [0, 10]))\n  (item [0, 11] - [0, 18]\n    (id [0, 15] - [0, 16])))"
+   }
+  },
+  {
+   "id": "g09_corpus_suite",
+   "stage": {
+    "s09/item-lang": "."
+   },
+   "write": {
+    "test/corpus/basic.txt": "==================\none item\n==================\n\na;\n\n---\n\n(source_file\n  (item\n    (id)))\n\n==================\ntwo items\n==================\n\na; b;\n\n---\n\n(source_file\n  (item\n    (id))\n  (item\n    (id)))\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_passed": [
+     "one item",
+     "two items"
+    ],
+    "tests_failed": []
+   }
+  },
+  {
+   "id": "g10_query_simple",
+   "stage": {
+    "s09/item-lang": "."
+   },
+   "write": {
+    "q.scm": "(item (id) @name)\n",
+    "in.alx": "a; bb; ccc;"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "in.alx\n  pattern: 0\n    capture: 0 - name, start: (0, 0), end: (0, 1), text: `a`\n  pattern: 0\n    capture: 0 - name, start: (0, 3), end: (0, 5), text: `bb`\n  pattern: 0\n    capture: 0 - name, start: (0, 7), end: (0, 10), text: `ccc`"
+   }
+  },
+  {
+   "id": "g11_anyof_predicate",
+   "stage": {
+    "s09/item-lang": "."
+   },
+   "write": {
+    "q.scm": "(item (id) @name (#any-of? @name \"a\" \"bb\"))\n",
+    "in.alx": "a; bb; ccc;"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "in.alx\n  pattern: 0\n    capture: 0 - name, start: (0, 0), end: (0, 1), text: `a`\n  pattern: 0\n    capture: 0 - name, start: (0, 3), end: (0, 5), text: `bb`"
+   }
+  },
+  {
+   "id": "g12_corpus_skip_attribute",
+   "stage": {
+    "s09/item-lang": "."
+   },
+   "write": {
+    "test/corpus/attrs.txt": "==================\nkept test\n==================\n\na;\n\n---\n\n(source_file\n  (item\n    (id)))\n\n==================\nskipped test\n:skip\n==================\n\nzzz\n\n---\n\n(source_file)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_passed": [
+     "kept test"
+    ],
+    "tests_failed": []
+   }
+  },
+  {
+   "id": "g13_build_shared_object",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "build",
+     "expect_files": [
+      "parser.so"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "build_exit_zero": true,
+    "file:parser.so": true
+   }
+  },
+  {
+   "id": "g14_cst_dialect",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "in.alx": "let a;"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "parse",
+      "--cst",
+      "in.alx"
+     ],
+     "stream": "stdout",
+     "capture": "exact"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "cli_exit_zero": true,
+    "cli_exit_code": 0,
+    "cli_output": "0:0 - 0:6   source_file\n0:0 - 0:6     item\n0:0 - 0:3       \"let\"\n0:4 - 0:5       id `a`\n0:5 - 0:6       \";\""
+   }
+  },
+  {
+   "id": "g15_valid_supertype_generates",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "grammar.js": "module.exports = grammar({\n  name: 'slet',\n  extras: $ => [/\\s/],\n  supertypes: $ => [$.item],\n  rules: {\n    source_file: $ => repeat($.item),\n    item: $ => choice($.decl, $.expr_item),\n    decl: $ => seq('let', $.id, ';'),\n    expr_item: $ => seq($.id, ';'),\n    id: $ => /[a-z]+/,\n  }\n});\n",
+    "in.alx": "let a; b;"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [0, 9]\n  (decl [0, 0] - [0, 6]\n    (id [0, 4] - [0, 5]))\n  (expr_item [0, 7] - [0, 9]\n    (id [0, 7] - [0, 8])))"
+   }
+  },
+  {
+   "id": "g16_external_scanner_serialize",
+   "stage": {
+    "s09/scan-lang": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_passed": [
+     "one heredoc",
+     "two heredocs with different tags"
+    ],
+    "tests_failed": []
+   }
+  },
+  {
+   "id": "g17_highlight_renders_source",
+   "stage": {
+    "s09/hl-lang": "tree-sitter-s9hl"
+   },
+   "write": {
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"#0000ff\", \"variable\": \"#ff00ff\", \"function\": \"#00ff00\"}}\n",
+    "in.s9hl": "let foo;\nlet bar_baz;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "tree-sitter-s9hl"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "highlight",
+      "--config-path",
+      "cfg.json",
+      "in.s9hl"
+     ],
+     "stream": "stdout",
+     "capture": "exact"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "cli_exit_zero": true,
+    "cli_exit_code": 0,
+    "cli_output": "let foo;\nlet bar_baz;"
+   }
+  },
+  {
+   "id": "g18_tags_definition_lines",
+   "stage": {
+    "s09/hl-lang": "tree-sitter-s9hl"
+   },
+   "write": {
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"#0000ff\", \"variable\": \"#ff00ff\", \"function\": \"#00ff00\"}}\n",
+    "in.s9hl": "let foo;\nlet bar_baz;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "tree-sitter-s9hl"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "tags",
+      "--config-path",
+      "cfg.json",
+      "in.s9hl"
+     ],
+     "stream": "stdout",
+     "capture": "exact"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "cli_exit_zero": true,
+    "cli_exit_code": 0,
+    "cli_output": "foo       \t | variable\tdef (0, 4) - (0, 7) `let foo;`\nbar_baz   \t | variable\tdef (1, 4) - (1, 11) `let bar_baz;`"
+   }
+  },
+  {
+   "id": "g19_highlight_test_last_wins",
+   "stage": {
+    "s09/hl-lang": "tree-sitter-s9hl"
+   },
+   "write": {
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"#0000ff\", \"variable\": \"#ff00ff\", \"function\": \"#00ff00\"}}\n"
+   },
+   "cwd": "tree-sitter-s9hl",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--config-path",
+      "../cfg.json"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_passed": [
+     "captures.s9hl (2 assertions)"
+    ],
+    "tests_failed": []
+   }
+  },
+  {
+   "id": "g20_corpus_cst_attribute",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "test/corpus/cst.txt": "==================\ncst attribute\n:cst\n==================\n\nlet a;\n\n---\n\n1:0 - 2:0   source_file\n1:0 - 1:6     item\n1:0 - 1:3       \"let\"\n1:4 - 1:5       id `a`\n1:5 - 1:6       \";\"\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_passed": [
+     "cst attribute"
+    ],
+    "tests_failed": []
+   }
+  },
+  {
+   "id": "s09_alt_quantified_then_single",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "in.alx": "#include <foo>\n#include <bar>\n#include <baz>\n\n// comment\n",
+    "q.scm": "[\n  (inc)+\n  (comment)\n] @cap\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "in.alx\n  pattern: 0\n    capture: 0 - cap, start: (0, 0), end: (0, 14), text: `#include <foo>`\n    capture: 0 - cap, start: (1, 0), end: (1, 14), text: `#include <bar>`\n    capture: 0 - cap, start: (2, 0), end: (2, 14), text: `#include <baz>`\n  pattern: 0\n    capture: 0 - cap, start: (4, 0), end: (4, 10), text: `// comment`"
+   }
+  },
+  {
+   "id": "s09_alt_interleaved_runs",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "mix.alx": "#include <foo>\n// one\n#include <bar>\n#include <baz>\n// two\n",
+    "q.scm": "[\n  (inc)+\n  (comment)\n] @cap\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "mix.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "mix.alx\n  pattern: 0\n    capture: 0 - cap, start: (0, 0), end: (0, 14), text: `#include <foo>`\n  pattern: 0\n    capture: 0 - cap, start: (1, 0), end: (1, 6), text: `// one`\n  pattern: 0\n    capture: 0 - cap, start: (2, 0), end: (2, 14), text: `#include <bar>`\n    capture: 0 - cap, start: (3, 0), end: (3, 14), text: `#include <baz>`\n  pattern: 0\n    capture: 0 - cap, start: (4, 0), end: (4, 6), text: `// two`"
+   }
+  },
+  {
+   "id": "s09_alt_star_quantifier",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "run3.alx": "// head\n#include <a>\n// mid\n#include <b>\n#include <c>\n#include <d>\n",
+    "q.scm": "[\n  (inc)*\n  (comment)\n] @cap\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "run3.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "run3.alx\n  pattern: 0\n    capture: 0 - cap, start: (0, 0), end: (0, 7), text: `// head`\n  pattern: 0\n    capture: 0 - cap, start: (1, 0), end: (1, 12), text: `#include <a>`\n  pattern: 0\n    capture: 0 - cap, start: (2, 0), end: (2, 6), text: `// mid`\n  pattern: 0\n    capture: 0 - cap, start: (3, 0), end: (3, 12), text: `#include <b>`\n    capture: 0 - cap, start: (4, 0), end: (4, 12), text: `#include <c>`\n    capture: 0 - cap, start: (5, 0), end: (5, 12), text: `#include <d>`"
+   }
+  },
+  {
+   "id": "s09_alt_both_branches_quantified",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "pair.alx": "#include <a>\n// one\n// two\n#include <b>\n#include <c>\n",
+    "q.scm": "[\n  (inc)+\n  (comment)+\n] @cap\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "pair.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "pair.alx\n  pattern: 0\n    capture: 0 - cap, start: (0, 0), end: (0, 12), text: `#include <a>`\n  pattern: 0\n    capture: 0 - cap, start: (1, 0), end: (1, 6), text: `// one`\n    capture: 0 - cap, start: (2, 0), end: (2, 6), text: `// two`\n  pattern: 0\n    capture: 0 - cap, start: (3, 0), end: (3, 12), text: `#include <b>`\n    capture: 0 - cap, start: (4, 0), end: (4, 12), text: `#include <c>`"
+   }
+  },
+  {
+   "id": "s09_alt_distinct_capture_names",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "mix.alx": "#include <foo>\n// one\n#include <bar>\n#include <baz>\n// two\n",
+    "q.scm": "[\n  (inc)+ @inc\n  (comment) @com\n]\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "mix.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "mix.alx\n  pattern: 0\n    capture: 0 - inc, start: (0, 0), end: (0, 14), text: `#include <foo>`\n  pattern: 0\n    capture: 1 - com, start: (1, 0), end: (1, 6), text: `// one`\n  pattern: 0\n    capture: 0 - inc, start: (2, 0), end: (2, 14), text: `#include <bar>`\n    capture: 0 - inc, start: (3, 0), end: (3, 14), text: `#include <baz>`\n  pattern: 0\n    capture: 1 - com, start: (4, 0), end: (4, 6), text: `// two`"
+   }
+  },
+  {
+   "id": "s09_run_break_starts_new_match",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "brk1.alx": "#include <foo>\n#include <bar>\n// break\n#include <baz>\n#include <qux>\n",
+    "qrun.scm": "(source_file (inc)+ @arg)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "qrun.scm",
+     "input": "brk1.alx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "brk1.alx\n  pattern: 0\n    capture: 0 - arg, start: (0, 0), end: (0, 14), text: `#include <foo>`\n    capture: 0 - arg, start: (1, 0), end: (1, 14), text: `#include <bar>`\n  pattern: 0\n    capture: 0 - arg, start: (3, 0), end: (3, 14), text: `#include <baz>`\n    capture: 0 - arg, start: (4, 0), end: (4, 14), text: `#include <qux>`"
+   }
+  },
+  {
+   "id": "s09_run_two_breaks_three_matches",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "brk2.alx": "#include <a>\n// b1\n#include <c>\n#include <d>\n// b2\n#include <e>\n",
+    "qrun.scm": "(source_file (inc)+ @arg)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "query",
+      "qrun.scm",
+      "brk2.alx"
+     ],
+     "stream": "stdout",
+     "regex": {
+      "has2": "(pattern:)[\\s\\S]*pattern:",
+      "has3": "(pattern:)[\\s\\S]*pattern:[\\s\\S]*pattern:",
+      "has4": "(pattern:)[\\s\\S]*pattern:[\\s\\S]*pattern:[\\s\\S]*pattern:"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "cli_exit_zero": true,
+    "cli_exit_code": 0,
+    "regex:has2": "pattern:",
+    "regex:has3": "pattern:",
+    "regex:has4": null
+   }
+  },
+  {
+   "id": "s09_run_break_single_node_runs",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "brk3.alx": "#include <a>\n// b\n#include <c>\n",
+    "qrun.scm": "(source_file (inc)+ @arg)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "query",
+      "qrun.scm",
+      "brk3.alx"
+     ],
+     "stream": "stdout",
+     "regex": {
+      "has2": "(pattern:)[\\s\\S]*pattern:",
+      "has3": "(pattern:)[\\s\\S]*pattern:[\\s\\S]*pattern:",
+      "has4": "(pattern:)[\\s\\S]*pattern:[\\s\\S]*pattern:[\\s\\S]*pattern:"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "cli_exit_zero": true,
+    "cli_exit_code": 0,
+    "regex:has2": "pattern:",
+    "regex:has3": null,
+    "regex:has4": null
+   }
+  },
+  {
+   "id": "s09_run_break_star_quantifier",
+   "stage": {
+    "s09/alt-tokens": "."
+   },
+   "write": {
+    "brk1.alx": "#include <foo>\n#include <bar>\n// break\n#include <baz>\n#include <qux>\n",
+    "qrun.scm": "(source_file (inc)* @arg)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "query",
+      "qrun.scm",
+      "brk1.alx"
+     ],
+     "stream": "stdout",
+     "regex": {
+      "has2": "(pattern:)[\\s\\S]*pattern:",
+      "has3": "(pattern:)[\\s\\S]*pattern:[\\s\\S]*pattern:",
+      "has4": "(pattern:)[\\s\\S]*pattern:[\\s\\S]*pattern:[\\s\\S]*pattern:"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "cli_exit_zero": true,
+    "cli_exit_code": 0,
+    "regex:has2": "pattern:",
+    "regex:has3": null,
+    "regex:has4": null
+   }
+  },
+  {
+   "id": "s09_supertype_terminal_regex_rejected",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "grammar.js": "module.exports = grammar({\n  name: 'slet',\n  extras: $ => [/\\s/],\n  supertypes: $ => [$.termw],\n  rules: {\n    source_file: $ => $.termw,\n    termw: $ => /[a-z]+/,\n  }\n});\n"
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "generate"
+     ],
+     "stream": "both",
+     "contains": {
+      "names_rule": "termw"
+     },
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "cli_exit_zero": false,
+    "cli_exit_code": 1,
+    "contains:names_rule": true,
+    "absent:src/parser.c": true
+   }
+  },
+  {
+   "id": "s09_supertype_terminal_token_rejected",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "grammar.js": "module.exports = grammar({\n  name: 'slet',\n  extras: $ => [/\\s/],\n  supertypes: $ => [$.kwtok],\n  rules: {\n    source_file: $ => repeat(seq($.kwtok, ';')),\n    kwtok: $ => token(choice('let', 'var')),\n  }\n});\n"
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "generate"
+     ],
+     "stream": "both",
+     "contains": {
+      "names_rule": "kwtok"
+     },
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "cli_exit_zero": false,
+    "cli_exit_code": 1,
+    "contains:names_rule": true,
+    "absent:src/parser.c": true
+   }
+  },
+  {
+   "id": "s09_supertype_terminal_under_repeat_rejected",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "grammar.js": "module.exports = grammar({\n  name: 'slet',\n  extras: $ => [/\\s/],\n  supertypes: $ => [$.wordterm],\n  rules: {\n    source_file: $ => repeat($.wordterm),\n    wordterm: $ => /[a-z]+/,\n  }\n});\n"
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "generate"
+     ],
+     "stream": "both",
+     "contains": {
+      "names_rule": "wordterm"
+     },
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "cli_exit_zero": false,
+    "cli_exit_code": 1,
+    "contains:names_rule": true,
+    "absent:src/parser.c": true
+   }
+  },
+  {
+   "id": "s09_update_rewrites_passing_file",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "test/corpus/flat.txt": "==================\nflat expected tree\n==================\n\nlet a;\n\n---\n\n(source_file (item (id)))\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--update"
+     ]
+    },
+    {
+     "kind": "files",
+     "expect_text": {
+      "test/corpus/flat.txt": "exact"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_passed": [
+     "flat expected tree"
+    ],
+    "tests_failed": [],
+    "text:test/corpus/flat.txt": "==================\nflat expected tree\n==================\n\nlet a;\n\n---\n\n(source_file\n  (item\n    (id)))"
+   }
+  },
+  {
+   "id": "s09_update_rewrites_every_test_in_a_file",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "test/corpus/two.txt": "==================\nalready canonical\n==================\n\nlet a;\n\n---\n\n(source_file\n  (item\n    (id)))\n\n==================\nflat second test\n==================\n\nlet b; let c;\n\n---\n\n(source_file (item (id)) (item (id)))\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--update"
+     ]
+    },
+    {
+     "kind": "files",
+     "expect_text": {
+      "test/corpus/two.txt": "exact"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_passed": [
+     "already canonical",
+     "flat second test"
+    ],
+    "tests_failed": [],
+    "text:test/corpus/two.txt": "==================\nalready canonical\n==================\n\nlet a;\n\n---\n\n(source_file\n  (item\n    (id)))\n\n==================\nflat second test\n==================\n\nlet b; let c;\n\n---\n\n(source_file\n  (item\n    (id))\n  (item\n    (id)))"
+   }
+  },
+  {
+   "id": "s09_update_rewrites_passing_file_beside_failing",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "test/corpus/passing.txt": "==================\npassing and flat\n==================\n\nlet a;\n\n---\n\n(source_file (item (id)))\n",
+    "test/corpus/failing.txt": "==================\nwrong expectation\n==================\n\nlet b;\n\n---\n\n(source_file)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--update"
+     ]
+    },
+    {
+     "kind": "files",
+     "expect_text": {
+      "test/corpus/passing.txt": "exact",
+      "test/corpus/failing.txt": "exact"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_passed": [
+     "passing and flat",
+     "wrong expectation"
+    ],
+    "tests_failed": [],
+    "text:test/corpus/passing.txt": "==================\npassing and flat\n==================\n\nlet a;\n\n---\n\n(source_file\n  (item\n    (id)))",
+    "text:test/corpus/failing.txt": "==================\nwrong expectation\n==================\n\nlet b;\n\n---\n\n(source_file\n  (item\n    (id)))"
+   }
+  },
+  {
+   "id": "s09_abi15_without_tree_sitter_json",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "remove": [
+    "tree-sitter.json"
+   ],
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "abi",
+       "file": "src/parser.c",
+       "regex": "^#define LANGUAGE_VERSION (\\d+)"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "abi": "15"
+   }
+  },
+  {
+   "id": "s09_abi15_default_with_flag_pinned_both_ways",
+   "stage": {
+    "s09/item-lang": "."
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "prefix": "def_"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "abi",
+       "file": "src/parser.c",
+       "regex": "^#define LANGUAGE_VERSION (\\d+)"
+      }
+     ],
+     "prefix": "def_"
+    },
+    {
+     "kind": "generate",
+     "prefix": "f15_",
+     "generate_args": [
+      "--abi",
+      "15"
+     ]
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "abi",
+       "file": "src/parser.c",
+       "regex": "^#define LANGUAGE_VERSION (\\d+)"
+      }
+     ],
+     "prefix": "f15_"
+    },
+    {
+     "kind": "generate",
+     "prefix": "f14_",
+     "generate_args": [
+      "--abi",
+      "14"
+     ]
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "abi",
+       "file": "src/parser.c",
+       "regex": "^#define LANGUAGE_VERSION (\\d+)"
+      }
+     ],
+     "prefix": "f14_"
+    },
+    {
+     "kind": "generate",
+     "prefix": "ltst_",
+     "generate_args": [
+      "--abi",
+      "latest"
+     ]
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "abi",
+       "file": "src/parser.c",
+       "regex": "^#define LANGUAGE_VERSION (\\d+)"
+      }
+     ],
+     "prefix": "ltst_"
+    }
+   ],
+   "expect": {
+    "def_generate_exit_zero": true,
+    "def_abi": "15",
+    "f15_generate_exit_zero": true,
+    "f15_abi": "15",
+    "f14_generate_exit_zero": true,
+    "f14_abi": "14",
+    "ltst_abi": "15",
+    "ltst_generate_exit_zero": true
+   }
+  },
+  {
+   "id": "s09_abi_below_supported_range_rejected",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "prefix": "a13_",
+     "args": [
+      "generate",
+      "--abi",
+      "13"
+     ],
+     "stream": "both",
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "a14_",
+     "args": [
+      "generate",
+      "--abi",
+      "14"
+     ],
+     "stream": "both"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "abi",
+       "file": "src/parser.c",
+       "regex": "^#define LANGUAGE_VERSION (\\d+)"
+      }
+     ],
+     "prefix": "a14_"
+    }
+   ],
+   "expect": {
+    "a13_cli_exit_zero": false,
+    "a13_cli_exit_code": 1,
+    "a13_absent:src/parser.c": true,
+    "a14_cli_exit_zero": true,
+    "a14_cli_exit_code": 0,
+    "a14_abi": "14"
+   }
+  },
+  {
+   "id": "s09_abi_above_supported_range_rejected",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "prefix": "a99_",
+     "args": [
+      "generate",
+      "--abi",
+      "99"
+     ],
+     "stream": "both",
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "a13_",
+     "args": [
+      "generate",
+      "--abi",
+      "13"
+     ],
+     "stream": "both",
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "a15_",
+     "args": [
+      "generate",
+      "--abi",
+      "15"
+     ],
+     "stream": "both"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "abi",
+       "file": "src/parser.c",
+       "regex": "^#define LANGUAGE_VERSION (\\d+)"
+      }
+     ],
+     "prefix": "a15_"
+    }
+   ],
+   "expect": {
+    "a99_cli_exit_zero": false,
+    "a99_cli_exit_code": 1,
+    "a99_absent:src/parser.c": true,
+    "a13_cli_exit_zero": false,
+    "a13_cli_exit_code": 1,
+    "a13_absent:src/parser.c": true,
+    "a15_cli_exit_zero": true,
+    "a15_cli_exit_code": 0,
+    "a15_abi": "15"
+   }
+  },
+  {
+   "id": "s09_cst_no_ranges_layout",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "in.alx": "let a;"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "parse",
+      "--cst",
+      "--no-ranges",
+      "in.alx"
+     ],
+     "stream": "stdout",
+     "capture": "exact"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "cli_exit_zero": true,
+    "cli_exit_code": 0,
+    "cli_output": "source_file\n  item\n    \"let\"\n    id `a`\n    \";\""
+   }
+  },
+  {
+   "id": "s09_cst_no_ranges_multiline",
+   "stage": {
+    "s09/let-lang": "."
+   },
+   "write": {
+    "in.alx": "let alpha;\nlet beta;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "parse",
+      "--cst",
+      "--no-ranges",
+      "in.alx"
+     ],
+     "stream": "stdout",
+     "capture": "exact"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "cli_exit_zero": true,
+    "cli_exit_code": 0,
+    "cli_output": "source_file\n  item\n    \"let\"\n    id `alpha`\n    \";\"\n  item\n    \"let\"\n    id `beta`\n    \";\""
+   }
+  },
+  {
+   "id": "s09_version_reports_the_milestone_release",
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "--version"
+     ],
+     "stream": "stdout",
+     "contains": {
+      "release": "0.27.0"
+     }
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "contains:release": true
+   }
+  }
+ ]
+}

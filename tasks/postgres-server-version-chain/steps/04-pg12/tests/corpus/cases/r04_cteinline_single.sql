@@ -1,0 +1,7 @@
+CREATE SEQUENCE q4_cis_seq;
+CREATE FUNCTION q4_cis_tick(x int) RETURNS int LANGUAGE plpgsql STABLE AS $$
+BEGIN PERFORM nextval('q4_cis_seq'); RETURN x; END $$;
+WITH w AS (SELECT q4_cis_tick(g) AS n FROM generate_series(1,4) g) SELECT count(*) FROM w;
+SELECT last_value, is_called FROM q4_cis_seq;
+DROP FUNCTION q4_cis_tick(int);
+DROP SEQUENCE q4_cis_seq;

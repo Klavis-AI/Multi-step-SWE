@@ -1,0 +1,82 @@
+# Step 5's view of the version fences it inherits.
+#
+# `hold m01.tsv` through `hold m04.tsv` bring steps 1 to 4 forward as standing
+# rules: a FAIL voids the reading rather than costing a share. Twelve of those
+# rules name a Spark version or a Scala suffix, and every one of them is false
+# at step 5 by construction, because step 5 moves all three axes at once --
+# Scala 2.12 -> 2.13, JDK 8 -> 17, Spark 3.3.4 -> 3.4.4. Left alone they would
+# void every correct step-5 run.
+#
+# Twelve rather than the six step 4 widened, and the list was found by walking
+# field 3 of every composed rule file for a version literal rather than by
+# memory. The literals are written with the dot escaped (`2\.12`), so a grep for
+# `2.12` finds them by accident and a grep for `2\.12` finds them on purpose;
+# a scan that allowed neither would have reported this file complete at six.
+#
+#   m01.tsv   m1-scala-212-only  m1-scala-212  m1-spark-303  m1-spark-uniform
+#   m03.tsv   m1-spark-324  m1-spark-324-uniform
+#             m1-session-324  m1-session-uniform
+#   m04.tsv   m1-spark-334  m1-spark-334-uniform
+#             m1-session-334  m1-session-334-uniform
+#
+# **Three of the twelve need a two-axis widening, not one.** `m1-spark-303`,
+# `m1-spark-324` and `m1-spark-334` are `atleast:1` rules whose pattern names
+# the artifact as `org\.apache\.spark:spark-core_2\.12`. The Scala suffix lives
+# inside the *artifact id*, not in a field of its own, so at 2.13 the coordinate
+# is `spark-core_2.13` and the rule matches nothing however far its version
+# alternation is widened. Widening only the version would leave three held rules
+# unsatisfiable on the correct solution -- a step-local mean cannot see that,
+# because a held rule voids the reading rather than costing a share, and the
+# reading it voids is every reading (trap 9). Their `-uniform` partners are
+# safe: those match `org\.apache\.spark:.*` and pin only the version. The four
+# `m1-session-*` rules read `probe.probe spark.version` and carry no suffix.
+#
+# `m1-scala-212-only` and `m1-scala-212` are the new shape here. Every earlier
+# widening was a Spark version; this is the Scala suffix moving for the first
+# time since step 1, and the fact is `pom scalasuffix <suffix> <count>`. The
+# widening is `2\.1[23]` on the `atleast:1` and `(?!2\.1[23]$).+` on the
+# `absent`: a 2.13 tree must not be red on a rule that says "2.12 and nothing
+# else", and a 2.12 tree must still be red on step 5's own fence, which is
+# m05.tsv's `m1-scala-213` and not this file's business.
+#
+# The widening is forward only, as at step 4: each rule now admits its own
+# version or any rung the ladder has since passed through, and nothing below
+# its own floor. A held rule is a precondition and not a requirement -- it
+# cannot be asked to catch a regression it was never about. The regression is
+# caught by m05.tsv's `m1-spark-344` and `m1-session-344`, which admit 3.4.4 and
+# nothing else, and by `m1-scala-213`, which admits 2.13 and nothing else. A
+# candidate who moved the pom back to 3.2.4 satisfies the widened
+# `held-m1-spark-324` and fails the requirement: the standing rule says "this
+# reading is still a reading of this project", the requirement says "and it is
+# at this step's rung".
+#
+# This file replaces rules/m04-inherit.tsv in step 5's composition rather than
+# stacking on it, for the reason that file's own header gives: both widen the
+# same six m01/m03 ids, `rules.py` replaces an overridden rule in place, and
+# including both would leave the winner decided by include order. step04.tsv is
+# untouched.
+#
+# The counterexamples are the ones the original rules shipped with, and each was
+# re-read against its widened pattern before this file was written: 2.11 is
+# outside both Scala ranges; 2.4.0 is outside every version range; 3.0.3 is
+# outside the three 3.2.4-derived ones; pom-spark-mixed's 3.0.3 line and
+# pom-spark334-mixed's 3.2.4 line each still break their `-uniform` partner; and
+# probe-session-324's 3.2.4 still breaks both 3.3.4-derived session rules.
+# `--selftest` is what proves it rather than this paragraph.
+#
+# The `held-` prefix accumulates rather than replaces (rules.py:190-195) and is
+# applied before the lookup (rules.py:206-209), so `override:held-<id>` is the
+# spelling that reaches a rule a `hold` directive renamed.
+
+override:held-m1-scala-212-only	absent	pom.scalasuffix\t(?!2\.1[23]$).+\t*	pom-scala211.tsv	the resolved graph carries artifacts built for a Scala version that is neither 2.12 nor 2.13; step 1 asked for 2.12 alone and this fence is widened to admit the suffix step 5 moves to, because a tree that has reached 2.13 has satisfied step 1 and must not be read as having abandoned it
+override:held-m1-scala-212	atleast:1	pom.scalasuffix\t2\.1[23]\t.+	pom-scala211.tsv	nothing in the resolved graph is built for Scala 2.12 or 2.13, so the graph is not this project's at any rung the ladder has reached
+override:held-m1-spark-303	atleast:1	pom.resolved\torg\.apache\.spark:spark-core_2\.1[23]\t3\.(0\.3|2\.4|3\.4|4\.4)\t.+	pom-spark240.tsv	spark-core for Scala 2.12 or 2.13 resolves at none of 3.0.3, 3.2.4, 3.3.4 or 3.4.4; this fence was step 1's pin on 3.0.3 and step 5 widens it on both axes, because the Scala suffix is part of the artifact id and a version-only widening would leave it unsatisfiable at 2.13
+override:held-m1-spark-uniform	absent	pom.resolved\torg\.apache\.spark:.*\t(?!3\.(0\.3|2\.4|3\.4|4\.4)$).*\t*	pom-spark240.tsv	a Spark artifact resolves to a version that is none of the four rungs this ladder has passed through; a fifth Spark version in the graph is still a build that runs whichever one the classpath orders first
+override:held-m1-spark-324	atleast:1	pom.resolved\torg\.apache\.spark:spark-core_2\.1[23]\t3\.(2\.4|3\.4|4\.4)\t.+	pom-spark303.tsv	the build resolves spark-core at none of 3.2.4, 3.3.4 or 3.4.4 for either Scala suffix, so the runtime step 3 targets was never reached
+override:held-m1-spark-324-uniform	absent	pom.resolved\torg\.apache\.spark:.*\t(?!3\.(2\.4|3\.4|4\.4)$).*\t*	pom-spark-mixed.tsv	an org.apache.spark artifact resolves at a version that is none of 3.2.4, 3.3.4 or 3.4.4; a build that mixes Spark releases runs whichever one the classpath orders first, and which that is is not a property of the pom
+override:held-m1-session-324	atleast:1	probe.probe\tspark\.version\t3\.(2\.4|3\.4|4\.4)	probe-session-303.tsv	no replayed job ran in a Spark 3.2.4, 3.3.4 or 3.4.4 session; the pom may say so but the engine the code met did not
+override:held-m1-session-uniform	absent	probe.probe\tspark\.version\t(?!3\.(2\.4|3\.4|4\.4)$).*	probe-session-303.tsv	a replayed job ran in a session that was none of Spark 3.2.4, 3.3.4 or 3.4.4, so the run was not uniformly on this step's runtime or one the ladder has passed through
+override:held-m1-spark-334	atleast:1	pom.resolved\torg\.apache\.spark:spark-core_2\.1[23]\t3\.(3\.4|4\.4)\t.+	pom-spark324.tsv	the build resolves spark-core at neither 3.3.4 nor 3.4.4 for either Scala suffix, so the runtime step 4 targets was never reached; 3.4.4 is accepted here because it is this step's own rung and is past it
+override:held-m1-spark-334-uniform	absent	pom.resolved\torg\.apache\.spark:.*\t(?!3\.(3\.4|4\.4)$).*\t*	pom-spark334-mixed.tsv	an org.apache.spark artifact resolves at a version that is neither 3.3.4 nor 3.4.4; a build that mixes Spark releases runs whichever one the classpath orders first
+override:held-m1-session-334	atleast:1	probe.probe\tspark\.version\t3\.(3\.4|4\.4)	probe-session-324.tsv	no replayed job ran in a Spark 3.3.4 or 3.4.4 session; the pom may say so but the engine the code met did not
+override:held-m1-session-334-uniform	absent	probe.probe\tspark\.version\t(?!3\.(3\.4|4\.4)$).*	probe-session-324.tsv	a replayed job ran in a session that was neither Spark 3.3.4 nor 3.4.4, so the run was not uniformly on this step's runtime or the one before it

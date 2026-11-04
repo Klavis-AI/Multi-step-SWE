@@ -1,0 +1,202 @@
+# What each recording may be compared as, declared rather than discovered.
+#
+# A step writes its expectations against one census. That is a claim about
+# every census. The classes:
+#
+#   STABLE  byte-identical across runs; a raw-text expectation is sound
+#   ORDER   same lines, different order; compare as a multiset, never as text
+#   VALUE   the content itself moves; expectations may name shape only --
+#           schema, row counts, column names, sentinel lines, exit status
+#
+# THIS DECLARATION IS FOR RECORDINGS TAKEN AT CORES=1, and it is the second
+# one. The first was derived from r14/r15 and read 99 STABLE / 8 ORDER / 10
+# VALUE: seventeen jobs that could not carry a raw-text expectation. Fifteen of
+# those seventeen were a *width* -- 58 of the 78 main classes call
+# setMaster("local[*]"), which is availableProcessors(), so the recordings were
+# taken at whatever the box happened to have and the partitions were combined in
+# whatever order the threads happened to finish (NOTES 4.5). Pinning
+# -XX:ActiveProcessorCount=1 in both runners takes r18 and r19 to 115 of 117
+# byte-identical, at the same coverage to the line and about 20% more wall.
+#
+# Two survive, and neither is a width: an unseeded sample() and an upstream
+# aligner that writes into its inputs. Those keep their mechanism note below;
+# the fifteen that were rescued carry "(needs the pinned width)" so that nobody
+# reads their STABLE as unconditional.
+#
+# The classes are about *one rung*: "across runs" here means across runs of the
+# same build. A job may be STABLE by this file and still move from Spark 3.4 to
+# Spark 3.5, and two of them do -- DatasetClassifier and PdbToUniProtMappingDemo
+# are STABLE below, correctly, and are also projected, as class RUNG in
+# pkg/suite/projection.tsv, because the line that moves across rungs moves for
+# a mechanism no migration guide documents (NOTES 4.9.1 and 4.10.3). Do not read
+# STABLE as "a step may score this whole recording as text": read it as "within
+# a rung, the bytes are the bytes". projection.py --selftest asserts that every
+# RUNG row names a job declared STABLE here, so the two files state the two
+# halves and neither can quietly absorb the other's job.
+#
+# stability.py re-derives the class from two or more census directories and
+# fails when an observation is worse than the declaration here. The unsafe
+# direction is the only one that fails: a job declared STABLE that moves would
+# have been scored on text that does not hold, whereas a job declared VALUE
+# that happens to agree twice has cost nothing. NOTES 1.8 and 4.5.
+#
+# One consequence is worth having on purpose: run stability.py against an
+# *unpinned* pair and it fails, loudly, on those fifteen. The declaration is
+# therefore also the detector for a replay that forgot to set CORES.
+#
+# It is now derived twice over, and the file is sorted by job, so the two
+# derivations are interleaved rather than stacked. 117 of the 140 rows come
+# from r18/r19 as described above. The other 23 -- the fourteen CLI reject
+# recipes and the nine new harness subcommands -- come from r22/r23, the first
+# pair of censuses to carry all 140 jobs, on mmtf-record:3. Every one of the 23
+# was observed byte-identical, and the nine harness subcommands -- which also
+# ran in r21 -- were observed byte-identical across all three. No job declared
+# here has ever been observed worse than its declaration.
+#
+# Two of the 23 record nothing: their recipe is rejected before the job prints
+# anything, so their .norm is empty and their answer is the exit status alone.
+# An empty file is byte-stable for a reason that has nothing to do with the
+# job, so those two carry a mechanism note instead of a bare dash; a step that
+# scores them on text is scoring a tautology.
+#
+# class	job	mechanism
+STABLE	AnalyzeWaterInteractions4	-
+STABLE	AtpInteractionAnalysis	(needs the pinned width) show() over a groupBy with no total order; two rows tie at 2
+STABLE	AuthorSearchDemo	-
+STABLE	CreatePdbToUniProtMappingFile	(needs the pinned width) ids printed as the partitions arrive
+STABLE	CreatePdbToUniProtMappingFile-badopt	-
+STABLE	CreatePdbToUniProtMappingFile-bothmodes	-
+STABLE	CreatePdbToUniProtMappingFile-help	-
+STABLE	CreatePdbToUniProtMappingFile-nomode	-
+STABLE	CreatePdbToUniProtMappingFile-noout	-
+STABLE	CreatePdbToUniProtMappingFile-u	-
+STABLE	CreateRepresentativeSet	-
+STABLE	CustomReportDemo	-
+STABLE	DSSPDemo	-
+STABLE	DatasetClassifier	-
+STABLE	DatasetClassifier-badcol	-
+STABLE	DatasetFileConverter	-
+STABLE	DatasetFileConverter-badfmt	-
+STABLE	DatasetFileConverter-badopt	-
+STABLE	DatasetFileConverter-badp	(empty recording; the answer is the exit status)
+STABLE	DatasetFileConverter-help	-
+STABLE	DatasetFileConverter-mkcsv	-
+STABLE	DatasetFileConverter-mkorc	-
+STABLE	DatasetFileConverter-mkorc2	-
+STABLE	DatasetFileConverter-nofmt	-
+STABLE	DatasetFileConverter-noinput	-
+STABLE	DatasetFileConverter-p2	-
+STABLE	DatasetFileConverter-rdcsv	-
+STABLE	DatasetFileConverter-rdorc	-
+STABLE	DatasetRegressor	(needs the pinned width) reads {PROD}/foldtype.parquet, whose features come from Word2Vec
+STABLE	DatasetRegressor-badcol	-
+STABLE	DemoAllVsAll	-
+STABLE	DemoAllVsAll-nan	-
+STABLE	DemoAllVsAll-zero	-
+STABLE	DemoQueryVsAll	-
+STABLE	DemoQueryVsAll-absent	-
+STABLE	DownloadMmtfFiles	-
+STABLE	DrugBankDemo	-
+STABLE	FilterByDepositionDate	-
+STABLE	FilterByExperimentalMethods	-
+STABLE	FilterByGroups	-
+STABLE	FilterByPolymerChainType	-
+STABLE	FilterByRFree	-
+STABLE	FilterByReleaseDate	-
+STABLE	FilterByResolution	-
+STABLE	FilterBySequenceRegex	-
+STABLE	FilterExclusivelyByLProteins	-
+STABLE	FilterProteinDnaComplexes	-
+STABLE	FullToReducedSequenceFile	-
+STABLE	FullToReducedSequenceFile-noargs	-
+STABLE	HarnessDriver-advcompose	-
+STABLE	HarnessDriver-advio	-
+STABLE	HarnessDriver-advnumeric	-
+STABLE	HarnessDriver-advtext	-
+STABLE	HarnessDriver-balance	-
+STABLE	HarnessDriver-chemreport	-
+STABLE	HarnessDriver-columnar	-
+STABLE	HarnessDriver-drugbank	-
+VALUE	HarnessDriver-exhaustive	ExhaustiveAligner superposes into the broadcast arrays (2.5 #12); not a width
+STABLE	HarnessDriver-g2s	-
+STABLE	HarnessDriver-interacting	-
+STABLE	HarnessDriver-jpred	-
+STABLE	HarnessDriver-localfilters	-
+STABLE	HarnessDriver-mmtffiles	-
+STABLE	HarnessDriver-myvariant	-
+STABLE	HarnessDriver-outliers	-
+STABLE	HarnessDriver-pairinteractions	-
+STABLE	HarnessDriver-pdbredo	-
+STABLE	HarnessDriver-polymerseq	-
+STABLE	HarnessDriver-quatstruct	-
+STABLE	HarnessDriver-rowtypes	-
+STABLE	HarnessDriver-searchds	-
+STABLE	HarnessDriver-segments	-
+STABLE	HarnessDriver-siftslocal	(needs the pinned width) ids printed as the partitions arrive
+STABLE	HarnessDriver-swissmodel	-
+STABLE	HarnessDriver-traverse	-
+STABLE	HarnessDriver-uniref	-
+STABLE	HarnessDriver-webfilters	-
+STABLE	InteractionAnalysisAdvanced	(needs the pinned width) show() over a groupBy with no total order; rows tie at 1
+STABLE	InteractionAnalysisSimple	-
+STABLE	KeywordSearch	(needs the pinned width) ids printed as the partitions arrive
+STABLE	KinaseSearch	-
+STABLE	LigandInteractionFingerprintDemo	-
+STABLE	MapReduceExample	-
+STABLE	MapToBioAssembly	-
+STABLE	MapToBioAssembly2	-
+STABLE	MapToBioJava	-
+STABLE	MapToCathDomains	-
+STABLE	MapToProteinDimers	-
+STABLE	MapToTuple4	-
+STABLE	Metalnteractions	-
+STABLE	MmcifToMmtfFull	-
+STABLE	MmcifToMmtfFull-noargs	-
+STABLE	MmtfBenchmark	-
+STABLE	MmtfBenchmark-missing	(empty recording; the answer is the exit status)
+STABLE	MmtfBenchmark-noargs	-
+STABLE	MutationToStructureDemo	-
+STABLE	NotFilterExample	-
+STABLE	PdbDrugBankMapping	-
+STABLE	PdbLigandDemo	(needs the pinned width) show() over a groupBy with no total order
+STABLE	PdbMetadataDemo	(needs the pinned width) three journals tie at 60 and show(n) cuts between them
+STABLE	PdbRedoToMmtf	-
+STABLE	PdbSequenceToWord2Vec	-
+STABLE	PdbToMmtfFull	-
+STABLE	PdbToMmtfFull-noargs	-
+STABLE	PdbToUniProtMappingDemo	-
+STABLE	PerformHadoopUpdate	-
+STABLE	PolyPeptideChainStatistics	-
+STABLE	PolymerInteractionFingerprintDemo	-
+STABLE	ProteinFoldDatasetCreator	(needs the pinned width) Word2Vec.setNumPartitions(8): asynchronous SGD
+STABLE	ReadLocalMmtf	(needs the pinned width) per-structure blocks printed from foreach across threads
+STABLE	ReadLocalMmtf-usage	-
+VALUE	ReadLocalMmtfHadoopFile	sample(false, 0.01) with no seed (2.5 #14); no width pins an unseeded draw
+VALUE	ReadLocalMmtfHadoopFile-rosetta	sample(false, 0.01) with no seed: a dump about 4% of runs (2.5 #14)
+STABLE	ReadLocalMmtfHadoopFile-usage	-
+STABLE	ReadMmtfFull	-
+STABLE	ReadMmtfReduced	-
+STABLE	RepartitionHadoopSequenceFile	-
+STABLE	RepartitionHadoopSequenceFile-noargs	-
+STABLE	RosettaToMmtfFull	-
+STABLE	RosettaToMmtfFull-noargs	-
+STABLE	SecondaryStructureBlosum62Encoder	-
+STABLE	SecondaryStructureElementDemo	-
+STABLE	SecondaryStructureElementsWord2VecEncoder	(needs the pinned width) Word2Vec.setNumPartitions(8): asynchronous SGD
+STABLE	SecondaryStructureOneHotEncoder	-
+STABLE	SecondaryStructurePropertyEncoder	-
+STABLE	SecondaryStructureSegmentDemo	-
+STABLE	SecondaryStructureShiftedWord2VecEncoder	(needs the pinned width) Word2Vec.setNumPartitions(8): asynchronous SGD
+STABLE	SecondaryStructureWord2VecEncoder	(needs the pinned width) Word2Vec.setNumPartitions(8): asynchronous SGD
+STABLE	SecondaryStructureWord2VecModelEncoder	(needs the pinned width) reads {PROD}/w2v-pdb.model, itself trained on 8 partitions
+STABLE	SequenceSimilarityDemo	(needs the pinned width) ids printed as the partitions arrive
+STABLE	SiftsDataDemo	-
+STABLE	SwissModelDemo	-
+STABLE	SwissProtSequenceToWord2Vec2	-
+STABLE	TraverseStructureHierarchy	-
+STABLE	UniProtDemo	-
+STABLE	WaterInteractions	-
+STABLE	WaterInteractions-w	-
+STABLE	WildTypeQuery	-
+STABLE	WriteMmtfCustom	-
+STABLE	WriteMmtfFullUncompressed	-

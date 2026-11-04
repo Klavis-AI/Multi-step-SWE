@@ -1,0 +1,40 @@
+# PROFILE.md 7 `[tool.uv] conflicts`: "Either item on its own is unaffected:
+# `uv sync --extra y` exits 0 and installs exactly the resolution that belongs
+# to `y`." An inner array's items may be of either kind, so the declared pair
+# here is an extra against a dependency group; `--extra x` enables one half of
+# it and nothing else, and the request settles on the requirement that half
+# carries. The installed set is read as well, so that a command which refused
+# the request could not satisfy the assertion. The reject side of this same
+# pair is `conflicts-extra-and-group-rejected`, scored beside this probe in
+# this group.
+id = "conflicts-single-extra-settles"
+step = 8
+group = "project-request-validation"
+python = "3.12"
+mode = "bare"
+argv = ["sync", "--extra", "x"]
+observe = ["status", "glob:.venv/lib/python3.12/site-packages/*.dist-info"]
+timeout = 300
+
+[files]
+"pyproject.toml" = """
+[project]
+name = "proj"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+x = ["a==1.0.0"]
+
+[dependency-groups]
+g = ["a==2.0.0"]
+
+[tool.uv]
+package = false
+index-url = "{INDEX}"
+conflicts = [[{ extra = "x" }, { group = "g" }]]
+"""
+
+[index.packages.a.versions."1.0.0"]
+[index.packages.a.versions."2.0.0"]

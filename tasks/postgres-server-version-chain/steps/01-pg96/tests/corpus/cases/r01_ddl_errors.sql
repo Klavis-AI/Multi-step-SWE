@@ -1,0 +1,8 @@
+CREATE TABLE de(a int);
+CREATE TABLE de(a int);
+CREATE TABLE IF NOT EXISTS de(a int);
+DROP TABLE de;
+DROP TABLE de;
+DROP TABLE IF EXISTS de;
+CREATE TABLE de2(a nosuchtype);
+CREATE TABLE de3(a int, a int);

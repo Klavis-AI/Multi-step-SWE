@@ -1,0 +1,192 @@
+{
+ "error": null,
+ "step": 2,
+ "tags": [
+  "federation",
+  "knock",
+  "room-versions"
+ ],
+ "transcript": [
+  {
+   "binary": null,
+   "body": {
+    "has_creator": true,
+    "room_version": "6"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the room really is at version 6",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/state/m.room.create/",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "errcode": "M_FORBIDDEN"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "a remote knock on a version 6 room is refused",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/knock/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/knock/<ROOM1>?server_name=<HS1>",
+   "status": 403,
+   "status_exact": false
+  },
+  {
+   "binary": null,
+   "body": [
+    "@k6a:<HS1>|join|k6a D"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "no knock membership was created",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/members",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "allow": null,
+    "join_rule": "invite"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the v7 room is invite-only",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}",
+   "path": "/_matrix/client/v3/rooms/<ROOM2>/state/m.room.join_rules/",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "errcode": "M_FORBIDDEN"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "a knock on an invite-only v7 room is refused",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/knock/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/knock/<ROOM2>?server_name=<HS1>",
+   "status": 403,
+   "status_exact": false
+  },
+  {
+   "binary": null,
+   "body": {
+    "errcode": "M_FORBIDDEN"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "a knock on a public v7 room is refused too",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/knock/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/knock/<ROOM3>?server_name=<HS1>",
+   "status": 403,
+   "status_exact": false
+  },
+  {
+   "binary": null,
+   "body": {},
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 bans the would-be knocker in advance",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/rooms/{roomId}/ban",
+   "path": "/_matrix/client/v3/rooms/<ROOM4>/ban",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "errcode": "M_FORBIDDEN"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "a banned user cannot knock",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/knock/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/knock/<ROOM4>?server_name=<HS1>",
+   "status": 403,
+   "status_exact": false
+  },
+  {
+   "binary": null,
+   "body": [
+    "@k6a:<HS1>|join|k6a D",
+    "@k6b:<HS2>|ban|None"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the ban still stands",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "/_matrix/client/v3/rooms/<ROOM4>/members",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "joined_rooms": []
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the knocker joined nothing",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/joined_rooms",
+   "path": "hs2 /_matrix/client/v3/joined_rooms",
+   "status": 200,
+   "status_exact": true
+  }
+ ]
+}

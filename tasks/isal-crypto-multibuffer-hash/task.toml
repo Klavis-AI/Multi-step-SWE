@@ -1,0 +1,117 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. A step's reward is
+# `correctness x mean_u( ln(max(1, speedup_u)) )` over the scored units of that
+# step -- i.e. correctness x ln(geometric mean of the per-unit speedups).
+# Correctness is binary and multiplies, so a tree that changes behaviour scores
+# 0 however fast it is; a correct but unimproved tree scores 0 too.
+#
+# The range is deliberately NOT clamped to [0, 1] (the template's report()
+# clamps): this reward is the measured log-speedup, unbounded above, and
+# clamping would collapse every step that improves at all to the same 1.0 --
+# deleting the discrimination the task measures. Harbor reads `reward` as a
+# number and asserts no range. Recorded here and in README.md, "Reward range".
+multi_step_reward_strategy = "mean"
+
+# The cumulative worktree. "bin" is the tree's build output directory
+# (`O = bin` in make.inc); upstream has no other directory of that name, and
+# /app/tools -- the practice measurement tool -- is deliberately NOT excluded.
+# Verify any change to this list against the built image, not against intent:
+# artifact patterns match a path component at any depth.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["bin"] },
+]
+
+[task]
+name = "harbor/isal-crypto-multibuffer-hash"
+version = "1.0.0"
+description = "Optimize Intel isa-l_crypto's multi-buffer hashing surface one hash at a time. Seven cumulative steps, each rewarded by the measured per-unit speedup of that hash's public multi-buffer API, gated on byte-exact digests."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "avx2", "hashing", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c", "assembly", "simd", "cryptography"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# The verifier builds the candidate tree, builds the project's own check suite
+# and runs it, then builds and runs the measurement harness against both this
+# step's pristine base (built into the image) and the candidate.
+# cpus must stay >= 2 because measurement pins to cores 0,1.
+[verifier.environment]
+build_timeout_sec = 2700.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-sha256-mb"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-sha1-mb"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-sha512-mb"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-md5-mb"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-sm3-mb"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-mh-sha1"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-mh-sha256-rolling-hash"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

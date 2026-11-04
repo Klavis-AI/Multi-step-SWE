@@ -1,0 +1,62 @@
+How environment/docs/ was produced: the build stage below fetched each
+document from its official source, checked it against the pinned sha256,
+and made the text conversions. It ran at image build time until
+2026-10-20; the files are now stored in docs/ and copied in directly.
+Re-run these steps to refresh a document.
+
+# PostgreSQL's HTML documentation, one edition per milestone at the exact release
+# its oracle image reports, for an agent that works offline. 9.6-16: only
+# doc/src/sgml/html is extracted from the official release tarball, and the rest of
+# the tarball (the server sources) is discarded in this stage. 17 and 18: their
+# tarballs no longer carry built HTML, so the html directory is taken from PGDG's
+# postgresql-doc-NN package of the same release. Every archive is pinned by sha256.
+# Pages for the client libraries (libpq, ECPG), SPI and the Perl/Python/Tcl
+# procedural languages are dropped: no milestone's surface includes them.
+# Documents only: no server, no client, no sources, no regression suite.
+FROM debian:bookworm-slim AS docs
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bzip2 ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    out=/opt/docs/postgresql; \
+    mkdir -p "$out"; \
+    from_tarball() { \
+      f="postgresql-$1.tar.bz2"; url="https://ftp.postgresql.org/pub/source/v$1/$f"; \
+      curl -fsSLo "/tmp/$f" "$url"; \
+      echo "$3  /tmp/$f" | sha256sum -c -; \
+      mkdir -p "$out/$2"; \
+      tar -xjf "/tmp/$f" -C "$out/$2" --strip-components=5 --no-same-owner \
+          "postgresql-$1/doc/src/sgml/html"; \
+      rm -f "/tmp/$f"; \
+      echo "$2  PostgreSQL $1  $url (doc/src/sgml/html)  sha256 $3" >> "$out/SOURCES.txt"; \
+    }; \
+    from_deb() { \
+      url="https://apt-archive.postgresql.org/pub/repos/apt/pool/main/p/postgresql-$2/$3"; \
+      curl -fsSLo "/tmp/$3" "$url"; \
+      echo "$4  /tmp/$3" | sha256sum -c -; \
+      rm -rf /tmp/deb; mkdir -p /tmp/deb "$out/$2"; \
+      dpkg-deb -x "/tmp/$3" /tmp/deb; \
+      cp -R "/tmp/deb/usr/share/doc/postgresql-doc-$2/html/." "$out/$2/"; \
+      rm -rf /tmp/deb "/tmp/$3"; \
+      echo "$2  PostgreSQL $1  $url (usr/share/doc/postgresql-doc-$2/html)  sha256 $4" >> "$out/SOURCES.txt"; \
+    }; \
+    from_tarball 9.6.24 9.6 aeb7a196be3ebed1a7476ef565f39722187c108dd47da7489be9c4fcae982ace; \
+    from_tarball 10.21 10 d32198856d52a9a6f5d50642ef86687ac058bd6efca5c9ed57be7808496f45d1; \
+    from_tarball 11.16 11 2dd9e111f0a5949ee7cacc065cea0fb21092929bae310ce05bf01b4ffc5103a5; \
+    from_tarball 12.22 12 8df3c0474782589d3c6f374b5133b1bd14d168086edbc13c6e72e67dd4527a3b; \
+    from_tarball 13.23 13 6ec3c82726af92b7dec873fa1cdf881eca92a4219787dfad05acb6b10e041fd6; \
+    from_tarball 14.24 14 a7fa7ed3d558172355f51406097a7bd4f6b473be80f311ef7cda96bf383d8897; \
+    from_tarball 15.19 15 e1a64a87a46b825b88c082e4518161a47aab53c45694964f8ba1df28f7859f89; \
+    from_tarball 16.15 16 c1575341fa7bd40f5274ea465b34390f4dc64cdd0770af327005caaeb9f6b7ed; \
+    from_deb 17.11 17 postgresql-doc-17_17.11-1.pgdg13+2_all.deb cca342e9e9d18cfdf846ed5fea7fc9e825056ca9ba4ad81d56c8e91208baa359; \
+    from_deb 18.6 18 postgresql-doc-18_18.6-1.pgdg13+2_all.deb 6b89af679f976300d601f5d2a95821917854a0e1787b03c0798c4555d867f4dd; \
+    for d in "$out"/*/; do \
+      test -s "$d/index.html"; test -s "$d/sql-select.html"; \
+      rm -f "$d"ecpg*.html "$d"libpq*.html "$d"spi.html "$d"spi-*.html \
+            "$d"plperl*.html "$d"plpython*.html "$d"pltcl*.html; \
+    done; \
+    test "$(ls -d "$out"/*/ | wc -l)" = 10; \
+    (cd /opt/docs && find postgresql -type f ! -name MANIFEST.sha256 -print0 | sort -z | xargs -0 sha256sum > postgresql/MANIFEST.sha256); \
+    chmod -R a+rX /opt/docs; \
+    du -sh "$out"

@@ -1,0 +1,78 @@
+# arch: x86_64
+# .gdb_index is off unless asked for, --gdb-index and --no-gdb-index are both
+# real options, and the last one on the command line wins.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 5;
+int entry(void) { print("toggle\n"); return g; }
+C
+cc_obj m.o m.c -g
+
+link_ok plain rt.o m.o
+has_section plain '\.debug_info' || die "fixture carries no DWARF to index"
+has_section plain '\.gdb_index' && die "no .gdb_index was asked for but one appeared"
+
+link_ok off --gdb-index --no-gdb-index rt.o m.o
+has_section off '\.gdb_index' && die "--no-gdb-index did not cancel the earlier --gdb-index"
+
+link_ok on --no-gdb-index --gdb-index rt.o m.o
+has_section on '\.gdb_index' || die "--gdb-index did not override the earlier --no-gdb-index"
+
+# The rebuilt index must be a real one, not an empty placeholder.
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+o=$(sec_off on .gdb_index); s=$(sec_size on .gdb_index)
+dd if=on of=gi.bin bs=1 skip=$((16#$o)) count=$((16#$s)) status=none
+u32() { od -An -tu4 -j "$2" -N 4 -- "$1" | tr -d ' \n'; }
+size=$(stat -c %s gi.bin)
+want "rebuilt .gdb_index version" "$(u32 gi.bin 0)" "9"
+want "rebuilt cu list starts right after the header" "$(u32 gi.bin 4)" "28"
+# A placeholder would leave every offset at 28. Require a populated CU list
+# whose span is a whole number of 16-byte entries, a symbol table that is not
+# empty, and a last offset that really is the section size.
+tu_off=$(u32 gi.bin 8)
+[ "$tu_off" -gt 28 ] && [ $(( (tu_off - 28) % 16 )) -eq 0 ] \
+  || die "rebuilt CU list spans $((tu_off - 28)) bytes, not a positive multiple of 16"
+addr_off=$(u32 gi.bin 12); sym_off=$(u32 gi.bin 16)
+aspan=$((sym_off - addr_off))
+[ "$aspan" -gt 0 ] && [ $((aspan % 20)) -eq 0 ] \
+  || die "rebuilt address area spans $aspan bytes, not a positive multiple of 20"
+want "rebuilt shortcut table is 8 bytes" "$(( $(u32 gi.bin 24) - $(u32 gi.bin 20) ))" "8"
+[ "$(u32 gi.bin 24)" -le "$size" ] \
+  || die "rebuilt constant pool starts past the section end $size"
+
+# spec/18 s.7.5: m.o is built with -g, not -ggnu-pubnames, so no input carries
+# .debug_gnu_pubnames or .debug_gnu_pubtypes. The link MUST still succeed and
+# the index MUST carry a ZERO-slot symbol table -- the region from the symbol
+# table offset to the shortcut table offset is empty (slots are 8 bytes each;
+# the populated case is index-symbol-table.case, which compiles with
+# -ggnu-pubnames). Guard the fixture first so this cannot pass because the
+# compiler quietly started emitting pubnames.
+has_section m.o '\.debug_gnu_pubnames' && die "fixture m.o was built without -ggnu-pubnames but has .debug_gnu_pubnames"
+has_section m.o '\.debug_gnu_pubtypes' && die "fixture m.o was built without -ggnu-pubnames but has .debug_gnu_pubtypes"
+want "no pubnames in any input gives a zero-slot symbol table" \
+     "$(( $(u32 gi.bin 20) - $(u32 gi.bin 16) ))" "0"
+
+run_expect on "toggle" 5
+run_expect off "toggle" 5
+
+# spec/18 s.1, the other two triggering rules. Generation is suppressed when
+# debug info is stripped: `--gdb-index -S` MUST link cleanly and emit nothing.
+link_ok stripped --gdb-index -S rt.o m.o
+has_section stripped '\.gdb_index' && die "--gdb-index -S still wrote a .gdb_index"
+has_section stripped '\.debug_info' && die "-S left .debug_info in the output"
+run_expect stripped "toggle" 5
+
+# And with no .debug_info in any input the computed size is zero, so the
+# section MUST be omitted entirely rather than emitted empty.
+cat > n.c <<'C'
+#include "rt.h"
+int n = 6;
+int entry(void) { print("plainly\n"); return n; }
+C
+cc_obj n.o n.c                      # deliberately without -g
+link_ok nodwarf --gdb-index rt.o n.o
+has_section nodwarf '\.debug_info' && die "fixture was meant to carry no DWARF at all"
+has_section nodwarf '\.gdb_index' && die "no input had .debug_info, so no .gdb_index may be written"
+run_expect nodwarf "plainly" 6
+asserts_at_least 4

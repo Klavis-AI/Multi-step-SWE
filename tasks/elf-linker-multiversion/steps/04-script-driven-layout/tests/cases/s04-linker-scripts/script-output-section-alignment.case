@@ -1,0 +1,62 @@
+# arch: x86_64
+# what: the ALIGN(n) that follows the colon of an output-section description
+# becomes that output section's sh_addralign, and each description gets the
+# value its own ALIGN names.
+rt_obj rt.o
+cat > d.s <<'S'
+        .section .blobsec,"aw",@progbits
+        .globl blob_sym
+blob_sym: .byte 0x11
+        .section .tailsec,"aw",@progbits
+        .globl tail_sym
+tail_sym: .byte 0x22
+        .section .plainsec,"aw",@progbits
+        .globl plain_sym
+plain_sym: .byte 0x33
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d.o d.s
+cat > m.c <<'C'
+#include "rt.h"
+extern char blob_sym, tail_sym, plain_sym;
+int entry(void) { return blob_sym + tail_sym + plain_sym; }
+C
+cc_obj m.o m.c
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+    blob : ALIGN(4096) { KEEP(*(.blobsec)) }
+    tail : ALIGN(64) { KEEP(*(.tailsec)) }
+    plain : { KEEP(*(.plainsec)) }
+}
+L
+link_ok out -T lay.ld rt.o m.o d.o
+# sh_addralign is the last column of readelf -S --wide.
+salign() { sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $NF; exit } }'; }
+want "blob sh_addralign"  "$(salign out blob)"  "4096"
+want "tail sh_addralign"  "$(salign out tail)"  "64"
+# A description with no ALIGN must not inherit the previous one's value. The
+# value itself is the linker's choice -- spec/04 §1.1 makes the input maximum a
+# floor, not an equality -- so the graded property is the absence of an
+# inherited 64 or 4096, not a bound.
+pa=$(salign out plain)
+[ "$pa" != 64 ] && [ "$pa" != 4096 ] || die "plain inherited alignment $pa from an earlier ALIGN"
+for s in blob tail plain; do
+  want "$s exists once" "$(sections out | grep -cE "[[:space:]]$s[[:space:]]")" "1"
+  want "$s size" "$(( 16#$(sec_size out $s) ))" "1"
+done
+want "blob_sym in blob"   "$(( 16#$(sym_value out blob_sym) ))"  "$(( 16#$(sec_addr out blob) ))"
+want "tail_sym in tail"   "$(( 16#$(sym_value out tail_sym) ))"  "$(( 16#$(sec_addr out tail) ))"
+want "plain_sym in plain" "$(( 16#$(sym_value out plain_sym) ))" "$(( 16#$(sec_addr out plain) ))"
+run_expect out "" 102
+# The negative half of the same rule (Linker scripts 4): the post-colon
+# alignment slot takes a DECIMAL INTEGER LITERAL only, so the otherwise
+# identical script written with a hex literal MUST be a parse error -- and a
+# failed link writes no output (Compatibility profile 8). Only the non-zero
+# status and the absent file are graded; no wording is.
+sed 's/ALIGN(4096)/ALIGN(0x1000)/' lay.ld > hexalign.ld
+link_fails hexout -T hexalign.ld rt.o m.o d.o
+want "a hex header ALIGN leaves no output" \
+  "$([ -e hexout ] && echo present || echo absent)" "absent"
+asserts_at_least 12

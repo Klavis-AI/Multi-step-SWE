@@ -1,0 +1,5 @@
+SHOW compute_query_id;
+SHOW idle_session_timeout;
+SHOW client_connection_check_interval;
+SHOW log_recovery_conflict_waits;
+SHOW vacuum_failsafe_age;

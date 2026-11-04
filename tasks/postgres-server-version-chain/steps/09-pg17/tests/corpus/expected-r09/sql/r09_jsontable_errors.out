@@ -1,0 +1,28 @@
+SELECT * FROM JSON_TABLE('{"a":1}'::jsonb, '$' COLUMNS (a int));
+ a 
+---
+ 1
+(1 row)
+
+SELECT * FROM JSON_TABLE('{"a":1}'::jsonb, '$' COLUMNS (a int PATH '$.a', a int PATH '$.a'));
+ERROR:  duplicate JSON_TABLE column or path name: a
+LINE 1: ...('{"a":1}'::jsonb, '$' COLUMNS (a int PATH '$.a', a int PATH...
+                                                             ^
+SELECT * FROM JSON_TABLE('not json', '$' COLUMNS (a int PATH '$.a'));
+ERROR:  invalid input syntax for type json
+DETAIL:  Token "not" is invalid.
+CONTEXT:  JSON data, line 1: not...
+SELECT * FROM JSON_TABLE('{"a":1}'::jsonb, '$' COLUMNS (a int PATH '$$bad'));
+ERROR:  syntax error at or near "$bad" of jsonpath input
+LINE 1: ...N_TABLE('{"a":1}'::jsonb, '$' COLUMNS (a int PATH '$$bad'));
+                                                             ^
+SELECT * FROM JSON_TABLE('{"a":1}'::jsonb, '$' COLUMNS (a int PATH '$.a') PLAN DEFAULT (UNION));
+ERROR:  syntax error at or near "PLAN"
+LINE 1: ...('{"a":1}'::jsonb, '$' COLUMNS (a int PATH '$.a') PLAN DEFAU...
+                                                             ^
+SELECT count(*) FROM pg_proc WHERE proname = 'json_table';
+ count 
+-------
+     0
+(1 row)
+

@@ -1,0 +1,444 @@
+{
+ "step": "01",
+ "name": "build-baseline-cmake",
+ "weights": {
+  "behaviour": 0.35,
+  "inherited_gates": 0.0,
+  "step_gates": 0.65
+ },
+ "build_dir": "build",
+ "driver_std": "gnu++98",
+ "jobs": 7,
+ "gates": [
+  {
+   "id": "cmake-top-level",
+   "step": "01",
+   "kind": "files_exist",
+   "desc": "the project is configured from a CMakeLists.txt at the repository root",
+   "paths": [
+    "CMakeLists.txt"
+   ]
+  },
+  {
+   "id": "legacy-build-gone",
+   "step": "01",
+   "kind": "files_absent",
+   "desc": "the hand-written linux build is removed, not left beside the new one",
+   "paths": [
+    "build/linux/CMakeLists.txt",
+    "build/linux/build.sh",
+    "build/linux/Makefile"
+   ]
+  },
+  {
+   "id": "artifacts-produced",
+   "step": "01",
+   "kind": "artifacts",
+   "desc": "the build produces libise.a and the fifteen example programs under exactly the names the step names them",
+   "names": [
+    "4in1_server",
+    "chargen_client",
+    "chargen_server",
+    "daytime_server",
+    "discard_server",
+    "echo_server",
+    "hello_world",
+    "http_server",
+    "max_connection",
+    "server_inspector",
+    "server_module_msgs",
+    "thread_pool",
+    "timer",
+    "udp_client",
+    "udp_server",
+    "libise.a"
+   ]
+  },
+  {
+   "id": "cmake-minimum-328",
+   "step": "01",
+   "kind": "text_present",
+   "desc": "cmake_minimum_required names 3.28 or later",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "min_files": 1,
+   "min": 1,
+   "pattern": "(?i:cmake_minimum_required)\\s*\\(\\s*VERSION\\s+(3\\.(2[89]|[3-9][0-9])|[4-9]\\.)",
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "require": [
+     {
+      "cmd": "cmake_minimum_required",
+      "args": "^VERSION\\x00(3\\.(2[89]|[3-9][0-9])|[4-9][0-9]*\\.)",
+      "min": 1,
+      "why": "no cmake_minimum_required naming 3.28 or later ran"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-no-stale-minimum",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "no cmake_minimum_required below 3.28 anywhere in the project",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "min_files": 1,
+   "pattern": "(?i:cmake_minimum_required)\\s*\\(\\s*VERSION\\s+([0-2]\\.|3\\.([0-9]|1[0-9]|2[0-7])(\\b|\\.))",
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "forbid_arg": [
+     {
+      "cmd": "cmake_minimum_required",
+      "index": 1,
+      "arg": "^([0-2]\\.|3\\.([0-9]|1[0-9]|2[0-7])(\\.|$))",
+      "why": "a minimum below 3.28 was declared"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-retired-commands",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "no directory-scoped or retired command, however it is reached",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "min_files": 1,
+   "pattern": "(?i:\\b(include_directories|link_directories|add_definitions|add_compile_options|add_compile_definitions|add_link_options|link_libraries|exec_program|build_name|remove|subdir_depends|output_required_files|use_mangled_mesa|utility_source|variable_requires|install_files|install_programs|install_targets)\\s*\\()",
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "forbid_cmd": [
+     "include_directories",
+     "link_directories",
+     "add_definitions",
+     "add_compile_options",
+     "add_compile_definitions",
+     "add_link_options",
+     "link_libraries",
+     "exec_program",
+     "build_name",
+     "remove",
+     "subdir_depends",
+     "output_required_files",
+     "use_mangled_mesa",
+     "utility_source",
+     "variable_requires",
+     "install_files",
+     "install_programs",
+     "install_targets"
+    ]
+   }
+  },
+  {
+   "id": "cmake-explicit-sources",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "the source list is written down, not discovered at configure time",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "pattern": "(?i:\\baux_source_directory)\\s*\\(|(?i:\\bfile)\\s*\\(\\s*GLOB",
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "forbid_cmd": [
+     "aux_source_directory"
+    ],
+    "forbid_arg": [
+     {
+      "cmd": "file",
+      "index": 0,
+      "arg": "^GLOB(_RECURSE)?$",
+      "why": "the source list is discovered at configure time"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-target-scoped",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "every link is target-scoped and names a target, not a bare system library",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "pattern": "(?i:target_link_libraries)\\s*\\(\\s*[^\\s)]+\\s+(?!PRIVATE|PUBLIC|INTERFACE)[^\\s)]|(?i:target_link_libraries)\\s*\\([^)]*\\b(pthread|dl|rt)\\b|(^|\\s)-l(pthread|dl|rt)\\b|\\$\\{CMAKE_DL_LIBS\\}",
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "require_arg_at": [
+     {
+      "cmd": "target_link_libraries",
+      "index": 1,
+      "arg": "PRIVATE|PUBLIC|INTERFACE",
+      "why": "requirement 7's keyword form"
+     }
+    ],
+    "forbid_arg": [
+     {
+      "cmd": "target_link_libraries",
+      "arg": "^(-l)?(pthread|dl|rt)$",
+      "why": "a bare system library instead of an imported target"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-no-pinned-toolchain",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "the project does not pin a compiler or a machine; the image's toolchain file does",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "min_files": 1,
+   "pattern": "(?i:\\bset)\\s*\\(\\s*CMAKE_(C|CXX)_COMPILER\\b|(?i:\\b(set|set_property|set_target_properties|set_directory_properties))\\s*\\([^)]*?\\b((CMAKE_)?(C|CXX)_COMPILER_LAUNCHER|RULE_LAUNCH_(COMPILE|LINK))\\b|-march=native|(?i:\\bset)\\s*\\(\\s*CMAKE_(C|CXX)_FLAGS\\s|(?i:\\b(string|list))\\s*\\(\\s*(?i:(APPEND|PREPEND))\\s+CMAKE_(C|CXX)_FLAGS\\b",
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "forbid_arg": [
+     {
+      "cmd": "set",
+      "index": 0,
+      "arg": "^CMAKE_(C|CXX)_COMPILER$",
+      "why": "the project pins a compiler"
+     },
+     {
+      "arg": "^(CMAKE_)?(C|CXX)_COMPILER_LAUNCHER$",
+      "why": "the project puts a wrapper between CMake and the compiler, and the flags a wrapper passes on are its own business"
+     },
+     {
+      "arg": "^RULE_LAUNCH_(COMPILE|LINK)$",
+      "why": "the project puts a wrapper between CMake and the compiler"
+     },
+     {
+      "cmd": "set",
+      "index": 0,
+      "arg": "^CMAKE_(C|CXX)_FLAGS([_A-Za-z0-9]*)$",
+      "why": "the project assigns the global flags variable"
+     },
+     {
+      "cmd": "string|list",
+      "arg": "^CMAKE_(C|CXX)_FLAGS([_A-Za-z0-9]*)$",
+      "why": "the project edits the global flags variable"
+     },
+     {
+      "arg": "-march=native",
+      "why": "the project pins a machine"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-warning-set",
+   "step": "01",
+   "kind": "text_present",
+   "desc": "the warning set is carried on a target, not pushed into CMAKE_CXX_FLAGS",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "min": 1,
+   "pattern": "(?i:target_compile_options)\\s*\\(",
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "require": [
+     {
+      "cmd": "target_compile_options",
+      "args": "(?<![\\w=-])-Wall(?![\\w=-])",
+      "min": 1,
+      "why": "requirement 10's warning set is not on any target"
+     },
+     {
+      "cmd": "target_compile_options",
+      "args": "(?<![\\w=-])-Werror(?![\\w=-])",
+      "min": 1,
+      "why": "no target makes its warnings errors"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-threads-package",
+   "step": "01",
+   "kind": "text_present",
+   "desc": "threading comes from find_package(Threads REQUIRED)",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "min": 1,
+   "pattern": "(?i:find_package)\\s*\\(\\s*Threads\\s+REQUIRED",
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "require": [
+     {
+      "cmd": "find_package",
+      "args": "^Threads\\x00(.*\\x00)?REQUIRED(\\x00|$)",
+      "min": 1,
+      "why": "Threads is not required"
+     },
+     {
+      "cmd": "target_link_libraries",
+      "args": "\\bThreads::Threads\\b",
+      "min": 1,
+      "why": "requirement 8's imported target is never linked"
+     }
+    ]
+   }
+  },
+  {
+   "id": "compile-db-flags",
+   "step": "01",
+   "kind": "compile_db",
+   "desc": "every library translation unit is compiled as C++98 with the project's warning set, as errors",
+   "only": "^ise/main/.*\\.(cpp|cc|cxx|c\\+\\+|cp|CPP|C|c)$",
+   "min_entries": 19,
+   "needs_build": true,
+   "require": [
+    "(^|\\s)-std=(gnu|c)\\+\\+98(\\s|$)",
+    "(^|\\s)-Wall(\\s|$)",
+    "(^|\\s)-Wextra(\\s|$)",
+    "(^|\\s)-Woverloaded-virtual(\\s|$)",
+    "(^|\\s)-Werror(\\s|$)"
+   ],
+   "forbid": [
+    "-march=native",
+    "(^|\\s)-w(\\s|$)",
+    "-Wno-",
+    "-fpermissive"
+   ],
+   "forbid_arg": [
+    "@.*",
+    "--config",
+    "--config=.*",
+    "--no-warnings",
+    "-w",
+    "-Wno-.*",
+    "-fpermissive",
+    "-march=native"
+   ],
+   "compiler": "/usr/bin/clang\\+\\+-22",
+   "cover": "^ise/main/.*\\.(cpp|cc|cxx|c\\+\\+|cp|CPP|C|c)$",
+   "cover_include": [
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".c++",
+    ".cp",
+    ".C",
+    ".c"
+   ]
+  },
+  {
+   "id": "compile-db-examples",
+   "step": "01",
+   "kind": "compile_db",
+   "desc": "the examples are built by the same project, under the same warning set",
+   "only": "^examples/",
+   "min_entries": 22,
+   "needs_build": true,
+   "require": [
+    "(^|\\s)-std=(gnu|c)\\+\\+98(\\s|$)",
+    "(^|\\s)-Wall(\\s|$)",
+    "(^|\\s)-Wextra(\\s|$)",
+    "(^|\\s)-Woverloaded-virtual(\\s|$)",
+    "(^|\\s)-Werror(\\s|$)"
+   ],
+   "forbid": [
+    "-march=native",
+    "(^|\\s)-w(\\s|$)",
+    "-Wno-",
+    "-fpermissive"
+   ],
+   "forbid_arg": [
+    "@.*",
+    "--config",
+    "--config=.*",
+    "--no-warnings",
+    "-w",
+    "-Wno-.*",
+    "-fpermissive",
+    "-march=native"
+   ],
+   "compiler": "/usr/bin/clang\\+\\+-22",
+   "cover": "^examples/.*\\.(cpp|cc|cxx|c\\+\\+|cp|CPP|C|c)$",
+   "cover_include": [
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".c++",
+    ".cp",
+    ".C",
+    ".c"
+   ]
+  },
+  {
+   "id": "platform-sources-intact",
+   "step": "01",
+   "kind": "preserved_regions",
+   "desc": "the Windows implementation this environment never compiles survived the migration whole, not as a list of its function names",
+   "include": [
+    "ise/main/ise_iocp.cpp"
+   ],
+   "require_files": [
+    "ise/main/ise_iocp.cpp"
+   ],
+   "reference": "fixtures/platform-regions.json",
+   "min_files": 20,
+   "min_regions": 105,
+   "needs_project": true,
+   "needs_build": true,
+   "min": 8,
+   "pattern": "\\b(CreateIoCompletionPort|GetQueuedCompletionStatus|PostQueuedCompletionStatus|WSARecv|WSASend)\\b",
+   "span": true
+  }
+ ]
+}

@@ -1,0 +1,51 @@
+# arch: x86_64
+# With AT() in play LOADADDR() and ADDR() become different functions: LOADADDR
+# yields the load address the section is written at, ADDR the virtual one it
+# runs at. Without AT() the two collapse back together.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 4;
+int entry(void) { print("loadaddr\n"); return g; }
+C
+cc_obj m.o m.c
+mkscript() { cat > t.ld <<L
+data_vma  = ADDR(.data);
+data_lma  = LOADADDR(.data);
+data_skew = LOADADDR(.data) - ADDR(.data);
+text_vma  = ADDR(.text);
+text_lma  = LOADADDR(.text);
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  . = 0x504000;
+  .data : $1{ *(.data .data.*) }
+}
+L
+}
+# Control: the identical script with no AT(). ADDR and LOADADDR already exist,
+# so this links everywhere, and a failure in the arm below is AT() alone.
+mkscript ''
+link_ok ctl -T t.ld rt.o m.o
+want "control puts .data where the script said" "$(( 16#$(sec_addr ctl .data) ))" "$(( 0x504000 ))"
+run_expect ctl "loadaddr" 4
+
+mkscript 'AT(0x50c000) '
+link_ok out -T t.ld rt.o m.o
+want "ADDR(.data)"     "$(( 16#$(sym_value out data_vma) ))"  "$(( 0x504000 ))"
+want "LOADADDR(.data)" "$(( 16#$(sym_value out data_lma) ))"  "$(( 0x50c000 ))"
+want "LOADADDR - ADDR" "$(( 16#$(sym_value out data_skew) ))" "$(( 0x8000 ))"
+# Without AT() on .text, LOADADDR collapses back onto ADDR.
+tv=$(( 16#$(sym_value out text_vma) ))
+tl=$(( 16#$(sym_value out text_lma) ))
+[ "$tv" -ne 0 ] || die "ADDR(.text) came out as zero"
+want "LOADADDR(.text) == ADDR(.text)" "$tl" "$tv"
+# and the symbols must agree with the section header wild actually wrote.
+want "data_vma matches the section header" "$(( 16#$(sec_addr out .data) ))" "$(( 0x504000 ))"
+run_expect out "loadaddr" 4
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 6

@@ -1,0 +1,26 @@
+# arch: x86_64
+# ASSERT evaluates its expression at link time: a true one is silent, a false
+# one stops the link and reports the message it was given.
+rt_obj rt.o
+cat > n.c <<'C'
+int entry(void) { return 19; }
+C
+cc_obj n.o n.c
+cat > good.ld <<'L'
+ASSERT(1 + 1 == 2, "arith is broken");
+ASSERT((4 * 8) == 32, "multiplication is broken");
+L
+cat > bad.ld <<'L'
+ASSERT(2 + 2 == 5, "deliberate failure here");
+L
+
+link_ok out -T good.ld rt.o n.o --no-gc-sections
+run_expect out "" 19
+
+link_fails nope -T bad.ld rt.o n.o --no-gc-sections
+want_has "failed assertion reports its message" "$LINK_OUT" 'deliberate failure here'
+want_has "failed assertion names the script"    "$LINK_OUT" 'bad\.ld'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 2

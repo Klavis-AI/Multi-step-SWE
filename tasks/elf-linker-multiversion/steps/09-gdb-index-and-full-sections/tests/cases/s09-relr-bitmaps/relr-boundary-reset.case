@@ -1,0 +1,66 @@
+# arch: x86_64
+# RELR runs MUST NOT cross an input-section boundary (spec/17 Sec 4.5). The
+# encoder resets its state at each input-section boundary, so a run never spans
+# two of them even when they are laid out perfectly adjacently.
+#
+# Two objects each contribute one .data.rel.ro input section of n consecutive
+# relative-relocation slots. The linker places them back to back, so all 2n
+# slots are consecutive in the output -- an encoder that did not reset at the
+# boundary would cover the lot with a single address+bitmap pair.
+#
+# Three encodings are distinguishable by DT_RELRSZ alone, which is why this is
+# asserted exactly rather than as a bound:
+#   flat list of addresses (earlier tags) : 2n entries  = 128 bytes
+#   one run across the boundary (wrong)   :  2 entries  =  16 bytes
+#   a fresh run per input section (right) :  4 entries  =  32 bytes
+n=8
+
+{ echo 'static int target;'
+  printf 'int *const a[%d] = {' "$n"
+  for i in $(seq 1 "$n"); do printf '&target,'; done
+  echo '};'
+} > a.c
+
+{ echo 'static int target;'
+  printf 'int *const b[%d] = {' "$n"
+  for i in $(seq 1 "$n"); do printf '&target,'; done
+  echo '};'
+} > b.c
+
+cc_obj a.o a.c -fPIC
+cc_obj b.o b.c -fPIC
+
+link_ok lib.so -shared -z pack-relative-relocs --no-gc-sections a.o b.o
+
+has_section lib.so '\.relr\.dyn' || die "no .relr.dyn was produced"
+
+# The two arrays must end up adjacent, or the boundary this case is about is
+# not exercised at all.
+av=$(sym_value lib.so a); bv=$(sym_value lib.so b)
+[ -n "$av" ] && [ -n "$bv" ] || die "could not find symbols a and b in lib.so"
+[ $(( 16#$bv - 16#$av )) -eq $(( n * 8 )) ] \
+  || die "a at 0x$av and b at 0x$bv are not adjacent ($(( 16#$bv - 16#$av )) bytes apart, expected $(( n * 8 ))): the input-section boundary is not being exercised"
+
+r=$(relocs lib.so)
+got=$(awk "/'.relr.dyn'/{for(i=1;i<=NF;i++) if(\$i==\"contains\"){print \$(i+1); exit}}" <<<"$r")
+want "every relative relocation is described" "$got" "$((n * 2))"
+
+sz=$(awk '/\(RELRSZ\)/{print $(NF-1)}' <<<"$(dynamic lib.so)")
+want "RELRSZ is a whole number of entries" "$((sz % 8))" "0"
+# Exactly two address+bitmap pairs: bitmap-packed (not a flat list) AND reset
+# at the boundary (not one run spanning both input sections).
+want "one address+bitmap pair per input section" "$((sz / 8))" "4"
+
+# The reset is visible directly: entry 2 is a fresh address word, and it is the
+# start of the second input section's contribution.
+sec_off() { local t; t=$(sections "$1"); awk -v nm="$2" '{for(i=1;i<=NF;i++) if($i==nm){print $(i+3); exit}}' <<<"$t"; }
+ro=$(sec_off lib.so .relr.dyn)
+[ -n "$ro" ] || die "could not locate .relr.dyn file offset"
+e2=$(od -An -tu8 -j $(( 16#$ro + 16 )) -N 8 -v -- lib.so | tr -d ' \n')
+want "a fresh address word starts the second input section's run" "$e2" "$((16#$bv))"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

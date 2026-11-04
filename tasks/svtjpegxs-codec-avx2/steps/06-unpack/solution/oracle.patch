@@ -1,0 +1,599 @@
+diff --git a/Source/Lib/Decoder/ASM_AVX2/UnPack_avx2.c b/Source/Lib/Decoder/ASM_AVX2/UnPack_avx2.c
+new file mode 100644
+index 0000000..0b382bd
+--- /dev/null
++++ b/Source/Lib/Decoder/ASM_AVX2/UnPack_avx2.c
+@@ -0,0 +1,352 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#include "UnPack_avx2.h"
++#include "unpack_common.h"
++#include "SvtUtility.h"
++#include "EncDec.h" /* TRUNCATION_MAX: the single load holds fifteen planes at most */
++
++uint8_t read_4_bits_align4_fast(reader_short_t* r) {
++    if (r->bits_used) {
++        r->bits_used = 0;
++        return (*r->mem++) & 0xF;
++    }
++    r->bits_used = 4;
++    return (*r->mem >> 4);
++}
++
++/* Shared walk for unpack_n_groups/unpack_n_groups_nosign: the two differ only in
++ * whether a sign nibble is read alongside the planes. has_sign is a parameter
++ * rather than two separate bodies, but both call sites below pass a compile-time
++ * constant (0 or 1), so the compiler specializes this into the same two variants
++ * that used to be written out by hand, with no runtime branch inside either loop -
++ * the same reasoning pack_groups_masked's emit_signs parameter already relies on, on
++ * the encoder side (see pack_group_helper.h). */
++static INLINE void unpack_n_groups_impl(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups,
++                                        uint32_t safe_bytes, const int has_sign) {
++    uint8_t* const base = r->mem;
++    uint32_t nib = r->bits_used ? 1u : 0u;
++    uint32_t group = 0;
++
++    /* The vast majority of groups are empty: about eighty-seven per cent on
++     * 1080p at 4 bits per pixel. Each of them used to cost a GCLI load, a
++     * compare, a poorly predicted branch and a store of eight zeroes. Now the
++     * output is zeroed in one pass and the walk follows the bits of a non-empty
++     * mask, so an empty group costs nothing and the per-group branch is gone.
++     *
++     * The mask comes from a saturating subtract: subs_epu8 yields zero exactly
++     * where GCLI does not exceed the truncation level. Testing that result for
++     * equality with zero and inverting the mask is therefore an exact unsigned
++     * comparison, which a signed compare against zero would not be: a corrupt
++     * stream can put any byte value into GCLI, and AVX-512 tests it unsigned. */
++    memset(buf, 0, (size_t)n_groups * GROUP_SIZE * sizeof(uint16_t));
++
++    /* Fast path: a group's position in the stream comes from adding up lengths
++     * rather than from finishing the previous group, so the group loads are
++     * independent of each other. */
++    const __m256i gtli_vec = _mm256_set1_epi8((char)gtli);
++    const __m256i zero = _mm256_setzero_si256();
++    while (group < n_groups) {
++        const uint32_t chunk = MIN(n_groups - group, 32u);
++        __m256i gcli_vec;
++        if (chunk >= 32) {
++            gcli_vec = _mm256_loadu_si256((const __m256i*)(gclis + group));
++        }
++        else {
++            uint8_t padded[32] = {0};
++            memcpy(padded, gclis + group, chunk);
++            gcli_vec = _mm256_loadu_si256((const __m256i*)padded);
++        }
++        uint64_t todo = (uint32_t)~_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_subs_epu8(gcli_vec, gtli_vec), zero));
++        while (todo) {
++            const uint32_t k = svt_first_set_bit(todo);
++            const uint32_t size = (uint32_t)gclis[group + k] - gtli;
++            /* A corrupt stream can carry a GCLI above the truncation maximum:
++             * the unary code yields up to thirty-one. Such a group holds more
++             * bit planes than the single load can take - fifteen - and the
++             * shift that would extract it would be undefined, so the group is
++             * left to the sequential reader below. */
++            if (size > TRUNCATION_MAX || ((nib + (uint32_t)has_sign) >> 1) >= safe_bytes) {
++                group += k;
++                goto tail;
++            }
++            uint64_t out = unpack_planes_to_lanes_sse(unpack_load_nibbles(base, nib + (uint32_t)has_sign, size), gtli);
++            if (has_sign) {
++                out |= unpack_sign_spread[unpack_one_nibble(base, nib)];
++            }
++            memcpy(buf + (size_t)(group + k) * GROUP_SIZE, &out, sizeof(out));
++            nib += size + (uint32_t)has_sign;
++            todo &= todo - 1;
++        }
++        group += chunk;
++    }
++
++tail:
++    r->mem = base + (nib >> 1);
++    r->bits_used = (uint8_t)((nib & 1) * 4);
++    buf += (size_t)group * GROUP_SIZE;
++
++    /* End of the line is read sequentially so the load never runs past the data.
++     * Zeroes need not be written: the buffer is already cleared. */
++    for (; group < n_groups; group++) {
++        const int32_t size = (int32_t)gclis[group] - (int32_t)gtli;
++        if (size > 0) {
++            uint64_t signs = 0;
++            if (has_sign) {
++                signs = unpack_sign_spread[read_4_bits_align4_fast(r)];
++            }
++            /* A corrupt stream can carry a GCLI far above the truncation maximum: the
++             * unary code yields up to thirty-one, and vertical prediction can wrap it
++             * to anything up to two hundred and fifty-five. The fast path above
++             * already declines to touch such a group at all; this sequential reader
++             * has to decline the same way, or it reads size nibbles - unbounded by
++             * anything - straight past the end of whatever buffer backs it. */
++            const int32_t read_planes = (size > TRUNCATION_MAX) ? TRUNCATION_MAX : size;
++            uint64_t acc = 0;
++            for (int32_t i = 0; i < read_planes; i++) {
++                acc = (acc << 4) | read_4_bits_align4_fast(r);
++            }
++            const uint64_t out = unpack_planes_to_lanes_sse(acc, gtli) | signs;
++            memcpy(buf, &out, sizeof(out));
++        }
++        buf += GROUP_SIZE;
++    }
++}
++
++void unpack_n_groups(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups, uint32_t safe_bytes) {
++    unpack_n_groups_impl(gclis, gtli, r, buf, n_groups, safe_bytes, 1);
++}
++
++void unpack_n_groups_nosign(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups,
++                            uint32_t safe_bytes) {
++    unpack_n_groups_impl(gclis, gtli, r, buf, n_groups, safe_bytes, 0);
++}
++
++/* Same as unpack_n_groups_impl, but the plane spread is PEXT (unpack_planes_to_lanes_pext)
++ * instead of the nibble-split-and-movemask sequence - see that function's comment.
++ * Needs BMI2; callers must gate on CPU_FLAGS_BMI2. */
++TARGET_BMI2 static INLINE void unpack_n_groups_bmi2_impl(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf,
++                                                         uint32_t n_groups, uint32_t safe_bytes, const int has_sign) {
++    uint8_t* const base = r->mem;
++    uint32_t nib = r->bits_used ? 1u : 0u;
++    uint32_t group = 0;
++
++    memset(buf, 0, (size_t)n_groups * GROUP_SIZE * sizeof(uint16_t));
++
++    const __m256i gtli_vec = _mm256_set1_epi8((char)gtli);
++    const __m256i zero = _mm256_setzero_si256();
++    while (group < n_groups) {
++        const uint32_t chunk = MIN(n_groups - group, 32u);
++        __m256i gcli_vec;
++        if (chunk >= 32) {
++            gcli_vec = _mm256_loadu_si256((const __m256i*)(gclis + group));
++        }
++        else {
++            uint8_t padded[32] = {0};
++            memcpy(padded, gclis + group, chunk);
++            gcli_vec = _mm256_loadu_si256((const __m256i*)padded);
++        }
++        uint64_t todo = (uint32_t)~_mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_subs_epu8(gcli_vec, gtli_vec), zero));
++        while (todo) {
++            const uint32_t k = svt_first_set_bit(todo);
++            const uint32_t size = (uint32_t)gclis[group + k] - gtli;
++            if (size > TRUNCATION_MAX || ((nib + (uint32_t)has_sign) >> 1) >= safe_bytes) {
++                group += k;
++                goto tail;
++            }
++            uint64_t out = unpack_planes_to_lanes_pext(unpack_load_nibbles(base, nib + (uint32_t)has_sign, size), gtli);
++            if (has_sign) {
++                out |= unpack_sign_spread[unpack_one_nibble(base, nib)];
++            }
++            memcpy(buf + (size_t)(group + k) * GROUP_SIZE, &out, sizeof(out));
++            nib += size + (uint32_t)has_sign;
++            todo &= todo - 1;
++        }
++        group += chunk;
++    }
++
++tail:
++    r->mem = base + (nib >> 1);
++    r->bits_used = (uint8_t)((nib & 1) * 4);
++    buf += (size_t)group * GROUP_SIZE;
++
++    for (; group < n_groups; group++) {
++        const int32_t size = (int32_t)gclis[group] - (int32_t)gtli;
++        if (size > 0) {
++            uint64_t signs = 0;
++            if (has_sign) {
++                signs = unpack_sign_spread[read_4_bits_align4_fast(r)];
++            }
++            const int32_t read_planes = (size > TRUNCATION_MAX) ? TRUNCATION_MAX : size;
++            uint64_t acc = 0;
++            for (int32_t i = 0; i < read_planes; i++) {
++                acc = (acc << 4) | read_4_bits_align4_fast(r);
++            }
++            const uint64_t out = unpack_planes_to_lanes_pext(acc, gtli) | signs;
++            memcpy(buf, &out, sizeof(out));
++        }
++        buf += GROUP_SIZE;
++    }
++}
++
++/* No TARGET_BMI2 here: neither wrapper touches a BMI2 intrinsic directly, only
++ * unpack_n_groups_bmi2_impl does. Matches pack_data_groups_avx2_bmi2 on the encoder
++ * side, which likewise leaves the outer wrapper un-attributed. Tagging these too
++ * made the header declaration and this definition disagree on the attribute -
++ * flagged in review as a GCC/Clang attribute mismatch (fatal under -Werror). */
++void unpack_n_groups_bmi2(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups,
++                          uint32_t safe_bytes) {
++    unpack_n_groups_bmi2_impl(gclis, gtli, r, buf, n_groups, safe_bytes, 1);
++}
++
++void unpack_n_groups_nosign_bmi2(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups,
++                                 uint32_t safe_bytes) {
++    unpack_n_groups_bmi2_impl(gclis, gtli, r, buf, n_groups, safe_bytes, 0);
++}
++
++SvtJxsErrorType_t unpack_data_avx2_bmi2(bitstream_reader_t* bitstream, uint16_t* buf, uint32_t w, uint8_t* gclis,
++                                        uint32_t group_size, uint8_t gtli, uint8_t sign_flag, uint8_t* leftover_signs_num,
++                                        int32_t* precinct_bits_left) {
++    return unpack_data_common(bitstream,
++                              buf,
++                              w,
++                              gclis,
++                              group_size,
++                              gtli,
++                              sign_flag,
++                              leftover_signs_num,
++                              precinct_bits_left,
++                              unpack_n_groups_bmi2,
++                              unpack_n_groups_nosign_bmi2);
++}
++
++SvtJxsErrorType_t unpack_data_common(bitstream_reader_t* bitstream, uint16_t* buf, uint32_t w, uint8_t* gclis,
++                                     uint32_t group_size, uint8_t gtli, uint8_t sign_flag, uint8_t* leftover_signs_num,
++                                     int32_t* precinct_bits_left, unpack_groups_fn groups_sign, unpack_groups_fn groups_nosign) {
++    UNUSED(group_size);
++    assert(group_size == GROUP_SIZE);
++    assert((bitstream->bits_used != 0) || (bitstream->bits_used != 4));
++    const uint32_t group_num = w / GROUP_SIZE;
++    const uint32_t leftover = w % GROUP_SIZE;
++    const __m128i gtli_const = _mm_set1_epi8(gtli);
++    const uint32_t safe_bytes = unpack_safe_byte_count(bitstream->size > bitstream->offset ? bitstream->size - bitstream->offset
++                                                                                           : 0);
++
++    if (sign_flag == 0) {
++        //Calculate how many bits will be used from bitstream to avoid reading out of memory allocation
++        {
++            uint8_t* gclis_ptr = gclis;
++            const __m256i zero = _mm256_setzero_si256();
++            __m256i sum_epi32 = zero;
++            for (uint32_t group = 0; group < (group_num / 16); group++) {
++                __m128i bits_epu8 = _mm_subs_epu8(_mm_loadu_si128((__m128i*)gclis_ptr), gtli_const);
++                /* Unsigned widening: subs_epu8 is an unsigned saturating subtract, so on a
++                 * corrupt stream the byte can be anything up to 255. Widening it as signed
++                 * would make such a group subtract from the budget instead of adding to it,
++                 * and the bitstream would not be rejected. */
++                __m256i bits_epu16 = _mm256_cvtepu8_epi16(bits_epu8);
++                __m256i signs = _mm256_cmpgt_epi16(bits_epu16, zero);
++                signs = _mm256_srli_epi16(signs, 15);
++                /* Cost of one group: its planes plus one nibble of signs. At most 256, so
++                 * the per-group value still fits a 16-bit lane; the running total does not
++                 * and is widened before it is added. */
++                __m256i group_bits = _mm256_add_epi16(bits_epu16, signs);
++                sum_epi32 = _mm256_add_epi32(sum_epi32, _mm256_unpacklo_epi16(group_bits, zero));
++                sum_epi32 = _mm256_add_epi32(sum_epi32, _mm256_unpackhi_epi16(group_bits, zero));
++                gclis_ptr += 16;
++            }
++            uint32_t bits_sum = unpack_budget_hsum_epi32(sum_epi32);
++            for (uint32_t group = 0; group < (group_num % 16) + !!leftover; group++) {
++                if (gclis_ptr[group] > gtli) {
++                    bits_sum += (gclis_ptr[group] - gtli) + 1;
++                }
++            }
++            /* The cost is compared before it is subtracted, so that the widened sum
++             * cannot be lost again in the last step: a line whose nibble count exceeds
++             * what int32_t holds is rejected rather than wrapped into a small debit. */
++            if (*precinct_bits_left < 0 || (uint64_t)bits_sum * 4 > (uint64_t)*precinct_bits_left) {
++                return SvtJxsErrorDecoderInvalidBitstream;
++            }
++            *precinct_bits_left -= (int32_t)(bits_sum * 4);
++        }
++        reader_short_t reader;
++        reader.mem = (uint8_t*)(bitstream->mem) + bitstream->offset;
++        reader.bits_used = bitstream->bits_used;
++        groups_sign(gclis, gtli, &reader, buf, group_num, safe_bytes);
++        if (leftover) {
++            buf += group_num * GROUP_SIZE;
++            gclis += group_num;
++            uint16_t buf_tmp[GROUP_SIZE];
++            groups_sign(gclis, gtli, &reader, buf_tmp, 1, 0);
++            memcpy(buf, buf_tmp, sizeof(uint16_t) * (leftover));
++        }
++        bitstream->offset = (uint32_t)(reader.mem - bitstream->mem);
++        bitstream->bits_used = reader.bits_used;
++    }
++    else {
++        //Calculate how many bits will be used from bitstream to avoid reading out of memory allocation
++        {
++            uint8_t* gclis_ptr = gclis;
++            const __m256i zero = _mm256_setzero_si256();
++            __m256i sum_epi32 = zero;
++            for (uint32_t group = 0; group < (group_num / 16); group++) {
++                __m128i bits_epu8 = _mm_subs_epu8(_mm_loadu_si128((__m128i*)gclis_ptr), gtli_const);
++                /* Unsigned widening, and 32-bit accumulation, for the same reasons as in
++                 * the branch above. */
++                __m256i group_bits = _mm256_cvtepu8_epi16(bits_epu8);
++                sum_epi32 = _mm256_add_epi32(sum_epi32, _mm256_unpacklo_epi16(group_bits, zero));
++                sum_epi32 = _mm256_add_epi32(sum_epi32, _mm256_unpackhi_epi16(group_bits, zero));
++                gclis_ptr += 16;
++            }
++            uint32_t bits_sum = unpack_budget_hsum_epi32(sum_epi32);
++            for (uint32_t group = 0; group < (group_num % 16) + !!leftover; group++) {
++                if (gclis_ptr[group] > gtli) {
++                    bits_sum += (gclis_ptr[group] - gtli);
++                }
++            }
++            /* The cost is compared before it is subtracted, so that the widened sum
++             * cannot be lost again in the last step: a line whose nibble count exceeds
++             * what int32_t holds is rejected rather than wrapped into a small debit. */
++            if (*precinct_bits_left < 0 || (uint64_t)bits_sum * 4 > (uint64_t)*precinct_bits_left) {
++                return SvtJxsErrorDecoderInvalidBitstream;
++            }
++            *precinct_bits_left -= (int32_t)(bits_sum * 4);
++        }
++        reader_short_t reader;
++        reader.mem = (uint8_t*)(bitstream->mem) + bitstream->offset;
++        reader.bits_used = bitstream->bits_used;
++        groups_nosign(gclis, gtli, &reader, buf, group_num, safe_bytes);
++        if (leftover) {
++            buf += group_num * GROUP_SIZE;
++            gclis += group_num;
++            uint16_t buf_tmp[GROUP_SIZE];
++            groups_nosign(gclis, gtli, &reader, buf_tmp, 1, 0);
++            *leftover_signs_num = 0;
++            for (uint32_t leftover_id = leftover; leftover_id < GROUP_SIZE; leftover_id++) {
++                *leftover_signs_num += !!buf_tmp[leftover_id];
++            }
++            memcpy(buf, buf_tmp, sizeof(uint16_t) * (leftover));
++        }
++        bitstream->offset = (uint32_t)(reader.mem - bitstream->mem);
++        bitstream->bits_used = reader.bits_used;
++    }
++
++    return SvtJxsErrorNone;
++}
++
++SvtJxsErrorType_t unpack_data_avx2(bitstream_reader_t* bitstream, uint16_t* buf, uint32_t w, uint8_t* gclis, uint32_t group_size,
++                                   uint8_t gtli, uint8_t sign_flag, uint8_t* leftover_signs_num, int32_t* precinct_bits_left) {
++    return unpack_data_common(bitstream,
++                              buf,
++                              w,
++                              gclis,
++                              group_size,
++                              gtli,
++                              sign_flag,
++                              leftover_signs_num,
++                              precinct_bits_left,
++                              unpack_n_groups,
++                              unpack_n_groups_nosign);
++}
+diff --git a/Source/Lib/Decoder/ASM_AVX2/UnPack_avx2.h b/Source/Lib/Decoder/ASM_AVX2/UnPack_avx2.h
+new file mode 100644
+index 0000000..9728c12
+--- /dev/null
++++ b/Source/Lib/Decoder/ASM_AVX2/UnPack_avx2.h
+@@ -0,0 +1,60 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#ifndef __UNPACK_AVX2_H__
++#define __UNPACK_AVX2_H__
++
++#include "SvtJpegxsDec.h"
++#include <immintrin.h>
++#include "Codestream.h"
++#include "BitstreamReader.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++typedef struct reader_short {
++    uint8_t* mem;
++    uint8_t bits_used;
++} reader_short_t;
++
++/* The group parser differs between instruction sets, but the surrounding logic
++ * (counting the consumed bits, the end of the line, handing the position back
++ * to the common reader) does not. So the surrounding logic exists once and the
++ * parser is passed in: it is called once per line, which makes the indirect
++ * call free. */
++typedef void (*unpack_groups_fn)(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups,
++                                 uint32_t safe_bytes);
++
++uint8_t read_4_bits_align4_fast(reader_short_t* r);
++
++SvtJxsErrorType_t unpack_data_common(bitstream_reader_t* bitstream, uint16_t* buf, uint32_t w, uint8_t* gclis,
++                                     uint32_t group_size, uint8_t gtli, uint8_t sign_flag, uint8_t* leftover_signs_num,
++                                     int32_t* precinct_bits_left, unpack_groups_fn groups_sign, unpack_groups_fn groups_nosign);
++
++void unpack_n_groups(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups, uint32_t safe_bytes);
++void unpack_n_groups_nosign(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups,
++                            uint32_t safe_bytes);
++
++SvtJxsErrorType_t unpack_data_avx2(bitstream_reader_t* bitstream, uint16_t* buf, uint32_t w, uint8_t* gclis, uint32_t group_size,
++                                   uint8_t gtli, uint8_t sign_flag, uint8_t* leftover_signs_num, int32_t* precinct_bits_left);
++
++/* Same as unpack_data_avx2 but spreads a group's planes with PEXT instead of a
++ * nibble-split-and-movemask sequence. Needs BMI2 on top of AVX2 - callers must
++ * check CPU_FLAGS_BMI2 on the host before selecting this, since PEXT is
++ * microcoded and slow on some older CPUs even though it is a single fast
++ * instruction on most current ones. */
++void unpack_n_groups_bmi2(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups,
++                          uint32_t safe_bytes);
++void unpack_n_groups_nosign_bmi2(uint8_t* gclis, uint8_t gtli, reader_short_t* r, uint16_t* buf, uint32_t n_groups,
++                                 uint32_t safe_bytes);
++SvtJxsErrorType_t unpack_data_avx2_bmi2(bitstream_reader_t* bitstream, uint16_t* buf, uint32_t w, uint8_t* gclis,
++                                        uint32_t group_size, uint8_t gtli, uint8_t sign_flag, uint8_t* leftover_signs_num,
++                                        int32_t* precinct_bits_left);
++#ifdef __cplusplus
++}
++#endif
++
++#endif //__UNPACK_AVX2_H__
+diff --git a/Source/Lib/Decoder/ASM_AVX2/unpack_common.h b/Source/Lib/Decoder/ASM_AVX2/unpack_common.h
+new file mode 100644
+index 0000000..9c34ca9
+--- /dev/null
++++ b/Source/Lib/Decoder/ASM_AVX2/unpack_common.h
+@@ -0,0 +1,140 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#ifndef __UNPACK_COMMON_H__
++#define __UNPACK_COMMON_H__
++
++#include <string.h>
++#include "UnPack_avx2.h"
++#include "SvtUtility.h"
++
++#if defined(_MSC_VER)
++#define UNPACK_BSWAP64(x) _byteswap_uint64(x)
++#else
++#define UNPACK_BSWAP64(x) __builtin_bswap64(x)
++#endif
++
++/* Sign nibble: its bit (3 - i) belongs to coefficient i and has to become the
++ * top bit of the i-th 16-bit word. The table replaces four shifts. */
++static const uint64_t unpack_sign_spread[16] = {
++    0x0000000000000000ULL,
++    0x8000000000000000ULL,
++    0x0000800000000000ULL,
++    0x8000800000000000ULL,
++    0x0000000080000000ULL,
++    0x8000000080000000ULL,
++    0x0000800080000000ULL,
++    0x8000800080000000ULL,
++    0x0000000000008000ULL,
++    0x8000000000008000ULL,
++    0x0000800000008000ULL,
++    0x8000800000008000ULL,
++    0x0000000080008000ULL,
++    0x8000000080008000ULL,
++    0x0000800080008000ULL,
++    0x8000800080008000ULL,
++};
++
++/* Reads count nibbles starting at nibble number nib and returns them right
++ * aligned: nibble nib becomes the most significant of the count, that is the
++ * top bit plane, and the low nibble of the result is the lowest plane.
++ *
++ * The point is that the whole group is taken with a single eight-byte load
++ * instead of a chain of per-nibble accesses. Bytes arrive high nibble first, so
++ * the word is reversed with BSWAP. The shift inside a byte is at most one
++ * nibble and count is at most fifteen, so 4 + 60 = 64 bits fit exactly into one
++ * word.
++ *
++ * The load reads up to eight bytes ahead, so it may only be used where that
++ * many bytes are known to follow the start of the group; the end of the line is
++ * read sequentially. */
++static INLINE uint64_t unpack_load_nibbles(const uint8_t* mem, uint32_t nib, uint32_t count) {
++    uint64_t w;
++    memcpy(&w, mem + (nib >> 1), sizeof(w));
++    w = UNPACK_BSWAP64(w);
++    w <<= (nib & 1) * 4;
++    return w >> (64 - 4 * count);
++}
++
++static INLINE uint32_t unpack_one_nibble(const uint8_t* mem, uint32_t nib) {
++    return (uint32_t)((mem[nib >> 1] >> (4 - (nib & 1) * 4)) & 0xF);
++}
++
++/* How many leading bytes from the current position may start an over-reading
++ * load: eight readable bytes must remain past the start of the group.
++ *
++ * The bound comes from the end of the buffer, not from the length of the line
++ * being parsed. Extra bytes that land in the word are masked off by the plane
++ * count anyway, so the parser never leaves its own data; the only question here
++ * is the right to touch the memory. The former per-line bound pushed forty per
++ * cent of all groups onto the slow path, because bands of the upper
++ * decomposition levels are shorter than eight bytes in their entirety.
++ *
++ * A count is returned rather than the last allowed index: zero has to mean "not
++ * at all", whereas index zero would also mean "byte zero is allowed". */
++static INLINE uint32_t unpack_safe_byte_count(uint32_t bytes_left) {
++    return bytes_left >= 8 ? bytes_left - 7 : 0;
++}
++
++/* Spreads count nibbles, right aligned, into four coefficients.
++ *
++ * PEXT would do this in four instructions, but this path also runs on CPUs
++ * where it is microcoded and costs tens of cycles. So the nibbles are first
++ * unpacked one per byte (byte j holds nibble j), and then, for each
++ * coefficient, the required bit of every byte is raised into the sign position
++ * and collected by VPMOVMSKB. The value is exactly the same: bit j of the
++ * result is bit (3 - k) of nibble j, that is, the plane with weight 2^j.
++ *
++ * Nibbles past count are zero in acc, so the result needs no masking. */
++static INLINE uint64_t unpack_planes_to_lanes_sse(uint64_t acc, uint8_t gtli) {
++    const __m128i lo_mask = _mm_set1_epi8(0x0F);
++    const __m128i packed = _mm_cvtsi64_si128((int64_t)acc);
++    const __m128i lo = _mm_and_si128(packed, lo_mask);
++    const __m128i hi = _mm_and_si128(_mm_srli_epi16(packed, 4), lo_mask);
++    /* byte 2i is the low nibble of source byte i, byte 2i+1 is the high one */
++    const __m128i nibbles = _mm_unpacklo_epi8(lo, hi);
++
++    const uint64_t v0 = (uint32_t)_mm_movemask_epi8(_mm_slli_epi16(nibbles, 4));
++    const uint64_t v1 = (uint32_t)_mm_movemask_epi8(_mm_slli_epi16(nibbles, 5));
++    const uint64_t v2 = (uint32_t)_mm_movemask_epi8(_mm_slli_epi16(nibbles, 6));
++    const uint64_t v3 = (uint32_t)_mm_movemask_epi8(_mm_slli_epi16(nibbles, 7));
++    return (v0 | (v1 << 16) | (v2 << 32) | (v3 << 48)) << gtli;
++}
++
++/* Spreads count nibbles, right aligned, into four coefficients, using PEXT
++ * instead of the nibble-split-and-movemask sequence above.
++ *
++ * PEXT gathers the bits selected by a mask into the low positions, so each
++ * coefficient is one instruction instead of a slli+movemask pair; the whole
++ * thing is four PEXTs plus three shifts and ORs instead of nine-odd SSE
++ * instructions. It needs only BMI2, nothing AVX-512 about it - see
++ * unpack_common_avx512.h, which used to define this before it moved here so
++ * the AVX2 tier could use it too on a host with BMI2 but no AVX-512. PEXT is
++ * microcoded and slow on some older CPUs even though it is a single fast
++ * instruction on most current ones; callers must gate this on CPU_FLAGS_BMI2
++ * (see setup_decoder_rtcd_internal). */
++TARGET_BMI2 static INLINE uint64_t unpack_planes_to_lanes_pext(uint64_t acc, uint8_t gtli) {
++    const uint64_t v0 = _pext_u64(acc, 0x8888888888888888ULL);
++    const uint64_t v1 = _pext_u64(acc, 0x4444444444444444ULL);
++    const uint64_t v2 = _pext_u64(acc, 0x2222222222222222ULL);
++    const uint64_t v3 = _pext_u64(acc, 0x1111111111111111ULL);
++    return (v0 | (v1 << 16) | (v2 << 32) | (v3 << 48)) << gtli;
++}
++
++/* Horizontal sum of eight 32-bit lanes.
++ *
++ * The budget of a band line is accumulated in 32-bit lanes and not in 16-bit
++ * ones. A single group costs at most 256, which a 16-bit lane holds, but a line
++ * of a couple of thousand groups does not, and the fold of a wrapped sum reads
++ * as a cheap line: a corrupt stream would pass the budget check instead of
++ * being rejected. Lines that wide occur at 8K and above. */
++static INLINE uint32_t unpack_budget_hsum_epi32(__m256i sum_epi32) {
++    __m128i sum_sse = _mm_add_epi32(_mm256_castsi256_si128(sum_epi32), _mm256_extracti128_si256(sum_epi32, 0x1));
++    sum_sse = _mm_add_epi32(sum_sse, _mm_shuffle_epi32(sum_sse, 0x4E)); /* lanes 0+2 and 1+3 */
++    sum_sse = _mm_add_epi32(sum_sse, _mm_shuffle_epi32(sum_sse, 0xB1)); /* all four */
++    return (uint32_t)_mm_cvtsi128_si32(sum_sse);
++}
++
++#endif /*__UNPACK_COMMON_H__*/
+diff --git a/Source/Lib/Decoder/Codec/decoder_dsp_rtcd.c b/Source/Lib/Decoder/Codec/decoder_dsp_rtcd.c
+index 11ac2eb..6b3038b 100644
+--- a/Source/Lib/Decoder/Codec/decoder_dsp_rtcd.c
++++ b/Source/Lib/Decoder/Codec/decoder_dsp_rtcd.c
+@@ -9,6 +9,7 @@
+ #include "Idwt.h"
+ #include "NltDec.h"
+ #include "Precinct.h"
++#include "UnPack_avx2.h"
+ #include "Packing.h"
+ 
+ /**************************************
+@@ -103,12 +104,15 @@ void setup_decoder_rtcd_internal(CPU_FLAGS flags) {
+     SET_ONLY_C(linear_output_scaling_16bit_line_msb, linear_output_scaling_16bit_line_msb_c);
+ 
+     SET_ONLY_C(inv_sign, inv_sign_c);
+-    SET_ONLY_C(unpack_data, unpack_data_c);
++    SET_AVX2_AVX512(unpack_data, unpack_data_c, unpack_data_avx2, NULL);
+ #ifdef ARCH_X86_64
+     /* One implementation of this stage needs BMI2 and is microcoded and slow on
+      * some older CPUs, so it only overrides the AVX2 pick -- never AVX-512,
+      * which already subsumes it -- and only when the host (not just the
+      * requested tier) actually has BMI2. */
++    if ((flags & CPU_FLAGS_AVX2) && !(flags & CPU_FLAGS_AVX512F) && (host_flags & CPU_FLAGS_BMI2)) {
++        unpack_data = unpack_data_avx2_bmi2;
++    }
+ #endif /* ARCH_X86_64 */
+     SET_ONLY_C(idwt_horizontal_line_lf16_hf16, idwt_horizontal_line_lf16_hf16_c);
+     SET_ONLY_C(idwt_horizontal_line_lf32_hf16, idwt_horizontal_line_lf32_hf16_c);

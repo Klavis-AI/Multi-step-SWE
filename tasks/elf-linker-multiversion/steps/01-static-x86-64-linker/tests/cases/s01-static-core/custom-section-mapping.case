@@ -1,0 +1,62 @@
+# arch: x86_64
+# Section-to-segment assignment is driven by sh_flags, not by section name:
+# user-named sections are carried through to the output and land in the
+# PT_LOAD whose permissions match their flags.
+rt_obj rt.o
+cat > s.s <<'S'
+        .section .my_ro,"a",@progbits
+        .globl  my_ro
+my_ro:  .quad   0x1111
+        .section .my_rw,"aw",@progbits
+        .globl  my_rw
+my_rw:  .quad   0x2222
+        .section .my_code,"ax",@progbits
+        .globl  my_code
+my_code:
+        mov     $0x33, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj s.o s.s
+cat > m.c <<'C'
+#include "rt.h"
+extern unsigned long my_ro, my_rw;
+int my_code(void);
+int entry(void) {
+  int ok = 0;
+  if (my_ro == 0x1111) ok |= 1;
+  if (my_rw == 0x2222) { my_rw = 0x4444; ok |= 2; }
+  if (my_rw == 0x4444) ok |= 4;
+  if (my_code() == 0x33) ok |= 8;
+  putdec(ok); print("\n");
+  return ok;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o s.o m.o
+loads=$(segments out | awk '$1=="LOAD"{f=""; for (i=7;i<NF;i++) f=f $i; print $3, $6, f}')
+# Find the containing PT_LOAD by address rather than looking one up by the
+# permissions we expect: from 0.9.0 on wild emits two writable PT_LOADs (an
+# extra RELRO one), so "the RW segment" is not a unique thing to select, and
+# selecting the first would silently test the wrong segment.
+seg_flags_of() {
+  local a z v m f
+  a=$(sec_addr out "$1"); z=$(sec_size out "$1")
+  [ -n "$a" ] || die "user section $1 is missing from the output"
+  a=$((0x$a)); z=$((0x$z))
+  while read -r v m f; do
+    [ -n "$v" ] || continue
+    [ "$a" -ge $((v)) ] && [ $((a + z)) -le $(( $((v)) + $((m)) )) ] \
+      && { printf '%s' "$f"; return; }
+  done <<<"$loads"
+}
+want ".my_ro is in a read-only PT_LOAD"   "$(seg_flags_of .my_ro)"   "R"
+want ".my_rw is in a writable PT_LOAD"    "$(seg_flags_of .my_rw)"   "RW"
+want ".my_code is in an executable PT_LOAD" "$(seg_flags_of .my_code)" "RE"
+run_expect out "15" 15
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

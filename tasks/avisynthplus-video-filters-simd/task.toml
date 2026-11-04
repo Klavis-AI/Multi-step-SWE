@@ -1,0 +1,111 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. Each step's reward is
+# binary and correctness-gated: 1 only when the tree is bit-exact and its
+# geometric-mean speedup is above this step's oracle baseline, 0 otherwise.
+multi_step_reward_strategy = "mean"
+
+# The cumulative /app worktree is the only thing that reaches the checks.
+# `build` is excluded because the checks rebuild from source: a build tree the
+# candidate controlled for two hours is not evidence of anything.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build"] },
+]
+
+[task]
+name = "harbor/avisynthplus-video-filters-simd"
+version = "1.0.0"
+description = "Optimize AviSynth+'s video-filter kernels one filter family at a time, from the portable C++ back to their hand-written SIMD twins. Cumulative steps, each measured by per-filter speedup gated on byte-identical output."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "video", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c++", "simd", "avisynth"]
+
+[environment]
+# Debian + toolchain + a full AviSynth+ build of the stripped tree.
+build_timeout_sec = 2700.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# The verifier builds this step's base tree from the pinned source, builds the
+# candidate, runs the per-unit comparison and timing, then cuts this step's
+# family out of the candidate tree and rebuilds incrementally for the
+# end-to-end non-regression gate. cpus >= 3 so the measurement can pin a core.
+#
+# The pinned source arrives as a checksummed tarball, not a clone, so checking
+# needs no network at all.
+[verifier.environment]
+build_timeout_sec = 2700.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "no-network"
+
+[[steps]]
+name = "01-overlay-mask-blend"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-focus-blur-sharpen"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-layer-composite"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-turn-rotate"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-planeswap-greyscale"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-merge-average"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-limiter-frame-stats"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

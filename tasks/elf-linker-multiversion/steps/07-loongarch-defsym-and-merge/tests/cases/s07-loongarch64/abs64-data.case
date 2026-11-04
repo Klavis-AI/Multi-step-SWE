@@ -1,0 +1,39 @@
+# arch: loongarch64
+# R_LARCH_64 in .data must store the final 64-bit address of its target with
+# the addend applied, and a static link must not turn it into a dynamic
+# relocation.
+rt_obj rt.o
+cat > d.s <<'S'
+        .section .rodata
+        .globl msg
+msg:    .asciz "via-larch64"
+        .data
+        .globl msgptr
+        .p2align 3
+msgptr: .quad msg
+        .globl selfptr
+selfptr:
+        .quad selfptr + 8
+        .section .note.GNU-stack,"",@progbits
+S
+cat > m.c <<'C'
+#include "rt.h"
+extern char *msgptr; extern char msg[]; extern unsigned long selfptr;
+int entry(void) {
+    print(msgptr); print("\n");
+    putdec(msgptr == msg); print("\n");
+    putdec((long)(selfptr - (unsigned long)&selfptr));
+    return 0;
+}
+C
+as_obj d.o d.s; cc_obj m.o m.c
+relocs d.o > d.rel
+grep -q 'R_LARCH_64' d.rel || die "input lacks R_LARCH_64: $(cat d.rel)"
+link_ok out rt.o m.o d.o
+relocs out > out.rel
+want_not "no dynamic relocations in a static link" "$(cat out.rel)" 'R_LARCH_RELATIVE'
+run_expect out "via-larch64
+1
+8" 0
+
+asserts_at_least 1

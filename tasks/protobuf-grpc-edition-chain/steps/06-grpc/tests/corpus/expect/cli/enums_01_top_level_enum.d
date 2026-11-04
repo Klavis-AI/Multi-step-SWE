@@ -1,0 +1,1 @@
+/dev/null: enums/01_top_level_enum.proto

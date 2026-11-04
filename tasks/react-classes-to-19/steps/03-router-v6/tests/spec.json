@@ -1,0 +1,404 @@
+{
+ "step": "03",
+ "requireLockfile": true,
+ "comment": [
+  "Step 3 gate spec: react-router 3 -> react-router 6, on React 16.14.",
+  "",
+  "What the step is about. This application routes with react-router 3: one JSX",
+  "route table in src/components/app.js under <Router history={hashHistory}>, 57",
+  "<Route>, 15 <IndexRoute>, 6 <Redirect>, 1 <IndexRedirect> and a path=\"*\" page;",
+  "48 of those routes name their component through getComponent={(location,",
+  "callback) => import(...)}, which is how the project code-splits; 47 links carry",
+  "activeClassName; eight layout components render {children} and five of them",
+  "inject props into that child with React.cloneElement; and sixteen files read a",
+  "params prop the router hands them. react-router 6 has a replacement for every",
+  "one of those and a direct translation of none of them: the route table becomes",
+  "data-router routes rendered through a provider, {children} becomes <Outlet />,",
+  "cloneElement-into-children becomes <Outlet context> and useOutletContext(), the",
+  "params prop becomes useParams(), activeClassName becomes <NavLink>, <Redirect>",
+  "becomes <Navigate> or a redirect, and getComponent has no successor at all - the",
+  "split has to be re-expressed with something the new router does support.",
+  "",
+  "So the gates come in the same two halves step 2 used: the v3 constructs that",
+  "must be gone, and the v6 constructs that must be there instead. Neither half",
+  "alone is the step. A tree with no route table is not migrated, it is deleted;",
+  "a tree that adds a RouterProvider beside a surviving v3 table has added a file.",
+  "",
+  "Why every ceiling is an absolute 0 and never a delta - the step-2 argument,",
+  "unchanged. The tree a step-3 candidate starts from is whatever it left behind",
+  "at step 2, and that is not one tree. Measured on the two that exist,",
+  "route-get-component starts from 48 in both and clone-element from 6 in both,",
+  "but retired-router-api starts from 61 in the reference solution and 53 in the",
+  "blind run's workspace, because the blind candidate deleted five dead router",
+  "import specifiers from each of two files while it was working on state and the",
+  "reference left them. A ceiling expressed as 'fewer than you started with' would",
+  "mean something different in each tree; an absolute 0 means the same in both.",
+  "",
+  "Why the baselines are the smallest starting count. `baseline` only scales",
+  "partial credit: a count at the baseline scores 0 and a count at the ceiling",
+  "scores 1. Taking the larger of two observed starting counts would pay a tree",
+  "that started at the smaller one for doing nothing. retired-router-api's",
+  "baseline is therefore 53, the blind tree's count, not 61.",
+  "",
+  "Why the floors are low and the ceilings are absolute. The ceilings say what",
+  "must be gone, and 'gone' is a count of zero in any design. The floors say the",
+  "new construct is the one the page is built out of, and that count is not the",
+  "same in every design: a candidate that writes one <ActiveLink> wrapper around",
+  "the router's navigation link and renders it at all forty-seven places has one",
+  "site, not forty-seven, and a candidate that reads the address parameters once",
+  "in a layout and passes them down its own context has two sites, not fifteen.",
+  "Both are correct ports. A floor set at the reference solution's count would",
+  "fail them for a design choice the step does not care about. So each floor sits",
+  "where no correct port can fall below it - the new router has to be created and",
+  "provided, the layouts have to render an outlet, something has to travel",
+  "through it, links have to be the router's own, parameters have to come from",
+  "the router, and the redirects have to be declared - and the question the floor",
+  "cannot answer, whether every one of the forty-seven links and every one of the",
+  "sixty-eight routes still behaves, is answered by the 210 scenarios instead,",
+  "which compare the rendered DOM attribute by attribute.",
+  "",
+  "Why code splitting is gated on the built output and not on the source. The",
+  "ceiling on getComponent is pressure to inline forty route components into one",
+  "bundle, and that would be a real regression this step must not cause. The",
+  "source shapes that avoid it are several - React.lazy under a Suspense, a route",
+  "object's own lazy, a bare import() behind a component - and the step has no",
+  "business preferring one. What it can insist on is the outcome: the built page",
+  "still reaches at least 30 JavaScript chunks. The step-2 reference build reaches",
+  "40. (ast-scan does carry a route-lazy detector, added with the rest of the",
+  "router surface; it is deliberately not scored here.)",
+  "",
+  "Why route loaders are a ceiling here rather than a floor. Route loaders are",
+  "the v6 data router's own way to fetch, and step 2 established the opposite",
+  "arrangement: every request this application makes goes through one declarative",
+  "data layer, and every place that reads a request reads it through that layer's",
+  "own hook. A loader moves requests back out of it. Requiring loaders, which the",
+  "plan line contemplated, would contradict the step before it - so the step says",
+  "the other thing, and measures it rather than leaving it to prose: no route",
+  "fetches for themselves (route-fetching-absent), the data layer is still what",
+  "the code the page is built from reads (data-layer-kept), and nothing reaches",
+  "the server on its own account instead (data-layer-owns-fetching) - the last",
+  "of those because a floor on hook calls counts what survived and cannot see",
+  "what was added beside it, and a route rewrite that moves a read out of the",
+  "layer is the thing the instruction forbids. All three are",
+  "measured because neither the behavior family nor the other gates can see the",
+  "difference: the scenarios compare the set of API paths the page requests, and",
+  "a loader fetching the same paths reproduces the same recording exactly. The",
+  "refinement of the plan line is logged as a deviation in NOTES-authoring.md and",
+  "revisited at step 5, where the concurrent-features step can weigh loaders",
+  "against Suspense.",
+  "",
+  "Two invariants ride along, as at step 2: the tree parses, and the build tool",
+  "the step inherits is not replaced along the way.",
+  "",
+  "Why the inherited checks are guarded. Six of the checks here are things a",
+  "step-3 candidate inherits already passing - the build tool is still Vite,",
+  "every file still parses, the built page still reaches its chunks, no route",
+  "fetches for itself, the data layer is still what the code reads, and nothing",
+  "requests for itself beside it - and",
+  "those are what a floor measurement sees. Unguarded they would come to 11 of",
+  "42, which puts the untouched step-2 tree at 0.594048 and well over",
+  "build-process item 6's 0.5 bar: the step would be paying its finished",
+  "predecessor for a split, a data layer and two absences that predecessor",
+  "already produced. So each of the",
+  "four that can be guarded is, on the v3 construct it is supposed to have",
+  "outlived, which says what the check has always meant - the property survived",
+  "*this* migration - and is the same shape every new-construct check here",
+  "carries: credit for replacing the old mechanism, not for standing beside it.",
+  "params-hook-used carries the same guard for the same reason, though it costs",
+  "the floor nothing: an untouched tree reads no parameters from the router, but",
+  "a tree that adds one useParams() call beside a surviving v3 route table would",
+  "otherwise be paid for it. vite-declared and parses stay unguarded: they are",
+  "not claims about the migration, they are the conditions under which reading",
+  "the tree means anything at all. With the guards the untouched tree earns 2 of",
+  "42 - measured, not predicted, on both of the trees a step-3 candidate can",
+  "actually arrive with: the reference step-2 solution lands at 0.476190 (210 of",
+  "210 behavior) and the blind step-2 run's own workspace at 0.474048 (209 of",
+  "210, one pre-existing miss of its own). The same two rows, and nearly the same",
+  "figure as step 2's own floor."
+ ],
+ "guard": [
+  {
+   "id": "site-is-live",
+   "why": "The tree still builds, serves and behaves like the application, so that what the gates measure is a migration of it rather than its absence.",
+   "kind": "json-flag",
+   "file": "/logs/verifier/behavior.json",
+   "field": "passed",
+   "min": 10,
+   "unmet": "the built site did not reproduce the application, so there is no migrated application to credit: the tree did not build, did not serve, or reproduced almost none of the behavior it must preserve"
+  },
+  {
+   "id": "built-from-source",
+   "why": "The site that is served is built from this repository's own source, so that the behavior the one family reproduces and the code the other family reads are the same program.",
+   "kind": "built-from-source",
+   "minModules": 1,
+   "unmet": "the site that was served is not built from this tree: what the build compiled and what the tree contains are different code, so the behavior it reproduced is no evidence about the tree the gates read"
+  }
+ ],
+ "checks": [
+  {
+   "id": "legacy-router-gone",
+   "why": "Nothing is left of react-router 3's API: no module imports Router, IndexRoute, IndexRedirect, IndexLink, Redirect, hashHistory, browserHistory, withRouter, Switch or the rest of the retired names from the router package, and no link marks itself current with activeClassName or activeStyle.",
+   "kind": "ast-max",
+   "gate": "retired-router-api",
+   "max": 0,
+   "baseline": 53,
+   "weight": 5
+  },
+  {
+   "id": "get-component-gone",
+   "why": "No route names its component through getComponent or getComponents: the v3 prop that took a (location, callback) loader has no successor in the new router, so a surviving one is a route the new router cannot serve.",
+   "kind": "ast-max",
+   "gate": "route-get-component",
+   "max": 0,
+   "baseline": 48,
+   "weight": 3
+  },
+  {
+   "id": "child-cloning-gone",
+   "why": "No component injects props into its routed child by cloning it: React.cloneElement is how the v3 layouts passed data down through children, and the new router passes it through the outlet instead.",
+   "kind": "ast-max",
+   "gate": "clone-element",
+   "max": 0,
+   "baseline": 6,
+   "weight": 3
+  },
+  {
+   "id": "router-6-installed",
+   "why": "The router that is actually installed is version 6.4 or later - not version 3 beside it, not a range that resolves to two majors at once, and not one of the 6.0-6.3 releases that predate the data router this step's route table is built and provided with.",
+   "kind": "dep-version",
+   "package": "react-router",
+   "major": 6,
+   "minMinor": 4,
+   "weight": 3
+  },
+  {
+   "id": "router-dom-declared",
+   "why": "The project's declared router is the DOM package the new major ships its browser bindings in.",
+   "kind": "dep-declared",
+   "package": "react-router-dom",
+   "weight": 2
+  },
+  {
+   "id": "data-router-present",
+   "why": "The route table is built and rendered the way the new major does it: a router created from a route description and handed to a provider, rather than a <Router> element wrapping a JSX tree.",
+   "kind": "ast-min",
+   "gate": "router-data-api",
+   "min": 2,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "The new router is credited for replacing the old one, so the old one has to be going.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API is still all over the tree, so a v6 router beside it has not replaced anything"
+    }
+   ],
+   "weight": 3
+  },
+  {
+   "id": "outlet-used",
+   "why": "The layout components render their routed child through the router's outlet rather than through a children prop the router used to hand them.",
+   "kind": "ast-min",
+   "gate": "router-outlet",
+   "min": 4,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "child-cloning-going",
+     "why": "The outlet is credited for taking over from the children prop, so the cloning that prop was fed to has to be going.",
+     "kind": "ast-max",
+     "gate": "clone-element",
+     "max": 3,
+     "unmet": "the layouts still clone their children to pass data down, so an outlet beside that is not what the page renders through"
+    }
+   ],
+   "weight": 3
+  },
+  {
+   "id": "outlet-context-used",
+   "why": "Where a layout used to inject props into its routed child, it now offers them on the outlet and the child reads them from there: the data still flows from the same parent to the same children, by the route hierarchy rather than by rewriting an element.",
+   "kind": "ast-min",
+   "gate": "outlet-context",
+   "min": 6,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "child-cloning-going",
+     "why": "The outlet's context is credited for replacing the cloned-in props, so the cloning has to be going.",
+     "kind": "ast-max",
+     "gate": "clone-element",
+     "max": 3,
+     "unmet": "the layouts still clone their children to pass data down, so nothing has moved to the outlet"
+    }
+   ],
+   "weight": 3
+  },
+  {
+   "id": "nav-links-used",
+   "why": "Links that mark themselves as current are the router's own navigation link, which knows whether its address is the current one, rather than a hand-rolled comparison against the location.",
+   "kind": "ast-min",
+   "gate": "router-navlink",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "The navigation link is credited for replacing the v3 link that marked itself current with a prop, and that prop is one of the retired-API sites this ceiling counts - so what has to be going is the v3 router, the prop included, and the sentence says so rather than naming the prop alone.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API - its retired imports and the activeClassName and activeStyle props among them - is still all over the tree, so a navigation link beside it has replaced nothing"
+    }
+   ],
+   "weight": 2
+  },
+  {
+   "id": "params-hook-used",
+   "why": "The dynamic part of the address is read from the router with its hook, rather than received as a prop the router used to inject.",
+   "kind": "ast-min",
+   "gate": "router-params-hook",
+   "min": 2,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "The hook is credited for replacing the params prop the v3 router injected, so the router that injected it has to be going.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API is still all over the tree, so a params hook beside it has replaced nothing"
+    }
+   ],
+   "weight": 2
+  },
+  {
+   "id": "redirects-declared",
+   "why": "The seven addresses that used to redirect still redirect, and they redirect declaratively - stated in the route table the way the new major states a redirect - rather than as a v3 route element the new major does not have, and rather than performed by a component after it has already rendered.",
+   "kind": "ast-min",
+   "gate": "router-navigate",
+   "min": 4,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "The new redirect is credited for replacing <Redirect> and <IndexRedirect>, which this ceiling counts as two of the retired names among the rest - so what has to be going is the v3 route table those elements live in, and the sentence says that rather than naming the two elements alone.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API - its retired route elements, <Redirect> and <IndexRedirect> among them - is still all over the tree, so a v6 redirect beside it has replaced nothing"
+    }
+   ],
+   "weight": 2
+  },
+  {
+   "id": "code-split-kept",
+   "why": "The application still loads its route components on demand: the built page reaches many JavaScript chunks rather than one, as it did before the router changed.",
+   "kind": "min-chunks",
+   "min": 30,
+   "weight": 3,
+   "guard": [
+    {
+     "id": "get-component-going",
+     "why": "Code splitting is credited for surviving the migration, so the mechanism the retired router provided it with has to be gone; an untouched tree still reaches its chunks the old way and has carried nothing across.",
+     "kind": "ast-max",
+     "gate": "route-get-component",
+     "max": 0,
+     "unmet": "the route table still names its components through the retired loader prop, so the chunks the built page reaches are the ones that prop produced and the split has not been carried across"
+    }
+   ]
+  },
+  {
+   "id": "route-fetching-absent",
+   "why": "No route fetches for itself: the new major's loaders, actions and the hooks that read what they returned are not how this application gets its data, because the step before it put every request behind one declarative data layer and a route loader moves requests back out of it. Counted in all three spellings the router accepts - a key on a route description, an attribute on a route element, and an export the router picks up from a module a route loads lazily - because the last of those needs no key anywhere in the route table and is the natural companion of the dynamic import this step's own code split uses.",
+   "kind": "ast-max",
+   "gate": "route-loader",
+   "max": 0,
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "The absence is only evidence about this migration once the migration has happened; a tree that still routes with v3 has no loaders because it has no v6 router, which is nothing this step did.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API is still all over the tree, so the absence of the new major's loaders is the absence of the new major and not a choice this migration made"
+    }
+   ],
+   "weight": 2
+  },
+  {
+   "id": "data-layer-kept",
+   "why": "The data layer the step before it built is still what the running application reads: the code the page is built from still gets its data through the query layer's own generated hooks, at many places, rather than through whatever the new router offered to fetch with instead. A survival floor and not a census - the number is well under what either reference tree has, because consolidating two reads of the same thing is a legal thing for a route rewrite to do and emptying the layer is not, and the instruction asks for the property in those terms rather than for a count.",
+   "kind": "ast-min",
+   "gate": "rtk-query-hooks",
+   "min": 20,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "The data layer surviving is only evidence about this migration once the router has actually changed; an untouched tree still reads through it and has carried nothing across.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API is still all over the tree, so the data layer standing where it already stood has survived nothing"
+    }
+   ],
+   "weight": 2
+  },
+  {
+   "id": "data-layer-owns-fetching",
+   "why": "The other half of the same sentence, and the half a count of hook calls cannot see: no module goes to the server on its own account - not through the browser's fetch, an XMLHttpRequest, or an HTTP client package - so the hooks the check above counts are how the running page gets its data and not a remnant beside a request made somewhere else. Read as a ceiling on the request, not as a second census of the layer: what it forbids is a route rewrite that moves a read out of the data layer, which is the one thing this step's own instruction says is not the candidate's to do.",
+   "kind": "ast-max",
+   "gate": "raw-fetch",
+   "max": 0,
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "A tree that has not touched the router has not moved a read anywhere, and it arrives at this step with no requests of its own already - crediting it here would pay a finished predecessor for an absence the step before produced, which is exactly what the other inherited checks are guarded against.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API is still all over the tree, so requests still belonging to the data layer is where the step before this one left them and not a choice this migration made"
+    }
+   ],
+   "weight": 2
+  },
+  {
+   "id": "vite-declared",
+   "why": "The build tool this step inherits is not replaced along the way: the project's declared build tool is still Vite.",
+   "kind": "dep-declared",
+   "package": "vite",
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. react-router 3's API is going, as for the other inherited checks of this step.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API is still all over the tree, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "parses",
+   "why": "Every file in the repository can be parsed by a current JavaScript parser.",
+   "kind": "parse-errors",
+   "max": 0,
+   "baseline": 1,
+   "binary": true,
+   "guard": [
+    {
+     "id": "v3-table-going",
+     "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. react-router 3's API is going, as for the other inherited checks of this step.",
+     "kind": "ast-max",
+     "gate": "retired-router-api",
+     "max": 30,
+     "unmet": "react-router 3's API is still all over the tree, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    }
+   ],
+   "weight": 1
+  }
+ ]
+}

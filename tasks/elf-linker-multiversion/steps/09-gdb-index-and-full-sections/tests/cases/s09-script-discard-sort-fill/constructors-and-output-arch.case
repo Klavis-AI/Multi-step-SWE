@@ -1,0 +1,64 @@
+# arch: x86_64
+# Two script commands that MUST parse and then do nothing observable:
+# CONSTRUCTORS (spec/10 s.12 -- accepted, contributes nothing) and OUTPUT_ARCH
+# (spec/10 s.3 -- parsed and ignored). "Ignored" is the assertion: naming a
+# foreign architecture must not change the output's e_machine, and must not
+# fail the link either.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char msg[] = "ctors";
+int g = 5;
+int entry(void) { print(msg); print("\n"); return g; }
+C
+cc_obj m.o m.c
+
+body() { cat <<'L'
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  .ctors  : { CONSTRUCTORS }
+  . = 0x504000;
+  .data   : { *(.data .data.*) }
+}
+L
+}
+# Control: the same script with both new constructs removed. It links at every
+# tag, so a failure in the arms below is CONSTRUCTORS/OUTPUT_ARCH themselves.
+body | sed '/CONSTRUCTORS/d' > c.ld
+link_ok ctl -T c.ld rt.o m.o
+run_expect ctl "ctors" 5
+ctl_mach=$(hdr ctl | awk -F': *' '/^ *Machine:/{print $2}')
+
+# CONSTRUCTORS alone.
+body > k.ld
+link_ok kout -T k.ld rt.o m.o
+run_expect kout "ctors" 5
+# "Contributes nothing": with no a.out-era constructor inputs the output
+# section stays empty, so it is either absent or zero-sized -- never populated.
+if has_section kout '\.ctors'; then
+  want "CONSTRUCTORS contributed nothing" "$(( 16#$(sec_size kout .ctors) ))" "0"
+fi
+
+# OUTPUT_ARCH naming this target, and OUTPUT_ARCH naming another one: both are
+# accepted and neither reaches the ELF header.
+{ echo 'OUTPUT_ARCH(i386:x86-64)'; body; } > a1.ld
+link_ok aout -T a1.ld rt.o m.o
+want "OUTPUT_ARCH(i386:x86-64) leaves e_machine alone" \
+     "$(hdr aout | awk -F': *' '/^ *Machine:/{print $2}')" "$ctl_mach"
+run_expect aout "ctors" 5
+
+{ echo 'OUTPUT_ARCH(aarch64)'; body; } > a2.ld
+link_ok fout -T a2.ld rt.o m.o
+want "a foreign OUTPUT_ARCH is ignored, not honoured" \
+     "$(hdr fout | awk -F': *' '/^ *Machine:/{print $2}')" "$ctl_mach"
+want "a foreign OUTPUT_ARCH leaves the class alone" \
+     "$(hdr fout | awk -F': *' '/^ *Class:/{print $2}')" "ELF64"
+run_expect fout "ctors" 5
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

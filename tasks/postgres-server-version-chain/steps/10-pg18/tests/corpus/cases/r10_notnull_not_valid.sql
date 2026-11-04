@@ -1,0 +1,8 @@
+CREATE TABLE r10nn5(a int);
+INSERT INTO r10nn5 VALUES (NULL),(1);
+ALTER TABLE r10nn5 ADD CONSTRAINT r10nn5_nn NOT NULL a NOT VALID;
+SELECT conname, contype, convalidated FROM pg_constraint WHERE conrelid = 'r10nn5'::regclass ORDER BY conname;
+INSERT INTO r10nn5 VALUES (NULL);
+ALTER TABLE r10nn5 VALIDATE CONSTRAINT r10nn5_nn;
+SELECT count(*) FROM r10nn5;
+DROP TABLE r10nn5;

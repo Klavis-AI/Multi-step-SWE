@@ -1,0 +1,51 @@
+[
+ {
+  "name": "sha256-object-model",
+  "setup": "git init -q --object-format=sha256 -b main . &&\nprintf 'hello\\n' > a && printf '' > empty && git add a empty &&\nGIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\n",
+  "probes": [
+   "git rev-parse --show-object-format",
+   "git config core.repositoryformatversion",
+   "git config extensions.objectformat",
+   "git hash-object a",
+   "git hash-object empty",
+   "git rev-parse HEAD",
+   "git cat-file -p HEAD^{tree}",
+   "git cat-file -s $(git hash-object a)",
+   "git cat-file commit HEAD | sed -n '1,2p'",
+   "git rev-parse HEAD | wc -c",
+   "git ls-tree HEAD"
+  ]
+ },
+ {
+  "name": "sha256-pack-index",
+  "setup": "git init -q --object-format=sha256 -b main . &&\nfor i in 1 2 3 4 5; do printf '%s\\n' \"$i\" > f$i && git add f$i && GIT_AUTHOR_DATE=\"@$((1112911993+i)) +0000\" GIT_COMMITTER_DATE=\"@$((1112911993+i)) +0000\" git commit -q -m c$i; done &&\ngit repack -q -a -d\n",
+  "probes": [
+   "git rev-list --all",
+   "git rev-list --objects --all | sort",
+   "git verify-pack -v .git/objects/pack/*.idx | grep -E '^[0-9a-f]+ (commit|tree|blob)' | awk '{print $1, $2}' | sort",
+   "git fsck --strict 2>&1 | grep -viE 'checking|^$' | head -2; echo fsck-done",
+   "git cat-file --batch-check --batch-all-objects | awk '{print $1, $2}' | sort"
+  ]
+ },
+ {
+  "name": "sha256-refs-log",
+  "setup": "git init -q --object-format=sha256 -b main . &&\nprintf 'x\\n' > x && git add x && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1 &&\ngit branch dev && git tag -a v1 -m v1\n",
+  "probes": [
+   "git show-ref",
+   "git for-each-ref --format='%(objectname) %(refname)'",
+   "git rev-parse v1^{commit}",
+   "git log --oneline --format='%H %s'",
+   "git rev-parse --show-object-format"
+  ]
+ },
+ {
+  "name": "sha1-still-works",
+  "setup": "git init -q -b main . &&\nprintf 'y\\n' > y && git add y && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\n",
+  "probes": [
+   "git rev-parse --show-object-format",
+   "git rev-parse HEAD | wc -c",
+   "git config core.repositoryformatversion",
+   "git cat-file -t HEAD"
+  ]
+ }
+]

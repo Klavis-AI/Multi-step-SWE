@@ -1,0 +1,20 @@
+CREATE TABLE x07_28a(a int PRIMARY KEY, b text, c int);
+CREATE PUBLICATION x07_28p FOR TABLE x07_28a (a, nosuchcol);
+ERROR:  column "nosuchcol" of relation "x07_28a" does not exist
+CREATE PUBLICATION x07_28p FOR TABLE x07_28a ();
+ERROR:  syntax error at or near ")"
+LINE 1: CREATE PUBLICATION x07_28p FOR TABLE x07_28a ();
+                                                      ^
+CREATE PUBLICATION x07_28p FOR TABLE x07_28a (a, a);
+ERROR:  duplicate column "a" in publication column list
+CREATE PUBLICATION x07_28p FOR TABLE x07_28a (b) WITH (publish = 'update');
+WARNING:  "wal_level" is insufficient to publish logical changes
+HINT:  Set "wal_level" to "logical" before creating subscriptions.
+SELECT count(*) FROM pg_publication WHERE pubname='x07_28p';
+ count 
+-------
+     1
+(1 row)
+
+DROP PUBLICATION IF EXISTS x07_28p;
+DROP TABLE x07_28a;

@@ -1,0 +1,45 @@
+{
+ "doc": "stages/filters.hag_nn.rst Example #3: 'If you don't yet have points classified as ground, start with :ref:`filters.pmf` or :ref:`filters.smrf` to label ground returns' followed by filters.hag_nn and filters.ferry ``HeightAboveGround=>Z``. terrain.las is a sloped plane (1600 pts) plus a 6x6 block at +8 m and a 4x4 block at +3 m; after ground labelling by filters.csf the HAG of the blocks is exactly 8 and 3, ground is 0.",
+ "files": {
+  "in.las": {
+   "fixture": "terrain.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\": [\"in.las\", {\"type\": \"filters.csf\"}, {\"type\": \"filters.hag_nn\"}, {\"type\": \"filters.ferry\", \"dimensions\": \"HeightAboveGround=>Z\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": 1652
+   },
+   "dims": {
+    "Z": {
+     "count_equal": {
+      "0": 1600,
+      "8": 36,
+      "3": 16
+     },
+     "sum": 336,
+     "max": 8,
+     "tol": 1e-06
+    }
+   }
+  }
+ ]
+}

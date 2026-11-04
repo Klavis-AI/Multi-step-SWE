@@ -1,0 +1,53 @@
+# arch: x86_64
+# spec/00 8: "an unknown relocation type appears in a retained section" MUST be
+# a diagnosed failure from 0.2.0. The fixture is a normal PC32 reference whose
+# r_info type field is overwritten with 0xfa (250), a number no x86-64 psABI
+# relocation uses (03-x86-64-relocations.md 2's table stops well below it), so
+# the only difference from the control link is the relocation type itself. The
+# reference is inside `entry`, which `_start` calls, so the section is retained
+# and the relocation is actually applied -- a relocation in a section that GC
+# drops is never applied and never diagnosed.
+#
+# Deliberately NOT asserted: the exit status, and the type token. Measured,
+# the status is 1 at 0.2.0, *0* at 0.3.0 and 255 from 0.4.0; the message says
+# `Unsupported relocation type 250` at 0.2.0, `... 0xfa` from 0.4.0, and names
+# no number at all at 0.3.0. What all nine tags agree on is that a diagnostic
+# reaches stderr, stdout stays empty, and no file is left at the -o path.
+rt_obj rt.o
+cat > u.s <<'S'
+        .text
+        .globl entry
+entry:  movl    gv(%rip), %eax
+        ret
+        .data
+        .globl gv
+gv:     .long   7
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj u.o u.s
+
+# The control: with the real R_X86_64_PC32 this links, runs and returns gv.
+link_ok good rt.o u.o
+run_expect good "" 7
+
+# Overwrite the type half of the single .rela.text entry. r_info is the second
+# 8-byte field of an Elf64_Rela, and its low 32 bits are the type, so the four
+# bytes at <section offset> + 8 are the little-endian type.
+cp u.o ubad.o
+roff=$(sections ubad.o | awk '{ for (i = 1; i <= NF; i++) if ($i == ".rela.text") { print $(i+3); exit } }')
+[ -n "$roff" ] || die "could not locate .rela.text in the fixture object"
+want ".rela.text holds exactly one entry" \
+     "$(( 16#$(sec_size ubad.o .rela.text) / 24 ))" "1"
+printf '\372\000\000\000' | dd of=ubad.o bs=1 seek=$(( 16#$roff + 8 )) count=4 conv=notrunc status=none
+want_has "the patched input carries an unrecognised relocation type" \
+     "$(relocs ubad.o)" 'Unknown|0xfa|250'
+
+link out rt.o ubad.o
+want_has "the unknown relocation type is diagnosed on stderr" "$LINK_ERR" '.'
+want "nothing is printed on stdout" "$LINK_STDOUT" ""
+[ -e out ] && die "the rejected link left a file at the -o path: $(ls -l out)"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. Measured identical at every tag where
+# this case passes.
+asserts_at_least 4

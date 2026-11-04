@@ -1,0 +1,48 @@
+# arch: x86_64
+# OUTPUT_FORMAT is no longer parsed-and-ignored: a format that matches the
+# target is accepted, and one that does not is a diagnosed link failure.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 5;
+int entry(void) { print("format\n"); return g; }
+C
+cc_obj m.o m.c
+mkscript() { cat > t.ld <<L
+OUTPUT_FORMAT($1)
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .data : { *(.data .data.*) }
+}
+L
+}
+
+mkscript elf64-x86-64
+link_ok out -T t.ld rt.o m.o
+want "e_machine" "$(hdr out | awk -F': *' '/^ *Machine:/{print $2}')" "Advanced Micro Devices X86-64"
+run_expect out "format" 5
+
+# A 32-bit format for this architecture must be refused, and so must a 64-bit
+# format for another architecture. Of the diagnostic, only ONE thing is graded:
+# that it names one of the two tokens the script itself supplied -- the
+# OUTPUT_FORMAT keyword, or the format string that was rejected. Requiring a
+# particular one of the two would grade a wording rather than a contract, and
+# the reference makes the point: at this tag it names the format alone in the
+# first arm below and OUTPUT_FORMAT alone in the second. See TEST_INTERFACE.md
+# s.2's rule that only the token a milestone names is graded, and step 9's
+# section, which states this disjunction.
+diagnosed() { # diagnosed <stderr> <format-string> -> yes|no
+  grep -qE -- "OUTPUT_FORMAT|$2" <<<"$1" && echo yes || echo no
+}
+mkscript elf32-i386
+link_fails bad32 -T t.ld rt.o m.o
+want "the 32-bit format is refused with a diagnostic that names it" \
+     "$(diagnosed "$LINK_OUT" elf32-i386)" "yes"
+[ -s bad32 ] && want_not "no usable output left behind" "$(hdr bad32)" 'Class: *ELF32'
+
+mkscript elf64-littleaarch64
+link_fails badarch -T t.ld rt.o m.o
+want "the foreign architecture is refused with a diagnostic that names it" \
+     "$(diagnosed "$LINK_OUT" elf64-littleaarch64)" "yes"
+asserts_at_least 3

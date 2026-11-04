@@ -1,0 +1,392 @@
+/****************************************************************************\
+*                                                                            *
+*  ISE (Iris Server Engine) Project                                          *
+*  http://github.com/haoxingeng/ise                                          *
+*                                                                            *
+*  Copyright 2013 HaoXinGeng (haoxingeng@gmail.com)                          *
+*  All rights reserved.                                                      *
+*                                                                            *
+*  Licensed under the Apache License, Version 2.0 (the "License");           *
+*  you may not use this file except in compliance with the License.          *
+*  You may obtain a copy of the License at                                   *
+*                                                                            *
+*      http://www.apache.org/licenses/LICENSE-2.0                            *
+*                                                                            *
+*  Unless required by applicable law or agreed to in writing, software       *
+*  distributed under the License is distributed on an "AS IS" BASIS,         *
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  *
+*  See the License for the specific language governing permissions and       *
+*  limitations under the License.                                            *
+*                                                                            *
+\****************************************************************************/
+
+///////////////////////////////////////////////////////////////////////////////
+// ise_thread.h
+///////////////////////////////////////////////////////////////////////////////
+
+#ifndef _ISE_THREAD_H_
+#define _ISE_THREAD_H_
+
+#include "ise/main/ise_options.h"
+
+#ifdef ISE_WINDOWS
+#include <stdio.h>
+#include <stdlib.h>
+#include <windows.h>
+#include <process.h>
+#endif
+
+#ifdef ISE_LINUX
+#include <stdio.h>
+#include <stdlib.h>
+// 还留着: 标准没有“取消一个线程”，也没有线程调度策略，这两件事仍走 pthread，
+// 经由 std::thread::native_handle()。
+#include <pthread.h>
+#endif
+
+#include <atomic>
+#include <system_error>
+#include <thread>
+
+#include "ise/main/ise_global_defs.h"
+#include "ise/main/ise_err_msgs.h"
+#include "ise/main/ise_classes.h"
+
+namespace ise
+{
+
+///////////////////////////////////////////////////////////////////////////////
+/* 说明
+
+一、Windows平台下和Linux平台下线程的主要区别:
+
+    1. Windows线程拥有Handle和ThreadId，而Linux线程只有ThreadId。
+    2. Windows线程只有ThreadPriority，而Linux线程有ThreadPolicy和ThreadPriority。
+
+*/
+///////////////////////////////////////////////////////////////////////////////
+
+class Thread;
+
+///////////////////////////////////////////////////////////////////////////////
+// 类型定义
+
+#ifdef ISE_WINDOWS
+// 线程优先级
+enum
+{
+    THREAD_PRI_IDLE         = 0,
+    THREAD_PRI_LOWEST       = 1,
+    THREAD_PRI_NORMAL       = 2,
+    THREAD_PRI_HIGHER       = 3,
+    THREAD_PRI_HIGHEST      = 4,
+    THREAD_PRI_TIMECRITICAL = 5
+};
+#endif
+
+#ifdef ISE_LINUX
+// 线程调度策略
+enum
+{
+    THREAD_POL_DEFAULT      = SCHED_OTHER,
+    THREAD_POL_RR           = SCHED_RR,
+    THREAD_POL_FIFO         = SCHED_FIFO
+};
+
+// 线程优先级
+enum
+{
+    THREAD_PRI_DEFAULT      = 0,
+    THREAD_PRI_MIN          = 0,
+    THREAD_PRI_MAX          = 99,
+    THREAD_PRI_HIGH         = 80
+};
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+// class ThreadImpl - 平台线程实现基类
+
+class ThreadImpl : boost::noncopyable
+{
+public:
+    friend class Thread;
+
+public:
+    ThreadImpl(Thread *thread);
+    virtual ~ThreadImpl() {}
+
+    virtual void run() = 0;
+    virtual void terminate();
+    virtual void kill() = 0;
+    virtual int waitFor() = 0;
+
+    void sleep(double seconds);
+    void interruptSleep() { isSleepInterrupted_ = true; }
+    bool isRunning() { return isExecuting_; }
+
+    // 属性 (getter)
+    Thread* getThread() { return (Thread*)&thread_; }
+    THREAD_ID getThreadId() const { return threadId_; }
+    int isTerminated() const { return terminated_; }
+    int getReturnValue() const { return returnValue_; }
+    bool isAutoDelete() const { return isAutoDelete_; }
+    int getTermElapsedSecs() const;
+    // 属性 (setter)
+    void setThreadId(THREAD_ID value) { threadId_ = value; }
+    void setExecuting(bool value) { isExecuting_ = value; }
+    void setTerminated(bool value);
+    void setReturnValue(int value) { returnValue_ = value; }
+    void setAutoDelete(bool value) { isAutoDelete_ = value; }
+
+protected:
+    void execute();
+    void afterExecute();
+    void beforeTerminate();
+    void beforeKill();
+
+    void checkNotRunning();
+
+protected:
+    // 下面四个成员一律由一个线程写、另一个线程读 (terminate() 在别人的线程里
+    // 把 terminated_ 置起，线程函数自己轮询它; threadId_ 由线程函数自己填，
+    // 而 getTermElapsedSecs() 和 waitFor() 在别人的线程里读它、写它)。
+    // 这种读写就是数据竞争，除非它是原子的。
+    Thread& thread_;              // 相关联的 Thread 对象
+    std::atomic<THREAD_ID> threadId_;     // 线程ID (线程在内核中的ID)
+    std::atomic<bool> isExecuting_;       // 线程是否正在执行线程函数
+    bool isRunCalled_;            // run() 函数是否已被调用过
+    int termTime_;                // 调用 terminate() 时的时间戳
+    bool isAutoDelete_;           // 线程退出时是否同时释放类对象
+    std::atomic<bool> terminated_;        // 是否应退出的标志
+    std::atomic<bool> isSleepInterrupted_;  // 睡眠是否被中断
+    int returnValue_;             // 线程返回值 (可在 execute 函数中修改此值，函数 waitFor 返回此值)
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// class WinThreadImpl - Windows平台线程实现类
+
+#ifdef ISE_WINDOWS
+class WinThreadImpl : public ThreadImpl
+{
+public:
+    friend UINT __stdcall threadExecProc(void *param);
+
+public:
+    WinThreadImpl(Thread *thread);
+    virtual ~WinThreadImpl();
+
+    virtual void run();
+    virtual void terminate();
+    virtual void kill();
+    virtual int waitFor();
+
+    int getPriority() const { return priority_; }
+    void setPriority(int value);
+
+private:
+    void checkThreadError(bool success);
+
+protected:
+    HANDLE handle_;               // 线程句柄
+    int priority_;                // 线程优先级
+};
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+// class LinuxThreadImpl - Linux平台线程实现类
+
+#ifdef ISE_LINUX
+class LinuxThreadImpl : public ThreadImpl
+{
+public:
+    friend void threadFinalProc(void *param);
+    friend void threadExecProc(LinuxThreadImpl *threadImpl);
+
+public:
+    LinuxThreadImpl(Thread *thread);
+    ~LinuxThreadImpl() override;
+
+    void run() override;
+    void terminate() override;
+    void kill() override;
+    int waitFor() override;
+
+    int getPolicy() const { return policy_; }
+    int getPriority() const { return priority_; }
+    void setPolicy(int value);
+    void setPriority(int value);
+
+private:
+    void checkThreadError(int errorCode);
+
+protected:
+    std::thread thread_;          // 线程本身; joinable() 即“已创建且未被 join/detach”
+    int policy_;                  // 线程调度策略 (THREAD_POLICY_XXX)
+    int priority_;                // 线程优先级 (0..99)
+    std::unique_ptr<Semaphore> execSem_;   // 用于启动线程函数时暂时阻塞
+};
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+// class Thread - 线程类
+
+class Thread : boost::noncopyable
+{
+public:
+    typedef std::function<void (Thread& thread)> ThreadProc;
+
+public:
+    Thread() : threadImpl_(this) {}
+    virtual ~Thread() {}
+
+    // 创建一个线程并马上执行
+    static Thread* create(const ThreadProc& threadProc);
+
+    // 创建并执行线程。
+    // 注: 此成员方法在对象声明周期中只可调用一次。
+    void run() { threadImpl_.run(); }
+
+    // 通知线程退出 (自愿退出机制)
+    // 注: 若线程由于某些阻塞式操作迟迟不退出，可调用 kill() 强行退出。
+    void terminate() { threadImpl_.terminate(); }
+
+    // 强行杀死线程 (强行退出机制)
+    void kill() { threadImpl_.kill(); }
+
+    // 等待线程退出
+    int waitFor() { return threadImpl_.waitFor(); }
+
+    // 进入睡眠状态 (睡眠过程中会检测 terminated_ 的状态)
+    // 注: 此函数必须由线程自己调用方可生效。
+    void sleep(double seconds) { threadImpl_.sleep(seconds); }
+    // 打断睡眠
+    void interruptSleep() { threadImpl_.interruptSleep(); }
+
+    // 判断线程是否正在运行
+    bool isRunning() { return threadImpl_.isRunning(); }
+
+    // 属性 (getter)
+    THREAD_ID getThreadId() const { return threadImpl_.getThreadId(); }
+    int isTerminated() const { return threadImpl_.isTerminated(); }
+    int getReturnValue() const { return threadImpl_.getReturnValue(); }
+    bool isAutoDelete() const { return threadImpl_.isAutoDelete(); }
+    int getTermElapsedSecs() const { return threadImpl_.getTermElapsedSecs(); }
+#ifdef ISE_WINDOWS
+    int getPriority() const { return threadImpl_.getPriority(); }
+#endif
+#ifdef ISE_LINUX
+    int getPolicy() const { return threadImpl_.getPolicy(); }
+    int getPriority() const { return threadImpl_.getPriority(); }
+#endif
+    // 属性 (setter)
+    void setTerminated(bool value) { threadImpl_.setTerminated(value); }
+    void setReturnValue(int value) { threadImpl_.setReturnValue(value); }
+    void setAutoDelete(bool value) { threadImpl_.setAutoDelete(value); }
+#ifdef ISE_WINDOWS
+    void setPriority(int value) { threadImpl_.setPriority(value); }
+#endif
+#ifdef ISE_LINUX
+    void setPolicy(int value) { threadImpl_.setPolicy(value); }
+    void setPriority(int value) { threadImpl_.setPriority(value); }
+#endif
+
+protected:
+    // 线程的执行函数，子类必须重写。
+    virtual void execute() { if (threadProc_) threadProc_(*this); }
+
+    // 在执行完 execute() 后，永远会执行此函数。
+    virtual void afterExecute() {}
+
+    // 执行 terminate() 前的附加操作。
+    // 注: 由于 terminate() 属于自愿退出机制，为了能让线程能尽快退出，除了
+    // terminated_ 标志被设为 true 之外，有时还应当补充一些附加的操作以
+    // 便能让线程尽快从阻塞操作中解脱出来。
+    virtual void beforeTerminate() {}
+
+    // 执行 kill() 前的附加操作。
+    // 注: 线程被杀死后，用户所管理的某些重要资源可能未能得到释放，比如锁资源
+    // (还未来得及解锁便被杀了)，所以重要资源的释放工作必须在 beforeKill 中进行。
+    virtual void beforeKill() {}
+
+private:
+#ifdef ISE_WINDOWS
+    WinThreadImpl threadImpl_;
+#endif
+#ifdef ISE_LINUX
+    LinuxThreadImpl threadImpl_;
+#endif
+
+    ThreadProc threadProc_;
+
+    friend class ThreadImpl;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// class ThreadList - 线程列表
+
+class ThreadList : boost::noncopyable
+{
+public:
+    ThreadList();
+    virtual ~ThreadList();
+
+    void add(Thread *thread);
+    void remove(Thread *thread);
+    bool exists(Thread *thread);
+    void clear();
+
+    void terminateAllThreads();
+    void waitForAllThreads(int maxWaitSecs = TIMEOUT_INFINITE, int *killedCount = nullptr);
+
+    int getCount() const { return items_.getCount(); }
+    Thread* getItem(int index) const { return items_[index]; }
+    Thread* operator[] (int index) const { return getItem(index); }
+
+    Mutex& getMutex() const { return mutex_; }
+
+protected:
+    ObjectList<Thread> items_;    // 仅登记线程，不持有线程对象
+    mutable Mutex mutex_;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// class ThreadPool - 线程池
+
+class ThreadPool : boost::noncopyable
+{
+public:
+    typedef std::function<void (Thread& thread)> Task;
+
+public:
+    ThreadPool();
+    virtual ~ThreadPool();
+
+    void start(int threadCount);
+    void stop(int maxWaitSecs = TIMEOUT_INFINITE);
+
+    void addTask(const Task& task);
+    void setTaskRepeat(bool repeat);
+
+    bool isRunning() const { return isRunning_; }
+
+private:
+    // 取出一个待执行的任务；池已停止且队列已空时返回空值。
+    // 返回 optional 而不是 bool 加输出参数：调用方不必先构造一个
+    // 未初始化的 Task，"没有任务" 也不再需要一个约定俗成的返回值。
+    std::optional<Task> takeTask();
+    void threadProc(Thread& thread);
+
+private:
+    Condition::Mutex mutex_;
+    Condition condition_;
+    std::deque<Task> tasks_;
+    ThreadList threadList_;
+    bool isRunning_;
+    bool repeat_;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
+} // namespace ise
+
+#endif // _ISE_THREAD_H_

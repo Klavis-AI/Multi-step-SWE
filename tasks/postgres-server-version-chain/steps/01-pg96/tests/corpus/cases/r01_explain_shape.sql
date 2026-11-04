@@ -1,0 +1,4 @@
+CREATE TABLE ex(i int);
+INSERT INTO ex VALUES (1);
+SELECT count(*) FROM ex;
+DROP TABLE ex;

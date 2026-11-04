@@ -1,0 +1,8 @@
+CREATE TABLE r09ms1_t(id int primary key, v int);
+CREATE TABLE r09ms1_s(id int, v int);
+INSERT INTO r09ms1_t VALUES (1,10),(2,20),(3,30);
+INSERT INTO r09ms1_s VALUES (2,200);
+MERGE INTO r09ms1_t t USING r09ms1_s s ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE THEN DELETE;
+SELECT id, v FROM r09ms1_t ORDER BY id;
+DROP TABLE r09ms1_t, r09ms1_s;

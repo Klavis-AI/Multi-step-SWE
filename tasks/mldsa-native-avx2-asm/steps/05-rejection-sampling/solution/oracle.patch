@@ -1,0 +1,876 @@
+diff --git a/mldsa/mldsa_native.c b/mldsa/mldsa_native.c
+--- a/mldsa/mldsa_native.c
++++ b/mldsa/mldsa_native.c
+@@ -690,6 +690,10 @@
+ #undef MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_32
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_88
++#undef MLD_USE_NATIVE_REJ_UNIFORM
++#undef MLD_USE_NATIVE_REJ_UNIFORM_ETA2
++#undef MLD_USE_NATIVE_REJ_UNIFORM_ETA4
++#undef mld_rej_uniform_table
+ #endif /* MLD_SYS_AARCH64 */
+ #if defined(MLD_SYS_X86_64)
+ /*
+@@ -711,6 +715,9 @@
+ #undef MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_32
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_88
++#undef MLD_USE_NATIVE_REJ_UNIFORM
++#undef MLD_USE_NATIVE_REJ_UNIFORM_ETA2
++#undef MLD_USE_NATIVE_REJ_UNIFORM_ETA4
+ #undef MLD_AVX2_REJ_UNIFORM_BUFLEN
+ #undef MLD_AVX2_REJ_UNIFORM_ETA2_BUFLEN
+ #undef MLD_AVX2_REJ_UNIFORM_ETA4_BUFLEN
+@@ -728,6 +735,10 @@
+ #undef mld_poly_decompose_88_avx2_asm
+ #undef mld_poly_use_hint_32_avx2_asm
+ #undef mld_poly_use_hint_88_avx2_asm
++#undef mld_rej_uniform_avx2_asm
++#undef mld_rej_uniform_eta2_avx2_asm
++#undef mld_rej_uniform_eta4_avx2_asm
++#undef mld_rej_uniform_table
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XDIV
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XDIV_QINV
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XQ
+diff --git a/mldsa/mldsa_native_asm.S b/mldsa/mldsa_native_asm.S
+--- a/mldsa/mldsa_native_asm.S
++++ b/mldsa/mldsa_native_asm.S
+@@ -688,6 +688,10 @@
+ #undef MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_32
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_88
++#undef MLD_USE_NATIVE_REJ_UNIFORM
++#undef MLD_USE_NATIVE_REJ_UNIFORM_ETA2
++#undef MLD_USE_NATIVE_REJ_UNIFORM_ETA4
++#undef mld_rej_uniform_table
+ #endif /* MLD_SYS_AARCH64 */
+ #if defined(MLD_SYS_X86_64)
+ /*
+@@ -709,6 +713,9 @@
+ #undef MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_32
+ #undef MLD_USE_NATIVE_POLY_USE_HINT_88
++#undef MLD_USE_NATIVE_REJ_UNIFORM
++#undef MLD_USE_NATIVE_REJ_UNIFORM_ETA2
++#undef MLD_USE_NATIVE_REJ_UNIFORM_ETA4
+ #undef MLD_AVX2_REJ_UNIFORM_BUFLEN
+ #undef MLD_AVX2_REJ_UNIFORM_ETA2_BUFLEN
+ #undef MLD_AVX2_REJ_UNIFORM_ETA4_BUFLEN
+@@ -726,6 +733,10 @@
+ #undef mld_poly_decompose_88_avx2_asm
+ #undef mld_poly_use_hint_32_avx2_asm
+ #undef mld_poly_use_hint_88_avx2_asm
++#undef mld_rej_uniform_avx2_asm
++#undef mld_rej_uniform_eta2_avx2_asm
++#undef mld_rej_uniform_eta4_avx2_asm
++#undef mld_rej_uniform_table
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XDIV
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XDIV_QINV
+ #undef MLD_AVX2_BACKEND_DATA_OFFSET_8XQ
+diff --git a/mldsa/src/native/x86_64/meta.h b/mldsa/src/native/x86_64/meta.h
+--- a/mldsa/src/native/x86_64/meta.h
++++ b/mldsa/src/native/x86_64/meta.h
+@@ -14,6 +14,9 @@
+ #define MLD_USE_NATIVE_NTT_CUSTOM_ORDER
+ #define MLD_USE_NATIVE_NTT
+ #define MLD_USE_NATIVE_INTT
++#define MLD_USE_NATIVE_REJ_UNIFORM
++#define MLD_USE_NATIVE_REJ_UNIFORM_ETA2
++#define MLD_USE_NATIVE_REJ_UNIFORM_ETA4
+ #define MLD_USE_NATIVE_POLY_DECOMPOSE_32
+ #define MLD_USE_NATIVE_POLY_DECOMPOSE_88
+ #define MLD_USE_NATIVE_POLY_CADDQ
+@@ -62,12 +65,79 @@
+   return MLD_NATIVE_FUNC_SUCCESS;
+ }
+ 
++MLD_MUST_CHECK_RETURN_VALUE
++static MLD_INLINE int mld_rej_uniform_native(int32_t *r, unsigned len,
++                                             const uint8_t *buf,
++                                             unsigned buflen)
++{
++  /* AVX2 implementation assumes specific buffer lengths */
++  if (!mld_sys_check_capability(MLD_SYS_CAP_X86_64_AVX2) || len != MLDSA_N ||
++      buflen != MLD_AVX2_REJ_UNIFORM_BUFLEN)
++  {
++    return MLD_NATIVE_FUNC_FALLBACK;
++  }
++
++  /* Safety: outlen is at most MLDSA_N and, hence, this cast is safe. */
++  return (int)mld_rej_uniform_avx2_asm(r, buf, mld_rej_uniform_table);
++}
+ 
+ #if !defined(MLD_CONFIG_NO_KEYPAIR_API)
+ #if defined(MLD_CONFIG_MULTILEVEL_WITH_SHARED) || MLDSA_ETA == 2
++MLD_MUST_CHECK_RETURN_VALUE
++static MLD_INLINE int mld_rej_uniform_eta2_native(int32_t *r, unsigned len,
++                                                  const uint8_t *buf,
++                                                  unsigned buflen)
++{
++  unsigned int outlen;
++  /* AVX2 implementation assumes specific buffer lengths */
++  if (!mld_sys_check_capability(MLD_SYS_CAP_X86_64_AVX2) || len != MLDSA_N ||
++      buflen != MLD_AVX2_REJ_UNIFORM_ETA2_BUFLEN)
++  {
++    return MLD_NATIVE_FUNC_FALLBACK;
++  }
++
++  /* Constant time: Inputs and outputs to this function are secret.
++   * It is safe to leak which coefficients are accepted/rejected.
++   * The assembly implementation must not leak any other information about the
++   * accepted coefficients. Constant-time testing cannot cover this, and we
++   * hence have to manually verify the assembly.
++   * We declassify prior the input data and mark the outputs as secret.
++   */
++  MLD_CT_TESTING_DECLASSIFY(buf, buflen);
++  outlen = mld_rej_uniform_eta2_avx2_asm(r, buf, mld_rej_uniform_table);
++  MLD_CT_TESTING_SECRET(r, sizeof(int32_t) * outlen);
++  /* Safety: outlen is at most MLDSA_N and, hence, this cast is safe. */
++  return (int)outlen;
++}
+ #endif /* MLD_CONFIG_MULTILEVEL_WITH_SHARED || MLDSA_ETA == 2 */
+ 
+ #if defined(MLD_CONFIG_MULTILEVEL_WITH_SHARED) || MLDSA_ETA == 4
++MLD_MUST_CHECK_RETURN_VALUE
++static MLD_INLINE int mld_rej_uniform_eta4_native(int32_t *r, unsigned len,
++                                                  const uint8_t *buf,
++                                                  unsigned buflen)
++{
++  unsigned int outlen;
++  /* AVX2 implementation assumes specific buffer lengths */
++  if (!mld_sys_check_capability(MLD_SYS_CAP_X86_64_AVX2) || len != MLDSA_N ||
++      buflen != MLD_AVX2_REJ_UNIFORM_ETA4_BUFLEN)
++  {
++    return MLD_NATIVE_FUNC_FALLBACK;
++  }
++
++  /* Constant time: Inputs and outputs to this function are secret.
++   * It is safe to leak which coefficients are accepted/rejected.
++   * The assembly implementation must not leak any other information about the
++   * accepted coefficients. Constant-time testing cannot cover this, and we
++   * hence have to manually verify the assembly.
++   * We declassify prior the input data and mark the outputs as secret.
++   */
++  MLD_CT_TESTING_DECLASSIFY(buf, buflen);
++  outlen = mld_rej_uniform_eta4_avx2_asm(r, buf, mld_rej_uniform_table);
++  MLD_CT_TESTING_SECRET(r, sizeof(int32_t) * outlen);
++  /* Safety: outlen is at most MLDSA_N and, hence, this cast is safe. */
++  return (int)outlen;
++}
+ #endif /* MLD_CONFIG_MULTILEVEL_WITH_SHARED || MLDSA_ETA == 4 */
+ #endif /* !MLD_CONFIG_NO_KEYPAIR_API */
+ 
+diff --git a/mldsa/src/native/x86_64/src/mldsa_rej_uniform_avx2_asm.S b/mldsa/src/native/x86_64/src/mldsa_rej_uniform_avx2_asm.S
+--- /dev/null
++++ b/mldsa/src/native/x86_64/src/mldsa_rej_uniform_avx2_asm.S
+@@ -0,0 +1,132 @@
++/*
++ * Copyright (c) The mldsa-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Dilithium optimized AVX2 implementation
++ *   Bai, Ducas, Kiltz, Lepoint, Lyubashevsky, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/dilithium/tree/master/avx2
++ */
++
++/*
++ * This file is derived from the public domain
++ * AVX2 Dilithium implementation @[REF_AVX2].
++ */
++
++/*yaml
++  Name: rej_uniform_avx2_asm
++  Description: x86_64 AVX2 rejection sampling of uniform coefficients mod q.
++    Extract 23-bit values from the input byte buffer and accept those that are
++    < MLDSA_Q, writing accepted coefficients to the output buffer. Returns the
++    number of valid coefficients written (at most 256).
++  Signature: unsigned mld_rej_uniform_avx2_asm(int32_t *r, const uint8_t buf[840], const uint8_t table[256][8])
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 1024
++      permissions: write-only
++      c_parameter: int32_t *r
++      description: Output buffer (256 x int32_t)
++    rsi:
++      type: buffer
++      size_bytes: 840
++      permissions: read-only
++      c_parameter: const uint8_t buf[840]
++      description: Input buffer (MLD_POLY_UNIFORM_NBLOCKS * SHAKE128_RATE = 5 * 168)
++    rdx:
++      type: buffer
++      size_bytes: 2048
++      permissions: read-only
++      c_parameter: const uint8_t table[256][8]
++      description: Lookup table (256 x 8 x uint8_t)
++*/
++
++#include "../../../common.h"
++#if defined(MLD_ARITH_BACKEND_X86_64_DEFAULT) && \
++    !defined(MLD_CONFIG_MULTILEVEL_NO_SHARED)
++
++/*
++ * WARNING: This file is auto-derived from the mldsa-native source file
++ *   dev/x86_64/src/mldsa_rej_uniform_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLD_ASM_NAMESPACE(rej_uniform_avx2_asm)
++MLD_ASM_FN_SYMBOL(rej_uniform_avx2_asm)
++
++        .cfi_startproc
++        movabsq $-0xfafbfc00fdff00, %r10 # imm = 0xFF050403FF020100
++        vmovq %r10, %xmm0
++        movabsq $-0xf4f5f600f7f8fa, %r10 # imm = 0xFF0B0A09FF080706
++        vpinsrq $0x1, %r10, %xmm0, %xmm0
++        movabsq $-0xf6f7f800f9fafc, %r10 # imm = 0xFF090807FF060504
++        vmovq %r10, %xmm3
++        movabsq $-0xf0f1f200f3f4f6, %r10 # imm = 0xFF0F0E0DFF0C0B0A
++        vpinsrq $0x1, %r10, %xmm3, %xmm3
++        vinserti128 $0x1, %xmm3, %ymm0, %ymm0
++        movl $0x7fffff, %r8d         # imm = 0x7FFFFF
++        vmovd %r8d, %xmm1
++        vpbroadcastd %xmm1, %ymm1
++        movl $0x7fe001, %r8d         # imm = 0x7FE001
++        vmovd %r8d, %xmm2
++        vpbroadcastd %xmm2, %ymm2
++        xorl %eax, %eax
++        xorl %ecx, %ecx
++
++Lmld_rej_uniform_avx2_asm_loop:
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_avx2_asm_scalar
++        cmpl $0x328, %ecx            # imm = 0x328
++        ja Lmld_rej_uniform_avx2_asm_scalar
++        vmovdqu (%rsi,%rcx), %ymm3
++        addl $0x18, %ecx
++        vpermq $0x94, %ymm3, %ymm3     # ymm3 = ymm3[0,1,1,2]
++        vpshufb %ymm0, %ymm3, %ymm3
++        vpand %ymm1, %ymm3, %ymm3
++        vpsubd %ymm2, %ymm3, %ymm4
++        vmovmskps %ymm4, %r8d
++        popcntl %r8d, %r9d
++        vmovq (%rdx,%r8,8), %xmm4
++        vpmovzxbd %xmm4, %ymm4    # ymm4 = xmm4[0],zero,zero,zero,xmm4[1],zero,zero,zero,xmm4[2],zero,zero,zero,xmm4[3],zero,zero,zero,xmm4[4],zero,zero,zero,xmm4[5],zero,zero,zero,xmm4[6],zero,zero,zero,xmm4[7],zero,zero,zero
++        vpermd %ymm3, %ymm4, %ymm3
++        vmovdqu %ymm3, (%rdi,%rax,4)
++        addl %r9d, %eax
++        jmp Lmld_rej_uniform_avx2_asm_loop
++
++Lmld_rej_uniform_avx2_asm_scalar:
++        cmpl $0x100, %eax            # imm = 0x100
++        jae Lmld_rej_uniform_avx2_asm_done
++        cmpl $0x345, %ecx            # imm = 0x345
++        ja Lmld_rej_uniform_avx2_asm_done
++        movzwl (%rsi,%rcx), %r8d
++        movzbl 0x2(%rsi,%rcx), %r9d
++        shll $0x10, %r9d
++        orl %r9d, %r8d
++        andl $0x7fffff, %r8d         # imm = 0x7FFFFF
++        addl $0x3, %ecx
++        cmpl $0x7fe001, %r8d         # imm = 0x7FE001
++        jae Lmld_rej_uniform_avx2_asm_scalar
++        movl %r8d, (%rdi,%rax,4)
++        addl $0x1, %eax
++        jmp Lmld_rej_uniform_avx2_asm_scalar
++
++Lmld_rej_uniform_avx2_asm_done:
++        retq
++        .cfi_endproc
++
++MLD_ASM_FN_SIZE(rej_uniform_avx2_asm)
++
++#endif /* MLD_ARITH_BACKEND_X86_64_DEFAULT && !MLD_CONFIG_MULTILEVEL_NO_SHARED \
++        */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif
+diff --git a/mldsa/src/native/x86_64/src/mldsa_rej_uniform_eta2_avx2_asm.S b/mldsa/src/native/x86_64/src/mldsa_rej_uniform_eta2_avx2_asm.S
+--- /dev/null
++++ b/mldsa/src/native/x86_64/src/mldsa_rej_uniform_eta2_avx2_asm.S
+@@ -0,0 +1,205 @@
++/*
++ * Copyright (c) The mldsa-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Dilithium optimized AVX2 implementation
++ *   Bai, Ducas, Kiltz, Lepoint, Lyubashevsky, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/dilithium/tree/master/avx2
++ */
++
++/*
++ * This file is derived from the public domain
++ * AVX2 Dilithium implementation @[REF_AVX2].
++ */
++
++/*yaml
++  Name: rej_uniform_eta2_avx2_asm
++  Description: x86_64 AVX2 rejection sampling of eta=2 secret coefficients.
++    Extracts 4-bit nibbles from the input byte buffer, accepts those < 15,
++    and maps an accepted nibble n to the coefficient 2 - (n mod 5) via a
++    centered modulo-5 reduction, producing values in [-2, 2].
++  Signature: unsigned mld_rej_uniform_eta2_avx2_asm(int32_t *r, const uint8_t *buf, const uint8_t table[256][8])
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 1024
++      permissions: write-only
++      c_parameter: int32_t *r
++      description: Output coefficient buffer (256 x int32_t)
++    rsi:
++      type: buffer
++      size_bytes: 136
++      permissions: read-only
++      c_parameter: const uint8_t *buf
++      description: Input byte buffer (MLD_AVX2_REJ_UNIFORM_ETA2_BUFLEN = 136)
++    rdx:
++      type: buffer
++      size_bytes: 2048
++      permissions: read-only
++      c_parameter: const uint8_t *table
++      description: Lookup table (256 x 8 uint8_t = mld_rej_uniform_table)
++*/
++
++#include "../../../common.h"
++#if defined(MLD_ARITH_BACKEND_X86_64_DEFAULT) && !defined(MLD_CONFIG_MULTILEVEL_NO_SHARED)
++
++/*
++ * WARNING: This file is auto-derived from the mldsa-native source file
++ *   dev/x86_64/src/mldsa_rej_uniform_eta2_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLD_ASM_NAMESPACE(rej_uniform_eta2_avx2_asm)
++MLD_ASM_FN_SYMBOL(rej_uniform_eta2_avx2_asm)
++
++        .cfi_startproc
++        movl $0xf0f0f0f, %r8d        # imm = 0xF0F0F0F
++        vmovd %r8d, %xmm3
++        vpbroadcastd %xmm3, %ymm3
++        movl $0x2020202, %r8d        # imm = 0x2020202
++        vmovd %r8d, %xmm4
++        vpbroadcastd %xmm4, %ymm4
++        movl $0xf0f0f0f, %r8d        # imm = 0xF0F0F0F
++        vmovd %r8d, %xmm5
++        vpbroadcastd %xmm5, %ymm5
++        movl $0xffffe660, %r8d       # imm = 0xFFFFE660
++        vpinsrw $0x0, %r8d, %xmm6, %xmm6
++        vpbroadcastw %xmm6, %ymm6
++        movl $0x5, %r8d
++        vpinsrw $0x0, %r8d, %xmm7, %xmm7
++        vpbroadcastw %xmm7, %ymm7
++        xorl %eax, %eax
++        xorl %ecx, %ecx
++
++Lmld_rej_uniform_eta2_avx2_asm_loop:
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_eta2_avx2_asm_scalar
++        cmpl $0x78, %ecx
++        ja Lmld_rej_uniform_eta2_avx2_asm_scalar
++        vpmovzxbw (%rsi,%rcx), %ymm0
++        vpsllw $0x4, %ymm0, %ymm1
++        vpor %ymm1, %ymm0, %ymm0
++        vpand %ymm3, %ymm0, %ymm0
++        vpsubb %ymm5, %ymm0, %ymm1
++        vpsubb %ymm0, %ymm4, %ymm0
++        vpmovmskb %ymm1, %r8d
++        vextracti128 $0x0, %ymm0, %xmm8
++        movzbl %r8b, %r10d
++        vmovq (%rdx,%r10,8), %xmm9
++        vpshufb %xmm9, %xmm8, %xmm9
++        vpmovsxbd %xmm9, %ymm1
++        vpmulhrsw %ymm6, %ymm1, %ymm2
++        vpmullw %ymm7, %ymm2, %ymm2
++        vpaddd %ymm2, %ymm1, %ymm1
++        vmovdqu %ymm1, (%rdi,%rax,4)
++        popcntl %r10d, %r9d
++        addl %r9d, %eax
++        shrl $0x8, %r8d
++        addl $0x4, %ecx
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_eta2_avx2_asm_scalar
++        vpsrldq $0x8, %xmm8, %xmm8      # xmm8 = xmm8[8,9,10,11,12,13,14,15],zero,zero,zero,zero,zero,zero,zero,zero
++        movzbl %r8b, %r10d
++        vmovq (%rdx,%r10,8), %xmm9
++        vpshufb %xmm9, %xmm8, %xmm9
++        vpmovsxbd %xmm9, %ymm1
++        vpmulhrsw %ymm6, %ymm1, %ymm2
++        vpmullw %ymm7, %ymm2, %ymm2
++        vpaddd %ymm2, %ymm1, %ymm1
++        vmovdqu %ymm1, (%rdi,%rax,4)
++        popcntl %r10d, %r9d
++        addl %r9d, %eax
++        shrl $0x8, %r8d
++        addl $0x4, %ecx
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_eta2_avx2_asm_scalar
++        vextracti128 $0x1, %ymm0, %xmm8
++        movzbl %r8b, %r10d
++        vmovq (%rdx,%r10,8), %xmm9
++        vpshufb %xmm9, %xmm8, %xmm9
++        vpmovsxbd %xmm9, %ymm1
++        vpmulhrsw %ymm6, %ymm1, %ymm2
++        vpmullw %ymm7, %ymm2, %ymm2
++        vpaddd %ymm2, %ymm1, %ymm1
++        vmovdqu %ymm1, (%rdi,%rax,4)
++        popcntl %r10d, %r9d
++        addl %r9d, %eax
++        shrl $0x8, %r8d
++        addl $0x4, %ecx
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_eta2_avx2_asm_scalar
++        vpsrldq $0x8, %xmm8, %xmm8      # xmm8 = xmm8[8,9,10,11,12,13,14,15],zero,zero,zero,zero,zero,zero,zero,zero
++        movzbl %r8b, %r10d
++        vmovq (%rdx,%r10,8), %xmm9
++        vpshufb %xmm9, %xmm8, %xmm9
++        vpmovsxbd %xmm9, %ymm1
++        vpmulhrsw %ymm6, %ymm1, %ymm2
++        vpmullw %ymm7, %ymm2, %ymm2
++        vpaddd %ymm2, %ymm1, %ymm1
++        vmovdqu %ymm1, (%rdi,%rax,4)
++        popcntl %r10d, %r9d
++        addl %r9d, %eax
++        addl $0x4, %ecx
++        jmp Lmld_rej_uniform_eta2_avx2_asm_loop
++
++Lmld_rej_uniform_eta2_avx2_asm_scalar:
++        cmpl $0x100, %eax            # imm = 0x100
++        jae Lmld_rej_uniform_eta2_avx2_asm_done
++        cmpl $0x88, %ecx
++        jae Lmld_rej_uniform_eta2_avx2_asm_done
++        movzbl (%rsi,%rcx), %r11d
++        incl %ecx
++        movl %r11d, %r10d
++        andl $0xf, %r10d
++        cmpl $0xf, %r10d
++        jae Lmld_rej_uniform_eta2_avx2_asm_high_nibble
++        movl %r10d, %r11d
++        imull $0xcd, %r11d, %r11d
++        shrl $0xa, %r11d
++        imull $0x5, %r11d, %r11d
++        subl %r11d, %r10d
++        movl $0x2, %r11d
++        subl %r10d, %r11d
++        movl %r11d, (%rdi,%rax,4)
++        incl %eax
++        cmpl $0x100, %eax            # imm = 0x100
++        jae Lmld_rej_uniform_eta2_avx2_asm_done
++
++Lmld_rej_uniform_eta2_avx2_asm_high_nibble:
++        movzbl -0x1(%rsi,%rcx), %r11d
++        shrl $0x4, %r11d
++        andl $0xf, %r11d
++        cmpl $0xf, %r11d
++        jae Lmld_rej_uniform_eta2_avx2_asm_scalar
++        movl %r11d, %r10d
++        imull $0xcd, %r10d, %r10d
++        shrl $0xa, %r10d
++        imull $0x5, %r10d, %r10d
++        subl %r10d, %r11d
++        movl $0x2, %r10d
++        subl %r11d, %r10d
++        movl %r10d, (%rdi,%rax,4)
++        incl %eax
++        jmp Lmld_rej_uniform_eta2_avx2_asm_scalar
++
++Lmld_rej_uniform_eta2_avx2_asm_done:
++        retq
++        .cfi_endproc
++
++MLD_ASM_FN_SIZE(rej_uniform_eta2_avx2_asm)
++
++#endif /* MLD_ARITH_BACKEND_X86_64_DEFAULT && !MLD_CONFIG_MULTILEVEL_NO_SHARED \
++        */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif
+diff --git a/mldsa/src/native/x86_64/src/mldsa_rej_uniform_eta4_avx2_asm.S b/mldsa/src/native/x86_64/src/mldsa_rej_uniform_eta4_avx2_asm.S
+--- /dev/null
++++ b/mldsa/src/native/x86_64/src/mldsa_rej_uniform_eta4_avx2_asm.S
+@@ -0,0 +1,176 @@
++/*
++ * Copyright (c) The mldsa-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Dilithium optimized AVX2 implementation
++ *   Bai, Ducas, Kiltz, Lepoint, Lyubashevsky, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/dilithium/tree/master/avx2
++ */
++
++/*
++ * This file is derived from the public domain
++ * AVX2 Dilithium implementation @[REF_AVX2].
++ */
++
++/*yaml
++  Name: rej_uniform_eta4_avx2_asm
++  Description: x86_64 AVX2 rejection sampling of eta=4 secret coefficients.
++    Extracts 4-bit nibbles from the input byte buffer, accepts those < 9,
++    and maps an accepted nibble n to the coefficient 4 - n, producing
++    values in [-4, 4].
++  Signature: unsigned mld_rej_uniform_eta4_avx2_asm(int32_t *r, const uint8_t *buf, const uint8_t table[256][8])
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 1024
++      permissions: write-only
++      c_parameter: int32_t *r
++      description: Output coefficient buffer (256 x int32_t)
++    rsi:
++      type: buffer
++      size_bytes: 272
++      permissions: read-only
++      c_parameter: const uint8_t *buf
++      description: Input byte buffer (MLD_AVX2_REJ_UNIFORM_ETA4_BUFLEN = 272)
++    rdx:
++      type: buffer
++      size_bytes: 2048
++      permissions: read-only
++      c_parameter: const uint8_t *table
++      description: Lookup table (256 x 8 uint8_t = mld_rej_uniform_table)
++*/
++
++#include "../../../common.h"
++#if defined(MLD_ARITH_BACKEND_X86_64_DEFAULT) && !defined(MLD_CONFIG_MULTILEVEL_NO_SHARED)
++
++/*
++ * WARNING: This file is auto-derived from the mldsa-native source file
++ *   dev/x86_64/src/mldsa_rej_uniform_eta4_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLD_ASM_NAMESPACE(rej_uniform_eta4_avx2_asm)
++MLD_ASM_FN_SYMBOL(rej_uniform_eta4_avx2_asm)
++
++        .cfi_startproc
++        movl $0xf0f0f0f, %r8d        # imm = 0xF0F0F0F
++        vmovd %r8d, %xmm2
++        vpbroadcastd %xmm2, %ymm2
++        movl $0x4040404, %r8d        # imm = 0x4040404
++        vmovd %r8d, %xmm3
++        vpbroadcastd %xmm3, %ymm3
++        movl $0x9090909, %r8d        # imm = 0x9090909
++        vmovd %r8d, %xmm4
++        vpbroadcastd %xmm4, %ymm4
++        xorl %eax, %eax
++        xorl %ecx, %ecx
++
++Lmld_rej_uniform_eta4_avx2_asm_loop:
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_eta4_avx2_asm_scalar
++        cmpl $0x100, %ecx            # imm = 0x100
++        ja Lmld_rej_uniform_eta4_avx2_asm_scalar
++        vpmovzxbw (%rsi,%rcx), %ymm0
++        vpsllw $0x4, %ymm0, %ymm1
++        vpor %ymm1, %ymm0, %ymm0
++        vpand %ymm2, %ymm0, %ymm0
++        vpsubb %ymm4, %ymm0, %ymm1
++        vpsubb %ymm0, %ymm3, %ymm0
++        vpmovmskb %ymm1, %r8d
++        vextracti128 $0x0, %ymm0, %xmm5
++        movzbl %r8b, %r10d
++        vmovq (%rdx,%r10,8), %xmm6
++        vpshufb %xmm6, %xmm5, %xmm6
++        vpmovsxbd %xmm6, %ymm1
++        vmovdqu %ymm1, (%rdi,%rax,4)
++        popcntl %r10d, %r9d
++        addl %r9d, %eax
++        shrl $0x8, %r8d
++        addl $0x4, %ecx
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_eta4_avx2_asm_scalar
++        vpsrldq $0x8, %xmm5, %xmm5      # xmm5 = xmm5[8,9,10,11,12,13,14,15],zero,zero,zero,zero,zero,zero,zero,zero
++        movzbl %r8b, %r10d
++        vmovq (%rdx,%r10,8), %xmm6
++        vpshufb %xmm6, %xmm5, %xmm6
++        vpmovsxbd %xmm6, %ymm1
++        vmovdqu %ymm1, (%rdi,%rax,4)
++        popcntl %r10d, %r9d
++        addl %r9d, %eax
++        shrl $0x8, %r8d
++        addl $0x4, %ecx
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_eta4_avx2_asm_scalar
++        vextracti128 $0x1, %ymm0, %xmm5
++        movzbl %r8b, %r10d
++        vmovq (%rdx,%r10,8), %xmm6
++        vpshufb %xmm6, %xmm5, %xmm6
++        vpmovsxbd %xmm6, %ymm1
++        vmovdqu %ymm1, (%rdi,%rax,4)
++        popcntl %r10d, %r9d
++        addl %r9d, %eax
++        shrl $0x8, %r8d
++        addl $0x4, %ecx
++        cmpl $0xf8, %eax
++        ja Lmld_rej_uniform_eta4_avx2_asm_scalar
++        vpsrldq $0x8, %xmm5, %xmm5      # xmm5 = xmm5[8,9,10,11,12,13,14,15],zero,zero,zero,zero,zero,zero,zero,zero
++        movzbl %r8b, %r10d
++        vmovq (%rdx,%r10,8), %xmm6
++        vpshufb %xmm6, %xmm5, %xmm6
++        vpmovsxbd %xmm6, %ymm1
++        vmovdqu %ymm1, (%rdi,%rax,4)
++        popcntl %r10d, %r9d
++        addl %r9d, %eax
++        addl $0x4, %ecx
++        jmp Lmld_rej_uniform_eta4_avx2_asm_loop
++
++Lmld_rej_uniform_eta4_avx2_asm_scalar:
++        cmpl $0x100, %eax            # imm = 0x100
++        jae Lmld_rej_uniform_eta4_avx2_asm_done
++        cmpl $0x110, %ecx            # imm = 0x110
++        jae Lmld_rej_uniform_eta4_avx2_asm_done
++        movzbl (%rsi,%rcx), %r11d
++        incl %ecx
++        movl %r11d, %r10d
++        andl $0xf, %r10d
++        cmpl $0x9, %r10d
++        jae Lmld_rej_uniform_eta4_avx2_asm_high_nibble
++        movl $0x4, %r9d
++        subl %r10d, %r9d
++        movl %r9d, (%rdi,%rax,4)
++        incl %eax
++        cmpl $0x100, %eax            # imm = 0x100
++        jae Lmld_rej_uniform_eta4_avx2_asm_done
++
++Lmld_rej_uniform_eta4_avx2_asm_high_nibble:
++        shrl $0x4, %r11d
++        andl $0xf, %r11d
++        cmpl $0x9, %r11d
++        jae Lmld_rej_uniform_eta4_avx2_asm_scalar
++        movl $0x4, %r10d
++        subl %r11d, %r10d
++        movl %r10d, (%rdi,%rax,4)
++        incl %eax
++        jmp Lmld_rej_uniform_eta4_avx2_asm_scalar
++
++Lmld_rej_uniform_eta4_avx2_asm_done:
++        retq
++        .cfi_endproc
++
++MLD_ASM_FN_SIZE(rej_uniform_eta4_avx2_asm)
++
++#endif /* MLD_ARITH_BACKEND_X86_64_DEFAULT && !MLD_CONFIG_MULTILEVEL_NO_SHARED \
++        */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif
+diff --git a/mldsa/src/native/x86_64/src/rej_uniform_table.c b/mldsa/src/native/x86_64/src/rej_uniform_table.c
+--- /dev/null
++++ b/mldsa/src/native/x86_64/src/rej_uniform_table.c
+@@ -0,0 +1,161 @@
++/*
++ * Copyright (c) The mldsa-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/*
++ * WARNING: This file is auto-generated from scripts/autogen
++ *          in the mldsa-native repository.
++ *          Do not modify it directly.
++ */
++
++#include "../../../common.h"
++
++#if defined(MLD_ARITH_BACKEND_X86_64_DEFAULT) && \
++    !defined(MLD_CONFIG_MULTILEVEL_NO_SHARED)
++
++#include "arith_native_x86_64.h"
++
++/*
++ * Lookup table used by rejection sampling.
++ * See autogen for details.
++ */
++MLD_ALIGN MLD_INTERNAL_DATA_DEFINITION const uint8_t
++    mld_rej_uniform_table[256][8] = {
++        {0, 0, 0, 0, 0, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0},
++        {1, 0, 0, 0, 0, 0, 0, 0}, {0, 1, 0, 0, 0, 0, 0, 0},
++        {2, 0, 0, 0, 0, 0, 0, 0}, {0, 2, 0, 0, 0, 0, 0, 0},
++        {1, 2, 0, 0, 0, 0, 0, 0}, {0, 1, 2, 0, 0, 0, 0, 0},
++        {3, 0, 0, 0, 0, 0, 0, 0}, {0, 3, 0, 0, 0, 0, 0, 0},
++        {1, 3, 0, 0, 0, 0, 0, 0}, {0, 1, 3, 0, 0, 0, 0, 0},
++        {2, 3, 0, 0, 0, 0, 0, 0}, {0, 2, 3, 0, 0, 0, 0, 0},
++        {1, 2, 3, 0, 0, 0, 0, 0}, {0, 1, 2, 3, 0, 0, 0, 0},
++        {4, 0, 0, 0, 0, 0, 0, 0}, {0, 4, 0, 0, 0, 0, 0, 0},
++        {1, 4, 0, 0, 0, 0, 0, 0}, {0, 1, 4, 0, 0, 0, 0, 0},
++        {2, 4, 0, 0, 0, 0, 0, 0}, {0, 2, 4, 0, 0, 0, 0, 0},
++        {1, 2, 4, 0, 0, 0, 0, 0}, {0, 1, 2, 4, 0, 0, 0, 0},
++        {3, 4, 0, 0, 0, 0, 0, 0}, {0, 3, 4, 0, 0, 0, 0, 0},
++        {1, 3, 4, 0, 0, 0, 0, 0}, {0, 1, 3, 4, 0, 0, 0, 0},
++        {2, 3, 4, 0, 0, 0, 0, 0}, {0, 2, 3, 4, 0, 0, 0, 0},
++        {1, 2, 3, 4, 0, 0, 0, 0}, {0, 1, 2, 3, 4, 0, 0, 0},
++        {5, 0, 0, 0, 0, 0, 0, 0}, {0, 5, 0, 0, 0, 0, 0, 0},
++        {1, 5, 0, 0, 0, 0, 0, 0}, {0, 1, 5, 0, 0, 0, 0, 0},
++        {2, 5, 0, 0, 0, 0, 0, 0}, {0, 2, 5, 0, 0, 0, 0, 0},
++        {1, 2, 5, 0, 0, 0, 0, 0}, {0, 1, 2, 5, 0, 0, 0, 0},
++        {3, 5, 0, 0, 0, 0, 0, 0}, {0, 3, 5, 0, 0, 0, 0, 0},
++        {1, 3, 5, 0, 0, 0, 0, 0}, {0, 1, 3, 5, 0, 0, 0, 0},
++        {2, 3, 5, 0, 0, 0, 0, 0}, {0, 2, 3, 5, 0, 0, 0, 0},
++        {1, 2, 3, 5, 0, 0, 0, 0}, {0, 1, 2, 3, 5, 0, 0, 0},
++        {4, 5, 0, 0, 0, 0, 0, 0}, {0, 4, 5, 0, 0, 0, 0, 0},
++        {1, 4, 5, 0, 0, 0, 0, 0}, {0, 1, 4, 5, 0, 0, 0, 0},
++        {2, 4, 5, 0, 0, 0, 0, 0}, {0, 2, 4, 5, 0, 0, 0, 0},
++        {1, 2, 4, 5, 0, 0, 0, 0}, {0, 1, 2, 4, 5, 0, 0, 0},
++        {3, 4, 5, 0, 0, 0, 0, 0}, {0, 3, 4, 5, 0, 0, 0, 0},
++        {1, 3, 4, 5, 0, 0, 0, 0}, {0, 1, 3, 4, 5, 0, 0, 0},
++        {2, 3, 4, 5, 0, 0, 0, 0}, {0, 2, 3, 4, 5, 0, 0, 0},
++        {1, 2, 3, 4, 5, 0, 0, 0}, {0, 1, 2, 3, 4, 5, 0, 0},
++        {6, 0, 0, 0, 0, 0, 0, 0}, {0, 6, 0, 0, 0, 0, 0, 0},
++        {1, 6, 0, 0, 0, 0, 0, 0}, {0, 1, 6, 0, 0, 0, 0, 0},
++        {2, 6, 0, 0, 0, 0, 0, 0}, {0, 2, 6, 0, 0, 0, 0, 0},
++        {1, 2, 6, 0, 0, 0, 0, 0}, {0, 1, 2, 6, 0, 0, 0, 0},
++        {3, 6, 0, 0, 0, 0, 0, 0}, {0, 3, 6, 0, 0, 0, 0, 0},
++        {1, 3, 6, 0, 0, 0, 0, 0}, {0, 1, 3, 6, 0, 0, 0, 0},
++        {2, 3, 6, 0, 0, 0, 0, 0}, {0, 2, 3, 6, 0, 0, 0, 0},
++        {1, 2, 3, 6, 0, 0, 0, 0}, {0, 1, 2, 3, 6, 0, 0, 0},
++        {4, 6, 0, 0, 0, 0, 0, 0}, {0, 4, 6, 0, 0, 0, 0, 0},
++        {1, 4, 6, 0, 0, 0, 0, 0}, {0, 1, 4, 6, 0, 0, 0, 0},
++        {2, 4, 6, 0, 0, 0, 0, 0}, {0, 2, 4, 6, 0, 0, 0, 0},
++        {1, 2, 4, 6, 0, 0, 0, 0}, {0, 1, 2, 4, 6, 0, 0, 0},
++        {3, 4, 6, 0, 0, 0, 0, 0}, {0, 3, 4, 6, 0, 0, 0, 0},
++        {1, 3, 4, 6, 0, 0, 0, 0}, {0, 1, 3, 4, 6, 0, 0, 0},
++        {2, 3, 4, 6, 0, 0, 0, 0}, {0, 2, 3, 4, 6, 0, 0, 0},
++        {1, 2, 3, 4, 6, 0, 0, 0}, {0, 1, 2, 3, 4, 6, 0, 0},
++        {5, 6, 0, 0, 0, 0, 0, 0}, {0, 5, 6, 0, 0, 0, 0, 0},
++        {1, 5, 6, 0, 0, 0, 0, 0}, {0, 1, 5, 6, 0, 0, 0, 0},
++        {2, 5, 6, 0, 0, 0, 0, 0}, {0, 2, 5, 6, 0, 0, 0, 0},
++        {1, 2, 5, 6, 0, 0, 0, 0}, {0, 1, 2, 5, 6, 0, 0, 0},
++        {3, 5, 6, 0, 0, 0, 0, 0}, {0, 3, 5, 6, 0, 0, 0, 0},
++        {1, 3, 5, 6, 0, 0, 0, 0}, {0, 1, 3, 5, 6, 0, 0, 0},
++        {2, 3, 5, 6, 0, 0, 0, 0}, {0, 2, 3, 5, 6, 0, 0, 0},
++        {1, 2, 3, 5, 6, 0, 0, 0}, {0, 1, 2, 3, 5, 6, 0, 0},
++        {4, 5, 6, 0, 0, 0, 0, 0}, {0, 4, 5, 6, 0, 0, 0, 0},
++        {1, 4, 5, 6, 0, 0, 0, 0}, {0, 1, 4, 5, 6, 0, 0, 0},
++        {2, 4, 5, 6, 0, 0, 0, 0}, {0, 2, 4, 5, 6, 0, 0, 0},
++        {1, 2, 4, 5, 6, 0, 0, 0}, {0, 1, 2, 4, 5, 6, 0, 0},
++        {3, 4, 5, 6, 0, 0, 0, 0}, {0, 3, 4, 5, 6, 0, 0, 0},
++        {1, 3, 4, 5, 6, 0, 0, 0}, {0, 1, 3, 4, 5, 6, 0, 0},
++        {2, 3, 4, 5, 6, 0, 0, 0}, {0, 2, 3, 4, 5, 6, 0, 0},
++        {1, 2, 3, 4, 5, 6, 0, 0}, {0, 1, 2, 3, 4, 5, 6, 0},
++        {7, 0, 0, 0, 0, 0, 0, 0}, {0, 7, 0, 0, 0, 0, 0, 0},
++        {1, 7, 0, 0, 0, 0, 0, 0}, {0, 1, 7, 0, 0, 0, 0, 0},
++        {2, 7, 0, 0, 0, 0, 0, 0}, {0, 2, 7, 0, 0, 0, 0, 0},
++        {1, 2, 7, 0, 0, 0, 0, 0}, {0, 1, 2, 7, 0, 0, 0, 0},
++        {3, 7, 0, 0, 0, 0, 0, 0}, {0, 3, 7, 0, 0, 0, 0, 0},
++        {1, 3, 7, 0, 0, 0, 0, 0}, {0, 1, 3, 7, 0, 0, 0, 0},
++        {2, 3, 7, 0, 0, 0, 0, 0}, {0, 2, 3, 7, 0, 0, 0, 0},
++        {1, 2, 3, 7, 0, 0, 0, 0}, {0, 1, 2, 3, 7, 0, 0, 0},
++        {4, 7, 0, 0, 0, 0, 0, 0}, {0, 4, 7, 0, 0, 0, 0, 0},
++        {1, 4, 7, 0, 0, 0, 0, 0}, {0, 1, 4, 7, 0, 0, 0, 0},
++        {2, 4, 7, 0, 0, 0, 0, 0}, {0, 2, 4, 7, 0, 0, 0, 0},
++        {1, 2, 4, 7, 0, 0, 0, 0}, {0, 1, 2, 4, 7, 0, 0, 0},
++        {3, 4, 7, 0, 0, 0, 0, 0}, {0, 3, 4, 7, 0, 0, 0, 0},
++        {1, 3, 4, 7, 0, 0, 0, 0}, {0, 1, 3, 4, 7, 0, 0, 0},
++        {2, 3, 4, 7, 0, 0, 0, 0}, {0, 2, 3, 4, 7, 0, 0, 0},
++        {1, 2, 3, 4, 7, 0, 0, 0}, {0, 1, 2, 3, 4, 7, 0, 0},
++        {5, 7, 0, 0, 0, 0, 0, 0}, {0, 5, 7, 0, 0, 0, 0, 0},
++        {1, 5, 7, 0, 0, 0, 0, 0}, {0, 1, 5, 7, 0, 0, 0, 0},
++        {2, 5, 7, 0, 0, 0, 0, 0}, {0, 2, 5, 7, 0, 0, 0, 0},
++        {1, 2, 5, 7, 0, 0, 0, 0}, {0, 1, 2, 5, 7, 0, 0, 0},
++        {3, 5, 7, 0, 0, 0, 0, 0}, {0, 3, 5, 7, 0, 0, 0, 0},
++        {1, 3, 5, 7, 0, 0, 0, 0}, {0, 1, 3, 5, 7, 0, 0, 0},
++        {2, 3, 5, 7, 0, 0, 0, 0}, {0, 2, 3, 5, 7, 0, 0, 0},
++        {1, 2, 3, 5, 7, 0, 0, 0}, {0, 1, 2, 3, 5, 7, 0, 0},
++        {4, 5, 7, 0, 0, 0, 0, 0}, {0, 4, 5, 7, 0, 0, 0, 0},
++        {1, 4, 5, 7, 0, 0, 0, 0}, {0, 1, 4, 5, 7, 0, 0, 0},
++        {2, 4, 5, 7, 0, 0, 0, 0}, {0, 2, 4, 5, 7, 0, 0, 0},
++        {1, 2, 4, 5, 7, 0, 0, 0}, {0, 1, 2, 4, 5, 7, 0, 0},
++        {3, 4, 5, 7, 0, 0, 0, 0}, {0, 3, 4, 5, 7, 0, 0, 0},
++        {1, 3, 4, 5, 7, 0, 0, 0}, {0, 1, 3, 4, 5, 7, 0, 0},
++        {2, 3, 4, 5, 7, 0, 0, 0}, {0, 2, 3, 4, 5, 7, 0, 0},
++        {1, 2, 3, 4, 5, 7, 0, 0}, {0, 1, 2, 3, 4, 5, 7, 0},
++        {6, 7, 0, 0, 0, 0, 0, 0}, {0, 6, 7, 0, 0, 0, 0, 0},
++        {1, 6, 7, 0, 0, 0, 0, 0}, {0, 1, 6, 7, 0, 0, 0, 0},
++        {2, 6, 7, 0, 0, 0, 0, 0}, {0, 2, 6, 7, 0, 0, 0, 0},
++        {1, 2, 6, 7, 0, 0, 0, 0}, {0, 1, 2, 6, 7, 0, 0, 0},
++        {3, 6, 7, 0, 0, 0, 0, 0}, {0, 3, 6, 7, 0, 0, 0, 0},
++        {1, 3, 6, 7, 0, 0, 0, 0}, {0, 1, 3, 6, 7, 0, 0, 0},
++        {2, 3, 6, 7, 0, 0, 0, 0}, {0, 2, 3, 6, 7, 0, 0, 0},
++        {1, 2, 3, 6, 7, 0, 0, 0}, {0, 1, 2, 3, 6, 7, 0, 0},
++        {4, 6, 7, 0, 0, 0, 0, 0}, {0, 4, 6, 7, 0, 0, 0, 0},
++        {1, 4, 6, 7, 0, 0, 0, 0}, {0, 1, 4, 6, 7, 0, 0, 0},
++        {2, 4, 6, 7, 0, 0, 0, 0}, {0, 2, 4, 6, 7, 0, 0, 0},
++        {1, 2, 4, 6, 7, 0, 0, 0}, {0, 1, 2, 4, 6, 7, 0, 0},
++        {3, 4, 6, 7, 0, 0, 0, 0}, {0, 3, 4, 6, 7, 0, 0, 0},
++        {1, 3, 4, 6, 7, 0, 0, 0}, {0, 1, 3, 4, 6, 7, 0, 0},
++        {2, 3, 4, 6, 7, 0, 0, 0}, {0, 2, 3, 4, 6, 7, 0, 0},
++        {1, 2, 3, 4, 6, 7, 0, 0}, {0, 1, 2, 3, 4, 6, 7, 0},
++        {5, 6, 7, 0, 0, 0, 0, 0}, {0, 5, 6, 7, 0, 0, 0, 0},
++        {1, 5, 6, 7, 0, 0, 0, 0}, {0, 1, 5, 6, 7, 0, 0, 0},
++        {2, 5, 6, 7, 0, 0, 0, 0}, {0, 2, 5, 6, 7, 0, 0, 0},
++        {1, 2, 5, 6, 7, 0, 0, 0}, {0, 1, 2, 5, 6, 7, 0, 0},
++        {3, 5, 6, 7, 0, 0, 0, 0}, {0, 3, 5, 6, 7, 0, 0, 0},
++        {1, 3, 5, 6, 7, 0, 0, 0}, {0, 1, 3, 5, 6, 7, 0, 0},
++        {2, 3, 5, 6, 7, 0, 0, 0}, {0, 2, 3, 5, 6, 7, 0, 0},
++        {1, 2, 3, 5, 6, 7, 0, 0}, {0, 1, 2, 3, 5, 6, 7, 0},
++        {4, 5, 6, 7, 0, 0, 0, 0}, {0, 4, 5, 6, 7, 0, 0, 0},
++        {1, 4, 5, 6, 7, 0, 0, 0}, {0, 1, 4, 5, 6, 7, 0, 0},
++        {2, 4, 5, 6, 7, 0, 0, 0}, {0, 2, 4, 5, 6, 7, 0, 0},
++        {1, 2, 4, 5, 6, 7, 0, 0}, {0, 1, 2, 4, 5, 6, 7, 0},
++        {3, 4, 5, 6, 7, 0, 0, 0}, {0, 3, 4, 5, 6, 7, 0, 0},
++        {1, 3, 4, 5, 6, 7, 0, 0}, {0, 1, 3, 4, 5, 6, 7, 0},
++        {2, 3, 4, 5, 6, 7, 0, 0}, {0, 2, 3, 4, 5, 6, 7, 0},
++        {1, 2, 3, 4, 5, 6, 7, 0}, {0, 1, 2, 3, 4, 5, 6, 7},
++};
++
++#else /* MLD_ARITH_BACKEND_X86_64_DEFAULT && !MLD_CONFIG_MULTILEVEL_NO_SHARED \
++       */
++
++MLD_EMPTY_CU(avx2_rej_uniform_table)
++
++#endif /* !(MLD_ARITH_BACKEND_X86_64_DEFAULT && \
++          !MLD_CONFIG_MULTILEVEL_NO_SHARED) */
+diff --git a/test/abicheck/x86_64/checks_x86_64_all.h b/test/abicheck/x86_64/checks_x86_64_all.h
+--- a/test/abicheck/x86_64/checks_x86_64_all.h
++++ b/test/abicheck/x86_64/checks_x86_64_all.h
+@@ -34,6 +34,9 @@
+ int check_poly_decompose_88_avx2_asm(void);
+ int check_poly_use_hint_32_avx2_asm(void);
+ int check_poly_use_hint_88_avx2_asm(void);
++int check_rej_uniform_avx2_asm(void);
++int check_rej_uniform_eta2_avx2_asm(void);
++int check_rej_uniform_eta4_avx2_asm(void);
+ #endif /* __AVX2__ */
+ #endif /* MLD_SYSV_ABI_SUPPORTED */
+ 
+@@ -54,6 +57,9 @@
+     {"poly_decompose_88_avx2_asm", check_poly_decompose_88_avx2_asm},
+     {"poly_use_hint_32_avx2_asm", check_poly_use_hint_32_avx2_asm},
+     {"poly_use_hint_88_avx2_asm", check_poly_use_hint_88_avx2_asm},
++    {"rej_uniform_avx2_asm", check_rej_uniform_avx2_asm},
++    {"rej_uniform_eta2_avx2_asm", check_rej_uniform_eta2_avx2_asm},
++    {"rej_uniform_eta4_avx2_asm", check_rej_uniform_eta4_avx2_asm},
+ #endif           /* __AVX2__ */
+ #endif           /* MLD_SYSV_ABI_SUPPORTED */
+     {NULL, NULL} /* Sentinel */

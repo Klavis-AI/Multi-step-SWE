@@ -1,0 +1,44 @@
+# arch: x86_64
+# A double-quoted symbol name in a script assignment may contain a space; the
+# symbol reaches .symtab under exactly that name, at the right address. What is
+# between the quotes is taken literally -- there is no escape processing, so a
+# backslash inside a quoted name is a character of the name.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+char msg[8] = { 'q', 'u', 'o', 't', 'e', 'd', '\n', 0 };
+int entry(void) { sys_write(1, msg, 7); return 9; }
+C
+cc_obj m.o m.c
+cat > t.ld <<'L'
+ENTRY("_start")
+SECTIONS {
+  . = 0x400000;
+  "code.sec" : { "code start" = .; "esc\name" = .; *(.text) *(.text.*) }
+  "data.sec" : { "data start" = .; *(.data) *(.data.*) *(.bss) }
+}
+L
+link_ok out -T t.ld rt.o m.o
+
+syms=$(symbols out)
+# sym_value() splits on whitespace, so read the spaced names by hand.
+val() { sed -n "0,/ $1\$/s/^ *[0-9]*: \([0-9a-f]*\) .* $1\$/\1/p" <<<"$syms"; }
+want_has "quoted symbol kept its space" "$syms" 'GLOBAL DEFAULT +[0-9]+ data start$'
+want_has "second quoted symbol"         "$syms" 'GLOBAL DEFAULT +[0-9]+ code start$'
+want_not "quotes are not part of the name" "$syms" '"'
+want_has "a backslash inside quotes is literal" "$syms" 'GLOBAL DEFAULT +[0-9]+ esc\\name$'
+# sym_value() cannot be used here: it passes the name through `awk -v`, which
+# expands \n itself. Match inside the awk program text instead.
+want "the escaped-looking name is an ordinary symbol at the same address" \
+     "$(awk '$8 == "esc\\name" { print $2; exit }' <<<"$syms")" \
+     "$(sec_addr out code.sec)"
+
+cs=$(val 'code start'); dsym=$(val 'data start')
+[ -n "$cs" ] && [ -n "$dsym" ] || die "quoted symbols missing from .symtab: $syms"
+want "'code start' is the start of code.sec" "$cs" "$(sec_addr out code.sec)"
+want "'data start' is the start of data.sec" "$dsym" "$(sec_addr out data.sec)"
+want "'data start' coincides with msg" "$dsym" "$(sym_value out msg)"
+[ "$(( 16#$dsym ))" -gt "$(( 16#$cs ))" ] || die "data.sec ($dsym) is not above code.sec ($cs)"
+run_expect out "quoted" 9
+
+asserts_at_least 8

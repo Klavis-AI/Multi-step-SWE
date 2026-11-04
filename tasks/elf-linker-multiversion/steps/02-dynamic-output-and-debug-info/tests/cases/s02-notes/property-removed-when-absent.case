@@ -1,0 +1,71 @@
+# arch: x86_64
+# spec/06 §10.1: an And-class property (GNU_PROPERTY_X86_FEATURE_1_AND) may be
+# emitted only if EVERY relocatable input carries .note.gnu.property. A single
+# input without the section removes the property from the output entirely --
+# the missing input is not read as "all features present", and the surviving
+# inputs' word is not passed through either.
+#
+# The two links below differ in exactly one thing: whether the second object
+# carries the note. Same symbols, same references, same options.
+#
+# Measured on the reference over every checkpoint: from this milestone on the
+# all-have link emits the note and the one-lacks link emits neither the
+# section nor a PT_NOTE; the previous milestone emitted no property note in
+# either shape, so this is new here.
+PROP='        .section .note.gnu.property,"a",@note
+        .align 8
+        .long 4
+        .long 16
+        .long 5
+        .asciz "GNU"
+        .long 0xc0000002
+        .long 4
+        .long 3
+        .long 0'
+cat > qa.s <<S
+        .text
+        .globl _start
+_start: jmp     second_fn
+$PROP
+        .section .note.GNU-stack,"",@progbits
+S
+cat > qb.s <<S
+        .text
+        .globl second_fn
+second_fn:
+        xor     %eax, %eax
+        ret
+$PROP
+        .section .note.GNU-stack,"",@progbits
+S
+cat > qc.s <<'S'
+        .text
+        .globl second_fn
+second_fn:
+        xor     %eax, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj qa.o qa.s
+as_obj qb.o qb.s
+as_obj qc.o qc.s
+# Control arm: every input carries the property, so the output keeps it.
+# Without this a linker that never emits .note.gnu.property at all would pass
+# the removal check below vacuously.
+link_ok both qa.o qb.o
+want_has "control: all inputs carry the property, so it is emitted" \
+  "$(sections both)" '[[:space:]]\.note\.gnu\.property[[:space:]]+NOTE'
+want_has "control: the feature word survives" "$(notes both)" 'x86 feature: IBT, SHSTK'
+# The rule under test: identical link, second object has no property note.
+link_ok mixed qa.o qc.o
+want_not "one input lacks the property, so the output has no property section" \
+  "$(sections mixed)" '\.note\.gnu\.property'
+want_not "and no x86 feature note is reported" "$(notes mixed)" 'x86 feature'
+want_not "and no PT_NOTE is left covering a property that is gone" \
+  "$(segments mixed)" '^ *NOTE +0x'
+# Removal must not take the rest of the link with it.
+want "the link still produces an executable" \
+  "$(hdr mixed | awk '/^ *Type:/{print $2}')" "EXEC"
+want_has "the property-less input's code is still linked in" \
+  "$(symbols mixed)" '[[:space:]]second_fn$'
+asserts_at_least 7

@@ -1,0 +1,28 @@
+# arch: x86_64
+# A member that would define a symbol a regular object already defines is
+# never extracted: the undefined set, not the archive, decides.
+rt_obj rt.o
+cat > real.c <<'C'
+#include "rt.h"
+int impl(void) { print("object"); return 3; }
+C
+cat > alt.c <<'C'
+#include "rt.h"
+int only_in_the_member(void) { return 1; }
+int impl(void) { print("member"); return 8; }
+C
+cat > m.c <<'C'
+int impl(void);
+int entry(void) { return impl(); }
+C
+cc_obj real.o real.c; cc_obj alt.o alt.c; cc_obj m.o m.c
+mkar libalt.a alt.o
+link_ok out rt.o real.o m.o libalt.a
+run_expect out "object" 3
+want_not "shadowed member not extracted" "$(symbols out)" "only_in_the_member"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

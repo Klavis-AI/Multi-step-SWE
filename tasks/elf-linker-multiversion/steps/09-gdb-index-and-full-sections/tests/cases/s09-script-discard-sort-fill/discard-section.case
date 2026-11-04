@@ -1,0 +1,54 @@
+# arch: x86_64
+# /DISCARD/ drops the input sections matched into it. Earlier tags parse the
+# name but treat it as an ordinary output section, so the bytes survive under
+# a section literally called /DISCARD/.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+__attribute__((section(".junkme"), used, retain)) int junk = 0x5eeded;
+__attribute__((section(".keepme"), used, retain)) int keep = 0x600d;
+int g = 5;
+int entry(void) { print("discard\n"); return g; }
+C
+cc_obj m.o m.c
+cat > t.ld <<'L'
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }
+  .keepme : { *(.keepme) }
+  .data   : { *(.data .data.*) }
+  /DISCARD/ : { *(.junkme) }
+}
+L
+link_ok out -T t.ld --no-gc-sections rt.o m.o
+
+secs=$(sections out)
+want_not "no output section named /DISCARD/" "$secs" '/DISCARD/'
+want_not "the discarded input is gone"       "$secs" '\.junkme'
+want_has "an unmatched sibling survives"     "$secs" '\.keepme'
+# the symbol that lived in the discarded section must go with it
+want_not "junk symbol discarded" "$(symbols out)" '[[:space:]]junk$'
+want_has "keep symbol retained"  "$(symbols out)" '[[:space:]]keep$'
+
+# spec/10 s.6: /DISCARD/ accepts input-section matchers and nothing else. A
+# symbol assignment or a location-counter statement inside one MUST fail the
+# link with /DISCARD/ on stderr. Only the failure and the token are graded.
+mkbad() { cat > bad.ld <<L
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }
+  .keepme : { *(.keepme) }
+  .data   : { *(.data .data.*) }
+  /DISCARD/ : { $1 *(.junkme) }
+}
+L
+}
+mkbad 'x = 1;'
+link_fails badassign -T bad.ld --no-gc-sections rt.o m.o
+want_has "an assignment inside /DISCARD/ is diagnosed" "$LINK_OUT" '/DISCARD/'
+mkbad '. = . + 4;'
+link_fails baddot -T bad.ld --no-gc-sections rt.o m.o
+want_has "a . statement inside /DISCARD/ is diagnosed" "$LINK_OUT" '/DISCARD/'
+
+run_expect out "discard" 5
+asserts_at_least 7

@@ -1,0 +1,35 @@
+# arch: x86_64
+# The single-dash -plugin spelling is accepted and --plugin-opt options are
+# passed through to the plugin rather than rejected.
+rt_obj rt.o
+plugin=""
+for p in /usr/lib/llvm-16/lib/LLVMgold.so /usr/lib/bfd-plugins/LLVMgold-16.so \
+         /usr/lib/bfd-plugins/LLVMgold.so; do
+  [ -f "$p" ] && { plugin=$p; break; }
+done
+[ -n "$plugin" ] || die "no LLVMgold.so in this image (llvm-16-linker-tools)"
+
+cat > m.c <<'C'
+int helper(int);
+int entry(void) { return helper(11); }
+C
+cat > h.c <<'C'
+int helper(int x) { return x + 7; }
+C
+cc_obj m.o m.c -flto
+cc_obj h.o h.c -flto
+
+link_ok o1 -plugin "$plugin" rt.o m.o h.o --no-gc-sections
+run_expect o1 "" 18
+
+link_ok o2 --plugin "$plugin" --plugin-opt=O2 --plugin-opt=mcpu=x86-64 \
+        rt.o m.o h.o --no-gc-sections
+run_expect o2 "" 18
+
+# A plugin that cannot be loaded is reported, and the path is named.
+link_fails bad --plugin ./no-such-plugin.so rt.o m.o h.o --no-gc-sections
+want_has "unloadable plugin is named" "$LINK_OUT" 'no-such-plugin\.so'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 1

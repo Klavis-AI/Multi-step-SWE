@@ -1,0 +1,42 @@
+# arch: x86_64
+# A partial link is not a final link: nothing is garbage-collected, and a
+# section's name, flags and alignment come through unchanged.
+cat > a.c <<'C'
+int helper(int);
+int spare(int x) { return x * 3; }
+int entry(void) { return helper(17); }
+C
+cat > b.c <<'C'
+int helper(int x) { return x + 34; }
+int unused_here(int x) { return x - 1; }
+C
+cat > d.s <<'S'
+        .section .mysec,"aw",@progbits
+        .p2align 5
+        .globl blob
+blob:   .quad 0x1122334455667788
+        .section .note.GNU-stack,"",@progbits
+S
+cc_obj a.o a.c -ffunction-sections
+cc_obj b.o b.c -ffunction-sections
+as_obj d.o d.s
+link_ok part -r a.o b.o d.o
+
+sym=$(symbols part)
+want_has "unreferenced spare retained"       "$sym" 'FUNC +GLOBAL +DEFAULT +[0-9]+ spare'
+want_has "unreferenced unused_here retained" "$sym" 'FUNC +GLOBAL +DEFAULT +[0-9]+ unused_here'
+want_has "blob retained"                     "$sym" 'OBJECT|NOTYPE.* blob'
+
+sec=$(sections part)
+want_has ".mysec kept with its flags" "$sec" '\.mysec +PROGBITS +0+ +[0-9a-f]+ +[0-9a-f]+ +00 +WA '
+al=$(awk '{ for (i=1;i<=NF;i++) if ($i == ".mysec") { print $NF; exit } }' <<<"$sec")
+want ".mysec alignment preserved" "$al" "32"
+
+# Contrast: the same inputs linked for real drop the unreferenced definitions.
+rt_obj rt.o
+link_ok exe rt.o a.o b.o d.o
+want_not "final link collects spare" "$(symbols exe)" ' spare$'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 6

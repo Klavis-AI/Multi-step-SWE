@@ -1,0 +1,27 @@
+# arch: x86_64
+# Only the archive members that resolve an undefined symbol are extracted.
+rt_obj rt.o
+cat > a.c <<'C'
+#include "rt.h"
+int used(void) { print("A"); return 1; }
+C
+cat > b.c <<'C'
+#include "rt.h"
+int unused_member_symbol(void) { print("B"); return 2; }
+C
+cat > m.c <<'C'
+#include "rt.h"
+int used(void);
+int entry(void) { return used() + 1; }
+C
+cc_obj a.o a.c; cc_obj b.o b.c; cc_obj m.o m.c
+mkar libx.a a.o b.o
+link_ok out rt.o m.o libx.a
+run_expect out "A" 2
+want_not "unreferenced archive member not pulled" "$(symbols out)" "unused_member_symbol"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

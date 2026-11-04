@@ -1,0 +1,27 @@
+# arch: x86_64
+# A .note.gnu.property in the output must be described by a PT_GNU_PROPERTY
+# program header: the same file offset, address and size as the section, and
+# the 8-byte alignment ELF64 property notes require.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("prop\n"); return 3; }
+C
+cc_obj m.o m.c
+link_ok out -z x86-64-v2 --no-gc-sections rt.o m.o
+has_section out '\.note\.gnu\.property' || die "no .note.gnu.property: $(sections out)"
+seg=$(segments out)
+want_has "PT_GNU_PROPERTY exists" "$seg" '^ *GNU_PROPERTY '
+# offset/addr/size of the segment must match the section exactly.
+read -r off vaddr filesz align < <(awk '/^ *GNU_PROPERTY /{print $2, $3, $5, $NF}' <<<"$seg")
+want "segment vaddr == section addr" "$((vaddr))" "$(( 0x$(sec_addr out .note.gnu.property) ))"
+want "segment filesz == section size" "$((filesz))" "$(( 0x$(sec_size out .note.gnu.property) ))"
+want "segment is 8-byte aligned" "$((align))" "8"
+[ "$((off))" -ne 0 ] || die "PT_GNU_PROPERTY has a zero file offset"
+# The section itself must be SHT_NOTE, allocated and 8-byte aligned.
+line=$(awk '/\.note\.gnu\.property/{print; exit}' <<<"$(sections out)")
+want_has "section is SHT_NOTE" "$line" 'NOTE'
+want_has "section is allocated and 8-aligned" "$line" ' A .* 8$'
+run_expect out "prop" 3
+
+asserts_at_least 6

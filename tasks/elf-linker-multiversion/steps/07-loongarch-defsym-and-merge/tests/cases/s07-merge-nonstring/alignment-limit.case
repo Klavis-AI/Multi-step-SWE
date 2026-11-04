@@ -1,0 +1,37 @@
+# arch: x86_64
+# Merging is only applied when the input section alignment is at most 1. An
+# over-aligned SHF_MERGE section keeps both copies, so the two sections must
+# behave differently in the very same link.
+rt_obj rt.o
+mkpair() { # mkpair <out.o> <symprefix>
+  cat > "$2.s" <<S
+        .section .flat,"aM",@progbits,8
+        .globl f_$2
+f_$2:   .quad 0xaaaabbbbccccdddd
+        .section .aligned,"aM",@progbits,8
+        .p2align 4
+        .globl a_$2
+a_$2:   .quad 0xaaaabbbbccccdddd
+        .section .note.GNU-stack,"",@progbits
+S
+  as_obj "$1" "$2.s"
+}
+mkpair x.o x
+mkpair y.o y
+sec=$(sections x.o)
+want_has ".flat has alignment 1"    "$sec" '\.flat +PROGBITS.* AM .* 1$'
+want_has ".aligned has alignment 16" "$sec" '\.aligned +PROGBITS.* AM .* 16$'
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("merge\n"); return 0; }
+C
+cc_obj m.o m.c
+link_ok out --no-gc-sections rt.o m.o x.o y.o
+want "the alignment-1 section merged"      "$(( 0x$(sec_size out .flat) ))"    "8"
+want "f_x and f_y coincide" "$(sym_value out f_x)" "$(sym_value out f_y)"
+want "the over-aligned section did not merge" "$(( 0x$(sec_size out .aligned) ))" "32"
+[ "$(sym_value out a_x)" != "$(sym_value out a_y)" ] \
+  || die "an over-aligned SHF_MERGE section was merged anyway"
+run_expect out "merge" 0
+
+asserts_at_least 5

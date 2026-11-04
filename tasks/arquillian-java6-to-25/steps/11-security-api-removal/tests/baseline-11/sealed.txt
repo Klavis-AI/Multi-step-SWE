@@ -1,0 +1,94 @@
+# Step 09 -- C-4's frozen population: the event hierarchies and their complement.
+#
+#     root <file> <simple-name> <class|interface> <permits;...>
+#     open <file> <simple-name>
+#     leaf <simple-name>
+#
+# 11 roots, 35 permits entries, 40 distinct types, 11 roots that must stay
+# open. No name is permitted by two roots, so the 35 entries are 35 distinct
+# names; six of them are themselves roots, which is why 40 is not 11 + 35.
+#
+# Stated in mk-baseline-step09.sh and CHECKED there against a javap dump of the
+# tree's own class files, three ways: the sealable roots -- two or more direct
+# subtypes, all in the root's own package -- are derived from the dump and must
+# number 22; `root` and `open` together must be exactly those 22, so a
+# hierarchy that appears later has to be classified rather than ignored; and
+# every `root` line's permits list must equal that root's actual direct-subtype
+# set, in both directions. NOTES 14.1 records why the source-regex sweep that
+# preceded all of this was not usable, and why `Event` -- eight subtypes, not
+# one of them in its own package -- is on neither list: in the unnamed module a
+# permitted subtype must share the root's package, and step 08 published
+# manifest names rather than module descriptors.
+#
+# WHY THESE ELEVEN. They are the EVENT hierarchies: the lifecycle vocabulary
+# the manager fires, which is closed in the domain's own terms.
+#
+# WHY THE OTHER ELEVEN ARE A HOLD AND NOT AN OMISSION. Three are test doubles,
+# and two of those are the provider classes step 08's service fixtures load by
+# name out of META-INF/services. Six are the seams this library exists to be
+# extended through -- the resource provider interface, the context and
+# descriptor bases, a nested callback. Closing one is a design change, not a
+# migration, and family A cannot see it happen: nothing in this tree subclasses
+# any of them from outside, so without this half nothing would notice.
+#
+# The last two, ExecutionEvent and LifecycleEvent, are event roots by shape and
+# would be on the first list but for one thing: both carry @FunctionalInterface,
+# which step 04 added and whose 24-name population an inherited gate still
+# holds. A sealed interface is not functional, so javac rejects the combination
+# outright. Sealing them does not compile; deleting the annotation to make it
+# compile costs two of step 04's twenty-four. The compiler put these two here,
+# not a judgement call.
+#
+# The permits names are SIMPLE, because that is the spelling a permits clause in
+# the root's own file uses and the spelling SourceScan's names= field reports.
+root impl-base/src/main/java/org/jboss/arquillian/impl/client/container/event/ContainerControlEvent.java ContainerControlEvent class DeploymentEvent;SetupContainer;StartContainer;StopContainer
+root impl-base/src/main/java/org/jboss/arquillian/impl/client/container/event/ContainerMultiControlEvent.java ContainerMultiControlEvent interface DeployManagedDeployments;SetupContainers;StartManagedContainers;StopManagedContainers;UnDeployManagedDeployments
+root impl-base/src/main/java/org/jboss/arquillian/impl/client/container/event/DeploymentEvent.java DeploymentEvent class DeployDeployment;UnDeployDeployment
+root spi/src/main/java/org/jboss/arquillian/spi/event/container/ContainerEvent.java ContainerEvent class AfterSetup;AfterStart;AfterStop;BeforeSetup;BeforeStart;BeforeStop;DeployerEvent
+root spi/src/main/java/org/jboss/arquillian/spi/event/container/DeployerEvent.java DeployerEvent class AfterDeploy;AfterUnDeploy;BeforeDeploy;BeforeUnDeploy
+root spi/src/main/java/org/jboss/arquillian/spi/event/enrichment/EnrichmentEvent.java EnrichmentEvent class AfterEnrichment;BeforeEnrichment
+root spi/src/main/java/org/jboss/arquillian/spi/event/suite/ClassEvent.java ClassEvent class ClassLifecycleEvent;TestEvent
+root spi/src/main/java/org/jboss/arquillian/spi/event/suite/ClassLifecycleEvent.java ClassLifecycleEvent class AfterClass;BeforeClass
+root spi/src/main/java/org/jboss/arquillian/spi/event/suite/SuiteEvent.java SuiteEvent class AfterSuite;BeforeSuite;ClassEvent
+root spi/src/main/java/org/jboss/arquillian/spi/event/suite/TestEvent.java TestEvent class Test;TestLifecycleEvent
+root spi/src/main/java/org/jboss/arquillian/spi/event/suite/TestLifecycleEvent.java TestLifecycleEvent class After;Before
+open impl-base/src/main/java/org/jboss/arquillian/impl/client/ContainerDeploymentContextHandler.java ResultCallback
+open impl-base/src/main/java/org/jboss/arquillian/impl/configuration/ArquillianDescriptorImpl.java ArquillianDescriptorImpl
+open impl-base/src/main/java/org/jboss/arquillian/impl/configuration/ContainerDefImpl.java ContainerDefImpl
+open impl-base/src/main/java/org/jboss/arquillian/impl/core/context/AbstractContext.java AbstractContext
+open impl-base/src/main/java/org/jboss/arquillian/impl/core/spi/Typed.java Typed
+open impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/ResourceProvider.java ResourceProvider
+open impl-base/src/main/java/org/jboss/arquillian/impl/execution/event/ExecutionEvent.java ExecutionEvent
+open impl-base/src/test/java/org/jboss/arquillian/impl/DynamicServiceLoaderTestCase.java Service
+open impl-base/src/test/java/org/jboss/arquillian/impl/DynamicServiceLoaderTestCase.java Service2
+open spi/src/main/java/org/jboss/arquillian/spi/event/suite/LifecycleEvent.java LifecycleEvent
+open testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/beans/Service.java Service
+leaf After
+leaf AfterClass
+leaf AfterDeploy
+leaf AfterEnrichment
+leaf AfterSetup
+leaf AfterStart
+leaf AfterStop
+leaf AfterSuite
+leaf AfterUnDeploy
+leaf Before
+leaf BeforeClass
+leaf BeforeDeploy
+leaf BeforeEnrichment
+leaf BeforeSetup
+leaf BeforeStart
+leaf BeforeStop
+leaf BeforeSuite
+leaf BeforeUnDeploy
+leaf DeployDeployment
+leaf DeployManagedDeployments
+leaf SetupContainer
+leaf SetupContainers
+leaf StartContainer
+leaf StartManagedContainers
+leaf StopContainer
+leaf StopManagedContainers
+leaf Test
+leaf UnDeployDeployment
+leaf UnDeployManagedDeployments

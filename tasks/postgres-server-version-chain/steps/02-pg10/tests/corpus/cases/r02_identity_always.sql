@@ -1,0 +1,7 @@
+CREATE TABLE q2_ida(a int GENERATED ALWAYS AS IDENTITY, b text);
+INSERT INTO q2_ida(b) VALUES ('one'),('two');
+INSERT INTO q2_ida(b) VALUES ('three') RETURNING a, b;
+SELECT a, b FROM q2_ida ORDER BY a;
+INSERT INTO q2_ida DEFAULT VALUES;
+SELECT count(*) FROM q2_ida;
+DROP TABLE q2_ida;

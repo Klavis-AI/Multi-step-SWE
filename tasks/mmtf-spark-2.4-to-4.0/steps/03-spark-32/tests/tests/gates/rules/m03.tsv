@@ -1,0 +1,71 @@
+# Step 3 (03-spark-32): m1 and m2, and the two held rules this rung contradicts.
+#
+# Written from step03/CHECKLIST-4.2.md sections 2 and 6. Read that file for what
+# each requirement claims in Spark's terms; this one is only how it is measured.
+#
+# ---------------------------------------------------------------------------
+# The two overrides, and why they are here rather than resolved by dropping the
+# hold.
+#
+# step02.tsv's header predicted this file: "The first one of those appears at
+# the step that leaves 3.0.3, where held-m1-spark-303 becomes false on a correct
+# tree; it is written in that step's file rather than resolved by dropping the
+# hold here." This is that step, and these are those lines.
+#
+# Dropping `hold m01.tsv` would have been the easy resolution and the wrong one:
+# it would take twelve other step-1 rules down with it -- the Scala suffix, the
+# absent spark-xml, the shaded-guava bans, the pinned plugins, the reproducible
+# build -- none of which this rung contradicts. So the hold stays whole and the
+# two rules it gets wrong are restated.
+#
+# They are restated as a *range* rather than moved to 3.2.4, and the difference
+# matters. As preconditions their job is "step 1 has not been undone" -- the pom
+# is not back at 2.4.0 -- and a tree that has not bumped the version yet has not
+# undone anything, it simply has not finished. Pinning them to 3.2.4 would make
+# the standing rules fail on such a tree, and a failed standing rule voids the
+# whole migrated family: a candidate who did every bit of m2's work and left the
+# pom alone would score zero on m2 as well. That is the ladder punishing an
+# unfinished step as though it were a sabotaged one. So the precondition spans
+# the fence, and m1-spark-324 below is what is actually paid for landing on it.
+#
+# ---------------------------------------------------------------------------
+# m1 -- the fence. Two reads, deliberately not the same read twice: the pom says
+# what the build resolved and the probe says what the code actually ran in. A
+# tree can get the first right and the second wrong (a stale jar, a runtime
+# Spark on the submit classpath), and the step is about the engine, not the
+# declaration. The legacy-hatch half of m1 is in cheats3.tsv, priced at zero.
+#
+# m2 -- the milestone. describe() picks its five statistics by default; the
+# program prints them. Naming them is what the migration is, and the gate reads
+# it three ways: the calls are gone (source and jar), an API that takes the list
+# is called instead, and the list is really there as text.
+#
+# `(summary|agg)` rather than `summary`, because the property is "the statistics
+# are named", not "you called summary()". Both classes are checked for having
+# neither today: AnalyzeWaterInteractions4 uses select/union/filter throughout
+# and PdbLigandDemo uses groupBy/count/sort, so `select` would have been green
+# on the untouched tree and these two are not. `stddev` is the discriminating
+# name of the five -- "min" and "max" appear as words in 9 and 11 files, but
+# "stddev" appears as a *string literal* nowhere in the 230 sources, and
+# bytecode.strconst reads literals. count/mean/min/max are left to the replay,
+# which prints a different table for any other list.
+#
+# m3 and m4 were here and are not any more. They read the adaptive-execution
+# and statistical-aggregate settings off the run, and item 4.3 measured both
+# green on a tree that changed nothing: the replay's spark-submit is the
+# verifier image's, spark is `provided`, and the image is 3.2.4 whatever the pom
+# says. Two requirements that no candidate can fail were paying a do-nothing
+# tree 0.14. The five rules now live in rung3.tsv as standing rules -- same
+# facts, same counterexamples, priced as a void rather than as a share -- and
+# the semantics they stood for are still graded, through the replay. rung3.tsv's
+# header carries the measurement and the argument.
+
+m1-spark-324	atleast:1	pom.resolved\torg\.apache\.spark:spark-core_2\.12\t3\.2\.4\t.+	pom-spark303.tsv	the build does not resolve spark-core_2.12 at 3.2.4, so the runtime this step targets was never reached
+m1-spark-324-uniform	absent	pom.resolved\torg\.apache\.spark:.*\t(?!3\.2\.4$).*\t*	pom-spark-mixed.tsv	an org.apache.spark artifact resolves at a version other than 3.2.4; a build that mixes Spark releases runs whichever one the classpath orders first, and which that is is not a property of the pom
+m1-session-324	atleast:1	probe.probe\tspark\.version\t3\.2\.4	probe-session-303.tsv	no replayed job ran in a Spark 3.2.4 session; the pom may say 3.2.4 but the engine the code met did not
+m1-session-uniform	absent	probe.probe\tspark\.version\t(?!3\.2\.4$).*	probe-session-303.tsv	a replayed job ran in a session that was not Spark 3.2.4, so the run was not uniformly on this step's runtime
+m2-no-describe-src	absent	ast.call\t*\t*\tdescribe\t*	ast-describe.tsv	a describe() call remains in the sources; the program still prints a statistic set the engine chose rather than one it named
+m2-no-describe-jar	absent	bytecode.ref\tedu/sdsc/mmtf/.*\torg/apache/spark/sql/Dataset\tdescribe\t*	bytecode-describe.tsv	the built jar still calls Dataset.describe, so whatever the sources say, the artifact that runs has not been migrated
+m2-awi4-named-stats	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/interactions/demos/AnalyzeWaterInteractions4\torg/apache/spark/sql/Dataset\t(summary|agg)\t*	bytecode-no-summary.tsv	AnalyzeWaterInteractions4 names no statistic set: its eleven describe() sites were removed without anything taking over what they printed
+m2-pdbligand-named-stats	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/datasets/demos/PdbLigandDemo\torg/apache/spark/sql/Dataset\t(summary|agg)\t*	bytecode-no-summary.tsv	PdbLigandDemo names no statistic set: its describe() site was removed without anything taking over what it printed
+m2-stats-listed	atleast:1	bytecode.strconst\tstddev\t*	bytecode-no-summary.tsv	the statistic names are nowhere in the jar as text, so the set being printed is still a default the program does not state

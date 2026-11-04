@@ -1,0 +1,51 @@
+# arch: x86_64
+# R_X86_64_16 and R_X86_64_8 truncate S+A to 16 and 8 bits; the symbol here
+# is SHN_ABS, defined in another object, so the linker must resolve it.
+rt_obj rt.o
+cat > t.s <<'S'
+        .globl  abs_sym
+        .set    abs_sym, 0x1234
+        .globl  abs_small
+        .set    abs_small, 0x55
+        .section .note.GNU-stack,"",@progbits
+S
+cat > r.s <<'S'
+        .data
+        .globl  h16
+h16:    .short  abs_sym
+        .globl  h16a
+h16a:   .short  abs_sym + 1
+        .globl  b8
+b8:     .byte   abs_small
+        .globl  b8a
+b8a:    .byte   abs_small + 2
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj t.o t.s; as_obj r.o r.s
+want "abs_sym is SHN_ABS in the input" "$(symbols t.o | awk '$8=="abs_sym"{print $7}')" "ABS"
+ri=$(relocs r.o)
+want_has "input has R_X86_64_16" "$ri" "R_X86_64_16 +[0-9a-f]+ +abs_sym \+ 0"
+want_has "input has R_X86_64_8"  "$ri" "R_X86_64_8 +[0-9a-f]+ +abs_small \+ 0"
+cat > m.c <<'C'
+#include "rt.h"
+extern unsigned short h16, h16a;
+extern unsigned char b8, b8a;
+int entry(void) {
+  int ok = 0;
+  if (h16  == 0x1234) ok |= 1;
+  if (h16a == 0x1235) ok |= 2;
+  if (b8   == 0x55)   ok |= 4;
+  if (b8a  == 0x57)   ok |= 8;
+  putdec(ok); print("\n");
+  return ok;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o t.o r.o m.o
+run_expect out "15" 15
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

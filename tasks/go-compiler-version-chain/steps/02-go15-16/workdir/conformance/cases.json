@@ -1,0 +1,1483 @@
+[
+ {
+  "id": "public/complit.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "complit.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Test composite literals.\n\npackage main\n\ntype T struct {\n\ti    int\n\tf    float64\n\ts    string\n\tnext *T\n}\n\ntype R struct {\n\tnum int\n}\n\nfunc itor(a int) *R {\n\tr := new(R)\n\tr.num = a\n\treturn r\n}\n\nfunc eq(a []*R) {\n\tfor i := 0; i < len(a); i++ {\n\t\tif a[i].num != i {\n\t\t\tpanic(\"bad\")\n\t\t}\n\t}\n}\n\nfunc teq(t *T, n int) {\n\tfor i := 0; i < n; i++ {\n\t\tif t == nil || t.i != i {\n\t\t\tpanic(\"bad\")\n\t\t}\n\t\tt = t.next\n\t}\n\tif t != nil {\n\t\tpanic(\"bad\")\n\t}\n}\n\ntype P struct {\n\ta, b int\n}\n\nfunc NewP(a, b int) *P {\n\treturn &P{a, b}\n}\n\nfunc main() {\n\tvar t T\n\tt = T{0, 7.2, \"hi\", &t}\n\n\tvar tp *T\n\ttp = &T{0, 7.2, \"hi\", &t}\n\n\ttl := &T{i: 0, next: &T{i: 1, next: &T{i: 2, next: &T{i: 3, next: &T{i: 4}}}}}\n\tteq(tl, 5)\n\n\ta1 := []int{1, 2, 3}\n\tif len(a1) != 3 {\n\t\tpanic(\"a1\")\n\t}\n\ta2 := [10]int{1, 2, 3}\n\tif len(a2) != 10 || cap(a2) != 10 {\n\t\tpanic(\"a2\")\n\t}\n\n\ta3 := [10]int{1, 2, 3}\n\tif len(a3) != 10 || a2[3] != 0 {\n\t\tpanic(\"a3\")\n\t}\n\n\tvar oai []int\n\toai = []int{1, 2, 3}\n\tif len(oai) != 3 {\n\t\tpanic(\"oai\")\n\t}\n\n\tat := [...]*T{&t, tp, &t}\n\tif len(at) != 3 {\n\t\tpanic(\"at\")\n\t}\n\n\tc := make(chan int)\n\tac := []chan int{c, c, c}\n\tif len(ac) != 3 {\n\t\tpanic(\"ac\")\n\t}\n\n\taat := [][len(at)]*T{at, at}\n\tif len(aat) != 2 || len(aat[1]) != 3 {\n\t\tpanic(\"aat\")\n\t}\n\n\ts := string([]byte{'h', 'e', 'l', 'l', 'o'})\n\tif s != \"hello\" {\n\t\tpanic(\"s\")\n\t}\n\n\tm := map[string]float64{\"one\": 1.0, \"two\": 2.0, \"pi\": 22. / 7.}\n\tif len(m) != 3 {\n\t\tpanic(\"m\")\n\t}\n\n\teq([]*R{itor(0), itor(1), itor(2), itor(3), itor(4), itor(5)})\n\teq([]*R{{0}, {1}, {2}, {3}, {4}, {5}})\n\n\tp1 := NewP(1, 2)\n\tp2 := NewP(1, 2)\n\tif p1 == p2 {\n\t\tpanic(\"NewP\")\n\t}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": ""
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue4162.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue4162.go",
+    "content": "// compile\n\n// Copyright 2013 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 4162. Trailing commas now allowed in conversions.\n\npackage p\n\n// All these are valid now.\nvar (\n\t_ = int(1.0,)      // comma was always permitted (like function call)\n\t_ = []byte(\"foo\",) // was syntax error: unexpected comma\n\t_ = chan int(nil,) // was syntax error: unexpected comma\n\t_ = (func())(nil,) // was syntax error: unexpected comma\n)\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue5704.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue5704.go",
+    "content": "// run\n\n// Copyright 2012 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 5704: Conversions of empty strings to byte\n// or rune slices return empty but non-nil slices.\n\npackage main\n\ntype (\n\tmystring string\n\tmybytes  []byte\n\tmyrunes  []rune\n)\n\nfunc checkBytes(s []byte, arg string) {\n\tif len(s) != 0 {\n\t\tpanic(\"len(\" + arg + \") != 0\")\n\t}\n\tif s == nil {\n\t\tpanic(arg + \" == nil\")\n\t}\n}\n\nfunc checkRunes(s []rune, arg string) {\n\tif len(s) != 0 {\n\t\tpanic(\"len(\" + arg + \") != 0\")\n\t}\n\tif s == nil {\n\t\tpanic(arg + \" == nil\")\n\t}\n}\n\nfunc main() {\n\tcheckBytes([]byte(\"\"), `[]byte(\"\")`)\n\tcheckBytes([]byte(mystring(\"\")), `[]byte(mystring(\"\"))`)\n\tcheckBytes(mybytes(\"\"), `mybytes(\"\")`)\n\tcheckBytes(mybytes(mystring(\"\")), `mybytes(mystring(\"\"))`)\n\n\tcheckRunes([]rune(\"\"), `[]rune(\"\")`)\n\tcheckRunes([]rune(mystring(\"\")), `[]rune(mystring(\"\"))`)\n\tcheckRunes(myrunes(\"\"), `myrunes(\"\")`)\n\tcheckRunes(myrunes(mystring(\"\")), `myrunes(mystring(\"\"))`)\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": ""
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/public/step2/p_finalizer.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "p_finalizer.go",
+    "content": "// run\npackage main\n\nimport (\n\t\"fmt\"\n\t\"runtime\"\n\t\"sort\"\n)\n\ntype node struct{ tag string }\n\nvar seen []string\n\n// The object must become unreachable, so it is allocated in a helper whose\n// frame is gone by the time the collector runs.\nfunc drop(tag string) {\n\tn := &node{tag}\n\truntime.SetFinalizer(n, func(p *node) { seen = append(seen, p.tag) })\n}\n\nfunc main() {\n\tfor _, t := range []string{\"alpha\", \"beta\", \"gamma\"} {\n\t\tdrop(t)\n\t}\n\tfor i := 0; i < 4; i++ {\n\t\truntime.GC()\n\t}\n\tsort.Strings(seen)\n\tfmt.Println(\"finalized:\", len(seen), seen)\n\n\toff := &node{\"off\"}\n\truntime.SetFinalizer(off, func(p *node) { fmt.Println(\"cleared finalizer ran\") })\n\truntime.SetFinalizer(off, nil)\n\truntime.GC()\n\n\tlive := &node{\"live\"}\n\truntime.SetFinalizer(live, func(p *node) { fmt.Println(\"must not run\", p.tag) })\n\truntime.GC()\n\truntime.GC()\n\tfmt.Println(\"still live:\", live.tag)\n\tfmt.Println(\"done\", off.tag)\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "finalized: 3 [alpha beta gamma]\nstill live: live\ndone off\n"
+  },
+  "weight": 1.0,
+  "timeout": 120
+ },
+ {
+  "id": "public/public/step2/p_gomaxprocs.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "p_gomaxprocs.go",
+    "content": "// run\npackage main\n\nimport (\n\t\"fmt\"\n\t\"runtime\"\n)\n\nfunc main() {\n\tn := runtime.GOMAXPROCS(0)\n\tfmt.Println(\"default equals NumCPU:\", n == runtime.NumCPU())\n\tprev := runtime.GOMAXPROCS(2)\n\tfmt.Println(\"previous returned:\", prev == n)\n\tfmt.Println(\"now:\", runtime.GOMAXPROCS(0))\n\truntime.GOMAXPROCS(prev)\n\tfmt.Println(\"restored:\", runtime.GOMAXPROCS(0) == n)\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "default equals NumCPU: true\nprevious returned: true\nnow: 2\nrestored: true\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/public/step2/p_memstats.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "p_memstats.go",
+    "content": "// run\npackage main\n\nimport (\n\t\"fmt\"\n\t\"runtime\"\n)\n\nfunc main() {\n\tvar a, b runtime.MemStats\n\truntime.ReadMemStats(&a)\n\tsink := make([][]byte, 0, 256)\n\tfor i := 0; i < 256; i++ {\n\t\tsink = append(sink, make([]byte, 1024))\n\t}\n\truntime.ReadMemStats(&b)\n\tfmt.Println(\"allocated more:\", b.TotalAlloc > a.TotalAlloc)\n\tfmt.Println(\"mallocs counted:\", b.Mallocs > a.Mallocs)\n\tfmt.Println(\"live heap grew:\", b.HeapAlloc > a.HeapAlloc)\n\truntime.GC()\n\tvar c runtime.MemStats\n\truntime.ReadMemStats(&c)\n\tfmt.Println(\"gc counted:\", c.NumGC > a.NumGC)\n\tfmt.Println(\"frees counted:\", c.Frees >= a.Frees)\n\tfmt.Println(\"kept:\", len(sink))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "allocated more: true\nmallocs counted: true\nlive heap grew: true\ngc counted: true\nfrees counted: true\nkept: 256\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue22683.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue22683.go",
+    "content": "// run\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nimport (\n\t\"fmt\"\n)\n\ntype foo struct {\n\tbar [1]*int\n}\n\nfunc main() {\n\tch := make(chan foo, 2)\n\tvar a int\n\tvar b [1]*int\n\tb[0] = &a\n\tch <- foo{bar: b}\n\tclose(ch)\n\n\tfor v := range ch {\n\t\tfor i := 0; i < 1; i++ {\n\t\t\tfmt.Println(v.bar[0] != nil)\n\t\t}\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-852728, -861813, -738871, -426217, 1017295, -302313, 876151, 681228}\n\tm := map[int]int{}\n\ts := 33343\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*44 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "true\nwit -239138675479965603 eooooooe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue17039.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue17039.go",
+    "content": "// run\n\n// Copyright 2016 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\ntype S []S\n\nfunc main() {\n\tvar s S\n\ts = append(s, s) // append a nil value to s\n\tif s[0] != nil {\n\t\tprintln(\"BUG: s[0] != nil\")\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-156726, -657655, -243489, 794176, 633970, 379822, 642867, -423680}\n\tm := map[int]int{}\n\ts := 27343\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*57 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 2018269047080393057 eooeeeoe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/ken/mfunc.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "mfunc.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Test simple multi-argument multi-valued function.\n\npackage main\n\nfunc\nmain() {\n\tvar x,y int;\n\n\tx,y = simple(10,20,30);\n\tif x+y != 65 { panic(x+y); }\n}\n\nfunc\nsimple(ia,ib,ic int) (oa,ob int) {\n\treturn ia+5, ib+ic;\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-62090, -237199, 546610, -683991, 452194, 75477, -86425, -867424}\n\tm := map[int]int{}\n\ts := 54926\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*78 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -2058556876507943422 eoeoeooe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug101.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug101.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nvar a = []int { 1, 2, 3 }\n\nfunc main() {\n\tif len(a) != 3 { panic(\"array len\") }\n\t// print(a[0], \" \", a[1], \" \", a[2], \"\\n\")\n\tif a[0] != 1 || a[1] != 2 || a[2] != 3 { panic(\"array contents\") }\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{309453, -179313, -677281, -428253, -959574, 345671, -785900, -166336}\n\tm := map[int]int{}\n\ts := 5150\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*7 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -3733638021584468400 ooooeoee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/interface/convert2.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "convert2.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Test static interface conversion of interface value nil.\n\npackage main\n\ntype R interface { R() }\ntype RW interface { R(); W() }\n\nvar e interface {}\nvar r R\nvar rw RW\n\nfunc main() {\n\tr = r\n\tr = rw\n\te = r\n\te = rw\n\trw = rw\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{991306, -184690, 221369, -270292, -342257, 1037991, -662944, -921282}\n\tm := map[int]int{}\n\ts := 55976\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*74 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -3658945797099366510 eeoeooee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug423.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug423.go",
+    "content": "// run\n\n// Copyright 2012 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// gc used to overflow a counter when a variable was\n// mentioned 256 times, and generate stack corruption.\n\npackage main\n\nfunc main() {\n\tF(1)\n}\n\nfunc F(arg int) {\n\tvar X interface{}\n\t_ = X // used once\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0 // used 32 times\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0 // used 64 times\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0 // used 96 times\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0 // used 128 times\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0 // used 200 times\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0\n\tX = 0 // used 256 times\n\tif arg != 1 {\n\t\tpanic(\"argument was changed\")\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-556665, 849645, -958316, 760034, -729456, -894082, -58226, -959878}\n\tm := map[int]int{}\n\ts := 65533\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*67 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 3604253856338034185 ooeeeeee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug185.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug185.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nfunc g() {}\n\nfunc f1() (a, b int) {\n\ta, b = 2, 1\n\tg() // defeat optimizer\n\treturn a, b\n}\n\nfunc f2() (a, b int) {\n\ta, b = 1, 2\n\tg() // defeat optimizer\n\treturn b, a\n}\n\nfunc main() {\n\tx, y := f1()\n\tif x != 2 || y != 1 {\n\t\tprintln(\"f1\", x, y)\n\t\tpanic(\"fail\")\n\t}\n\n\tx, y = f2()\n\tif x != 2 || y != 1 {\n\t\tprintln(\"f2\", x, y)\n\t\tpanic(\"fail\")\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{873641, 513799, 73802, -218535, 142085, -798420, -822694, 676657}\n\tm := map[int]int{}\n\ts := 37532\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*40 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 2340685209825574712 ooeooeeo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/defer.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "defer.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Test defer.\n\npackage main\n\nimport \"fmt\"\n\nvar result string\n\nfunc addInt(i int) { result += fmt.Sprint(i) }\n\nfunc test1helper() {\n\tfor i := 0; i < 10; i++ {\n\t\tdefer addInt(i)\n\t}\n}\n\nfunc test1() {\n\tresult = \"\"\n\ttest1helper()\n\tif result != \"9876543210\" {\n\t\tfmt.Printf(\"test1: bad defer result (should be 9876543210): %q\\n\", result)\n\t\tpanic(\"defer\")\n\t}\n}\n\nfunc addDotDotDot(v ...interface{}) { result += fmt.Sprint(v...) }\n\nfunc test2helper() {\n\tfor i := 0; i < 10; i++ {\n\t\tdefer addDotDotDot(i)\n\t}\n}\n\nfunc test2() {\n\tresult = \"\"\n\ttest2helper()\n\tif result != \"9876543210\" {\n\t\tfmt.Printf(\"test2: bad defer result (should be 9876543210): %q\\n\", result)\n\t\tpanic(\"defer\")\n\t}\n}\n\nfunc main() {\n\ttest1()\n\ttest2()\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{957402, -43515, -227077, 477114, 506338, -316277, -982100, -748730}\n\tm := map[int]int{}\n\ts := 7494\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*70 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 7440190475109904532 eooeeoee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue8620.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue8620.go",
+    "content": "// run\n\n// Copyright 2014 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 8620. Used to fail with -race.\n\npackage main\n\nfunc min(a, b int) int {\n\tif a < b {\n\t\treturn a\n\t}\n\treturn b\n}\n\nfunc test(s1, s2 []struct{}) {\n\tn := min(len(s1), len(s2))\n\tif copy(s1, s2) != n {\n\t\tpanic(\"bad copy result\")\n\t}\n}\n\nfunc main() {\n\tvar b [100]struct{}\n\ttest(b[:], b[:])\n\ttest(b[1:], b[:])\n\ttest(b[:], b[2:])\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{70879, -430614, -693911, 119227, 814323, -517943, 845668, 592239}\n\tm := map[int]int{}\n\ts := 18339\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*14 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 201574359868577005 oeooooeo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue57309.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue57309.go",
+    "content": "// run\n\n// Copyright 2022 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\ntype I interface {\n\tM()\n}\n\ntype S struct {\n}\n\nfunc (*S) M() {\n}\n\nfunc main() {\n\tfunc() {\n\t\tI(&S{}).M()\n\t}()\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-214786, 145084, -938275, 1035650, 477364, 204779, 883653, -429256}\n\tm := map[int]int{}\n\ts := 54916\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*44 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -5925308216857194042 eeoeeooe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug004.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug004.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nfunc main() {\n\tswitch ; { case false: return; }  // compiles; should be an error (should be simplevardecl before ;)\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{453985, 519006, 411918, 35749, 385624, 164711, -282592, 1004896}\n\tm := map[int]int{}\n\ts := 5897\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*20 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 8912159630942047609 oeeoeoee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug058.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug058.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\ntype Box struct {};\nvar m map[string] *Box;\n\nfunc main() {\n\tm := make(map[string] *Box);\n\ts := \"foo\";\n\tvar x *Box = nil;\n\tm[s] = x;\n}\n\n/*\nbug058.go:9: illegal types for operand: INDEX\n\t(MAP[<string>*STRING]*<Box>{})\n\t(<string>*STRING)\n*/\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{154892, -135106, 809124, -902507, 744302, 1011900, 1048305, 312976}\n\tm := map[int]int{}\n\ts := 24065\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*84 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 7426373942172980231 eeeoeeoe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug017.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug017.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nfunc main() {\n\tvar s2 string = \"\\a\\b\\f\\n\\r\\t\\v\";  // \\r is miscompiled\n\t_ = s2;\n}\n/*\nmain.go.c: In function \u2018main_main\u2019:\nmain.go.c:20: error: missing terminating \" character\nmain.go.c:21: error: missing terminating \" character\nmain.go.c:24: error: \u2018def\u2019 undeclared (first use in this function)\nmain.go.c:24: error: (Each undeclared identifier is reported only once\nmain.go.c:24: error: for each function it appears in.)\nmain.go.c:24: error: syntax error before \u2018def\u2019\nmain.go.c:24: error: missing terminating \" character\nmain.go.c:25: warning: excess elements in struct initializer\nmain.go.c:25: warning: (near initialization for \u2018slit\u2019)\nmain.go.c:36: error: syntax error at end of input\n*/\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-570033, -227503, -154999, -333499, 881050, -729923, 1018122, -786962}\n\tm := map[int]int{}\n\ts := 30391\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*67 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -9207696535981129781 ooooeoee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/gcc61258.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "gcc61258.go",
+    "content": "// run\n\n// Copyright 2014 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// PR61258: gccgo crashed when deleting a zero-sized key from a map.\n\npackage main\n\nfunc main() {\n\tdelete(make(map[[0]bool]int), [0]bool{})\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-892772, -72543, 873192, 304860, 292694, 78402, 903844, -257102}\n\tm := map[int]int{}\n\ts := 50536\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*20 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 5797003829582441184 eoeeeeee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/interface/bigdata.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bigdata.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Test big vs. small, pointer vs. value interface methods.\n\npackage main\n\ntype I interface { M() int64 }\n\ntype BigPtr struct { a, b, c, d int64 }\nfunc (z *BigPtr) M() int64 { return z.a+z.b+z.c+z.d }\n\ntype SmallPtr struct { a int32 }\nfunc (z *SmallPtr) M() int64 { return int64(z.a) }\n\ntype IntPtr int32\nfunc (z *IntPtr) M() int64 { return int64(*z) }\n\nvar bad bool\n\nfunc test(name string, i I) {\n\tm := i.M()\n\tif m != 12345 {\n\t\tprintln(name, m)\n\t\tbad = true\n\t}\n}\n\nfunc ptrs() {\n\tvar bigptr BigPtr = BigPtr{ 10000, 2000, 300, 45 }\n\tvar smallptr SmallPtr = SmallPtr{ 12345 }\n\tvar intptr IntPtr = 12345\n\n//\ttest(\"bigptr\", bigptr)\n\ttest(\"&bigptr\", &bigptr)\n//\ttest(\"smallptr\", smallptr)\n\ttest(\"&smallptr\", &smallptr)\n//\ttest(\"intptr\", intptr)\n\ttest(\"&intptr\", &intptr)\n}\n\ntype Big struct { a, b, c, d int64 }\nfunc (z Big) M() int64 { return z.a+z.b+z.c+z.d }\n\ntype Small struct { a int32 }\nfunc (z Small) M() int64 { return int64(z.a) }\n\ntype Int int32\nfunc (z Int) M() int64 { return int64(z) }\n\nfunc nonptrs() {\n\tvar big Big = Big{ 10000, 2000, 300, 45 }\n\tvar small Small = Small{ 12345 }\n\tvar int Int = 12345\n\n\ttest(\"big\", big)\n\ttest(\"&big\", &big)\n\ttest(\"small\", small)\n\ttest(\"&small\", &small)\n\ttest(\"int\", int)\n\ttest(\"&int\", &int)\n}\n\nfunc main() {\n\tptrs()\n\tnonptrs()\n\n\tif bad {\n\t\tprintln(\"BUG: interface4\")\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{301286, 420899, 221883, 424881, 765798, 445088, 85344, -811377}\n\tm := map[int]int{}\n\ts := 14068\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*29 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -4404327261350218502 eoooeeeo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue19275.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue19275.go",
+    "content": "// run\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nimport (\n\t\"fmt\"\n)\n\ntype PI struct {\n\tEnabled bool\n}\n\ntype SI struct {\n\tM map[string]*PI\n}\n\n//go:noinline\nfunc (s *SI) test(name string) (*int, error) {\n\tn := new(int)\n\t*n = 99\n\tif err := addUpdate(n, s.M[name].Enabled, \"enabled\"); err != nil { // this was miscompiled\n\t\treturn nil, fmt.Errorf(\" error adding update for enable flag %t : %s\",\n\t\t\ts.M[name].Enabled, err)\n\t}\n\treturn n, nil\n}\n\n//go:noinline\nfunc addUpdate(n *int, in interface{}, s ...string) error {\n\tif *n != 99 {\n\t\tprintln(\"FAIL, *n should be 99, not\", *n)\n\t}\n\treturn nil\n}\n\nfunc main1() {\n\ts := &SI{make(map[string]*PI)}\n\ts.M[\"dog\"] = &PI{}\n\ts.test(\"dog\")\n}\n\n//go:noinline\nfunc g(b *byte, i interface{}) error {\n\tif *b != 17 {\n\t\tprintln(\"FAIL, *b should be 17, not\", *b)\n\t}\n\treturn nil\n}\n\n//go:noinline\nfunc f(x *byte, m map[string]*bool) {\n\tif err := g(x, *m[\"hello\"]); err != nil { // this was miscompiled\n\t\treturn\n\t}\n}\n\nfunc main2() {\n\tm := make(map[string]*bool)\n\tx := false\n\tm[\"hello\"] = &x\n\tb := byte(17)\n\tf(&b, m)\n}\n\nfunc main() {\n\tmain2()\n\tmain1()\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{418514, 201167, -338622, -537574, -667101, 1047188, -933795, 633488}\n\tm := map[int]int{}\n\ts := 19138\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*92 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -7523571095392152788 eoeeoeoe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue32288.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue32288.go",
+    "content": "// run\n\n// Copyright 2019 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\ntype T struct {\n\ts   [1]string\n\tpad [16]uintptr\n}\n\n//go:noinline\nfunc f(t *int, p *int) []T {\n\tvar res []T\n\tfor {\n\t\tvar e *T\n\t\tres = append(res, *e)\n\t}\n}\n\nfunc main() {\n\tdefer func() {\n\t\tuseStack(100) // force a stack copy\n\t\t// We're expecting a panic.\n\t\t// The bug in this issue causes a throw, which this recover() will not squash.\n\t\trecover()\n\t}()\n\tjunk() // fill the stack with invalid pointers\n\tf(nil, nil)\n}\n\nfunc useStack(n int) {\n\tif n == 0 {\n\t\treturn\n\t}\n\tuseStack(n - 1)\n}\n\n//go:noinline\nfunc junk() uintptr {\n\tvar a [128]uintptr // 1k of bad pointers on the stack\n\tfor i := range a {\n\t\ta[i] = 0xaa\n\t}\n\treturn a[12]\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-872909, -761916, 349075, -754895, 361629, 537801, 532946, -249800}\n\tm := map[int]int{}\n\ts := 28970\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*44 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 3564970020998711262 oeooooee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug116.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug116.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nfunc main() {\n\tbad := false\n\tif (-5 >> 1) != -3 {\n\t\tprintln(\"-5>>1 =\", -5>>1, \"want -3\")\n\t\tbad = true\n\t}\n\tif (-4 >> 1) != -2 {\n\t\tprintln(\"-4>>1 =\", -4>>1, \"want -2\")\n\t\tbad = true\n\t}\n\tif (-3 >> 1) != -2 {\n\t\tprintln(\"-3>>1 =\", -3>>1, \"want -2\")\n\t\tbad = true\n\t}\n\tif (-2 >> 1) != -1 {\n\t\tprintln(\"-2>>1 =\", -2>>1, \"want -1\")\n\t\tbad = true\n\t}\n\tif (-1 >> 1) != -1 {\n\t\tprintln(\"-1>>1 =\", -1>>1, \"want -1\")\n\t\tbad = true\n\t}\n\tif bad {\n\t\tprintln(\"errors\")\n\t\tpanic(\"fail\")\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-875937, 455881, 852636, 722636, 920924, -453077, -321498, -630407}\n\tm := map[int]int{}\n\ts := 28803\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*56 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -8525649643876843933 ooeeeoeo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue5607.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue5607.go",
+    "content": "// run\n\n// Copyright 2013 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 5607: generation of init() function incorrectly\n// uses initializers of blank variables inside closures.\n\npackage main\n\nvar Test = func() {\n\tvar mymap = map[string]string{\"a\": \"b\"}\n\n\tvar innerTest = func() {\n\t\t// Used to crash trying to compile this line as\n\t\t// part of init() (funcdepth mismatch).\n\t\tvar _, x = mymap[\"a\"]\n\t\tprintln(x)\n\t}\n\tinnerTest()\n}\n\nvar Test2 = func() {\n\t// The following initializer should not be part of init()\n\t// The compiler used to generate a call to Panic() in init().\n\tvar _, x = Panic()\n\t_ = x\n}\n\nfunc Panic() (int, int) {\n\tpanic(\"omg\")\n\treturn 1, 2\n}\n\nfunc main() {}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-187424, -310341, -485581, -624388, -290380, -132708, -964928, 633586}\n\tm := map[int]int{}\n\ts := 53660\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*65 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 4436828516386867624 eooeeeee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue10135.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue10135.go",
+    "content": "// run\n\n// Copyright 2015 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 10135: append a slice with zero-sized element used\n// to always return a slice with the same data pointer as the\n// old slice, even if it's nil, so this program used to panic\n// with nil pointer dereference because after append, s is a\n// slice with nil data pointer but non-zero len and cap.\n\npackage main\n\ntype empty struct{}\n\nfunc main() {\n\tvar s []empty\n\n\ts = append(s, empty{})\n\n\tfor _, v := range s {\n\t\t_ = v\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-265271, 1016598, 805804, 96554, 894428, -554283, -520946, -63941}\n\tm := map[int]int{}\n\ts := 23123\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*50 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -5729479699328697 oeeeeoeo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue18906.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue18906.go",
+    "content": "// run\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\n//go:noinline\nfunc f(x int) {\n}\n\n//go:noinline\nfunc val() int8 {\n\treturn -1\n}\n\nvar (\n\tarray = [257]int{}\n\tslice = array[1:]\n)\n\nfunc init() {\n\tfor i := range array {\n\t\tarray[i] = i - 1\n\t}\n}\n\nfunc main() {\n\tx := val()\n\ty := int(uint8(x))\n\tf(y) // try and force y to be calculated and spilled\n\tif slice[y] != 255 {\n\t\tpanic(\"incorrect value\")\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-781879, -614569, -949050, -72492, -547641, 124699, -231093, -769379}\n\tm := map[int]int{}\n\ts := 53176\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*90 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 6042483710221076414 ooeeoooo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug409.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug409.go",
+    "content": "// run\n\n// Copyright 2012 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Multiple inlined calls to a function that causes\n// redundant address loads.\n\npackage main\n\nfunc F(v [2]float64) [2]float64 {\n\treturn [2]float64{v[0], v[1]}\n}\n\nfunc main() {\n\ta := F([2]float64{1, 2})\n\tb := F([2]float64{3, 4})\n\tprintln(a[0], a[1], b[0], b[1])\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{547637, -933359, 635403, 825902, 414118, -636490, -601527, 700547}\n\tm := map[int]int{}\n\ts := 21575\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*17 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -968114139762534759 oooeeeoo 8\n+1.000000e+000 +2.000000e+000 +3.000000e+000 +4.000000e+000\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug178.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug178.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nfunc main() {\nL:\n\tfor i := 0; i < 1; i++ {\n\tL1:\n\t\tfor {\n\t\t\tbreak L\n\t\t}\n\t\tpanic(\"BUG: not reached - break\")\n\t\tif false {\n\t\t\tgoto L1\n\t\t}\n\t}\n\nL2:\n\tfor i := 0; i < 1; i++ {\n\tL3:\n\t\tfor {\n\t\t\tcontinue L2\n\t\t}\n\t\tpanic(\"BUG: not reached - continue\")\n\t\tif false {\n\t\t\tgoto L3\n\t\t}\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-98138, -62123, 701718, -190, -870859, 522827, -77998, 947535}\n\tm := map[int]int{}\n\ts := 38046\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*26 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 65267297902747202 eoeeooeo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue52072.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue52072.go",
+    "content": "// run\n\n// Copyright 2022 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\ntype I interface{ M() }\n\ntype T struct {\n\tx int\n}\n\nfunc (T) M() {}\n\nvar pt *T\n\nfunc f() (r int) {\n\tdefer func() { recover() }()\n\n\tvar i I = pt\n\tdefer i.M()\n\tr = 1\n\treturn\n}\n\nfunc main() {\n\tif got := f(); got != 1 {\n\t\tpanic(got)\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{93708, -634646, -502987, -73949, 767474, -525941, -1036534, 681134}\n\tm := map[int]int{}\n\ts := 57688\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*32 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -5944272111592261650 eeooeoee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue15902.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue15902.go",
+    "content": "// run\n\n// Copyright 2016 The Go Authors.  All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// This test makes sure we don't use 4-byte unaligned writes\n// to zero memory on architectures that don't support them.\n\npackage main\n\ntype T struct {\n\ta byte\n\tb [10]byte\n}\n\n//go:noinline\nfunc f(t *T) {\n\t// t will be aligned, so &t.b won't be.\n\tt.b = [10]byte{}\n}\n\nvar t T\n\nfunc main() {\n\tf(&t)\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-945295, -732914, -1025771, -367028, 506807, 574994, 986127, 701533}\n\tm := map[int]int{}\n\ts := 29661\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*65 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -3754247025863479759 oeoeoeoo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue5809.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue5809.go",
+    "content": "// run\n\n// Copyright 2013 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// issue 5809: 6g and 8g attempted to constant propagate indexed LEA\n\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n\tconst d16 = \"0123456789ABCDEF\"\n\tk := 0x1234\n\tvar x [4]byte\n\t\n\tx[0] = d16[k>>12&0xf]\n\tx[1] = d16[k>>8&0xf]\n\tx[2] = d16[k>>4&0xf]\n\tx[3] = d16[k&0xf]\n\t\n\tif x != [4]byte{'1','2','3','4'} {\n\t\tfmt.Println(x)\n\t\tpanic(\"x != [4]byte{'1','2','3','4'}\")\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{351274, 396927, -78814, 355610, 926081, -379257, 796253, -559211}\n\tm := map[int]int{}\n\ts := 7500\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*77 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -4652668726607202258 eoeeoooo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue4066.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue4066.go",
+    "content": "// run\n\n// Copyright 2012 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// issue 4066: return values not being spilled eagerly enough\n\npackage main\n\nfunc main() {\n\tn := foo()\n\tif n != 2 {\n\t\tprintln(n)\n\t\tpanic(\"wrong return value\")\n\t}\n}\n\ntype terr struct{}\n\nfunc foo() (val int) {\n\tval = 0\n\tdefer func() {\n\t\tif x := recover(); x != nil {\n\t\t\t_ = x.(terr)\n\t\t}\n\t}()\n\tfor {\n\t\tval = 2\n\t\tfoo1()\n\t}\n\tpanic(\"unreachable\")\n}\n\nfunc foo1() {\n\tpanic(terr{})\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{595591, -651374, -156972, -961741, 881492, -667036, 12033, 457050}\n\tm := map[int]int{}\n\ts := 17450\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*53 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -5969271163579468782 oeeoeeoe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug501.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug501.go",
+    "content": "// run\n\n// Copyright 2016 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Gccgo got a compiler crash compiling the addition of more than five\n// strings with mixed constants and variables.\n\npackage main\n\nfunc F(s string) (string, error) {\n\treturn s, nil\n}\n\nfunc G(a, b, c string) (string, error) {\n\treturn F(\"a\" + a + \"b\" + b + \"c\" + c)\n}\n\nfunc main() {\n\tif got, _ := G(\"x\", \"y\", \"z\"); got != \"axbycz\" {\n\t\tpanic(got)\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-1029485, 97951, 440296, -776745, -636268, 333637, 804638, 329302}\n\tm := map[int]int{}\n\ts := 21109\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*66 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 6790943828649630445 ooeoeoee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/235.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "235.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Solve the 2,3,5 problem (print all numbers with 2, 3, or 5 as factor) using channels.\n// Test the solution, silently.\n\npackage main\n\ntype T chan uint64\n\nfunc M(f uint64) (in, out T) {\n\tin = make(T, 100)\n\tout = make(T, 100)\n\tgo func(in, out T, f uint64) {\n\t\tfor {\n\t\t\tout <- f*<-in\n\t\t}\n\t}(in, out, f)\n\treturn in, out\n}\n\n\nfunc min(xs []uint64) uint64 {\n\tm := xs[0]\n\tfor i := 1; i < len(xs); i++ {\n\t\tif xs[i] < m {\n\t\t\tm = xs[i]\n\t\t}\n\t}\n\treturn m\n}\n\n\nfunc main() {\n\tF := []uint64{2, 3, 5}\n\tvar n = len(F)\n\tOUT := []uint64{\n\t\t2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 16, 18, 20, 24, 25, 27, 30, 32, 36,\n\t\t40, 45, 48, 50, 54, 60, 64, 72, 75, 80, 81, 90, 96, 100, 108, 120, 125,\n\t\t128, 135, 144, 150, 160, 162, 180, 192, 200, 216, 225, 240, 243, 250,\n\t\t256, 270, 288, 300, 320, 324, 360, 375, 384, 400, 405, 432, 450, 480,\n\t\t486, 500, 512, 540, 576, 600, 625, 640, 648, 675, 720, 729, 750, 768,\n\t\t800, 810, 864, 900, 960, 972, 1000, 1024, 1080, 1125, 1152, 1200, 1215,\n\t\t1250, 1280, 1296, 1350, 1440, 1458, 1500, 1536, 1600}\n\n\tx := uint64(1)\n\tins := make([]T, n)\n\touts := make([]T, n)\n\txs := make([]uint64, n)\n\tfor i := 0; i < n; i++ {\n\t\tins[i], outs[i] = M(F[i])\n\t\txs[i] = x\n\t}\n\n\tfor i := 0; i < len(OUT); i++ {\n\t\tfor i := 0; i < n; i++ {\n\t\t\tins[i] <- x\n\t\t}\n\n\t\tfor i := 0; i < n; i++ {\n\t\t\tif xs[i] == x {\n\t\t\t\txs[i] = <-outs[i]\n\t\t\t}\n\t\t}\n\n\t\tx = min(xs)\n\t\tif x != OUT[i] {\n\t\t\tprintln(\"bad: \", x, \" should be \", OUT[i])\n\t\t\tpanic(\"235\")\n\t\t}\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{769649, 1002479, 790924, 905301, -670246, -480281, -912691, -111357}\n\tm := map[int]int{}\n\ts := 14306\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*29 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 6373803634379171420 ooeoeooo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue6866.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue6866.go",
+    "content": "// run\n\n// Copyright 2015 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// WARNING: GENERATED FILE - DO NOT MODIFY MANUALLY!\n// (To generate, in go/types directory: go test -run=Hilbert -H=2 -out=\"h2.src\")\n\n// This program tests arbitrary precision constant arithmetic\n// by generating the constant elements of a Hilbert matrix H,\n// its inverse I, and the product P = H*I. The product should\n// be the identity matrix.\npackage main\n\nfunc main() {\n\tif !ok {\n\t\tprint()\n\t\treturn\n\t}\n}\n\n// Hilbert matrix, n = 2\nconst (\n\th0_0, h0_1 = 1.0 / (iota + 1), 1.0 / (iota + 2)\n\th1_0, h1_1\n)\n\n// Inverse Hilbert matrix\nconst (\n\ti0_0 = +1 * b2_1 * b2_1 * b0_0 * b0_0\n\ti0_1 = -2 * b2_0 * b3_1 * b1_0 * b1_0\n\n\ti1_0 = -2 * b3_1 * b2_0 * b1_1 * b1_1\n\ti1_1 = +3 * b3_0 * b3_0 * b2_1 * b2_1\n)\n\n// Product matrix\nconst (\n\tp0_0 = h0_0*i0_0 + h0_1*i1_0\n\tp0_1 = h0_0*i0_1 + h0_1*i1_1\n\n\tp1_0 = h1_0*i0_0 + h1_1*i1_0\n\tp1_1 = h1_0*i0_1 + h1_1*i1_1\n)\n\n// Verify that product is identity matrix\nconst ok = p0_0 == 1 && p0_1 == 0 &&\n\tp1_0 == 0 && p1_1 == 1 &&\n\ttrue\n\nfunc print() {\n\tprintln(p0_0, p0_1)\n\tprintln(p1_0, p1_1)\n}\n\n// Binomials\nconst (\n\tb0_0 = f0 / (f0 * f0)\n\n\tb1_0 = f1 / (f0 * f1)\n\tb1_1 = f1 / (f1 * f0)\n\n\tb2_0 = f2 / (f0 * f2)\n\tb2_1 = f2 / (f1 * f1)\n\tb2_2 = f2 / (f2 * f0)\n\n\tb3_0 = f3 / (f0 * f3)\n\tb3_1 = f3 / (f1 * f2)\n\tb3_2 = f3 / (f2 * f1)\n\tb3_3 = f3 / (f3 * f0)\n)\n\n// Factorials\nconst (\n\tf0 = 1\n\tf1 = 1\n\tf2 = f1 * 2\n\tf3 = f2 * 3\n)\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{30598, -49261, -1034808, -595021, -504111, -78827, 760762, -529661}\n\tm := map[int]int{}\n\ts := 30621\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*42 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 4609459672794581519 eoeoooeo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/ken/string.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "string.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Test string operations including printing.\n\npackage main\n\nfunc main() {\n\tvar c string\n\n\ta := `abc`\n\tb := `xyz`\n\n\t/* print a literal */\n\tprint(`abc`)\n\n\t/* print a variable */\n\tprint(b, \"-\")\n\n\t/* catenate literals */\n\tprint(`abc`+`xyz`, \"-\")\n\n\t/* catenate variables */\n\tprint(a+b, \"-\")\n\n\t/* compare literals */\n\tif `abc` == `xyz` || `abc` != \"abc\" || `abc` > `xyz` {\n\t\tpanic(\"compare literals\")\n\t}\n\n\t/* compare variables */\n\tif a == b || a != a || a > b {\n\t\tpanic(\"compare variables\")\n\t}\n\n\t/* cat */\n\tc = a + b\n\tprint(c, \"-\")\n\n\t/* catequal */\n\tc = a\n\tc += b\n\tprint(c, \"-\")\n\n\t/* clumsy evaluation */\n\tc = b\n\tc = a + c\n\tprint(c, \"-\")\n\n\t/* len */\n\tif len(c) != 6 {\n\t\tprint(\"len \", len(c))\n\t\tpanic(\"fail\")\n\t}\n\n\t/* index strings */\n\tfor i := 0; i < len(c); i = i + 1 {\n\t\tif c[i] != (a + b)[i] {\n\t\t\tprint(\"index \", i, \" \", c[i], \" \", (a + b)[i])\n\t\t\tpanic(\"fail\")\n\t\t}\n\t}\n\n\t/* slice strings */\n\tprint(c[0:3], c[3:])\n\n\tprint(\"\\n\")\n\n\t/* create string with integer constant */\n\tc = string('x')\n\tif c != \"x\" {\n\t\tpanic(\"create int \" + c)\n\t}\n\n\t/* create string with integer variable */\n\tv := 'x'\n\tc = string(v)\n\tif c != \"x\" {\n\t\tpanic(\"create int \" + c)\n\t}\n\n\t/* create string with byte array */\n\tvar z1 [3]byte\n\tz1[0] = 'a'\n\tz1[1] = 'b'\n\tz1[2] = 'c'\n\tc = string(z1[0:])\n\tif c != \"abc\" {\n\t\tpanic(\"create byte array \" + c)\n\t}\n\n\t/* create string with int array */\n\tvar z2 [3]rune\n\tz2[0] = 'a'\n\tz2[1] = '\\u1234'\n\tz2[2] = 'c'\n\tc = string(z2[0:])\n\tif c != \"a\\u1234c\" {\n\t\tpanic(\"create int array \" + c)\n\t}\n\n\t/* create string with byte array pointer */\n\tz3 := new([3]byte)\n\tz3[0] = 'a'\n\tz3[1] = 'b'\n\tz3[2] = 'c'\n\tc = string(z3[0:])\n\tif c != \"abc\" {\n\t\tpanic(\"create array pointer \" + c)\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-516307, 976900, 95893, -730797, 372974, 913663, -451877, 394702}\n\tm := map[int]int{}\n\ts := 21597\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*10 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -31105607002798749 oeooeooe 8\nabcxyz-abcxyz-abcxyz-abcxyz-abcxyz-abcxyz-abcxyz\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug154.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug154.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nimport \"fmt\"\n\nfunc f0() string {\n\tconst f = 3.141592;\n\treturn fmt.Sprintf(\"%v\", float64(f));\n}\n\n\nfunc f1() string {\n\tconst f = 3.141592;\n\tx := float64(float32(f));  // appears to change the precision of f\n\t_ = x;\n\treturn fmt.Sprintf(\"%v\", float64(f));\n}\n\n\nfunc main() {\n\tr0 := f0();\n\tr1 := f1();\n\tif r0 != r1 {\n\t\tprintln(\"r0 =\", r0);\n\t\tprintln(\"r1 =\", r1);\n\t\tpanic(\"r0 and r1 should be the same\");\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{15630, -235141, 643860, -6306, -623405, 54235, 913115, -180096}\n\tm := map[int]int{}\n\ts := 6989\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*94 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -2807782667419459375 eoeeoooe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/bug007.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "bug007.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\ntype (\n\tPoint struct {\n\t\tx, y float64\n\t}\n\tPolar Point\n)\n\nfunc main() {\n}\n\n/*\nbug7.go:5: addtyp: renaming Point to Polar\nmain.go.c:14: error: redefinition of typedef \u2018_T_2\u2019\nmain.go.c:13: error: previous declaration of \u2018_T_2\u2019 was here\nmain.go.c:16: error: redefinition of \u2018struct _T_2\u2019\n*/\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{1045750, -1025962, 653465, -378777, 86553, 574961, -30178, -543986}\n\tm := map[int]int{}\n\ts := 62543\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*18 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 5331847694727712039 eeooooee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue5820.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue5820.go",
+    "content": "// run\n\n// Copyright 2013 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// issue 5820: register clobber when clearfat and 64 bit arithmetic is interleaved.\n\npackage main\n\nfunc main() {\n\tarray := make([][]int, 2)\n\tindex := uint64(1)\n\tarray[index] = nil\n\tif array[1] != nil {\n\t\tpanic(\"array[1] != nil\")\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{255061, -204784, -951764, 92745, 1008192, 878275, -538455, -446376}\n\tm := map[int]int{}\n\ts := 12328\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*56 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit 788538177757570548 oeeoeooe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue54959.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue54959.go",
+    "content": "// run\n\n// Copyright 2022 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nvar p *int\n\nfunc main() {\n\tvar i int\n\tp = &i // escape i to keep the compiler from making the closure trivial\n\n\tfunc() { i++ }()\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{946500, 634736, 671532, -961204, 915252, 874994, 91240, -735796}\n\tm := map[int]int{}\n\ts := 48\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*74 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -2863628021509229432 eeeeeeee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/abi/more_intstar_input.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "more_intstar_input.go",
+    "content": "// run\n\n//go:build !wasm\n\n// Copyright 2021 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// wasm is excluded because the compiler chatter about register abi pragma ends up\n// on stdout, and causes the expected output to not match.\n\npackage main\n\nvar sink int\n\n//go:registerparams\n//go:noinline\nfunc F(a, b, c, d, e, f, g, h, i, j, k, l, m *int) {\n\tG(m, l, k, j, i, h, g, f, e, d, c, b, a)\n\t// did the pointers get properly updated?\n\tsink = *a + *m\n}\n\n//go:registerparams\n//go:noinline\nfunc G(a, b, c, d, e, f, g, h, i, j, k, l, m *int) {\n\t// Do not reference the parameters\n\tvar scratch [1000 * 100]int\n\tI := *c - *e - *l // zero.\n\tscratch[I] = *d\n\tprintln(\"Got this far!\")\n\tsink += scratch[0]\n}\n\nfunc main() {\n\ta, b, c, d, e, f, g, h, i, j, k, l, m := 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13\n\tF(&a, &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &l, &m)\n\tprintln(\"Sink =\", sink-7)\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-217273, -149543, -892073, -147892, -42744, 211732, -306764, -815071}\n\tm := map[int]int{}\n\ts := 20474\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*34 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -3497075392488475242 oooeeeeo 8\nGot this far!\nSink = 7\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/if.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "if.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Test if statements in various forms.\n\npackage main\n\nfunc assertequal(is, shouldbe int, msg string) {\n\tif is != shouldbe {\n\t\tprint(\"assertion fail\", msg, \"\\n\")\n\t\tpanic(1)\n\t}\n}\n\nfunc main() {\n\ti5 := 5\n\ti7 := 7\n\n\tvar count int\n\n\tcount = 0\n\tif true {\n\t\tcount = count + 1\n\t}\n\tassertequal(count, 1, \"if true\")\n\n\tcount = 0\n\tif false {\n\t\tcount = count + 1\n\t}\n\tassertequal(count, 0, \"if false\")\n\n\tcount = 0\n\tif one := 1; true {\n\t\tcount = count + one\n\t}\n\tassertequal(count, 1, \"if true one\")\n\n\tcount = 0\n\tif one := 1; false {\n\t\tcount = count + 1\n\t\t_ = one\n\t}\n\tassertequal(count, 0, \"if false one\")\n\n\tcount = 0\n\tif i5 < i7 {\n\t\tcount = count + 1\n\t}\n\tassertequal(count, 1, \"if cond\")\n\n\tcount = 0\n\tif true {\n\t\tcount = count + 1\n\t} else {\n\t\tcount = count - 1\n\t}\n\tassertequal(count, 1, \"if else true\")\n\n\tcount = 0\n\tif false {\n\t\tcount = count + 1\n\t} else {\n\t\tcount = count - 1\n\t}\n\tassertequal(count, -1, \"if else false\")\n\n\tcount = 0\n\tif t := 1; false {\n\t\tcount = count + 1\n\t\t_ = t\n\t\tt := 7\n\t\t_ = t\n\t} else {\n\t\tcount = count - t\n\t}\n\tassertequal(count, -1, \"if else false var\")\n\n\tcount = 0\n\tt := 1\n\tif false {\n\t\tcount = count + 1\n\t\tt := 7\n\t\t_ = t\n\t} else {\n\t\tcount = count - t\n\t}\n\t_ = t\n\tassertequal(count, -1, \"if else false var outside\")\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{958657, -843165, 378588, -492261, -891591, -471475, 139347, 142643}\n\tm := map[int]int{}\n\ts := 58927\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*6 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -998345959204066201 ooeooooo 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue41239.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "issue41239.go",
+    "content": "// run\n\n// Copyright 2020 The Go Authors. All rights reserved.  Use of this\n// source code is governed by a BSD-style license that can be found in\n// the LICENSE file.\n\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n\tconst N = 1024\n\tvar a [N]int\n\tx := cap(append(a[:N-1:N], 9, 9))\n\ty := cap(append(a[:N:N], 9))\n\tif x != y {\n\t\tpanic(fmt.Sprintf(\"different capacity on append: %d vs %d\", x, y))\n\t}\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-143086, 129708, -234453, -311824, 363976, 562758, -827032, 525276}\n\tm := map[int]int{}\n\ts := 24269\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*75 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -6319980213655211193 eeoeeeee 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/for.go@go1.6",
+  "action": "run",
+  "files": [
+   {
+    "name": "for.go",
+    "content": "// run\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Test for loops.\n\npackage main\n\nfunc assertequal(is, shouldbe int, msg string) {\n\tif is != shouldbe {\n\t\tprint(\"assertion fail\", msg, \"\\n\")\n\t\tpanic(1)\n\t}\n}\n\nfunc main() {\n\tvar i, sum int\n\n\ti = 0\n\tfor {\n\t\ti = i + 1\n\t\tif i > 5 {\n\t\t\tbreak\n\t\t}\n\t}\n\tassertequal(i, 6, \"break\")\n\n\tsum = 0\n\tfor i := 0; i <= 10; i++ {\n\t\tsum = sum + i\n\t}\n\tassertequal(sum, 55, \"all three\")\n\n\tsum = 0\n\tfor i := 0; i <= 10; {\n\t\tsum = sum + i\n\t\ti++\n\t}\n\tassertequal(sum, 55, \"only two\")\n\n\tsum = 0\n\tfor sum < 100 {\n\t\tsum = sum + 9\n\t}\n\tassertequal(sum, 99+9, \"only one\")\n\n\tsum = 0\n\tfor i := 0; i <= 10; i++ {\n\t\tif i%2 == 0 {\n\t\t\tcontinue\n\t\t}\n\t\tsum = sum + i\n\t}\n\tassertequal(sum, 1+3+5+7+9, \"continue\")\n\n\ti = 0\n\tfor i = range [5]struct{}{} {\n\t}\n\tassertequal(i, 4, \" incorrect index value after range loop\")\n\n\ti = 0\n\tvar a1 [5]struct{}\n\tfor i = range a1 {\n\t\ta1[i] = struct{}{}\n\t}\n\tassertequal(i, 4, \" incorrect index value after array with zero size elem range clear\")\n\n\ti = 0\n\tvar a2 [5]int\n\tfor i = range a2 {\n\t\ta2[i] = 0\n\t}\n\tassertequal(i, 4, \" incorrect index value after array range clear\")\n}\n"
+   },
+   {
+    "name": "zz_witness.go",
+    "content": "package main\n\nfunc init() {\n\tv := []int{-639623, 170056, -207175, 572433, -232422, 927875, -694465, -597646}\n\tm := map[int]int{}\n\ts := 12283\n\tfor i, x := range v {\n\t\tm[i] = x ^ (s << 1)\n\t\ts = s*131 + x + len(m)\n\t}\n\tf := func(k int) int { return m[k] + k*20 }\n\tfor i := range v {\n\t\ts ^= f(i)\n\t}\n\tt := \"\"\n\tfor _, x := range v {\n\t\tif x&1 == 0 {\n\t\t\tt += \"e\"\n\t\t} else {\n\t\t\tt += \"o\"\n\t\t}\n\t}\n\tprintln(\"wit\", s, t, len(m))\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0,
+   "out": "wit -6789979346376192259 oeooeooe 8\n"
+  },
+  "weight": 1.0,
+  "timeout": 30
+ },
+ {
+  "id": "public/fixedbugs/issue21770.go@go1.6",
+  "action": "errorcheck",
+  "files": [
+   {
+    "name": "issue21770.go",
+    "content": "// errorcheck\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 21770: gccgo incorrectly accepts \"p.f = 0\" where p is **struct\n\npackage p\n\ntype PP **struct{ f int }\n\nfunc f() {\n\t// anonymous type\n\tvar p **struct{ f int }\n\tp.f = 0\n\t// named type\n\tvar p2 PP\n\tp2.f = 0\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 1,
+   "lines": [
+    16,
+    19
+   ]
+  },
+  "weight": 0.6,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue19947.go@go1.6",
+  "action": "errorcheck",
+  "files": [
+   {
+    "name": "issue19947.go",
+    "content": "// errorcheck\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// No double error on ideal -> float{32,64} conversion overflow\n\npackage issue19947\n\nvar _ = float32(1) * 1e200\nvar _ = float64(1) * 1e500\n\nvar _ = complex64(1) * 1e200\nvar _ = complex128(1) * 1e500\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 1,
+   "lines": [
+    11,
+    12,
+    14,
+    15
+   ]
+  },
+  "weight": 0.6,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue8438.go@go1.6",
+  "action": "errorcheck",
+  "files": [
+   {
+    "name": "issue8438.go",
+    "content": "// errorcheck\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Check that we don't print duplicate errors for string ->\n// array-literal conversion\n\npackage main\n\nfunc main() {\n\t_ = []byte{\"foo\"}\n\t_ = []int{\"foo\"}\n\t_ = []rune{\"foo\"}\n\t_ = []string{\"foo\"} // OK\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 1,
+   "lines": [
+    13,
+    14,
+    15
+   ]
+  },
+  "weight": 0.6,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/bug213.go@go1.6",
+  "action": "errorcheck",
+  "files": [
+   {
+    "name": "bug213.go",
+    "content": "// errorcheck\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\nfunc main() {\n\tvar v interface{} = 0;\n\tswitch v.(type) {\n\tcase int:\n\t\tfallthrough;\n\tdefault:\n\t\tpanic(\"fell through\");\n\t}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 1,
+   "lines": [
+    12
+   ]
+  },
+  "weight": 0.6,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/bug131.go@go1.6",
+  "action": "errorcheck",
+  "files": [
+   {
+    "name": "bug131.go",
+    "content": "// errorcheck\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nfunc main() {\n\tconst a uint64 = 10\n\tvar _ int64 = a\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 1,
+   "lines": [
+    11
+   ]
+  },
+  "weight": 0.6,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue19977.go@go1.6",
+  "action": "errorcheck",
+  "files": [
+   {
+    "name": "issue19977.go",
+    "content": "// errorcheck\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 19977: multiple error messages when type switching on an undefined\n\npackage foo\n\nfunc Foo() {\n\tswitch x := a.(type) {\n\tdefault:\n\t\t_ = x\n\t}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 1,
+   "lines": [
+    12
+   ]
+  },
+  "weight": 0.6,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue6964.go@go1.6",
+  "action": "errorcheck",
+  "files": [
+   {
+    "name": "issue6964.go",
+    "content": "// errorcheck\n\n// Copyright 2013 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nfunc main() {\n\t_ = string(-4 + 2i + 2)\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 1,
+   "lines": [
+    10
+   ]
+  },
+  "weight": 0.6,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue51839.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue51839.go",
+    "content": "// compile\n\n// Copyright 2022 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage main\n\nfunc main() {\n\ttestRecover()\n\n}\n\nfunc testRecover() {\n\tif false {\n\t\tfunc() {\n\t\t\tdefer func() {\n\t\t\t\t_ = recover()\n\t\t\t}()\n\t\t}()\n\t}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue7998.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue7998.go",
+    "content": "// compile\n\n// Copyright 2014 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// /tmp/x.go:5: cannot use _ as value\n\npackage p\n\nfunc f(ch chan int) bool {\n\tselect {\n\tcase _, ok := <-ch:\n\t\treturn ok\n\t}\n\t_, ok := <-ch\n\t_ = ok\n\tselect {\n\tcase _, _ = <-ch:\n\t\treturn true\n\t}\n\treturn false\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue15585.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue15585.go",
+    "content": "// compile\n\n// Copyright 2016 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage bug\n\nfunc example(n int) (rc int) {\n\tvar cc, ll, pp, rr [27]int\n\tfor q0 := 0; q0 < n-2; q0++ {\n\t\tfor q1 := q0 + 2; q1 < n; q1++ {\n\t\t\tvar c, d, l, p, r int\n\t\t\tb0 := 1 << uint(q0)\n\t\t\tb1 := 1 << uint(q1)\n\t\t\tl = ((b0 << 1) | b1) << 1\n\t\t\tc = b0 | b1 | (-1 << uint(n))\n\t\t\tr = ((b0 >> 1) | b1) >> 1\n\t\tE:\n\t\t\tif c != -1 {\n\t\t\t\tp = ^(l | c | r)\n\t\t\t} else {\n\t\t\t\trc++\n\t\t\t\tgoto R\n\t\t\t}\n\t\tL:\n\t\t\tif p != 0 {\n\t\t\t\tlsb := p & -p\n\t\t\t\tp &^= lsb\n\t\t\t\tll[d], cc[d], rr[d], pp[d] = l, c, r, p\n\t\t\t\tl, c, r = (l|lsb)<<1, c|lsb, (r|lsb)>>1\n\t\t\t\td++\n\t\t\t\tgoto E\n\t\t\t}\n\t\tR:\n\t\t\td--\n\t\t\tif d >= 0 {\n\t\t\t\tl, c, r, p = ll[d], cc[d], rr[d], pp[d]\n\t\t\t\tgoto L\n\t\t\t}\n\t\t}\n\t}\n\trc <<= 1\n\treturn\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue19679.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue19679.go",
+    "content": "// compile\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Used to crash when a type switch was present in dead code\n// in an inlineable function.\n\npackage p\n\nfunc Then() {\n\tvar i interface{}\n\tif false {\n\t\tswitch i.(type) {\n\t\t}\n\t}\n}\n\nfunc Else() {\n\tvar i interface{}\n\tif true {\n\t\t_ = i\n\t} else {\n\t\tswitch i.(type) {\n\t\t}\n\t}\n}\n\nfunc Switch() {\n\tvar i interface{}\n\tswitch 5 {\n\tcase 3:\n\t\tswitch i.(type) {\n\t\t}\n\tcase 5:\n\t}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue8761.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue8761.go",
+    "content": "// compile\n\n// Copyright 2014 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// issue 8761\n// used to confuse code generator into using temporary before initialization.\n// caused 'variable live at entry' error in liveness analysis.\n\npackage p\n\nfunc f1() {\n\ttype C chan int\n\t_ = [1][]C{[]C{make(chan int)}}\n}\n\nfunc f2() {\n\ttype C interface{}\n\t_ = [1][]C{[]C{recover()}}\n}\n\nfunc f3() {\n\ttype C *int\n\t_ = [1][]C{[]C{new(int)}}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue47712.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue47712.go",
+    "content": "// compile\n\n// Copyright 2021 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage p\n\nfunc f() {\n\tif false {\n\t\tdefer func() {\n\t\t\t_ = recover()\n\t\t}()\n\t}\n}\n\nfunc g() {\n\tfor false {\n\t\tdefer func() {\n\t\t\t_ = recover()\n\t\t}()\n\t}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue25006.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue25006.go",
+    "content": "// compile\n\n// Copyright 2018 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage p\n\nfunc spin() {\n\tvar i int\n\tvar b bool\n\n\tswitch 1 {\n\tcase 0:\n\t\ti = 1\n\t}\n\tswitch 1 {\n\tcase i:\n\tdefault:\n\t\ti = 1\n\t\tb = !b && (b && !b) && b\n\t}\n\tswitch false {\n\tcase false:\n\t\ti = 3 + -i\n\t\tswitch 0 {\n\t\tcase 1 - i:\n\t\t}\n\t}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue19084.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue19084.go",
+    "content": "// compile\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 19084: SSA doesn't handle CONVNOP STRUCTLIT\n\npackage p\n\ntype T struct {\n\ta, b, c, d, e, f, g, h int // big, not SSA-able\n}\n\nfunc f() {\n\t_ = T(T{})\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/gcc61254.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "gcc61254.go",
+    "content": "// compile\n\n// Copyright 2014 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// PR61254: gccgo failed to compile a slice expression with missing indices.\n\npackage main\n\nfunc main() {\n\t[][]int{}[:][0][0]++\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue21253.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue21253.go",
+    "content": "// compile\n\n// Copyright 2017 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Gccgo crashed compiling this code due to failing to finalize\n// interfaces in the right order.\n\npackage p\n\ntype s1 struct {\n\tf m\n\tI\n}\n\ntype m interface {\n\tMm(*s2)\n}\n\ntype s2 struct {\n\t*s1\n}\n\ntype I interface {\n\tMI()\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/interface/recursive.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "recursive.go",
+    "content": "// compile\n\n// Copyright 2009 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Check mutually recursive interfaces\n\npackage recursive\n\ntype I1 interface {\n\tfoo() I2\n}\n\ntype I2 interface {\n\tbar() I1\n}\n\ntype T int\nfunc (t T) foo() I2 { return t }\nfunc (t T) bar() I1 { return t }\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/bug267.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "bug267.go",
+    "content": "// compile\n\n// Copyright 2010 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage bug267\n\ntype T []int\n\nvar a []bool\n\nfunc f1() {\n\tif a[T{42}[0]] {\n\t}\n\t// if (a[T{42}[0]]) {}  // this compiles\n}\n\n/*\n6g bugs/bug267.go\nbugs/bug267.go:14: syntax error: unexpected {, expecting :\n*/\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue8028.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue8028.go",
+    "content": "// compile\n\n// Copyright 2014 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// Issue 8028. Used to fail in -race mode with \"non-orig name\" error.\n\npackage p\n\nvar (\n\tt2 = T{F, \"s1\"}\n\tt1 = T{F, \"s2\"}\n\n\ttt = [...]T{t1, t2}\n)\n\ntype I interface{}\n\ntype T struct {\n\tF func() I\n\tS string\n}\n\ntype E struct{}\n\nfunc F() I { return new(E) }\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue29218.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue29218.go",
+    "content": "// compile\n\n// Copyright 2019 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage p\n\ntype T struct {\n\tb bool\n\tstring\n}\n\nfunc f() {\n\tvar b bool\n\tvar t T\n\tfor {\n\t\tswitch &t.b {\n\t\tcase &b:\n\t\t\tif b {\n\t\t\t}\n\t\t}\n\t}\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue38698.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue38698.go",
+    "content": "// compile\n\n// Copyright 2021 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// This test case caused a panic in the compiler's DWARF gen code.\n\npackage p\n\nfunc ff( /*line :10*/ x string) bool {\n\t{\n\t\tvar _ /*line :10*/, x int\n\t\t_ = x\n\t}\n\treturn x == \"\"\n}\n\n\nfunc h(a string) bool {\n\treturn ff(a)\n}\n\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue40746.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue40746.go",
+    "content": "// compile\n\n// Copyright 2020 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\npackage p\n\nfunc f(x byte, b bool) byte {\n\tvar c byte\n\tif b {\n\t\tc = 1\n\t}\n\n\tif int8(c) < 0 {\n\t\tx++\n\t}\n\treturn x\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ },
+ {
+  "id": "public/fixedbugs/issue8073.go@go1.6",
+  "action": "compile",
+  "files": [
+   {
+    "name": "issue8073.go",
+    "content": "// compile\n\n// Copyright 2014 The Go Authors. All rights reserved.\n// Use of this source code is governed by a BSD-style\n// license that can be found in the LICENSE file.\n\n// issue 8073.\n// was \"internal compiler error: overflow: float64 integer constant\"\n\npackage main\n\nfunc main() {\n\tvar x int\n\t_ = float64(x * 0)\n}\n"
+   }
+  ],
+  "gomod": "module m\n\ngo 1.6\n",
+  "want": {
+   "exit": 0
+  },
+  "weight": 0.4,
+  "timeout": 30,
+  "cmd": [
+   "build",
+   "-o",
+   "a.out",
+   "."
+  ]
+ }
+]

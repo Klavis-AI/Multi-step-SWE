@@ -1,0 +1,79 @@
+# arch: x86_64
+# __bss_start is a linker-defined symbol marking the start of .bss, so a
+# freestanding program can measure and clear its own BSS with it. spec/00
+# s.3.1 already lists it, as "the first byte of .bss"; this case grades that
+# definition and no other. In particular .bss is NOT "the first SHF_ALLOC
+# SHT_NOBITS output section": .tbss is also SHF_ALLOC|SHT_NOBITS and sits at
+# canonical position 13 against .bss's 14 (spec/00 s.2), so on this fixture
+# the two readings give different addresses and only the .bss one passes.
+#
+# The fixture carries thread-locals deliberately, for exactly that reason, and
+# the same arrangement lets it grade .tbss: spec/08 s.2 requires .tbss to stay
+# SHT_NOBITS so it contributes no file bytes, with PT_TLS's p_memsz spanning
+# .tdata and .tbss together. Only the range spec/08 s.2 grades is asserted for p_filesz -- the
+# reference has emitted both the gABI value and p_memsz across these releases,
+# and the doc requires only size(.tdata) <= p_filesz <= p_memsz.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+extern char __bss_start[];
+extern char _end[];
+int  initialised = 0x21;
+int  zeroes[256];
+/* Defined, never accessed: this runtime sets up no thread pointer. */
+__thread long tls_init = 4;
+__thread int  tls_zero;
+int entry(void) {
+    long span = _end - __bss_start;
+    if (span < 1024) { print("span-too-small\n"); return 1; }
+    for (long i = 0; i < span; i++) if (__bss_start[i]) { print("not-zero\n"); return 2; }
+    zeroes[7] = 4;
+    print("bss\n");
+    return zeroes[7] + initialised - 0x21;
+}
+C
+cc_obj m.o m.c
+link_ok out --no-gc-sections rt.o m.o
+
+syms=$(symbols out)
+want_has "__bss_start is defined" "$syms" '[[:space:]]__bss_start$'
+want_not "and it is not undefined" "$syms" 'UND[[:space:]]+__bss_start'
+want "__bss_start is the start of .bss" \
+     "$(( 16#$(sym_value out __bss_start) ))" "$(( 16#$(sec_addr out .bss) ))"
+# ...and NOT the start of .tbss, which is SHF_ALLOC|SHT_NOBITS as well and
+# comes first. The two must be distinct here or the assertion above is vacuous.
+tbss_a=$(( 16#$(sec_addr out .tbss) )); bss_a=$(( 16#$(sec_addr out .bss) ))
+[ "$tbss_a" != "$bss_a" ] || die "fixture no longer separates .tbss from .bss"
+want "__bss_start is not the first NOBITS section (.tbss)" \
+     "$([ "$(( 16#$(sym_value out __bss_start) ))" = "$tbss_a" ] && echo same || echo different)" \
+     "different"
+# It must sit above the initialised data and below the end of the image.
+[ "$(( 16#$(sym_value out __bss_start) ))" -gt "$(( 16#$(sec_addr out .data) ))" ] \
+  || die "__bss_start is not above .data"
+[ "$(( 16#$(sym_value out __bss_start) ))" -lt "$(( 16#$(sym_value out _end) ))" ] \
+  || die "__bss_start is not below _end"
+# .tbss stays NOBITS, so it has no file bytes; .tdata is the initialised part.
+sec_type() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+1); exit}}' <<<"$t"; }
+want ".tbss is NOBITS" "$(sec_type out .tbss)" "NOBITS"
+want ".tdata is PROGBITS" "$(sec_type out .tdata)" "PROGBITS"
+
+tls=$(segments out | awk '/^ *TLS /{print $5, $6; exit}')
+[ -n "$tls" ] || die "no PT_TLS covering .tdata/.tbss"
+set -- $tls
+filesz=$(($1)); memsz=$(($2))
+tdata_sz=$(( 16#$(sec_size out .tdata) ))
+span=$(( 16#$(sec_addr out .tbss) + 16#$(sec_size out .tbss) - 16#$(sec_addr out .tdata) ))
+want "p_memsz spans .tdata and .tbss" "$memsz" "$span"
+[ "$filesz" -ge "$tdata_sz" ] || die "p_filesz $filesz truncates .tdata ($tdata_sz bytes)"
+[ "$filesz" -le "$memsz" ]    || die "p_filesz $filesz exceeds p_memsz $memsz"
+# .tbss contributes no file bytes of its own: the file must not have grown to
+# hold them, so the TLS image's file part cannot reach past .tdata's end.
+[ "$filesz" -le "$span" ] || die "the TLS file image runs past the TLS block"
+
+run_expect out "bss" 4
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 7

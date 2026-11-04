@@ -1,0 +1,150 @@
+# Documentation. No code reads this file.
+#
+# The alert pins this verifier compares, and the ones it relaxes.
+#
+# The runner's effective expectation for a case is the value in `config.json`'s
+# `TestLocalErrorMap` when the case name is a key there, and the case's own
+# built-in `expectedLocalError` otherwise; that is what `-loose-errors` cannot
+# relax, and it is what this file audits. A pin is kept only where a document
+# in this step's `workdir/docs/specs/` states that alert for the situation the
+# case drives (or where the string is the runner's own, which no candidate can
+# choose). Where the alert is one implementation's pick from a menu the
+# specifications leave open, the pin has been relaxed to the empty string: the
+# case still has to fail, but not with a particular alert. Relaxed names are
+# listed at the bottom with their reason.
+
+## Pins still compared
+
+* `LargePlaintext`, `LargePlaintext-TLS13-Padded-16384-1`, `LargePlaintext-TLS13-Padded-8193-8192`, `MaxSendFragment-TLS12-TooLarge`, `MaxSendFragment-TLS13-TooLarge`
+    pinned: record_overflow
+    citation: RFC 8446 s6.2 record_overflow: 'A TLSCiphertext record was received that had a length more than 2^14 + 256 bytes, or a record decrypted to a TLSPlaintext record with more than 2^14 bytes'.
+
+* `EncryptedExtensionsWithKeyShare-TLS13`, `HelloRetryRequest-Unknown-TLS13`, `UnknownExtension-Client`, `UnknownExtension-Client-TLS13`, `UnofferedExtension-Client`, `UnofferedExtension-Client-TLS13`, `UnsolicitedServerNameAck-TLS12`, `UnsolicitedServerNameAck-TLS13`
+    pinned: unsupported_extension
+    citation: RFC 8446 s6.2 unsupported_extension: '... including any extensions in a ServerHello or Certificate not first offered in the corresponding ClientHello or CertificateRequest'; s4.1.4 repeats the rule for the HelloRetryRequest. RFC 5246 s7.4.1.4 states the same rule for the TLS 1.2 half: 'If a client receives an extension type in ServerHello that it did not request in the associated ClientHello, it MUST abort the handshake with an unsupported_extension fatal alert'.
+
+* `UnexpectedUnencryptedExtension-Client-TLS13`, `UnknownUnencryptedExtension-Client-TLS13`
+    pinned: bad_record_mac
+    citation: RFC 8446 s6.2 bad_record_mac: 'returned if a record is received which cannot be deprotected'.
+
+* `EarlyData-Client-BadFinished-TLS13`, `Resume-Server-BinderWrongLength`, `Resume-Server-BinderWrongLength-SecondBinder`, `Resume-Server-InvalidPSKBinder`, `Resume-Server-InvalidPSKBinder-SecondBinder`
+    pinned: decrypt_error
+    citation: RFC 8446 s6.2 decrypt_error: 'a handshake (not record layer) cryptographic operation failed, including being unable to correctly verify a signature or validate a Finished message or a PSK binder'.
+
+* `Resume-Server-PSKBinderFirstExtension`, `Resume-Server-PSKBinderFirstExtension-SecondBinder`
+    pinned: illegal_parameter
+    citation: RFC 8446 s4.2.11: 'The pre_shared_key extension MUST be the last extension in the ClientHello ... Servers MUST check that it is the last extension and otherwise fail the handshake with an illegal_parameter alert'.
+
+* `EarlyData-CipherMismatch-Client-TLS13`
+    pinned: illegal_parameter
+    citation: RFC 8446 s4.2.11: a client MUST abort the handshake with illegal_parameter when the server's selection is inconsistent with the cipher suite the offered PSK is bound to.
+
+* `SendPostHandshakeChangeCipherSpec-TLS13`
+    pinned: unexpected_message
+    citation: RFC 8446 s5: 'An implementation which receives any other change_cipher_spec value or which receives a protected change_cipher_spec record MUST abort the handshake with an unexpected_message alert'.
+
+* `PartialClientFinishedWithClientHello-TLS12-Resume`, `PartialClientKeyExchangeWithClientHello`, `PartialFinishedWithServerHelloDone`, `PartialNewSessionTicketWithServerHelloDone`, `PartialSecondClientHelloAfterFirst`, `PartialServerHelloWithHelloRetryRequest`
+    pinned: unexpected_message
+    citation: RFC 8446 s5.1: 'Implementations MUST verify that all messages immediately preceding a key change align with a record boundary; if not, then they MUST terminate the connection with an unexpected_message alert'.
+
+* `ClientSkipCertificateVerify-TLS13`, `ServerSkipCertificateVerify`, `ServerSkipCertificateVerify-TLS13`
+    pinned: unexpected_message
+    citation: RFC 8446 s6.2 unexpected_message: 'An inappropriate message (e.g., the wrong handshake message, premature Application Data, etc.) was received'.
+
+* `EmptyEncryptedExtensions-TLS13`
+    pinned: decode_error
+    citation: RFC 8446 s6.2 decode_error: 'a message could not be decoded because some field was out of the specified range or the length of the message was incorrect'.
+
+* `ExtraCompressionMethods-TLS13`, `InvalidCompressionMethod`, `NoNullCompression-TLS12`, `NoNullCompression-TLS13`
+    pinned: illegal_parameter
+    citation: RFC 8446 s4.1.2: a ClientHello whose legacy_compression_methods is anything other than exactly the null method draws illegal_parameter; s4.1.3 requires the ServerHello's legacy_compression_method to be 0, and s6.2 defines illegal_parameter as a field inconsistent with the rest of the handshake.
+
+* `HelloRetryRequest-Empty-TLS13`
+    pinned: illegal_parameter
+    citation: RFC 8446 s4.1.4: 'Clients MUST abort the handshake with an illegal_parameter alert if the HelloRetryRequest would not result in any change in the ClientHello'.
+
+* `HelloRetryRequest-DuplicateCookie-TLS13`, `HelloRetryRequest-DuplicateCurve-TLS13`
+    pinned: illegal_parameter
+    citation: RFC 8446 s4.2: 'There MUST NOT be more than one extension of the same type in a given extension block'; s6.2 defines illegal_parameter for a field inconsistent with other fields.
+
+* `ALPNClient-RejectUnknown-TLS12`, `ALPNClient-RejectUnknown-TLS13`
+    pinned: illegal_parameter
+    citation: RFC 8446 s6.2 illegal_parameter: 'A field in the handshake was incorrect or inconsistent with other fields. This alert is used for errors which conform to the formal protocol syntax but are otherwise incorrect'; the generic rule in s6 sends a syntactically correct but semantically invalid message there. The server's ALPN selection is a field inconsistent with the list the client offered, and no_application_protocol is defined in s6.2 for servers only, so it is not the client's answer.
+
+* `Downgrade-TLS12-Client`
+    pinned: illegal_parameter
+    citation: RFC 8446 s4.1.3: a TLS 1.3 client which finds the downgrade sentinel in the ServerHello random 'MUST abort the handshake with an "illegal_parameter" alert'.
+
+* `MinimumVersion-Client-TLS13-TLS12-TLS`, `MinimumVersion-Client2-TLS13-TLS12-TLS`, `MinimumVersion-Server-TLS13-TLS12-TLS`, `MinimumVersion-Server2-TLS13-TLS12-TLS`
+    pinned: protocol_version
+    citation: RFC 8446 Appendix D.1: 'If the version chosen by the server is not supported by the client (or is not acceptable), the client MUST abort the handshake with a "protocol_version" alert'; D.2 gives the server-side half for a ClientHello below everything the server supports; s6.2 defines the alert as 'The protocol version the peer has attempted to negotiate is recognized but not supported'. These are the four of the sixteen scored `MinimumVersion-*` cases whose runner maximum is below the shim's minimum, which is the branch that carries an expectation; the other twelve expect the handshake to succeed and carry the empty string.
+
+* `RequireAnyClientCertificate-TLS13`
+    pinned: certificate_required
+    citation: RFC 8446 s4.4.2.4: a server for which a client certificate is required may 'abort the handshake with a "certificate_required" alert' when the client sends none; s6.2 defines the alert as 'Sent by servers when a client certificate is desired but none was provided by the client'. The case drives exactly that configuration -- the shim is started with `-require-any-client-certificate` and the runner's client offers no certificate.
+
+* `ExpectOmitExtensions`, `NoFallbackSCSV`, `TLS13-TestBadTicketAge-Client`, `NoClientCertificate-TLS12`, `NoClientCertificate-TLS13`, `ServerNameExtensionClientMismatch-TLS12`, `ServerNameExtensionClientMismatch-TLS13`, `ServerNameExtensionClientMissing-TLS12`, `ServerNameExtensionClientMissing-TLS13`, `Downgrade-TLS12-Server`
+    pinned: runner-side message
+    citation: The pinned string is an error the runner's own half of the connection generates from wire behaviour, not an alert the candidate picks, so no choice is left open. `NoClientCertificate-*` and `ServerNameExtensionClient{Mismatch,Missing}-*` are the runner's server errors in handshake_server.go -- reached when the candidate's client sends no certificate, or sends (or omits) the `server_name` the case configures -- and `Downgrade-TLS12-Server` is the runner's client error in handshake_client.go, reached when the candidate's server sets the RFC 8446 s4.1.3 downgrade sentinel. In each the candidate's obligation is the wire behaviour the case configures, not the wording of the string.
+
+* `TrailingDataWithFinished-Client-TLS12`, `TrailingDataWithFinished-Server-TLS12`, `TrailingDataWithFinished-Server-TLS13`, `TrailingDataWithFinished-Resume-Client-TLS12`, `TrailingDataWithFinished-Resume-Server-TLS12`, `TrailingDataWithFinished-Resume-Server-TLS13`
+    pinned: unexpected_message
+    citation: RFC 8446 s6.2 unexpected_message: 'An inappropriate message (e.g., the wrong handshake message, premature Application Data, etc.) was received'; RFC 5246 s7.2.2 defines the TLS 1.2 half as 'unexpected_message: An inappropriate message was received. This alert is always fatal'. The case drives the runner to put handshake data after its own Finished, where no handshake message may follow, so the alert the specifications name for it is unexpected_message. (`TrailingDataWithFinished-Client-TLS13` and `-Resume-Client-TLS13` are not scored at this step; both are keys in `config.json` whose value is the runner's own `local error: bad record MAC`, a string its half produces, not an alert the candidate picks.)
+
+* `TrailingMessageData-CertificateRequest-TLS`, `TrailingMessageData-CertificateStatus-TLS`, `TrailingMessageData-CertificateVerify-TLS`, `TrailingMessageData-ClientCertificate-TLS`, `TrailingMessageData-ClientHello-TLS`, `TrailingMessageData-ClientKeyExchange-TLS`, `TrailingMessageData-NewSessionTicket-TLS`, `TrailingMessageData-ServerCertificate-TLS`, `TrailingMessageData-ServerHello-TLS`, `TrailingMessageData-ServerHelloDone-TLS`, `TrailingMessageData-ServerKeyExchange-TLS`, `TrailingMessageData-TLS13-CertificateRequest-TLS`, `TrailingMessageData-TLS13-ClientCertificate-TLS`, `TrailingMessageData-TLS13-ClientCertificateVerify-TLS`, `TrailingMessageData-TLS13-ClientHello-TLS`, `TrailingMessageData-TLS13-EncryptedExtensions-TLS`, `TrailingMessageData-TLS13-ServerCertificate-TLS`, `TrailingMessageData-TLS13-ServerCertificateVerify-TLS`
+    pinned: decode_error
+    citation: the case appends a byte to the body of one handshake message and fixes the header length, so the message on the wire declares a body one byte longer than its syntax consumes. RFC 8446 s6's note sends 'a message which cannot be parsed according to the syntax (e.g. have a length extending beyond the message boundary or contain an out-of-range length)' to decode_error, and s6.2 defines decode_error as 'some field was out of the specified range or the length of the message was incorrect'; RFC 5246 s7.2.2 gives the TLS 1.2 half the same definition. This is not the `TrailingDataWithFinished-*` situation above: there the extra byte follows a complete Finished on the wire, where no handshake message may follow; here it is inside the body of the message being parsed, so the message itself does not parse.
+
+* `TrailingMessageData-ServerFinished-TLS`, `TrailingMessageData-TLS13-ClientFinished-TLS`, `TrailingMessageData-TLS13-ServerFinished-TLS`
+    pinned: decrypt_error
+    citation: the extra byte makes the Finished message's verify_data one byte longer than the transcript digest, so the receiver's Finished check fails -- RFC 8446 s6.2 decrypt_error: 'a handshake (not record layer) cryptographic operation failed, including being unable to correctly verify a signature or validate a Finished message or a PSK binder'; RFC 5246 s7.2.2 gives the TLS 1.2 half 'unable to ... validate a finished message'.
+
+* `TrailingMessageData-TLS13-ServerHello-TLS`, `WrongMessageType-TLS13-ServerHello-TLS`
+    pinned: runner-side message
+    citation: both cases corrupt the runner's own TLS 1.3 ServerHello, so the candidate's answer is a cleartext alert it can only send before it holds any keys; the runner has already started encrypting and reports its own `local error: bad record MAC` rather than the alert it cannot read. The compared string is the runner's, not an alert the candidate picks; the candidate's obligation is that the handshake fails.
+
+* `WrongMessageType-CertificateRequest-TLS`, `WrongMessageType-CertificateStatus-TLS`, `WrongMessageType-CertificateVerify-TLS`, `WrongMessageType-ClientCertificate-TLS`, `WrongMessageType-ClientFinished-TLS`, `WrongMessageType-ClientHello-TLS`, `WrongMessageType-ClientKeyExchange-TLS`, `WrongMessageType-NewSessionTicket-TLS`, `WrongMessageType-ServerCertificate-TLS`, `WrongMessageType-ServerFinished-TLS`, `WrongMessageType-ServerHello-TLS`, `WrongMessageType-ServerHelloDone-TLS`, `WrongMessageType-ServerKeyExchange-TLS`, `WrongMessageType-TLS13-CertificateRequest-TLS`, `WrongMessageType-TLS13-ClientCertificate-TLS`, `WrongMessageType-TLS13-ClientCertificateVerify-TLS`, `WrongMessageType-TLS13-ClientFinished-TLS`, `WrongMessageType-TLS13-ClientHello-TLS`, `WrongMessageType-TLS13-EncryptedExtensions-TLS`, `WrongMessageType-TLS13-ServerCertificate-TLS`, `WrongMessageType-TLS13-ServerCertificateVerify-TLS`, `WrongMessageType-TLS13-ServerFinished-TLS`
+    pinned: unexpected_message
+    citation: the case rewrites the type byte of the message the runner sends, so the receiver reads a message that cannot legitimately appear at that point in the handshake. RFC 8446 s6.2 unexpected_message: 'An inappropriate message (e.g., the wrong handshake message, premature Application Data, etc.) was received'; RFC 5246 s7.2.2 defines the TLS 1.2 half as 'unexpected_message: An inappropriate message was received. This alert is always fatal'. (`WrongMessageType-TLS13-ServerHello-TLS` is pinned to the runner's own string -- see the entry above.)
+
+* `Client-VerifyDefault-RSA_PKCS1_SHA256-TLS13`, `Client-VerifyDefault-RSA_PKCS1_SHA384-TLS13`, `Client-VerifyDefault-RSA_PKCS1_SHA512-TLS13`, `Server-VerifyDefault-RSA_PKCS1_SHA256-TLS13`, `Server-VerifyDefault-RSA_PKCS1_SHA384-TLS13`, `Server-VerifyDefault-RSA_PKCS1_SHA512-TLS13`
+    pinned: any fatal alert (the compared string is `remote error`, with no description)
+    citation: the case drives the runner to sign a TLS 1.3 CertificateVerify with rsa_pkcs1_sha256/384/512, which RFC 8446 s4.2.3 says 'refer solely to signatures which appear in certificates ... and are not defined for use in signed TLS handshake messages', and s4.4.3 requires RSA handshake signatures to use RSASSA-PSS. The peer's message is syntactically correct but semantically invalid, which s6 sends to illegal_parameter, so the handshake must be terminated with an alert -- and what this pin compares is only the presence of a fatal alert, not its description. The two SHA-1 siblings at TLS 1.2 (`Client-VerifyDefault-RSA_PKCS1_SHA1-TLS12`, `Server-VerifyDefault-RSA_PKCS1_SHA1-TLS12`) are not scored here; `config.json` pins them to the runner's own `tls: no common signature algorithms`, a string its half produces.
+
+* `Client-Sign-RSA_PKCS1_SHA256-TLS13`, `Client-Sign-RSA_PKCS1_SHA384-TLS13`, `Client-Sign-RSA_PKCS1_SHA512-TLS13`, `Server-Sign-RSA_PKCS1_SHA256-TLS13`, `Server-Sign-RSA_PKCS1_SHA384-TLS13`, `Server-Sign-RSA_PKCS1_SHA512-TLS13`
+    pinned: handshake_failure
+    citation: the case offers only PKCS1 algorithms in a TLS 1.3 CertificateRequest while the shim holds the certificate and key it must answer with. RFC 8446 s4.2.3 says those values 'refer solely to signatures which appear in certificates ... and are not defined for use in signed TLS handshake messages' and s4.4.3 requires RSA handshake signatures to use RSASSA-PSS, so no signature the candidate can produce is acceptable and the handshake cannot proceed; s6.2 names handshake_failure for exactly that -- 'the sender was unable to negotiate an acceptable set of security parameters given the options available'. Measured on this step's 0.19.0 Oracle: the shim aborts with the alert the pin demands, and its sibling `-TLS12` cases (where PKCS1 is usable) pass without it. A client that ignores the rule and signs with RSA-PKCS1 in TLS 1.3 anyway does not pass the case either -- the runner's own server refuses that signature ('unsupported signature algorithm 0401'), so the failure it reports is not the shim's own alert.
+
+## Pins relaxed (the case must still fail; the alert is not compared)
+
+* `DuplicateExtensionClient-TLS12`, `DuplicateExtensionServer-TLS12`, `DuplicateExtensionClient-TLS13`, `DuplicateExtensionServer-TLS13`
+    reason: no document in `workdir/docs/specs/` names an alert for a repeated extension. RFC 8446 s4.2 (and RFC 5246 s7.4.1.4 for the TLS 1.2 half) state the prohibition only -- 'There MUST NOT be more than one extension of the same type in a given extension block' -- and the generic rule in RFC 8446 s6 divides the two readings a parser can take: a message that cannot be parsed according to the syntax draws decode_error, one that is syntactically correct but semantically invalid draws illegal_parameter. Which side a duplicate falls on is a judgement, and implementations sit on both: the built-in pin is decode_error (which is also what 0.19.0 sends for a ClientHello or ServerHello duplicate), while the HelloRetryRequest duplicates higher in the kept list are pinned illegal_parameter with the s6 reading. The pin is relaxed rather than rewritten to either, so both readings pass; what the case still requires is that the handshake fails.
+
+* `GarbageCertificate-Client-TLS12`, `GarbageCertificate-Client-TLS13`
+    reason: the built-in pin is decode_error, which no shipped document names for a certificate that cannot be parsed. RFC 5246 s7.2.2 and RFC 8446 s6.2 name the other alert for the situation -- bad_certificate, for 'A certificate was corrupt' -- and that is the alert the `GarbageCertificate-*` cases the later steps score are pinned to (steps 04, 08 and 10 pin all four; step 13 pins the two server-side ones). This release answers a certificate whose DER does not parse with a decode error (webpki's BadDER, turned into AlertDescription::DecodeError by the client's certificate-error path), so the pin cannot be rewritten to the spec-named description without failing the release the case lists were measured from. Relaxed: the handshake must still fail, and either description passes.
+
+* `ClientAuth-NoFallback-ECDSA`
+    reason: same situation as ClientAuth-NoFallback-RSA.
+
+* `ClientAuth-NoFallback-RSA`
+    reason: no shipped document names an alert for the TLS 1.2 CertificateRequest that omits signature_algorithms which this case drives.
+
+* `ClientAuth-NoFallback-TLS13`
+    reason: same situation as ClientAuth-NoFallback-RSA.
+
+* `Resume-Server-ExtraIdentityNoBinder`, `Resume-Server-ExtraIdentityNoBinder-SecondBinder`
+    reason: same silence as Resume-Server-ExtraPSKBinder: no alert is named for a count mismatch.
+
+* `Resume-Server-ExtraPSKBinder`, `Resume-Server-ExtraPSKBinder-SecondBinder`
+    reason: RFC 8446 s4.2.11 describes the identities/binders lists but names no alert for a count mismatch.
+
+* `Resume-Server-NoPSKBinder`, `Resume-Server-NoPSKBinder-SecondBinder`
+    reason: RFC 8446 s4.2.11 says only that a binder which is not present or does not validate makes the server abort; it names no alert for the missing-binder case.
+
+* `SendBogusAlertType`
+    reason: RFC 8446 s6 says unknown alerts are fatal but names no alert to answer one with.
+
+* `TLS13-HRR-InvalidCompressionMethod`
+    reason: s4.1.3 gives the client no alert for a ServerHello or HelloRetryRequest whose legacy_compression_method is not 0, and the server-side rule (s4.1.2) names illegal_parameter, not the decode_error this case pins.
+
+

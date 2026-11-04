@@ -1,0 +1,27 @@
+# arch: x86_64
+# The --relocatable spelling produces an object a second link consumes: the
+# two-stage link produces the same answer as a one-stage link.
+rt_obj rt.o
+cat > a.c <<'C'
+#include "rt.h"
+int helper(int);
+int entry(void) { print("two\n"); return helper(17); }
+C
+cat > b.c <<'C'
+int helper(int x) { return x + 34; }
+C
+cc_obj a.o a.c
+cc_obj b.o b.c
+link_ok part --relocatable a.o b.o
+want_has "partial output is ET_REL" "$(hdr part)" 'Type: +REL \(Relocatable file\)'
+
+link_ok two rt.o part --no-gc-sections
+want_has "second stage is an executable" "$(hdr two)" 'Type: +EXEC \(Executable file\)'
+run_expect two "two" 51
+
+link_ok one rt.o a.o b.o --no-gc-sections
+run_expect one "two" 51
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 2

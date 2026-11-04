@@ -1,0 +1,171 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches the
+# verifier container. Nothing is excluded - the verifier needs the whole tree,
+# and it rebuilds from source regardless, since dist/ is what it is scoring.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/react-classes-to-19"
+version = "1.0.0"
+description = """
+Migrate a 2017 React 15 / Redux 3 / react-router 3 dashboard - class components, \
+string refs, findDOMNode, React.PropTypes, hand-rolled polling, webpack 2 and \
+babel 6 - to React 19 with Redux Toolkit, React Router 7, a Vite build and the \
+React Compiler, across eight steps. Every step is scored on behavior \
+equivalence against recordings taken from the untouched baseline, and on \
+AST- and artifact-level gates measuring how much of the legacy construct set \
+is actually gone."""
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["react", "redux", "migration", "multi-step", "javascript"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["react", "redux", "react-router", "vite", "migration", "multi-step"]
+
+[environment]
+# The agent's image: node 22 and the pinned repository, with no node 8 and no
+# node-gyp/python2 stack - the legacy node-sass 4 and webpack 2 toolchain cannot
+# be revived here, which is measured rather than assumed (see NOTES-authoring).
+build_timeout_sec = 900.0
+# 7, not 8: Harbor GKE requests this many millicores and an e2-standard-8 node
+# has only 7910m allocatable, so cpus = 8 never gets a pod.
+cpus = 7
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, in the Terminal-Bench tradition: an agent migrating a framework
+# needs the framework's documentation, and withholding the network is not a
+# legitimate way to make a task harder.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context.
+[verifier]
+environment_mode = "separate"
+
+# Sizes the verifier containers. Without this section Harbor silently reuses a
+# copy of [environment], which would be the wrong size: the verifier installs
+# dependencies, builds the site, serves it and drives 210 browser scenarios.
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local 0-1>} to reward.json. No
+# min_reward: a zero or partial score never stops the trial, so a step that goes
+# wrong is visible as its own number instead of truncating the run.
+#
+# Verifier budget: a step's scoring is a dependency install, a production build,
+# a server start and 210 recorded scenarios replayed at 4 workers - about 10
+# minutes on 7 vCPU, inside rule 10's 30-minute aim with room for a shared box.
+
+[[steps]]
+name = "01-react16-hooks"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 2700.0
+
+[[steps]]
+name = "02-redux-toolkit"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "03-router-v6"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "04-react18-createroot"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# This step's verifier builds the tree a third time, in development mode, and
+# drives seventeen addresses through it to count what React reports there.  That
+# is roughly six minutes on top of the other two builds and the replay, and the
+# budget below already covers it.
+timeout_sec = 2700.0
+
+[[steps]]
+name = "05-concurrent-features"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# Same three builds as step 4 - production, provenance and development - plus the
+# replay.  The development build is larger here than it was there: this step's
+# subject is twelve panels behind `React.lazy`, so the development server has
+# more chunks to produce on demand while the seventeen addresses are visited.
+# This step also adds a stage none of the others has: a browser opened against
+# the already-served production build to measure what it fetches before the
+# application's own no-such-route screen.  That stage is capped at 120 s of its
+# own, so it adds at most two minutes here and a browser that hangs in it cannot
+# spend the rest of the budget below.
+timeout_sec = 2700.0
+
+[[steps]]
+name = "06-react-19"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# The same four stages step 5 runs - production build, provenance builds,
+# development build, replay - plus the same 120 s entry-cost stage.  This step
+# adds none of its own: everything it grades is read off records those stages
+# already write.  The one thing that is slower is the install, and only when the
+# candidate got it wrong: `npm ci` refuses the React 19 / react-redux 7 pairing
+# in seconds rather than resolving around it, so the failing case is cheaper
+# here than the passing one.
+timeout_sec = 2700.0
+
+[[steps]]
+name = "07-react-compiler"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# The same stages again, unchanged, plus the lint pass step 1 already runs - it
+# is the same eslint invocation over the same tree and it costs seconds.  What
+# is slower here is the candidate's own build rather than the verifier's: the
+# compiler adds a Babel pass over every component to `npm run build`, and this
+# image runs that build three times (production, two provenance probes) plus
+# once more for the development console.  Measured on the reference solution
+# that is well inside the budget the entry-cost stage already made room for.
+timeout_sec = 2700.0
+
+[[steps]]
+name = "08-router-7-and-budgets"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# The same stages once more, with one addition: the entry-cost browser runs a
+# second time, against `#/statistics/total`, to read what the chart screen costs
+# to reach.  It is the same already-served production build and the same capped
+# stage, so the addition is one more browser session of at most 120 s.  Nothing
+# else here is new - the router major, the effect shape and the two budgets are
+# all read off records the existing stages write.
+timeout_sec = 2700.0
+
+# All eight planned steps are declared.  They were added one at a time as they
+# were authored (build-process item 4.4): a `[[steps]]` entry naming a directory
+# that does not yet hold a verifier makes the whole run abort at that step, and
+# the mean is then taken over the steps that did run - a partial score that
+# reads like a whole one.

@@ -1,0 +1,32 @@
+# arch: x86_64
+# --strip-debug drops the DWARF sections but leaves the symbol table, the
+# layout and the program itself alone.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int helperv(int x) { return x * 3; }
+int entry(void) { print("sd\n"); return helperv(2) - 6; }
+C
+cc_obj m.o m.c -g
+link_ok full    rt.o m.o
+link_ok striped rt.o m.o --strip-debug
+want "unstripped output carries .debug_str" \
+     "$(sections full | grep -c '\.debug_str ')" "1"
+want "--strip-debug removed .debug_str" \
+     "$(sections striped | grep -c '\.debug_str ')" "0"
+want "--strip-debug kept .symtab" \
+     "$(sections striped | grep -c '\.symtab ')" "1"
+ev=$(sym_value striped entry)
+[ -n "$ev" ] || die "entry is missing from the stripped symbol table"
+want "the stripped symbol table still resolves _start" \
+     "$(hdr striped | awk '/Entry point address:/{print $NF}' | tr 'A-F' 'a-f' | sed 's/^0x0*//')" \
+     "$(sym_value striped _start | tr 'A-F' 'a-f' | sed 's/^0*//')"
+[ "$(stat -c %s striped)" -lt "$(stat -c %s full)" ] \
+  || die "the stripped output is not smaller than the unstripped one"
+run_expect striped "sd" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

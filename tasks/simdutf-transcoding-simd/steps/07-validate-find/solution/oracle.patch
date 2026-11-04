@@ -1,0 +1,2580 @@
+diff --git L7/src/generic/ascii_validation.h L7/src/generic/ascii_validation.h
+new file mode 100644
+index 0000000..bcb3004
+--- /dev/null
++++ b/src/generic/ascii_validation.h
+@@ -0,0 +1,50 @@
++namespace simdutf {
++namespace SIMDUTF_IMPLEMENTATION {
++namespace {
++namespace ascii_validation {
++
++result generic_validate_ascii_with_errors(const char *input, size_t length) {
++  buf_block_reader<64> reader(reinterpret_cast<const uint8_t *>(input), length);
++  size_t count{0};
++  while (reader.has_full_block()) {
++    simd::simd8x64<uint8_t> in(reader.full_block());
++    if (!in.is_ascii()) {
++      result res = scalar::ascii::validate_with_errors(
++          reinterpret_cast<const char *>(input + count), length - count);
++      return result(res.error, count + res.count);
++    }
++    reader.advance();
++
++    count += 64;
++  }
++  uint8_t block[64]{};
++  reader.get_remainder(block);
++  simd::simd8x64<uint8_t> in(block);
++  if (!in.is_ascii()) {
++    result res = scalar::ascii::validate_with_errors(
++        reinterpret_cast<const char *>(input + count), length - count);
++    return result(res.error, count + res.count);
++  } else {
++    return result(error_code::SUCCESS, length);
++  }
++}
++
++bool generic_validate_ascii(const char *input, size_t length) {
++  buf_block_reader<64> reader(reinterpret_cast<const uint8_t *>(input), length);
++  while (reader.has_full_block()) {
++    simd::simd8x64<uint8_t> in(reader.full_block());
++    if (!in.is_ascii()) {
++      return false;
++    }
++    reader.advance();
++  }
++  uint8_t block[64]{};
++  reader.get_remainder(block);
++  simd::simd8x64<uint8_t> in(block);
++  return in.is_ascii();
++}
++
++} // namespace ascii_validation
++} // unnamed namespace
++} // namespace SIMDUTF_IMPLEMENTATION
++} // namespace simdutf
+diff --git L7/src/generic/find.h L7/src/generic/find.h
+new file mode 100644
+index 0000000..5cf2c7a
+--- /dev/null
++++ b/src/generic/find.h
+@@ -0,0 +1,87 @@
++namespace simdutf {
++namespace SIMDUTF_IMPLEMENTATION {
++namespace {
++namespace util {
++
++simdutf_really_inline const char *find(const char *start, const char *end,
++                                       char character) noexcept {
++  // Handle empty or invalid range
++  if (start >= end)
++    return end;
++  // Align the start pointer to 64 bytes
++  uintptr_t misalignment = reinterpret_cast<uintptr_t>(start) % 64;
++  if (misalignment != 0) {
++    size_t adjustment = 64 - misalignment;
++    if (size_t(end - start) < adjustment) {
++      adjustment = end - start;
++    }
++    for (size_t i = 0; i < adjustment; i++) {
++      if (start[i] == character) {
++        return start + i;
++      }
++    }
++    start += adjustment;
++  }
++
++  // Main loop for 64-byte aligned data
++  for (; size_t(end - start) >= 64; start += 64) {
++    simd8x64<uint8_t> input(reinterpret_cast<const uint8_t *>(start));
++    uint64_t matches = input.eq(uint8_t(character));
++    if (matches != 0) {
++      // Found a match, return the first one
++      int index = trailing_zeroes(matches);
++      return start + index;
++    }
++  }
++  // Handle remaining bytes with scalar loop
++  for (; start < end; ++start) {
++    if (*start == character) {
++      return start;
++    }
++  }
++  return end;
++}
++
++simdutf_really_inline const char16_t *
++find(const char16_t *start, const char16_t *end, char16_t character) noexcept {
++  // Handle empty or invalid range
++  if (start >= end)
++    return end;
++  // Align the start pointer to 64 bytes if misalignment is even
++  uintptr_t misalignment = reinterpret_cast<uintptr_t>(start) % 64;
++  if (misalignment != 0 && misalignment % 2 == 0) {
++    size_t adjustment = (64 - misalignment) / sizeof(char16_t);
++    if (size_t(end - start) < adjustment) {
++      adjustment = end - start;
++    }
++    for (size_t i = 0; i < adjustment; i++) {
++      if (start[i] == character) {
++        return start + i;
++      }
++    }
++    start += adjustment;
++  }
++
++  // Main loop for 64-byte aligned data
++  for (; size_t(end - start) >= 32; start += 32) {
++    simd16x32<uint16_t> input(reinterpret_cast<const uint16_t *>(start));
++    uint64_t matches = input.eq(uint16_t(character));
++    if (matches != 0) {
++      // Found a match, return the first one
++      int index = trailing_zeroes(matches) / 2;
++      return start + index;
++    }
++  }
++  // Handle remaining elements with scalar loop
++  for (; start < end; ++start) {
++    if (*start == character) {
++      return start;
++    }
++  }
++  return end;
++}
++
++} // namespace util
++} // namespace
++} // namespace SIMDUTF_IMPLEMENTATION
++} // namespace simdutf
+diff --git L7/src/generic/utf16/count_code_points_bytemask.h L7/src/generic/utf16/count_code_points_bytemask.h
+new file mode 100644
+index 0000000..b01eee8
+--- /dev/null
++++ b/src/generic/utf16/count_code_points_bytemask.h
+@@ -0,0 +1,58 @@
++namespace simdutf {
++namespace SIMDUTF_IMPLEMENTATION {
++namespace {
++namespace utf16 {
++
++using namespace simd;
++
++template <endianness big_endian>
++simdutf_really_inline size_t count_code_points(const char16_t *in,
++                                               size_t size) {
++  using vector_u16 = simd16<uint16_t>;
++  constexpr size_t N = vector_u16::ELEMENTS;
++
++  size_t pos = 0;
++  size_t count = 0;
++
++  constexpr size_t max_iterations = 65535;
++  const auto one = vector_u16::splat(1);
++  const auto zero = vector_u16::zero();
++
++  size_t iteration = 0;
++
++  auto counters = zero;
++  for (; pos < size / N * N; pos += N) {
++    auto input = vector_u16::load(in + pos);
++    if constexpr (!match_system(big_endian)) {
++      input = input.swap_bytes();
++    }
++
++    const auto t0 = input & uint16_t(0xfc00);
++    const auto t1 = t0 ^ uint16_t(0xdc00);
++
++    // t2[0] == 1 iff input[0] outside range 0xdc00..dfff (the word is not a
++    // high surrogate)
++    const auto t2 = min(t1, one);
++
++    counters += t2;
++
++    iteration += 1;
++    if (iteration == max_iterations) {
++      count += counters.sum();
++      counters = zero;
++      iteration = 0;
++    }
++  }
++
++  if (iteration > 0) {
++    count += counters.sum();
++  }
++
++  return count +
++         scalar::utf16::count_code_points<big_endian>(in + pos, size - pos);
++}
++
++} // namespace utf16
++} // unnamed namespace
++} // namespace SIMDUTF_IMPLEMENTATION
++} // namespace simdutf
+diff --git L7/src/generic/utf16/to_well_formed.h L7/src/generic/utf16/to_well_formed.h
+new file mode 100644
+index 0000000..6a3fe81
+--- /dev/null
++++ b/src/generic/utf16/to_well_formed.h
+@@ -0,0 +1,93 @@
++namespace simdutf {
++namespace SIMDUTF_IMPLEMENTATION {
++namespace {
++namespace utf16 {
++
++// Note: this is direct translation of westmere implementation.
++
++/*
++ * Process one block of 8 characters.  If in_place is false,
++ * copy the block from in to out.  If there is a sequencing
++ * error in the block, overwrite the illsequenced characters
++ * with the replacement character.  This function reads one
++ * character before the beginning of the buffer as a lookback.
++ * If that character is illsequenced, it too is overwritten.
++ */
++template <endianness big_endian, bool in_place>
++simdutf_really_inline void utf16fix_block(char16_t *out, const char16_t *in) {
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++
++  using vector_u16 = simd16<uint16_t>;
++  auto swap_if_needed = [](uint16_t x) constexpr -> uint16_t {
++    return scalar::utf16::swap_if_needed<big_endian>(x);
++  };
++
++  const auto lookback = vector_u16::load(in - 1);
++  const auto block = vector_u16::load(in);
++
++  const auto lb_masked = lookback & swap_if_needed(0xfc00);
++  const auto block_masked = block & swap_if_needed(0xfc00);
++
++  const auto lb_is_high = lb_masked == swap_if_needed(0xd800);
++  const auto block_is_low = block_masked == swap_if_needed(0xdc00);
++  const auto illseq = lb_is_high ^ block_is_low;
++  if (!illseq.is_zero()) {
++    /* compute the cause of the illegal sequencing */
++    const auto lb_illseq = ~block_is_low & lb_is_high;
++    const auto block_illseq =
++        (~lb_is_high & block_is_low) | lb_illseq.template byte_right_shift<2>();
++
++    /* fix illegal sequencing in the lookback */
++    const auto lb = lb_illseq.first();
++    out[-1] = char16_t((lb & replacement) | (~lb & out[-1]));
++    /* fix illegal sequencing in the main block */
++    const auto mask = as_vector_u16(block_illseq);
++    const auto fixed = (~mask & block) | (mask & replacement);
++
++    fixed.store(reinterpret_cast<uint16_t *>(out));
++  } else if (!in_place) {
++    block.store(reinterpret_cast<uint16_t *>(out));
++  }
++}
++
++template <endianness big_endian>
++void to_well_formed(const char16_t *in, size_t n, char16_t *out) {
++  using vector_u16 = simd16<uint16_t>;
++  constexpr size_t N = vector_u16::ELEMENTS;
++
++  if (n < N + 1) {
++    scalar::utf16::to_well_formed_utf16<big_endian>(in, n, out);
++    return;
++  }
++
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++
++  out[0] =
++      scalar::utf16::is_low_surrogate<big_endian>(in[0]) ? replacement : in[0];
++
++  /* duplicate code to have the compiler specialise utf16fix_block() */
++  if (in == out) {
++    constexpr bool inplace = true;
++    for (size_t i = 1; i + N < n; i += N) {
++      utf16fix_block<big_endian, inplace>(out + i, in + i);
++    }
++
++    utf16fix_block<big_endian, inplace>(out + n - N, in + n - N);
++  } else {
++    constexpr bool copy_data = false;
++    for (size_t i = 1; i + N < n; i += N) {
++      utf16fix_block<big_endian, copy_data>(out + i, in + i);
++    }
++
++    utf16fix_block<big_endian, copy_data>(out + n - N, in + n - N);
++  }
++
++  out[n - 1] = scalar::utf16::is_high_surrogate<big_endian>(out[n - 1])
++                   ? replacement
++                   : out[n - 1];
++}
++
++} // namespace utf16
++} // unnamed namespace
++} // namespace SIMDUTF_IMPLEMENTATION
++} // namespace simdutf
+diff --git L7/src/generic/validate_utf16.h L7/src/generic/validate_utf16.h
+new file mode 100644
+index 0000000..ab1cf50
+--- /dev/null
++++ b/src/generic/validate_utf16.h
+@@ -0,0 +1,164 @@
++namespace simdutf {
++namespace SIMDUTF_IMPLEMENTATION {
++namespace {
++namespace utf16 {
++/*
++    UTF-16 validation
++    --------------------------------------------------
++
++    In UTF-16 code units in range 0xD800 to 0xDFFF have special meaning.
++
++    In a vectorized algorithm we want to examine the most significant
++    nibble in order to select a fast path. If none of highest nibbles
++    are 0xD (13), than we are sure that UTF-16 chunk in a vector
++    register is valid.
++
++    Let us analyze what we need to check if the nibble is 0xD. The
++    value of the preceding nibble determines what we have:
++
++    0xd000 .. 0xd7ff - a valid word
++    0xd800 .. 0xdbff - low surrogate
++    0xdc00 .. 0xdfff - high surrogate
++
++    Other constraints we have to consider:
++    - there must not be two consecutive low surrogates (0xd800 .. 0xdbff)
++    - there must not be two consecutive high surrogates (0xdc00 .. 0xdfff)
++    - there must not be sole low surrogate nor high surrogate
++
++    We are going to build three bitmasks based on the 3rd nibble:
++    - V = valid word,
++    - L = low surrogate (0xd800 .. 0xdbff)
++    - H = high surrogate (0xdc00 .. 0xdfff)
++
++      0   1   2   3   4   5   6   7    <--- word index
++    [ V | L | H | L | H | V | V | L ]
++      1   0   0   0   0   1   1   0     - V = valid masks
++      0   1   0   1   0   0   0   1     - L = low surrogate
++      0   0   1   0   1   0   0   0     - H high surrogate
++
++
++      1   0   0   0   0   1   1   0   V = valid masks
++      0   1   0   1   0   0   0   0   a = L & (H >> 1)
++      0   0   1   0   1   0   0   0   b = a << 1
++      1   1   1   1   1   1   1   0   c = V | a | b
++                                  ^
++                                  the last bit can be zero, we just consume 7
++   code units and recheck this word in the next iteration
++*/
++template <endianness big_endian>
++const result validate_utf16_with_errors(const char16_t *input, size_t size) {
++  if (simdutf_unlikely(size == 0)) {
++    return result(error_code::SUCCESS, 0);
++  }
++
++  const char16_t *start = input;
++  const char16_t *end = input + size;
++
++  const auto v_d8 = simd8<uint8_t>::splat(0xd8);
++  const auto v_f8 = simd8<uint8_t>::splat(0xf8);
++  const auto v_fc = simd8<uint8_t>::splat(0xfc);
++  const auto v_dc = simd8<uint8_t>::splat(0xdc);
++
++  while (input + simd16<uint16_t>::SIZE * 2 < end) {
++    // 0. Load data: since the validation takes into account only higher
++    //    byte of each word, we compress the two vectors into one which
++    //    consists only the higher bytes.
++    auto in0 = simd16<uint16_t>(input);
++    auto in1 =
++        simd16<uint16_t>(input + simd16<uint16_t>::SIZE / sizeof(char16_t));
++
++    // Function `utf16_gather_high_bytes` consumes two vectors of UTF-16
++    // and yields a single vector having only higher bytes of characters.
++    const auto in = utf16_gather_high_bytes<big_endian>(in0, in1);
++
++    // 1. Check whether we have any 0xD800..DFFF word (0b1101'1xxx'yyyy'yyyy).
++    const auto surrogates_wordmask = (in & v_f8) == v_d8;
++    const uint16_t surrogates_bitmask =
++        static_cast<uint16_t>(surrogates_wordmask.to_bitmask());
++    if (surrogates_bitmask == 0x0000) {
++      input += 16;
++    } else {
++      // 2. We have some surrogates that have to be distinguished:
++      //    - low  surrogates: 0b1101'10xx'yyyy'yyyy (0xD800..0xDBFF)
++      //    - high surrogates: 0b1101'11xx'yyyy'yyyy (0xDC00..0xDFFF)
++      //
++      //    Fact: high surrogate has 11th bit set (3rd bit in the higher byte)
++
++      // V - non-surrogate code units
++      //     V = not surrogates_wordmask
++      const uint16_t V = static_cast<uint16_t>(~surrogates_bitmask);
++
++      // H - word-mask for high surrogates: the six highest bits are 0b1101'11
++      const auto vH = (in & v_fc) == v_dc;
++      const uint16_t H = static_cast<uint16_t>(vH.to_bitmask());
++
++      // L - word mask for low surrogates
++      //     L = not H and surrogates_wordmask
++      const uint16_t L = static_cast<uint16_t>(~H & surrogates_bitmask);
++
++      const uint16_t a = static_cast<uint16_t>(
++          L & (H >> 1)); // A low surrogate must be followed by high one.
++                         // (A low surrogate placed in the 7th register's word
++                         // is an exception we handle.)
++      const uint16_t b = static_cast<uint16_t>(
++          a << 1); // Just mark that the opinput - startite fact is hold,
++                   // thanks to that we have only two masks for valid case.
++      const uint16_t c = static_cast<uint16_t>(
++          V | a | b); // Combine all the masks into the final one.
++
++      if (c == 0xffff) {
++        // The whole input register contains valid UTF-16, i.e.,
++        // either single code units or proper surrogate pairs.
++        input += 16;
++      } else if (c == 0x7fff) {
++        // The 15 lower code units of the input register contains valid UTF-16.
++        // The 15th word may be either a low or high surrogate. It the next
++        // iteration we 1) check if the low surrogate is followed by a high
++        // one, 2) reject sole high surrogate.
++        input += 15;
++      } else {
++        return result(error_code::SURROGATE, input - start);
++      }
++    }
++  }
++
++  return result(error_code::SUCCESS, input - start);
++}
++
++template <endianness big_endian>
++const result validate_utf16_as_ascii_with_errors(const char16_t *input,
++                                                 size_t size) {
++  if (simdutf_unlikely(size == 0)) {
++    return result(error_code::SUCCESS, 0);
++  }
++  size_t pos = 0;
++  for (; pos < size / 32 * 32; pos += 32) {
++    simd16x32<uint16_t> input_vec(
++        reinterpret_cast<const uint16_t *>(input + pos));
++    if constexpr (!match_system(big_endian)) {
++      input_vec.swap_bytes();
++    }
++    uint64_t matches = input_vec.lteq(uint16_t(0x7f));
++    if (~matches) {
++      // Found a match, return the first one
++      int index = trailing_zeroes(~matches) / 2;
++      return result(error_code::TOO_LARGE, pos + index);
++    }
++  }
++
++  // Scalar tail
++  while (pos < size) {
++
++    char16_t v = scalar::utf16::swap_if_needed<big_endian>(input[pos]);
++    if (v > 0x7F) {
++      return result(error_code::TOO_LARGE, pos);
++    }
++    pos++;
++  }
++  return result(error_code::SUCCESS, size);
++}
++
++} // namespace utf16
++} // unnamed namespace
++} // namespace SIMDUTF_IMPLEMENTATION
++} // namespace simdutf
+diff --git L7/src/generic/validate_utf32.h L7/src/generic/validate_utf32.h
+new file mode 100644
+index 0000000..1669bab
+--- /dev/null
++++ b/src/generic/validate_utf32.h
+@@ -0,0 +1,99 @@
++namespace simdutf {
++namespace SIMDUTF_IMPLEMENTATION {
++namespace {
++namespace utf32 {
++
++simdutf_really_inline bool validate(const char32_t *input, size_t size) {
++  if (simdutf_unlikely(size == 0)) {
++    // empty input is valid UTF-32. protect the implementation from
++    // handling nullptr
++    return true;
++  }
++
++  const char32_t *end = input + size;
++
++  using vector_u32 = simd32<uint32_t>;
++
++  const auto standardmax = vector_u32::splat(0x10ffff);
++  const auto offset = vector_u32::splat(0xffff2000);
++  const auto standardoffsetmax = vector_u32::splat(0xfffff7ff);
++  auto currentmax = vector_u32::zero();
++  auto currentoffsetmax = vector_u32::zero();
++
++  constexpr size_t N = vector_u32::ELEMENTS;
++
++  while (input + N < end) {
++    auto in = vector_u32(input);
++    if constexpr (!match_system(endianness::BIG)) {
++      in.swap_bytes();
++    }
++
++    currentmax = max(currentmax, in);
++    currentoffsetmax = max(currentoffsetmax, in + offset);
++    input += N;
++  }
++
++  const auto too_large = currentmax > standardmax;
++  if (too_large.any()) {
++    return false;
++  }
++
++  const auto surrogate = currentoffsetmax > standardoffsetmax;
++  if (surrogate.any()) {
++    return false;
++  }
++
++  return scalar::utf32::validate(input, end - input);
++}
++
++simdutf_really_inline result validate_with_errors(const char32_t *input,
++                                                  size_t size) {
++  if (simdutf_unlikely(size == 0)) {
++    // empty input is valid UTF-32. protect the implementation from
++    // handling nullptr
++    return result(error_code::SUCCESS, 0);
++  }
++
++  const char32_t *start = input;
++  const char32_t *end = input + size;
++
++  using vector_u32 = simd32<uint32_t>;
++
++  const auto standardmax = vector_u32::splat(0x10ffff + 1);
++  const auto surrogate_mask = vector_u32::splat(0xfffff800);
++  const auto surrogate_byte = vector_u32::splat(0x0000d800);
++
++  constexpr size_t N = vector_u32::ELEMENTS;
++
++  while (input + N < end) {
++    auto in = vector_u32(input);
++    if constexpr (!match_system(endianness::BIG)) {
++      in.swap_bytes();
++    }
++
++    const auto too_large = in >= standardmax;
++    const auto surrogate = (in & surrogate_mask) == surrogate_byte;
++
++    const auto combined = too_large | surrogate;
++    if (simdutf_unlikely(combined.any())) {
++      const size_t consumed = input - start;
++      auto sr = scalar::utf32::validate_with_errors(input, end - input);
++      sr.count += consumed;
++
++      return sr;
++    }
++
++    input += N;
++  }
++
++  const size_t consumed = input - start;
++  auto sr = scalar::utf32::validate_with_errors(input, end - input);
++  sr.count += consumed;
++
++  return sr;
++}
++
++} // namespace utf32
++} // unnamed namespace
++} // namespace SIMDUTF_IMPLEMENTATION
++} // namespace simdutf
+diff --git L7/src/haswell/avx2_utf16fix.cpp L7/src/haswell/avx2_utf16fix.cpp
+new file mode 100644
+index 0000000..1441207
+--- /dev/null
++++ b/src/haswell/avx2_utf16fix.cpp
+@@ -0,0 +1,173 @@
++/*
++ * Process one block of 16 characters.  If in_place is false,
++ * copy the block from in to out.  If there is a sequencing
++ * error in the block, overwrite the illsequenced characters
++ * with the replacement character.  This function reads one
++ * character before the beginning of the buffer as a lookback.
++ * If that character is illsequenced, it too is overwritten.
++ */
++template <endianness big_endian, bool in_place>
++void utf16fix_block(char16_t *out, const char16_t *in) {
++  auto swap_if_needed = [](uint16_t x) constexpr -> uint16_t {
++    return scalar::utf16::swap_if_needed<big_endian>(x);
++  };
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++  __m256i lookback, block, lb_masked, block_masked, lb_is_high, block_is_low;
++  __m256i illseq, lb_illseq, block_illseq, lb_illseq_shifted;
++
++  lookback = _mm256_loadu_si256((const __m256i *)(in - 1));
++  block = _mm256_loadu_si256((const __m256i *)in);
++  lb_masked =
++      _mm256_and_si256(lookback, _mm256_set1_epi16(swap_if_needed(0xfc00u)));
++  block_masked =
++      _mm256_and_si256(block, _mm256_set1_epi16(swap_if_needed(0xfc00u)));
++  lb_is_high =
++      _mm256_cmpeq_epi16(lb_masked, _mm256_set1_epi16(swap_if_needed(0xd800u)));
++  block_is_low = _mm256_cmpeq_epi16(block_masked,
++                                    _mm256_set1_epi16(swap_if_needed(0xdc00u)));
++
++  illseq = _mm256_xor_si256(lb_is_high, block_is_low);
++  if (!_mm256_testz_si256(illseq, illseq)) {
++    int lb;
++
++    /* compute the cause of the illegal sequencing */
++    lb_illseq = _mm256_andnot_si256(block_is_low, lb_is_high);
++#if SIMDUTF_GCC9OROLDER
++    // Old GCC versions are missing _mm256_zextsi128_si256, so we emulate it.
++    __m128i tmp_legacygcc =
++        _mm_bslli_si128(_mm256_extracti128_si256(lb_illseq, 1), 14);
++    __m256i tmp_legacygcc256 =
++        _mm256_set_m128i(_mm_setzero_si128(), tmp_legacygcc);
++    lb_illseq_shifted =
++        _mm256_or_si256(_mm256_bsrli_epi128(lb_illseq, 2), tmp_legacygcc256);
++#else
++    lb_illseq_shifted =
++        _mm256_or_si256(_mm256_bsrli_epi128(lb_illseq, 2),
++                        _mm256_zextsi128_si256(_mm_bslli_si128(
++                            _mm256_extracti128_si256(lb_illseq, 1), 14)));
++#endif // SIMDUTF_GCC9OROLDER
++    block_illseq = _mm256_or_si256(
++        _mm256_andnot_si256(lb_is_high, block_is_low), lb_illseq_shifted);
++
++    /* fix illegal sequencing in the lookback */
++#if SIMDUTF_GCC10 || SIMDUTF_GCC9OROLDER
++    // GCC 10 is missing important intrinsics.
++    lb = _mm_cvtsi128_si32(_mm256_extractf128_si256(lb_illseq, 0));
++#else
++    lb = _mm256_cvtsi256_si32(lb_illseq);
++#endif
++    lb = (lb & replacement) | (~lb & out[-1]);
++    out[-1] = char16_t(lb);
++
++    /* fix illegal sequencing in the main block */
++    block =
++        _mm256_blendv_epi8(block, _mm256_set1_epi16(replacement), block_illseq);
++    _mm256_storeu_si256((__m256i *)out, block);
++  } else if (!in_place) {
++    _mm256_storeu_si256((__m256i *)out, block);
++  }
++}
++
++template <endianness big_endian, bool in_place>
++void utf16fix_block_sse(char16_t *out, const char16_t *in) {
++  auto swap_if_needed = [](uint16_t x) constexpr -> uint16_t {
++    return scalar::utf16::swap_if_needed<big_endian>(x);
++  };
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++  __m128i lookback, block, lb_masked, block_masked, lb_is_high, block_is_low;
++  __m128i illseq, lb_illseq, block_illseq;
++
++  lookback = _mm_loadu_si128((const __m128i *)(in - 1));
++  block = _mm_loadu_si128((const __m128i *)in);
++  lb_masked = _mm_and_si128(lookback, _mm_set1_epi16(swap_if_needed(0xfc00U)));
++  block_masked = _mm_and_si128(block, _mm_set1_epi16(swap_if_needed(0xfc00U)));
++  lb_is_high =
++      _mm_cmpeq_epi16(lb_masked, _mm_set1_epi16(swap_if_needed(0xd800U)));
++  block_is_low =
++      _mm_cmpeq_epi16(block_masked, _mm_set1_epi16(swap_if_needed(0xdc00U)));
++
++  illseq = _mm_xor_si128(lb_is_high, block_is_low);
++  if (_mm_movemask_epi8(illseq) != 0) {
++    /* compute the cause of the illegal sequencing */
++    lb_illseq = _mm_andnot_si128(block_is_low, lb_is_high);
++    block_illseq = _mm_or_si128(_mm_andnot_si128(lb_is_high, block_is_low),
++                                _mm_bsrli_si128(lb_illseq, 2));
++    /* fix illegal sequencing in the lookback */
++    int lb = _mm_cvtsi128_si32(lb_illseq);
++    lb = (lb & replacement) | (~lb & out[-1]);
++    out[-1] = char16_t(lb);
++    /* fix illegal sequencing in the main block */
++    block =
++        _mm_or_si128(_mm_andnot_si128(block_illseq, block),
++                     _mm_and_si128(block_illseq, _mm_set1_epi16(replacement)));
++    _mm_storeu_si128((__m128i *)out, block);
++  } else if (!in_place) {
++    _mm_storeu_si128((__m128i *)out, block);
++  }
++}
++
++template <endianness big_endian>
++void utf16fix_sse(const char16_t *in, size_t n, char16_t *out) {
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++  size_t i;
++
++  if (n < 9) {
++    scalar::utf16::to_well_formed_utf16<big_endian>(in, n, out);
++    return;
++  }
++
++  out[0] =
++      scalar::utf16::is_low_surrogate<big_endian>(in[0]) ? replacement : in[0];
++
++  /* duplicate code to have the compiler specialise utf16fix_block() */
++  if (in == out) {
++    for (i = 1; i + 8 < n; i += 8) {
++      utf16fix_block_sse<big_endian, true>(out + i, in + i);
++    }
++
++    utf16fix_block_sse<big_endian, true>(out + n - 8, in + n - 8);
++  } else {
++    for (i = 1; i + 8 < n; i += 8) {
++      utf16fix_block_sse<big_endian, false>(out + i, in + i);
++    }
++
++    utf16fix_block_sse<big_endian, false>(out + n - 8, in + n - 8);
++  }
++
++  out[n - 1] = scalar::utf16::is_high_surrogate<big_endian>(out[n - 1])
++                   ? replacement
++                   : out[n - 1];
++}
++
++template <endianness big_endian>
++void utf16fix_avx(const char16_t *in, size_t n, char16_t *out) {
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++  size_t i;
++
++  if (n < 17) {
++    utf16fix_sse<big_endian>(in, n, out);
++    return;
++  }
++
++  out[0] =
++      scalar::utf16::is_low_surrogate<big_endian>(in[0]) ? replacement : in[0];
++
++  /* duplicate code to have the compiler specialise utf16fix_block() */
++  if (in == out) {
++    for (i = 1; i + 16 < n; i += 16) {
++      utf16fix_block<big_endian, true>(out + i, in + i);
++    }
++
++    utf16fix_block<big_endian, true>(out + n - 16, in + n - 16);
++  } else {
++    for (i = 1; i + 16 < n; i += 16) {
++      utf16fix_block<big_endian, false>(out + i, in + i);
++    }
++
++    utf16fix_block<big_endian, false>(out + n - 16, in + n - 16);
++  }
++
++  out[n - 1] = scalar::utf16::is_high_surrogate<big_endian>(out[n - 1])
++                   ? replacement
++                   : out[n - 1];
++}
+diff --git L7/src/haswell/avx2_validate_utf16.cpp L7/src/haswell/avx2_validate_utf16.cpp
+new file mode 100644
+index 0000000..9ac878c
+--- /dev/null
++++ b/src/haswell/avx2_validate_utf16.cpp
+@@ -0,0 +1,17 @@
++template <endianness big_endian>
++simd8<uint8_t> utf16_gather_high_bytes(const simd16<uint16_t> &in0,
++                                       const simd16<uint16_t> &in1) {
++  if (big_endian) {
++    // we want lower bytes
++    const auto mask = simd16<uint16_t>(0x00ff);
++    const auto t0 = in0 & mask;
++    const auto t1 = in1 & mask;
++
++    return simd16<uint16_t>::pack(t0, t1);
++  } else {
++    const auto t0 = in0.shr<8>();
++    const auto t1 = in1.shr<8>();
++
++    return simd16<uint16_t>::pack(t0, t1);
++  }
++}
+diff --git a/src/haswell/implementation.cpp b/src/haswell/implementation.cpp
+index e622ead..3942f02 100644
+--- a/src/haswell/implementation.cpp
++++ b/src/haswell/implementation.cpp
+@@ -30,9 +30,13 @@ must_be_2_3_continuation(const simd8<uint8_t> prev2,
+ 
+ #if SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ namespace utf16 {
++  #include "haswell/avx2_validate_utf16.cpp"
+ }
+ #endif // SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
++#if SIMDUTF_FEATURE_UTF16
++  #include "haswell/avx2_utf16fix.cpp"
++#endif // SIMDUTF_FEATURE_UTF16
+ #if SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_LATIN1
+   #include "haswell/avx2_convert_latin1_to_utf8.cpp"
+ #endif // SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_LATIN1
+@@ -95,6 +99,9 @@ namespace utf16 {
+   #include "generic/utf8_validation/utf8_validator.h"
+ #endif // SIMDUTF_FEATURE_UTF8 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
++#if SIMDUTF_FEATURE_ASCII
++  #include "generic/ascii_validation.h"
++#endif // SIMDUTF_FEATURE_ASCII
+ 
+ #if SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_UTF16
+   // transcoding from UTF-8 to UTF-16
+@@ -121,6 +128,9 @@ namespace utf16 {
+   #include "generic/utf16.h"
+   #include "generic/utf16/utf8_length_from_utf16_bytemask.h"
+ #endif // SIMDUTF_FEATURE_UTF16
++#if SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
++  #include "generic/validate_utf16.h"
++#endif // SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+ #if SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_LATIN1
+   // transcoding from UTF-8 to Latin 1
+@@ -128,9 +138,13 @@ namespace utf16 {
+   #include "generic/utf8_to_latin1/valid_utf8_to_latin1.h"
+ #endif // SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_LATIN1
+ 
++#if SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
++  #include "generic/validate_utf32.h"
++#endif // SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+ #if SIMDUTF_FEATURE_BASE64
+   #include "generic/base64.h"
++  #include "generic/find.h"
+ #endif // SIMDUTF_FEATURE_BASE64
+ 
+ namespace simdutf {
+@@ -264,12 +278,13 @@ simdutf_warn_unused result implementation::validate_utf8_with_errors(
+ #if SIMDUTF_FEATURE_ASCII
+ simdutf_warn_unused bool
+ implementation::validate_ascii(const char *buf, size_t len) const noexcept {
+-  return scalar::ascii::validate(buf, len);
++  return haswell::ascii_validation::generic_validate_ascii(buf, len);
+ }
+ 
+ simdutf_warn_unused result implementation::validate_ascii_with_errors(
+     const char *buf, size_t len) const noexcept {
+-  return scalar::ascii::validate_with_errors(buf, len);
++  return haswell::ascii_validation::generic_validate_ascii_with_errors(buf,
++                                                                       len);
+ }
+ #endif // SIMDUTF_FEATURE_ASCII
+ 
+@@ -277,13 +292,17 @@ simdutf_warn_unused result implementation::validate_ascii_with_errors(
+ simdutf_warn_unused bool
+ implementation::validate_utf16le_as_ascii(const char16_t *buf,
+                                           size_t len) const noexcept {
+-  return scalar::utf16::validate_as_ascii<endianness::LITTLE>(buf, len);
++  return haswell::utf16::validate_utf16_as_ascii_with_errors<
++             endianness::LITTLE>(buf, len)
++             .error == SUCCESS;
+ }
+ 
+ simdutf_warn_unused bool
+ implementation::validate_utf16be_as_ascii(const char16_t *buf,
+                                           size_t len) const noexcept {
+-  return scalar::utf16::validate_as_ascii<endianness::BIG>(buf, len);
++  return haswell::utf16::validate_utf16_as_ascii_with_errors<endianness::BIG>(
++             buf, len)
++             .error == SUCCESS;
+ }
+ #endif // SIMDUTF_FEATURE_UTF16 && SIMDUTF_FEATURE_ASCII
+ 
+@@ -291,7 +310,23 @@ implementation::validate_utf16be_as_ascii(const char16_t *buf,
+ simdutf_warn_unused bool
+ implementation::validate_utf16le(const char16_t *buf,
+                                  size_t len) const noexcept {
+-  return scalar::utf16::validate<endianness::LITTLE>(buf, len);
++  if (simdutf_unlikely(len == 0)) {
++    // empty input is valid UTF-16. protect the implementation from
++    // handling nullptr
++    return true;
++  }
++  const auto res =
++      haswell::utf16::validate_utf16_with_errors<endianness::LITTLE>(buf, len);
++  if (res.is_err()) {
++    return false;
++  }
++
++  if (res.count == len) {
++    return true;
++  }
++
++  return scalar::utf16::validate<endianness::LITTLE>(buf + res.count,
++                                                     len - res.count);
+ }
+ #endif // SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+@@ -299,43 +334,76 @@ implementation::validate_utf16le(const char16_t *buf,
+ simdutf_warn_unused bool
+ implementation::validate_utf16be(const char16_t *buf,
+                                  size_t len) const noexcept {
+-  return scalar::utf16::validate<endianness::BIG>(buf, len);
++  if (simdutf_unlikely(len == 0)) {
++    // empty input is valid UTF-16. protect the implementation from
++    // handling nullptr
++    return true;
++  }
++  const auto res =
++      haswell::utf16::validate_utf16_with_errors<endianness::BIG>(buf, len);
++  if (res.is_err()) {
++    return false;
++  }
++
++  if (res.count == len) {
++    return true;
++  }
++
++  return scalar::utf16::validate<endianness::BIG>(buf + res.count,
++                                                  len - res.count);
+ }
+ 
+ simdutf_warn_unused result implementation::validate_utf16le_with_errors(
+     const char16_t *buf, size_t len) const noexcept {
+-  return scalar::utf16::validate_with_errors<endianness::LITTLE>(buf, len);
++
++  const result res =
++      haswell::utf16::validate_utf16_with_errors<endianness::LITTLE>(buf, len);
++  if (res.count != len) {
++    const result scalar_res =
++        scalar::utf16::validate_with_errors<endianness::LITTLE>(
++            buf + res.count, len - res.count);
++    return result(scalar_res.error, res.count + scalar_res.count);
++  } else {
++    return res;
++  }
+ }
+ 
+ simdutf_warn_unused result implementation::validate_utf16be_with_errors(
+     const char16_t *buf, size_t len) const noexcept {
+-  return scalar::utf16::validate_with_errors<endianness::BIG>(buf, len);
++  const result res =
++      haswell::utf16::validate_utf16_with_errors<endianness::BIG>(buf, len);
++  if (res.count != len) {
++    const result scalar_res =
++        scalar::utf16::validate_with_errors<endianness::BIG>(buf + res.count,
++                                                             len - res.count);
++    return result(scalar_res.error, res.count + scalar_res.count);
++  } else {
++    return res;
++  }
+ }
+ 
+ void implementation::to_well_formed_utf16le(const char16_t *input, size_t len,
+                                             char16_t *output) const noexcept {
+-  return scalar::utf16::to_well_formed_utf16<endianness::LITTLE>(input, len,
+-                                                                 output);
++  return utf16fix_avx<endianness::LITTLE>(input, len, output);
+ }
+ 
+ void implementation::to_well_formed_utf16be(const char16_t *input, size_t len,
+                                             char16_t *output) const noexcept {
+-  return scalar::utf16::to_well_formed_utf16<endianness::BIG>(input, len,
+-                                                              output);
++  return utf16fix_avx<endianness::BIG>(input, len, output);
+ }
+ #endif // SIMDUTF_FEATURE_UTF16
+ 
+ #if SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ simdutf_warn_unused bool
+ implementation::validate_utf32(const char32_t *buf, size_t len) const noexcept {
+-  return scalar::utf32::validate(buf, len);
++  return utf32::validate(buf, len);
+ }
+ #endif // SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+ #if SIMDUTF_FEATURE_UTF32
+ simdutf_warn_unused result implementation::validate_utf32_with_errors(
+     const char32_t *buf, size_t len) const noexcept {
+-  return scalar::utf32::validate_with_errors(buf, len);
++  return utf32::validate_with_errors(buf, len);
+ }
+ #endif // SIMDUTF_FEATURE_UTF32
+ 
+@@ -1012,12 +1080,12 @@ void implementation::change_endianness_utf16(const char16_t *input,
+ 
+ simdutf_warn_unused size_t implementation::count_utf16le(
+     const char16_t *input, size_t length) const noexcept {
+-  return scalar::utf16::count_code_points<endianness::LITTLE>(input, length);
++  return utf16::count_code_points<endianness::LITTLE>(input, length);
+ }
+ 
+ simdutf_warn_unused size_t implementation::count_utf16be(
+     const char16_t *input, size_t length) const noexcept {
+-  return scalar::utf16::count_code_points<endianness::BIG>(input, length);
++  return utf16::count_code_points<endianness::BIG>(input, length);
+ }
+ #endif // SIMDUTF_FEATURE_UTF16
+ 
+@@ -1339,22 +1407,12 @@ size_t implementation::binary_to_base64_with_lines(
+ 
+ const char *implementation::find(const char *start, const char *end,
+                                  char character) const noexcept {
+-  for (; start < end; ++start) {
+-    if (*start == character) {
+-      return start;
+-    }
+-  }
+-  return end;
++  return util::find(start, end, character);
+ }
+ 
+ const char16_t *implementation::find(const char16_t *start, const char16_t *end,
+                                      char16_t character) const noexcept {
+-  for (; start < end; ++start) {
+-    if (*start == character) {
+-      return start;
+-    }
+-  }
+-  return end;
++  return util::find(start, end, character);
+ }
+ 
+ simdutf_warn_unused size_t implementation::binary_length_from_base64(
+diff --git L7/src/icelake/icelake_ascii_validation.inl.cpp L7/src/icelake/icelake_ascii_validation.inl.cpp
+new file mode 100644
+index 0000000..5909e43
+--- /dev/null
++++ b/src/icelake/icelake_ascii_validation.inl.cpp
+@@ -0,0 +1,51 @@
++// file included directly
++
++bool validate_ascii(const char *buf, size_t len) {
++  const char *end = buf + len;
++  const __m512i ascii = _mm512_set1_epi8((uint8_t)0x80);
++  // Four accumulators so the loads are not serialized behind a single
++  // loop-carried vpternlogd, and 64-byte aligned reads: a 512-bit load whose
++  // address straddles a cache line costs two accesses, and this loop does
++  // nothing but load.
++  __m512i or0 = _mm512_setzero_si512();
++  __m512i or1 = _mm512_setzero_si512();
++  __m512i or2 = _mm512_setzero_si512();
++  __m512i or3 = _mm512_setzero_si512();
++  // Reach the next 64-byte boundary with a masked load. There is no
++  // cross-block state here and the zero fill is itself ASCII, so this is
++  // simply a shorter first block.
++  if (len >= 64) {
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    if (misalignment != 0) {
++      const size_t adjustment = 64 - misalignment;
++      const __m512i head = _mm512_maskz_loadu_epi8(
++          ~UINT64_C(0) >> (64 - adjustment), (const __m512i *)buf);
++      or0 = _mm512_ternarylogic_epi32(or0, head, ascii, 0xf8);
++      buf += adjustment;
++    }
++  }
++  for (; end - buf >= 256; buf += 256) {
++    or0 = _mm512_ternarylogic_epi32(
++        or0, _mm512_loadu_si512((const __m512i *)buf), ascii, 0xf8);
++    or1 = _mm512_ternarylogic_epi32(
++        or1, _mm512_loadu_si512((const __m512i *)(buf + 64)), ascii, 0xf8);
++    or2 = _mm512_ternarylogic_epi32(
++        or2, _mm512_loadu_si512((const __m512i *)(buf + 128)), ascii, 0xf8);
++    or3 = _mm512_ternarylogic_epi32(
++        or3, _mm512_loadu_si512((const __m512i *)(buf + 192)), ascii, 0xf8);
++  }
++  for (; end - buf >= 64; buf += 64) {
++    const __m512i utf8 = _mm512_loadu_si512((const __m512i *)buf);
++    or0 = _mm512_ternarylogic_epi32(or0, utf8, ascii,
++                                    0xf8); // or0 | (utf8 & ascii)
++  }
++  if (buf < end) {
++    const __m512i utf8 = _mm512_maskz_loadu_epi8(
++        (uint64_t(1) << (end - buf)) - 1, (const __m512i *)buf);
++    or0 = _mm512_ternarylogic_epi32(or0, utf8, ascii,
++                                    0xf8); // or0 | (utf8 & ascii)
++  }
++  const __m512i running_or =
++      _mm512_or_si512(_mm512_or_si512(or0, or1), _mm512_or_si512(or2, or3));
++  return (_mm512_test_epi8_mask(running_or, running_or) == 0);
++}
+diff --git L7/src/icelake/icelake_find.inl.cpp L7/src/icelake/icelake_find.inl.cpp
+new file mode 100644
+index 0000000..446e94a
+--- /dev/null
++++ b/src/icelake/icelake_find.inl.cpp
+@@ -0,0 +1,150 @@
++simdutf_really_inline const char *util_find(const char *start, const char *end,
++                                            char character) noexcept {
++  // Handle empty or invalid range
++  if (start >= end)
++    return end;
++  const size_t step = 64;
++  __m512i char_vec = _mm512_set1_epi8(character);
++
++  // Handle unaligned beginning with a masked load
++  uintptr_t misalignment = reinterpret_cast<uintptr_t>(start) % step;
++  if (misalignment != 0) {
++    size_t adjustment = step - misalignment;
++    if (size_t(end - start) < adjustment) {
++      adjustment = end - start;
++    }
++    __mmask64 load_mask = 0xFFFFFFFFFFFFFFFF >> (64 - adjustment);
++    __m512i data = _mm512_maskz_loadu_epi8(
++        load_mask, reinterpret_cast<const __m512i *>(start));
++    __mmask64 match_mask = _mm512_cmpeq_epi8_mask(data, char_vec);
++    match_mask &= load_mask; // When searching for null terminators, this
++                             // prevents false positives
++
++    if (match_mask != 0) {
++      size_t index = _tzcnt_u64(match_mask);
++      return start + index;
++    }
++    start += adjustment;
++  }
++  // Process 64 bytes (512 bits) at a time with AVX-512
++  // Main loop for full 128-byte chunks
++  while (size_t(end - start) >= 2 * step) {
++    __m512i data1 =
++        _mm512_loadu_si512(reinterpret_cast<const __m512i *>(start));
++    __mmask64 mask1 = _mm512_cmpeq_epi8_mask(data1, char_vec);
++
++    __m512i data2 =
++        _mm512_loadu_si512(reinterpret_cast<const __m512i *>(start + step));
++    __mmask64 mask2 = _mm512_cmpeq_epi8_mask(data2, char_vec);
++    if (!_kortestz_mask64_u8(mask1, mask2)) {
++      if (mask1 != 0) {
++        // Found a match, return the first one
++        size_t index = _tzcnt_u64(mask1);
++        return start + index;
++      }
++      size_t index = _tzcnt_u64(mask2);
++      return start + index + step;
++    }
++    start += 2 * step;
++  }
++
++  // Main loop for full 64-byte chunks
++  while (size_t(end - start) >= step) {
++    __m512i data = _mm512_loadu_si512(reinterpret_cast<const __m512i *>(start));
++    __mmask64 mask = _mm512_cmpeq_epi8_mask(data, char_vec);
++
++    if (mask != 0) {
++      // Found a match, return the first one
++      size_t index = _tzcnt_u64(mask);
++      return start + index;
++    }
++
++    start += step;
++  }
++
++  // Handle remaining bytes with masked load
++  size_t remaining = end - start;
++  if (remaining > 0) {
++    // Create a mask for the remaining bytes using shifted 0xFFFFFFFFFFFFFFFF
++    __mmask64 load_mask = 0xFFFFFFFFFFFFFFFF >> (64 - remaining);
++    __m512i data = _mm512_maskz_loadu_epi8(
++        load_mask, reinterpret_cast<const __m512i *>(start));
++    __mmask64 match_mask = _mm512_cmpeq_epi8_mask(data, char_vec);
++
++    // Apply load mask to avoid false positives
++    match_mask &= load_mask;
++
++    if (match_mask != 0) {
++      // Found a match in the remaining bytes
++      size_t index = _tzcnt_u64(match_mask);
++      return start + index;
++    }
++  }
++
++  return end;
++}
++
++simdutf_really_inline const char16_t *util_find(const char16_t *start,
++                                                const char16_t *end,
++                                                char16_t character) noexcept {
++  // Handle empty or invalid range
++  if (start >= end)
++    return end;
++
++  // Process 32 char16_t (64 bytes, 512 bits) at a time with AVX-512
++  const size_t step = 32;
++  __m512i char_vec = _mm512_set1_epi16(character);
++
++  // Handle unaligned beginning with a masked load
++  uintptr_t misalignment =
++      reinterpret_cast<uintptr_t>(start) % (step * sizeof(char16_t));
++  if (misalignment != 0 && misalignment % 2 == 0) {
++    size_t adjustment =
++        (step * sizeof(char16_t) - misalignment) / sizeof(char16_t);
++    if (size_t(end - start) < adjustment) {
++      adjustment = end - start;
++    }
++    __mmask32 load_mask = 0xFFFFFFFF >> (32 - adjustment);
++    __m512i data = _mm512_maskz_loadu_epi16(
++        load_mask, reinterpret_cast<const __m512i *>(start));
++    __mmask32 match_mask = _mm512_cmpeq_epi16_mask(data, char_vec);
++    match_mask &= load_mask; // When searching for null terminators, this
++                             // prevents false positives
++
++    if (match_mask != 0) {
++      size_t index = _tzcnt_u32(match_mask);
++      return start + index;
++    }
++    start += adjustment;
++  }
++
++  // Main loop for full 32-element chunks
++  while (size_t(end - start) >= step) {
++    __m512i data = _mm512_loadu_si512(reinterpret_cast<const __m512i *>(start));
++    __mmask32 mask = _mm512_cmpeq_epi16_mask(data, char_vec);
++
++    if (mask != 0) {
++      // Found a match, return the first one
++      size_t index = _tzcnt_u32(mask);
++      return start + index;
++    }
++
++    start += step;
++  }
++
++  // Handle remaining elements with masked load
++  size_t remaining = end - start;
++  if (remaining > 0) {
++    __mmask32 load_mask = 0xFFFFFFFF >> (32 - remaining);
++    __m512i data = _mm512_maskz_loadu_epi16(
++        load_mask, reinterpret_cast<const __m512i *>(start));
++    __mmask32 match_mask = _mm512_cmpeq_epi16_mask(data, char_vec);
++
++    if (match_mask != 0) {
++      size_t index = _tzcnt_u32(match_mask);
++      return start + index;
++    }
++  }
++
++  return end;
++}
+diff --git L7/src/icelake/icelake_utf16fix.cpp L7/src/icelake/icelake_utf16fix.cpp
+new file mode 100644
+index 0000000..0b9bc1b
+--- /dev/null
++++ b/src/icelake/icelake_utf16fix.cpp
+@@ -0,0 +1,138 @@
++#include <immintrin.h>
++
++/*
++ * Process one block of 32 characters.  If in_place is false,
++ * copy the block from in to out.  If there is a sequencing
++ * error in the block, overwrite the illsequenced characters
++ * with the replacement character.  This function reads one
++ * character before the beginning of the buffer as a lookback.
++ * If that character is illsequenced, it too is overwritten.
++ */
++template <endianness big_endian, bool in_place>
++simdutf_really_inline void utf16fix_block(char16_t *out, const char16_t *in) {
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++  __m512i lookback, block, lb_masked, block_masked;
++  __mmask32 lb_is_high, block_is_low, illseq;
++  auto swap_if_needed = [](uint16_t x) constexpr -> uint16_t {
++    return scalar::utf16::swap_if_needed<big_endian>(x);
++  };
++
++  lookback = _mm512_loadu_si512((const __m512i *)(in - 1));
++  block = _mm512_loadu_si512((const __m512i *)in);
++  lb_masked =
++      _mm512_and_epi32(lookback, _mm512_set1_epi16(swap_if_needed(0xfc00U)));
++  block_masked =
++      _mm512_and_epi32(block, _mm512_set1_epi16(swap_if_needed(0xfc00U)));
++
++  lb_is_high = _mm512_cmpeq_epi16_mask(
++      lb_masked, _mm512_set1_epi16(swap_if_needed(0xd800U)));
++  block_is_low = _mm512_cmpeq_epi16_mask(
++      block_masked, _mm512_set1_epi16(swap_if_needed(0xdc00U)));
++  illseq = _kxor_mask32(lb_is_high, block_is_low);
++  if (!_ktestz_mask32_u8(illseq, illseq)) {
++    __mmask32 lb_illseq, block_illseq;
++
++    /* compute the cause of the illegal sequencing */
++    lb_illseq = _kandn_mask32(block_is_low, lb_is_high);
++    block_illseq = _kor_mask32(_kandn_mask32(lb_is_high, block_is_low),
++                               _kshiftri_mask32(lb_illseq, 1));
++
++    /* fix illegal sequencing in the lookback */
++    lb_illseq = _kand_mask32(lb_illseq, _cvtu32_mask32(1));
++    _mm512_mask_storeu_epi16(out - 1, lb_illseq,
++                             _mm512_set1_epi16(replacement));
++
++    /* fix illegal sequencing in the main block */
++    if (in_place) {
++      _mm512_mask_storeu_epi16(out, block_illseq,
++                               _mm512_set1_epi16(replacement));
++    } else {
++      _mm512_storeu_epi32(
++          out, _mm512_mask_blend_epi16(block_illseq, block,
++                                       _mm512_set1_epi16(replacement)));
++    }
++  } else if (!in_place) {
++    _mm512_storeu_si512((__m512i *)out, block);
++  }
++}
++
++/*
++ * Special case for inputs of 0--32 bytes.  Works for both in-place and
++ * out-of-place operation.
++ */
++template <endianness big_endian>
++void utf16fix_short(const char16_t *in, size_t n, char16_t *out) {
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++  __m512i lookback, block, lb_masked, block_masked;
++  __mmask32 lb_is_high, block_is_low, illseq;
++  uint32_t mask = 0xFFFFFFFF >> (32 - n);
++  auto swap_if_needed = [](uint16_t x) constexpr -> uint16_t {
++    return scalar::utf16::swap_if_needed<big_endian>(x);
++  };
++  lookback = _mm512_maskz_loadu_epi16(_cvtmask32_u32(mask << 1),
++                                      (const uint16_t *)(in - 1));
++  block = _mm512_maskz_loadu_epi16(_cvtmask32_u32(mask), (const uint16_t *)in);
++  lb_masked =
++      _mm512_and_epi32(lookback, _mm512_set1_epi16(swap_if_needed(0xfc00u)));
++  block_masked =
++      _mm512_and_epi32(block, _mm512_set1_epi16(swap_if_needed(0xfc00u)));
++
++  lb_is_high = _mm512_cmpeq_epi16_mask(
++      lb_masked, _mm512_set1_epi16(swap_if_needed(0xd800u)));
++  block_is_low = _mm512_cmpeq_epi16_mask(
++      block_masked, _mm512_set1_epi16(swap_if_needed(0xdc00u)));
++  illseq = _kxor_mask32(lb_is_high, block_is_low);
++  if (!_ktestz_mask32_u8(illseq, illseq)) {
++    __mmask32 lb_illseq, block_illseq;
++
++    /* compute the cause of the illegal sequencing */
++    lb_illseq = _kandn_mask32(block_is_low, lb_is_high);
++    block_illseq = _kor_mask32(_kandn_mask32(lb_is_high, block_is_low),
++                               _kshiftri_mask32(lb_illseq, 1));
++
++    /* fix illegal sequencing in the main block */
++    _mm512_mask_storeu_epi16(
++        (uint16_t *)out, _cvtmask32_u32(mask),
++        _mm512_mask_blend_epi16(block_illseq, block,
++                                _mm512_set1_epi16(replacement)));
++  } else {
++    _mm512_mask_storeu_epi16((uint16_t *)out, _cvtmask32_u32(mask), block);
++  }
++  out[n - 1] = scalar::utf16::is_high_surrogate<big_endian>(out[n - 1])
++                   ? replacement
++                   : out[n - 1];
++}
++
++template <endianness big_endian>
++void utf16fix_avx512(const char16_t *in, size_t n, char16_t *out) {
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++  size_t i;
++
++  if (n == 0)
++    return;
++  else if (n < 33) {
++    utf16fix_short<big_endian>(in, n, out);
++    return;
++  }
++  out[0] =
++      scalar::utf16::is_low_surrogate<big_endian>(in[0]) ? replacement : in[0];
++
++  /* duplicate code to have the compiler specialise utf16fix_block() */
++  if (in == out) {
++    for (i = 1; i + 32 < n; i += 32) {
++      utf16fix_block<big_endian, true>(out + i, in + i);
++    }
++
++    utf16fix_block<big_endian, true>(out + n - 32, in + n - 32);
++  } else {
++    for (i = 1; i + 32 < n; i += 32) {
++      utf16fix_block<big_endian, false>(out + i, in + i);
++    }
++
++    utf16fix_block<big_endian, false>(out + n - 32, in + n - 32);
++  }
++
++  out[n - 1] = scalar::utf16::is_high_surrogate<big_endian>(out[n - 1])
++                   ? replacement
++                   : out[n - 1];
++}
+diff --git L7/src/icelake/icelake_utf32_validation.inl.cpp L7/src/icelake/icelake_utf32_validation.inl.cpp
+new file mode 100644
+index 0000000..e01b992
+--- /dev/null
++++ b/src/icelake/icelake_utf32_validation.inl.cpp
+@@ -0,0 +1,93 @@
++// file included directly
++
++bool validate_utf32(const char32_t *buf, size_t len) {
++  if (simdutf_unlikely(len == 0)) {
++    return true;
++  }
++  const char32_t *end = buf + len;
++
++  const __m512i offset = _mm512_set1_epi32((uint32_t)0xffff2000);
++  // Four independent accumulator pairs: in the 2x version below every block
++  // fed the same two accumulators, so the vpmaxud chains were serialized.
++  __m512i max0 = _mm512_setzero_si512();
++  __m512i max1 = _mm512_setzero_si512();
++  __m512i max2 = _mm512_setzero_si512();
++  __m512i max3 = _mm512_setzero_si512();
++  __m512i off0 = _mm512_setzero_si512();
++  __m512i off1 = _mm512_setzero_si512();
++  __m512i off2 = _mm512_setzero_si512();
++  __m512i off3 = _mm512_setzero_si512();
++
++  // Get the reads onto a 64-byte boundary: a 512-bit load whose address
++  // straddles a cache line costs two accesses, and this loop is load-bound.
++  // There is no state carried between blocks, so the head is simply a shorter
++  // first block: the zero fill of a masked load is itself a valid code point
++  // and can raise neither maximum.
++  if (len >= 16) {
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    if (misalignment != 0) {
++      const size_t adjustment = (64 - misalignment) / sizeof(char32_t);
++      const __m512i head = _mm512_maskz_loadu_epi32(
++          __mmask16((1U << adjustment) - 1), (const __m512i *)buf);
++      off0 = _mm512_max_epu32(_mm512_add_epi32(head, offset), off0);
++      max0 = _mm512_max_epu32(head, max0);
++      buf += adjustment;
++    }
++  }
++
++  // Process 64 values (4x 512-bit) per iteration.
++  while (end - buf >= 64) {
++    __m512i utf32_1 = _mm512_loadu_si512((const __m512i *)buf);
++    __m512i utf32_2 = _mm512_loadu_si512((const __m512i *)(buf + 16));
++    __m512i utf32_3 = _mm512_loadu_si512((const __m512i *)(buf + 32));
++    __m512i utf32_4 = _mm512_loadu_si512((const __m512i *)(buf + 48));
++    buf += 64;
++
++    off0 = _mm512_max_epu32(_mm512_add_epi32(utf32_1, offset), off0);
++    max0 = _mm512_max_epu32(utf32_1, max0);
++    off1 = _mm512_max_epu32(_mm512_add_epi32(utf32_2, offset), off1);
++    max1 = _mm512_max_epu32(utf32_2, max1);
++    off2 = _mm512_max_epu32(_mm512_add_epi32(utf32_3, offset), off2);
++    max2 = _mm512_max_epu32(utf32_3, max2);
++    off3 = _mm512_max_epu32(_mm512_add_epi32(utf32_4, offset), off3);
++    max3 = _mm512_max_epu32(utf32_4, max3);
++  }
++
++  __m512i currentmax = _mm512_max_epu32(_mm512_max_epu32(max0, max1),
++                                        _mm512_max_epu32(max2, max3));
++  __m512i currentoffsetmax = _mm512_max_epu32(_mm512_max_epu32(off0, off1),
++                                              _mm512_max_epu32(off2, off3));
++
++  // Handle remaining 16-63 values
++  while (end - buf >= 16) {
++    __m512i utf32 = _mm512_loadu_si512((const __m512i *)buf);
++    buf += 16;
++    currentoffsetmax =
++        _mm512_max_epu32(_mm512_add_epi32(utf32, offset), currentoffsetmax);
++    currentmax = _mm512_max_epu32(utf32, currentmax);
++  }
++
++  // Handle remaining 0-15 values with masked load
++  if (buf < end) {
++    __m512i utf32 =
++        _mm512_maskz_loadu_epi32(__mmask16((1U << (end - buf)) - 1), buf);
++    currentoffsetmax =
++        _mm512_max_epu32(_mm512_add_epi32(utf32, offset), currentoffsetmax);
++    currentmax = _mm512_max_epu32(utf32, currentmax);
++  }
++
++  const __m512i standardmax = _mm512_set1_epi32((uint32_t)0x10ffff);
++  const __m512i standardoffsetmax = _mm512_set1_epi32((uint32_t)0xfffff7ff);
++  const auto outside_range = _mm512_cmpgt_epu32_mask(currentmax, standardmax);
++  if (outside_range != 0) {
++    return false;
++  }
++
++  const auto surrogate =
++      _mm512_cmpgt_epu32_mask(currentoffsetmax, standardoffsetmax);
++  if (surrogate != 0) {
++    return false;
++  }
++
++  return true;
++}
+diff --git a/src/icelake/implementation.cpp b/src/icelake/implementation.cpp
+index e292fce..901f4de 100644
+--- a/src/icelake/implementation.cpp
++++ b/src/icelake/implementation.cpp
+@@ -34,6 +34,9 @@ using namespace simd;
+ #endif // SIMDUTF_FEATURE_UTF8 && (SIMDUTF_FEATURE_UTF16 ||
+        // SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_LATIN1)
+ 
++#if SIMDUTF_FEATURE_UTF16
++  #include "icelake/icelake_utf16fix.cpp"
++#endif // SIMDUTF_FEATURE_UTF16
+ #if SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_LATIN1
+   #include "icelake/icelake_convert_utf8_to_latin1.inl.cpp"
+   #include "icelake/icelake_convert_valid_utf8_to_latin1.inl.cpp"
+@@ -65,6 +68,12 @@ using namespace simd;
+   #include "icelake/icelake_convert_utf32_to_utf16.inl.cpp"
+ #endif // SIMDUTF_FEATURE_UTF16 && SIMDUTF_FEATURE_UTF32
+ 
++#if SIMDUTF_FEATURE_ASCII
++  #include "icelake/icelake_ascii_validation.inl.cpp"
++#endif // SIMDUTF_FEATURE_ASCII
++#if SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
++  #include "icelake/icelake_utf32_validation.inl.cpp"
++#endif // SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ #if SIMDUTF_FEATURE_UTF8
+   #include "icelake/icelake_convert_latin1_to_utf8.inl.cpp"
+ #endif // SIMDUTF_FEATURE_UTF8
+@@ -76,6 +85,7 @@ using namespace simd;
+ #endif // SIMDUTF_FEATURE_UTF32
+ #if SIMDUTF_FEATURE_BASE64
+   #include "icelake/icelake_base64.inl.cpp"
++  #include "icelake/icelake_find.inl.cpp"
+ #endif // SIMDUTF_FEATURE_BASE64
+ 
+ #include <cstdint>
+@@ -304,32 +314,272 @@ simdutf_warn_unused result implementation::validate_utf8_with_errors(
+ #if SIMDUTF_FEATURE_ASCII
+ simdutf_warn_unused bool
+ implementation::validate_ascii(const char *buf, size_t len) const noexcept {
+-  return scalar::ascii::validate(buf, len);
++  return icelake::validate_ascii(buf, len);
+ }
+ 
+ simdutf_warn_unused result implementation::validate_ascii_with_errors(
+     const char *buf, size_t len) const noexcept {
+-  return scalar::ascii::validate_with_errors(buf, len);
++  const char *buf_orig = buf;
++  const char *end = buf + len;
++  const __m512i ascii = _mm512_set1_epi8((uint8_t)0x80);
++  // Reach the next 64-byte boundary first: a 512-bit load whose address
++  // straddles a cache line costs two accesses, and this loop does nothing but
++  // load and compare. There is no cross-block state, so the head is simply a
++  // shorter first block handled with a masked load.
++  if (len >= 64) {
++    // A full first block, exactly as before, so that inputs whose first
++    // non-ASCII byte is near the start still return just as quickly. Once it
++    // is known to be ASCII we may jump to the boundary; re-reading the bytes
++    // in between is harmless because there is no cross-block state.
++    const __m512i head = _mm512_loadu_si512((const __m512i *)buf);
++    __mmask64 notascii = _mm512_cmp_epu8_mask(head, ascii, _MM_CMPINT_NLT);
++    if (notascii) {
++      return result(error_code::TOO_LARGE,
++                    buf - buf_orig + _tzcnt_u64(notascii));
++    }
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    buf += (misalignment == 0) ? 64 : (64 - misalignment);
++  }
++  // Four vectors per compare-and-branch: the loads then issue back to back
++  // instead of being serialized by one branch per 64 bytes.
++  for (; end - buf >= 256; buf += 256) {
++    const __m512i b0 = _mm512_loadu_si512((const __m512i *)buf);
++    const __m512i b1 = _mm512_loadu_si512((const __m512i *)(buf + 64));
++    const __m512i b2 = _mm512_loadu_si512((const __m512i *)(buf + 128));
++    const __m512i b3 = _mm512_loadu_si512((const __m512i *)(buf + 192));
++    const __m512i any =
++        _mm512_or_si512(_mm512_or_si512(b0, b1), _mm512_or_si512(b2, b3));
++    if (_mm512_cmp_epu8_mask(any, ascii, _MM_CMPINT_NLT)) {
++      break; // the 64-byte loop below pinpoints it
++    }
++  }
++  for (; end - buf >= 64; buf += 64) {
++    const __m512i input = _mm512_loadu_si512((const __m512i *)buf);
++    __mmask64 notascii = _mm512_cmp_epu8_mask(input, ascii, _MM_CMPINT_NLT);
++    if (notascii) {
++      return result(error_code::TOO_LARGE,
++                    buf - buf_orig + _tzcnt_u64(notascii));
++    }
++  }
++  if (end != buf) {
++    const __m512i input = _mm512_maskz_loadu_epi8(
++        ~UINT64_C(0) >> (64 - (end - buf)), (const __m512i *)buf);
++    __mmask64 notascii = _mm512_cmp_epu8_mask(input, ascii, _MM_CMPINT_NLT);
++    if (notascii) {
++      return result(error_code::TOO_LARGE,
++                    buf - buf_orig + _tzcnt_u64(notascii));
++    }
++  }
++  return result(error_code::SUCCESS, len);
+ }
+ #endif // SIMDUTF_FEATURE_ASCII
+ #if SIMDUTF_FEATURE_UTF16 && SIMDUTF_FEATURE_ASCII
+ simdutf_warn_unused bool
+ implementation::validate_utf16le_as_ascii(const char16_t *buf,
+                                           size_t len) const noexcept {
+-  return scalar::utf16::validate_as_ascii<endianness::LITTLE>(buf, len);
++  const char16_t *end = buf + len;
++  __m512i limit = _mm512_set1_epi16(uint16_t(0x007F));
++  // Reach a 64-byte boundary; a 512-bit load that straddles a cache line costs
++  // two accesses. Nothing crosses a block boundary here, so the head is simply
++  // a shorter first block, and the zero fill of a masked load is itself ASCII.
++  if (len >= 32) {
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    if (misalignment != 0) {
++      const size_t adjustment = (64 - misalignment) / sizeof(char16_t);
++      const __m512i head = _mm512_maskz_loadu_epi16(
++          __mmask32((1U << adjustment) - 1), (const __m512i *)buf);
++      if (_mm512_cmpgt_epu16_mask(head, limit)) {
++        return false;
++      }
++      buf += adjustment;
++    }
++  }
++  for (; end - buf >= 32;) {
++    __m512i in = _mm512_loadu_si512((__m512i *)buf);
++    auto mask = _mm512_cmpgt_epu16_mask(in, limit);
++    if (mask) {
++      return false;
++    }
++    buf += 32;
++  }
++  if (buf < end) {
++    __m512i in =
++        _mm512_maskz_loadu_epi16((1U << (end - buf)) - 1, (__m512i *)buf);
++    auto mask = _mm512_cmpgt_epu16_mask(in, limit);
++    if (mask) {
++      return false;
++    }
++  }
++  return true;
+ }
+ 
+ simdutf_warn_unused bool
+ implementation::validate_utf16be_as_ascii(const char16_t *buf,
+                                           size_t len) const noexcept {
+-  return scalar::utf16::validate_as_ascii<endianness::BIG>(buf, len);
++  const char16_t *end = buf + len;
++  const __m512i byteflip = _mm512_setr_epi64(
++      0x0607040502030001, 0x0e0f0c0d0a0b0809, 0x0607040502030001,
++      0x0e0f0c0d0a0b0809, 0x0607040502030001, 0x0e0f0c0d0a0b0809,
++      0x0607040502030001, 0x0e0f0c0d0a0b0809);
++  __m512i limit = _mm512_set1_epi16(uint16_t(0x007F));
++  // Reach a 64-byte boundary; a 512-bit load that straddles a cache line costs
++  // two accesses. Nothing crosses a block boundary here, so the head is simply
++  // a shorter first block, and the zero fill of a masked load is itself ASCII.
++  if (len >= 32) {
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    if (misalignment != 0) {
++      const size_t adjustment = (64 - misalignment) / sizeof(char16_t);
++      const __m512i head = _mm512_shuffle_epi8(
++          _mm512_maskz_loadu_epi16(__mmask32((1U << adjustment) - 1),
++                                   (const __m512i *)buf),
++          byteflip);
++      if (_mm512_cmpgt_epu16_mask(head, limit)) {
++        return false;
++      }
++      buf += adjustment;
++    }
++  }
++  for (; end - buf >= 32;) {
++    __m512i in = _mm512_loadu_si512((__m512i *)buf);
++    in = _mm512_shuffle_epi8(in, byteflip);
++    auto mask = _mm512_cmpgt_epu16_mask(in, limit);
++    if (mask) {
++      return false;
++    }
++    buf += 32;
++  }
++  if (buf < end) {
++    __m512i in =
++        _mm512_maskz_loadu_epi16((1U << (end - buf)) - 1, (__m512i *)buf);
++    in = _mm512_shuffle_epi8(in, byteflip);
++    auto mask = _mm512_cmpgt_epu16_mask(in, limit);
++    if (mask) {
++      return false;
++    }
++  }
++  return true;
+ }
+ #endif // SIMDUTF_FEATURE_UTF16 && SIMDUTF_FEATURE_ASCII
+ #if SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ simdutf_warn_unused bool
+ implementation::validate_utf16le(const char16_t *buf,
+                                  size_t len) const noexcept {
+-  return scalar::utf16::validate<endianness::LITTLE>(buf, len);
++  const char16_t *end = buf + len;
++
++  // Optimized: Process 64 code units (2x 512-bit) per iteration
++  const __m512i surr_base = _mm512_set1_epi16(uint16_t(0xD800));
++  const __m512i surr_range = _mm512_set1_epi16(uint16_t(0x0800));
++  const __m512i high_range = _mm512_set1_epi16(uint16_t(0x0400));
++
++  // Reach a 64-byte boundary: a 512-bit load whose address straddles a cache
++  // line costs two accesses, and this loop is load-bound. The only state that
++  // crosses a block boundary here is a surrogate pair, so we may skip over the
++  // head only when it holds no surrogate at all -- which also makes the head
++  // valid, so nothing else about it needs checking. Input whose first code
++  // units are surrogates simply keeps to the unaligned path.
++  if (len >= 32) {
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    if (misalignment != 0) {
++      const size_t adjustment = (64 - misalignment) / sizeof(char16_t);
++      const __m512i head = _mm512_maskz_loadu_epi16(
++          __mmask32((1U << adjustment) - 1), (const __m512i *)buf);
++      const __m512i headdiff =
++          _mm512_sub_epi16(head, _mm512_set1_epi16(uint16_t(0xD800)));
++      if (_mm512_cmplt_epu16_mask(headdiff,
++                                  _mm512_set1_epi16(uint16_t(0x0800))) == 0) {
++        buf += adjustment;
++      }
++    }
++  }
++  for (; end - buf >= 64;) {
++    __m512i in_1 = _mm512_loadu_si512((__m512i *)buf);
++    __m512i in_2 = _mm512_loadu_si512((__m512i *)(buf + 32));
++
++    __m512i diff_1 = _mm512_sub_epi16(in_1, surr_base);
++    __m512i diff_2 = _mm512_sub_epi16(in_2, surr_base);
++
++    __mmask32 surrogates_1 = _mm512_cmplt_epu16_mask(diff_1, surr_range);
++    __mmask32 surrogates_2 = _mm512_cmplt_epu16_mask(diff_2, surr_range);
++
++    if (surrogates_1 | surrogates_2) {
++      __mmask32 highsurrogates_1 = _mm512_cmplt_epu16_mask(diff_1, high_range);
++      __mmask32 lowsurrogates_1 = surrogates_1 ^ highsurrogates_1;
++
++      __mmask32 highsurrogates_2 = _mm512_cmplt_epu16_mask(diff_2, high_range);
++      __mmask32 lowsurrogates_2 = surrogates_2 ^ highsurrogates_2;
++
++      // Validate first block: high must be followed by low
++      if ((highsurrogates_1 << 1) != lowsurrogates_1) {
++        return false;
++      }
++
++      // Check boundary between blocks: if first block ends with high, second
++      // must start with low
++      bool ends_with_high_1 = ((highsurrogates_1 & 0x80000000) != 0);
++      bool starts_with_low_2 = ((lowsurrogates_2 & 0x1) != 0);
++      if (ends_with_high_1 && !starts_with_low_2) {
++        return false;
++      }
++
++      // Validate second block (shift by 1 if first ended with high)
++      __mmask32 expected_low_2 = ends_with_high_1
++                                     ? (highsurrogates_2 << 1) | 0x1
++                                     : (highsurrogates_2 << 1);
++      if (expected_low_2 != lowsurrogates_2) {
++        return false;
++      }
++
++      bool ends_with_high_2 = ((highsurrogates_2 & 0x80000000) != 0);
++      if (ends_with_high_2) {
++        buf += 63; // advance by 63 to start with high surrogate next round
++      } else {
++        buf += 64;
++      }
++    } else {
++      buf += 64;
++    }
++  }
++
++  // Handle remaining 32-63 code units
++  for (; end - buf >= 32;) {
++    __m512i in = _mm512_loadu_si512((__m512i *)buf);
++    __m512i diff = _mm512_sub_epi16(in, surr_base);
++    __mmask32 surrogates = _mm512_cmplt_epu16_mask(diff, surr_range);
++    if (surrogates) {
++      __mmask32 highsurrogates = _mm512_cmplt_epu16_mask(diff, high_range);
++      __mmask32 lowsurrogates = surrogates ^ highsurrogates;
++      // high must be followed by low
++      if ((highsurrogates << 1) != lowsurrogates) {
++        return false;
++      }
++      bool ends_with_high = ((highsurrogates & 0x80000000) != 0);
++      if (ends_with_high) {
++        buf += 31; // advance only by 31 code units so that we start with the
++                   // high surrogate on the next round.
++      } else {
++        buf += 32;
++      }
++    } else {
++      buf += 32;
++    }
++  }
++  if (buf < end) {
++    __m512i in =
++        _mm512_maskz_loadu_epi16((1U << (end - buf)) - 1, (__m512i *)buf);
++    __m512i diff = _mm512_sub_epi16(in, _mm512_set1_epi16(uint16_t(0xD800)));
++    __mmask32 surrogates =
++        _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0800)));
++    if (surrogates) {
++      __mmask32 highsurrogates =
++          _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0400)));
++      __mmask32 lowsurrogates = surrogates ^ highsurrogates;
++      // high must be followed by low
++      if ((highsurrogates << 1) != lowsurrogates) {
++        return false;
++      }
++    }
++  }
++  return true;
+ }
+ #endif // SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+@@ -337,43 +587,346 @@ implementation::validate_utf16le(const char16_t *buf,
+ simdutf_warn_unused bool
+ implementation::validate_utf16be(const char16_t *buf,
+                                  size_t len) const noexcept {
+-  return scalar::utf16::validate<endianness::BIG>(buf, len);
++  const char16_t *end = buf + len;
++
++  // Reach a 64-byte boundary: a 512-bit load whose address straddles a cache
++  // line costs two accesses, and this loop is load-bound. The only state that
++  // crosses a block boundary here is a surrogate pair, so we may skip over the
++  // head only when it holds no surrogate at all -- which also makes the head
++  // valid, so nothing else about it needs checking. Input whose first code
++  // units are surrogates simply keeps to the unaligned path.
++  if (len >= 32) {
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    if (misalignment != 0) {
++      const size_t adjustment = (64 - misalignment) / sizeof(char16_t);
++      const __m512i head = _mm512_slli_epi16(
++          _mm512_maskz_loadu_epi16(__mmask32((1U << adjustment) - 1),
++                                   (const __m512i *)buf),
++          8);
++      const __m512i headdiff =
++          _mm512_sub_epi16(head, _mm512_set1_epi16(uint16_t(0xD800)));
++      if (_mm512_cmplt_epu16_mask(headdiff,
++                                  _mm512_set1_epi16(uint16_t(0x0800))) == 0) {
++        buf += adjustment;
++      }
++    }
++  }
++  for (; end - buf >= 32;) {
++    __m512i in = _mm512_slli_epi32(_mm512_loadu_si512((__m512i *)buf), 8);
++    __m512i diff = _mm512_sub_epi16(in, _mm512_set1_epi16(uint16_t(0xD800)));
++    __mmask32 surrogates =
++        _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0800)));
++    if (surrogates) {
++      __mmask32 highsurrogates =
++          _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0400)));
++      __mmask32 lowsurrogates = surrogates ^ highsurrogates;
++      // high must be followed by low
++      if ((highsurrogates << 1) != lowsurrogates) {
++        return false;
++      }
++      bool ends_with_high = ((highsurrogates & 0x80000000) != 0);
++      if (ends_with_high) {
++        buf += 31; // advance only by 31 code units so that we start with the
++                   // high surrogate on the next round.
++      } else {
++        buf += 32;
++      }
++    } else {
++      buf += 32;
++    }
++  }
++  if (buf < end) {
++    __m512i in = _mm512_slli_epi16(
++        _mm512_maskz_loadu_epi16((1U << (end - buf)) - 1, (__m512i *)buf), 8);
++    __m512i diff = _mm512_sub_epi16(in, _mm512_set1_epi16(uint16_t(0xD800)));
++    __mmask32 surrogates =
++        _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0800)));
++    if (surrogates) {
++      __mmask32 highsurrogates =
++          _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0400)));
++      __mmask32 lowsurrogates = surrogates ^ highsurrogates;
++      // high must be followed by low
++      if ((highsurrogates << 1) != lowsurrogates) {
++        return false;
++      }
++    }
++  }
++  return true;
+ }
+ 
+ simdutf_warn_unused result implementation::validate_utf16le_with_errors(
+     const char16_t *buf, size_t len) const noexcept {
+-  return scalar::utf16::validate_with_errors<endianness::LITTLE>(buf, len);
++  const char16_t *start_buf = buf;
++  const char16_t *end = buf + len;
++  // Reach a 64-byte boundary: a 512-bit load whose address straddles a cache
++  // line costs two accesses, and this loop is load-bound. The only state that
++  // crosses a block boundary here is a surrogate pair, so we may skip over the
++  // head only when it holds no surrogate at all -- which also makes the head
++  // valid, so nothing else about it needs checking. Input whose first code
++  // units are surrogates simply keeps to the unaligned path.
++  if (len >= 32) {
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    if (misalignment != 0) {
++      const size_t adjustment = (64 - misalignment) / sizeof(char16_t);
++      const __m512i head = _mm512_maskz_loadu_epi16(
++          __mmask32((1U << adjustment) - 1), (const __m512i *)buf);
++      const __m512i headdiff =
++          _mm512_sub_epi16(head, _mm512_set1_epi16(uint16_t(0xD800)));
++      if (_mm512_cmplt_epu16_mask(headdiff,
++                                  _mm512_set1_epi16(uint16_t(0x0800))) == 0) {
++        buf += adjustment;
++      }
++    }
++  }
++  for (; end - buf >= 32;) {
++    __m512i in = _mm512_loadu_si512((__m512i *)buf);
++    __m512i diff = _mm512_sub_epi16(in, _mm512_set1_epi16(uint16_t(0xD800)));
++    __mmask32 surrogates =
++        _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0800)));
++    if (surrogates) {
++      __mmask32 highsurrogates =
++          _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0400)));
++      __mmask32 lowsurrogates = surrogates ^ highsurrogates;
++      // high must be followed by low
++      if ((highsurrogates << 1) != lowsurrogates) {
++        uint32_t extra_low = _tzcnt_u32(lowsurrogates & ~(highsurrogates << 1));
++        uint32_t extra_high =
++            _tzcnt_u32(highsurrogates & ~(lowsurrogates >> 1));
++        return result(error_code::SURROGATE,
++                      (buf - start_buf) +
++                          (extra_low < extra_high ? extra_low : extra_high));
++      }
++      bool ends_with_high = ((highsurrogates & 0x80000000) != 0);
++      if (ends_with_high) {
++        buf += 31; // advance only by 31 code units so that we start with the
++                   // high surrogate on the next round.
++      } else {
++        buf += 32;
++      }
++    } else {
++      buf += 32;
++    }
++  }
++  if (buf < end) {
++    __m512i in =
++        _mm512_maskz_loadu_epi16((1U << (end - buf)) - 1, (__m512i *)buf);
++    __m512i diff = _mm512_sub_epi16(in, _mm512_set1_epi16(uint16_t(0xD800)));
++    __mmask32 surrogates =
++        _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0800)));
++    if (surrogates) {
++      __mmask32 highsurrogates =
++          _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0400)));
++      __mmask32 lowsurrogates = surrogates ^ highsurrogates;
++      // high must be followed by low
++      if ((highsurrogates << 1) != lowsurrogates) {
++        uint32_t extra_low = _tzcnt_u32(lowsurrogates & ~(highsurrogates << 1));
++        uint32_t extra_high =
++            _tzcnt_u32(highsurrogates & ~(lowsurrogates >> 1));
++        return result(error_code::SURROGATE,
++                      (buf - start_buf) +
++                          (extra_low < extra_high ? extra_low : extra_high));
++      }
++    }
++  }
++  return result(error_code::SUCCESS, len);
+ }
+ 
+ simdutf_warn_unused result implementation::validate_utf16be_with_errors(
+     const char16_t *buf, size_t len) const noexcept {
+-  return scalar::utf16::validate_with_errors<endianness::BIG>(buf, len);
++  const char16_t *start_buf = buf;
++  const char16_t *end = buf + len;
++
++  // Reach a 64-byte boundary: a 512-bit load whose address straddles a cache
++  // line costs two accesses, and this loop is load-bound. The only state that
++  // crosses a block boundary here is a surrogate pair, so we may skip over the
++  // head only when it holds no surrogate at all -- which also makes the head
++  // valid, so nothing else about it needs checking. Input whose first code
++  // units are surrogates simply keeps to the unaligned path.
++  if (len >= 32) {
++    const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++    if (misalignment != 0) {
++      const size_t adjustment = (64 - misalignment) / sizeof(char16_t);
++      const __m512i head = _mm512_slli_epi16(
++          _mm512_maskz_loadu_epi16(__mmask32((1U << adjustment) - 1),
++                                   (const __m512i *)buf),
++          8);
++      const __m512i headdiff =
++          _mm512_sub_epi16(head, _mm512_set1_epi16(uint16_t(0xD800)));
++      if (_mm512_cmplt_epu16_mask(headdiff,
++                                  _mm512_set1_epi16(uint16_t(0x0800))) == 0) {
++        buf += adjustment;
++      }
++    }
++  }
++  for (; end - buf >= 32;) {
++    __m512i in = _mm512_slli_epi16(_mm512_loadu_si512((__m512i *)buf), 8);
++    __m512i diff = _mm512_sub_epi16(in, _mm512_set1_epi16(uint16_t(0xD800)));
++    __mmask32 surrogates =
++        _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0800)));
++    if (surrogates) {
++      __mmask32 highsurrogates =
++          _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0400)));
++      __mmask32 lowsurrogates = surrogates ^ highsurrogates;
++      // high must be followed by low
++      if ((highsurrogates << 1) != lowsurrogates) {
++        uint32_t extra_low = _tzcnt_u32(lowsurrogates & ~(highsurrogates << 1));
++        uint32_t extra_high =
++            _tzcnt_u32(highsurrogates & ~(lowsurrogates >> 1));
++        return result(error_code::SURROGATE,
++                      (buf - start_buf) +
++                          (extra_low < extra_high ? extra_low : extra_high));
++      }
++      bool ends_with_high = ((highsurrogates & 0x80000000) != 0);
++      if (ends_with_high) {
++        buf += 31; // advance only by 31 code units so that we start with the
++                   // high surrogate on the next round.
++      } else {
++        buf += 32;
++      }
++    } else {
++      buf += 32;
++    }
++  }
++  if (buf < end) {
++    __m512i in = _mm512_slli_epi16(
++        _mm512_maskz_loadu_epi16((1U << (end - buf)) - 1, (__m512i *)buf), 8);
++    __m512i diff = _mm512_sub_epi16(in, _mm512_set1_epi16(uint16_t(0xD800)));
++    __mmask32 surrogates =
++        _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0800)));
++    if (surrogates) {
++      __mmask32 highsurrogates =
++          _mm512_cmplt_epu16_mask(diff, _mm512_set1_epi16(uint16_t(0x0400)));
++      __mmask32 lowsurrogates = surrogates ^ highsurrogates;
++      // high must be followed by low
++      if ((highsurrogates << 1) != lowsurrogates) {
++        uint32_t extra_low = _tzcnt_u32(lowsurrogates & ~(highsurrogates << 1));
++        uint32_t extra_high =
++            _tzcnt_u32(highsurrogates & ~(lowsurrogates >> 1));
++        return result(error_code::SURROGATE,
++                      (buf - start_buf) +
++                          (extra_low < extra_high ? extra_low : extra_high));
++      }
++    }
++  }
++  return result(error_code::SUCCESS, len);
+ }
+ 
+ void implementation::to_well_formed_utf16le(const char16_t *input, size_t len,
+                                             char16_t *output) const noexcept {
+-  return scalar::utf16::to_well_formed_utf16<endianness::LITTLE>(input, len,
+-                                                                 output);
++  return utf16fix_avx512<endianness::LITTLE>(input, len, output);
+ }
+ 
+ void implementation::to_well_formed_utf16be(const char16_t *input, size_t len,
+                                             char16_t *output) const noexcept {
+-  return scalar::utf16::to_well_formed_utf16<endianness::BIG>(input, len,
+-                                                              output);
++  return utf16fix_avx512<endianness::BIG>(input, len, output);
+ }
+ #endif // SIMDUTF_FEATURE_UTF16
+ 
+ #if SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ simdutf_warn_unused bool
+ implementation::validate_utf32(const char32_t *buf, size_t len) const noexcept {
+-  return scalar::utf32::validate(buf, len);
++  return icelake::validate_utf32(buf, len);
+ }
+ #endif // SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+ #if SIMDUTF_FEATURE_UTF32
+ simdutf_warn_unused result implementation::validate_utf32_with_errors(
+     const char32_t *buf, size_t len) const noexcept {
+-  return scalar::utf32::validate_with_errors(buf, len);
++  const char32_t *buf_orig = buf;
++  if (len >= 16) {
++    const char32_t *end = buf + len - 16;
++    // One full block first, exactly as before, so that inputs whose first bad
++    // code point is near the start still return just as quickly. Once it is
++    // known to be clean we may jump to the 64-byte boundary; re-reading the
++    // values in between is harmless because no state crosses blocks.
++    {
++      __m512i utf32 = _mm512_loadu_si512((const __m512i *)buf);
++      __mmask16 outside_range = _mm512_cmp_epu32_mask(
++          utf32, _mm512_set1_epi32(0x10ffff), _MM_CMPINT_GT);
++      __m512i utf32_off =
++          _mm512_add_epi32(utf32, _mm512_set1_epi32(0xffff2000));
++      __mmask16 surrogate_range = _mm512_cmp_epu32_mask(
++          utf32_off, _mm512_set1_epi32(0xfffff7ff), _MM_CMPINT_GT);
++      if ((outside_range | surrogate_range)) {
++        auto outside_idx = _tzcnt_u32(outside_range);
++        auto surrogate_idx = _tzcnt_u32(surrogate_range);
++        if (outside_idx < surrogate_idx) {
++          return result(error_code::TOO_LARGE, buf - buf_orig + outside_idx);
++        }
++        return result(error_code::SURROGATE, buf - buf_orig + surrogate_idx);
++      }
++      const uintptr_t misalignment = reinterpret_cast<uintptr_t>(buf) % 64;
++      buf += (misalignment == 0) ? 16 : (64 - misalignment) / sizeof(char32_t);
++    }
++    // Screen four vectors per compare-and-branch; the 16-value loop below
++    // pinpoints the offending code point.
++    const __m512i toolarge = _mm512_set1_epi32(0x10ffff);
++    const __m512i offset = _mm512_set1_epi32(0xffff2000);
++    const __m512i surrmax = _mm512_set1_epi32(0xfffff7ff);
++    while (buf + 48 <= end) {
++      __m512i a = _mm512_loadu_si512((const __m512i *)buf);
++      __m512i b = _mm512_loadu_si512((const __m512i *)(buf + 16));
++      __m512i c = _mm512_loadu_si512((const __m512i *)(buf + 32));
++      __m512i d = _mm512_loadu_si512((const __m512i *)(buf + 48));
++      __m512i mx =
++          _mm512_max_epu32(_mm512_max_epu32(a, b), _mm512_max_epu32(c, d));
++      __m512i ox =
++          _mm512_max_epu32(_mm512_max_epu32(_mm512_add_epi32(a, offset),
++                                            _mm512_add_epi32(b, offset)),
++                           _mm512_max_epu32(_mm512_add_epi32(c, offset),
++                                            _mm512_add_epi32(d, offset)));
++      if (_mm512_cmp_epu32_mask(mx, toolarge, _MM_CMPINT_GT) |
++          _mm512_cmp_epu32_mask(ox, surrmax, _MM_CMPINT_GT)) {
++        break;
++      }
++      buf += 64;
++    }
++    while (buf <= end) {
++      __m512i utf32 = _mm512_loadu_si512((const __m512i *)buf);
++      __mmask16 outside_range = _mm512_cmp_epu32_mask(
++          utf32, _mm512_set1_epi32(0x10ffff), _MM_CMPINT_GT);
++
++      __m512i utf32_off =
++          _mm512_add_epi32(utf32, _mm512_set1_epi32(0xffff2000));
++
++      __mmask16 surrogate_range = _mm512_cmp_epu32_mask(
++          utf32_off, _mm512_set1_epi32(0xfffff7ff), _MM_CMPINT_GT);
++      if ((outside_range | surrogate_range)) {
++        auto outside_idx = _tzcnt_u32(outside_range);
++        auto surrogate_idx = _tzcnt_u32(surrogate_range);
++
++        if (outside_idx < surrogate_idx) {
++          return result(error_code::TOO_LARGE, buf - buf_orig + outside_idx);
++        }
++
++        return result(error_code::SURROGATE, buf - buf_orig + surrogate_idx);
++      }
++
++      buf += 16;
++    }
++  }
++  if (len > 0) {
++    __m512i utf32 = _mm512_maskz_loadu_epi32(
++        __mmask16((1U << (buf_orig + len - buf)) - 1), (const __m512i *)buf);
++    __mmask16 outside_range = _mm512_cmp_epu32_mask(
++        utf32, _mm512_set1_epi32(0x10ffff), _MM_CMPINT_GT);
++    __m512i utf32_off = _mm512_add_epi32(utf32, _mm512_set1_epi32(0xffff2000));
++
++    __mmask16 surrogate_range = _mm512_cmp_epu32_mask(
++        utf32_off, _mm512_set1_epi32(0xfffff7ff), _MM_CMPINT_GT);
++    if ((outside_range | surrogate_range)) {
++      auto outside_idx = _tzcnt_u32(outside_range);
++      auto surrogate_idx = _tzcnt_u32(surrogate_range);
++
++      if (outside_idx < surrogate_idx) {
++        return result(error_code::TOO_LARGE, buf - buf_orig + outside_idx);
++      }
++
++      return result(error_code::SURROGATE, buf - buf_orig + surrogate_idx);
++    }
++  }
++
++  return result(error_code::SUCCESS, len);
+ }
+ #endif // SIMDUTF_FEATURE_UTF32
+ 
+@@ -1069,12 +1622,57 @@ void implementation::change_endianness_utf16(const char16_t *input,
+ 
+ simdutf_warn_unused size_t implementation::count_utf16le(
+     const char16_t *input, size_t length) const noexcept {
+-  return scalar::utf16::count_code_points<endianness::LITTLE>(input, length);
++  const char16_t *ptr = input;
++  size_t count{0};
++
++  if (length >= 32) {
++    const char16_t *end = input + length - 32;
++
++    const __m512i low = _mm512_set1_epi16((uint16_t)0xdc00);
++    const __m512i high = _mm512_set1_epi16((uint16_t)0xdfff);
++
++    while (ptr <= end) {
++      __m512i utf16 = _mm512_loadu_si512((const __m512i *)ptr);
++      ptr += 32;
++      uint64_t not_high_surrogate =
++          static_cast<uint64_t>(_mm512_cmpgt_epu16_mask(utf16, high) |
++                                _mm512_cmplt_epu16_mask(utf16, low));
++      count += count_ones(not_high_surrogate);
++    }
++  }
++
++  return count + scalar::utf16::count_code_points<endianness::LITTLE>(
++                     ptr, length - (ptr - input));
+ }
+ 
+ simdutf_warn_unused size_t implementation::count_utf16be(
+     const char16_t *input, size_t length) const noexcept {
+-  return scalar::utf16::count_code_points<endianness::BIG>(input, length);
++  const char16_t *ptr = input;
++  size_t count{0};
++  if (length >= 32) {
++
++    const char16_t *end = input + length - 32;
++
++    const __m512i low = _mm512_set1_epi16((uint16_t)0xdc00);
++    const __m512i high = _mm512_set1_epi16((uint16_t)0xdfff);
++
++    const __m512i byteflip = _mm512_setr_epi64(
++        0x0607040502030001, 0x0e0f0c0d0a0b0809, 0x0607040502030001,
++        0x0e0f0c0d0a0b0809, 0x0607040502030001, 0x0e0f0c0d0a0b0809,
++        0x0607040502030001, 0x0e0f0c0d0a0b0809);
++    while (ptr <= end) {
++      __m512i utf16 =
++          _mm512_shuffle_epi8(_mm512_loadu_si512((__m512i *)ptr), byteflip);
++      ptr += 32;
++      uint64_t not_high_surrogate =
++          static_cast<uint64_t>(_mm512_cmpgt_epu16_mask(utf16, high) |
++                                _mm512_cmplt_epu16_mask(utf16, low));
++      count += count_ones(not_high_surrogate);
++    }
++  }
++
++  return count + scalar::utf16::count_code_points<endianness::BIG>(
++                     ptr, length - (ptr - input));
+ }
+ #endif // SIMDUTF_FEATURE_UTF16
+ 
+@@ -1547,21 +2145,11 @@ size_t implementation::binary_to_base64_with_lines(
+ 
+ const char *implementation::find(const char *start, const char *end,
+                                  char character) const noexcept {
+-  for (; start < end; ++start) {
+-    if (*start == character) {
+-      return start;
+-    }
+-  }
+-  return end;
++  return util_find(start, end, character);
+ }
+ const char16_t *implementation::find(const char16_t *start, const char16_t *end,
+                                      char16_t character) const noexcept {
+-  for (; start < end; ++start) {
+-    if (*start == character) {
+-      return start;
+-    }
+-  }
+-  return end;
++  return util_find(start, end, character);
+ }
+ 
+ simdutf_warn_unused size_t implementation::binary_length_from_base64(
+diff --git a/src/westmere/implementation.cpp b/src/westmere/implementation.cpp
+index 17c0758..aa0ba31 100644
+--- a/src/westmere/implementation.cpp
++++ b/src/westmere/implementation.cpp
+@@ -32,6 +32,12 @@ must_be_2_3_continuation(const simd8<uint8_t> prev2,
+   #include "westmere/internal/loader.cpp"
+ #endif // SIMDUTF_FEATURE_UTF8
+ 
++#if SIMDUTF_FEATURE_UTF16
++  #include "westmere/sse_utf16fix.cpp"
++#endif // SIMDUTF_FEATURE_UTF16
++#if SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
++  #include "westmere/sse_validate_utf16.cpp"
++#endif // SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+ #if SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_LATIN1
+   #include "westmere/sse_convert_latin1_to_utf8.cpp"
+@@ -94,6 +100,9 @@ must_be_2_3_continuation(const simd8<uint8_t> prev2,
+   #include "generic/utf8_validation/utf8_lookup4_algorithm.h"
+   #include "generic/utf8_validation/utf8_validator.h"
+ #endif // SIMDUTF_FEATURE_UTF8 || SIMDUTF_FEATURE_DETECT_ENCODING
++#if SIMDUTF_FEATURE_ASCII
++  #include "generic/ascii_validation.h"
++#endif // SIMDUTF_FEATURE_ASCII
+ 
+ #if SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_UTF16
+   // transcoding from UTF-8 to UTF-16
+@@ -117,14 +126,21 @@ must_be_2_3_continuation(const simd8<uint8_t> prev2,
+   #include "generic/utf16.h"
+   #include "generic/utf16/utf8_length_from_utf16_bytemask.h"
+ #endif // SIMDUTF_FEATURE_UTF16
++#if SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
++  #include "generic/validate_utf16.h"
++#endif // SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ #if SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_LATIN1
+   #include "generic/utf8_to_latin1/utf8_to_latin1.h"
+   #include "generic/utf8_to_latin1/valid_utf8_to_latin1.h"
+ #endif // SIMDUTF_FEATURE_UTF8 && SIMDUTF_FEATURE_LATIN1
+ 
++#if SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
++  #include "generic/validate_utf32.h"
++#endif // SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+ #if SIMDUTF_FEATURE_BASE64
+   #include "generic/base64.h"
++  #include "generic/find.h"
+   #include "generic/base64lengths.h"
+ #endif // SIMDUTF_FEATURE_BASE64
+ 
+@@ -295,12 +311,13 @@ simdutf_warn_unused result implementation::validate_utf8_with_errors(
+ #if SIMDUTF_FEATURE_ASCII
+ simdutf_warn_unused bool
+ implementation::validate_ascii(const char *buf, size_t len) const noexcept {
+-  return scalar::ascii::validate(buf, len);
++  return westmere::ascii_validation::generic_validate_ascii(buf, len);
+ }
+ 
+ simdutf_warn_unused result implementation::validate_ascii_with_errors(
+     const char *buf, size_t len) const noexcept {
+-  return scalar::ascii::validate_with_errors(buf, len);
++  return westmere::ascii_validation::generic_validate_ascii_with_errors(buf,
++                                                                        len);
+ }
+ #endif // SIMDUTF_FEATURE_ASCII
+ 
+@@ -308,13 +325,17 @@ simdutf_warn_unused result implementation::validate_ascii_with_errors(
+ simdutf_warn_unused bool
+ implementation::validate_utf16le_as_ascii(const char16_t *buf,
+                                           size_t len) const noexcept {
+-  return scalar::utf16::validate_as_ascii<endianness::LITTLE>(buf, len);
++  return westmere::utf16::validate_utf16_as_ascii_with_errors<
++             endianness::LITTLE>(buf, len)
++             .error == SUCCESS;
+ }
+ 
+ simdutf_warn_unused bool
+ implementation::validate_utf16be_as_ascii(const char16_t *buf,
+                                           size_t len) const noexcept {
+-  return scalar::utf16::validate_as_ascii<endianness::BIG>(buf, len);
++  return westmere::utf16::validate_utf16_as_ascii_with_errors<endianness::BIG>(
++             buf, len)
++             .error == SUCCESS;
+ }
+ #endif // SIMDUTF_FEATURE_UTF16 && SIMDUTF_FEATURE_ASCII
+ 
+@@ -322,7 +343,22 @@ implementation::validate_utf16be_as_ascii(const char16_t *buf,
+ simdutf_warn_unused bool
+ implementation::validate_utf16le(const char16_t *buf,
+                                  size_t len) const noexcept {
+-  return scalar::utf16::validate<endianness::LITTLE>(buf, len);
++  if (simdutf_unlikely(len == 0)) {
++    // empty input is valid UTF-16. protect the implementation from
++    // handling nullptr
++    return true;
++  }
++  const auto res =
++      westmere::utf16::validate_utf16_with_errors<endianness::LITTLE>(buf, len);
++  if (res.is_err()) {
++    return false;
++  }
++
++  if (res.count == len)
++    return true;
++
++  return scalar::utf16::validate<endianness::LITTLE>(buf + res.count,
++                                                     len - res.count);
+ }
+ #endif // SIMDUTF_FEATURE_UTF16 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+@@ -330,43 +366,73 @@ implementation::validate_utf16le(const char16_t *buf,
+ simdutf_warn_unused bool
+ implementation::validate_utf16be(const char16_t *buf,
+                                  size_t len) const noexcept {
+-  return scalar::utf16::validate<endianness::BIG>(buf, len);
++  if (simdutf_unlikely(len == 0)) {
++    // empty input is valid UTF-16. protect the implementation from
++    // handling nullptr
++    return true;
++  }
++  const auto res =
++      westmere::utf16::validate_utf16_with_errors<endianness::BIG>(buf, len);
++  if (res.is_err()) {
++    return false;
++  }
++
++  if (res.count == len)
++    return true;
++
++  return scalar::utf16::validate<endianness::BIG>(buf + res.count,
++                                                  len - res.count);
+ }
+ 
+ simdutf_warn_unused result implementation::validate_utf16le_with_errors(
+     const char16_t *buf, size_t len) const noexcept {
+-  return scalar::utf16::validate_with_errors<endianness::LITTLE>(buf, len);
++  const result res =
++      westmere::utf16::validate_utf16_with_errors<endianness::LITTLE>(buf, len);
++  if (res.count != len) {
++    const result scalar_res =
++        scalar::utf16::validate_with_errors<endianness::LITTLE>(
++            buf + res.count, len - res.count);
++    return result(scalar_res.error, res.count + scalar_res.count);
++  } else {
++    return res;
++  }
+ }
+ 
+ simdutf_warn_unused result implementation::validate_utf16be_with_errors(
+     const char16_t *buf, size_t len) const noexcept {
+-  return scalar::utf16::validate_with_errors<endianness::BIG>(buf, len);
++  const result res =
++      westmere::utf16::validate_utf16_with_errors<endianness::BIG>(buf, len);
++  if (res.count != len) {
++    result scalar_res = scalar::utf16::validate_with_errors<endianness::BIG>(
++        buf + res.count, len - res.count);
++    return result(scalar_res.error, res.count + scalar_res.count);
++  } else {
++    return res;
++  }
+ }
+ 
+ void implementation::to_well_formed_utf16le(const char16_t *input, size_t len,
+                                             char16_t *output) const noexcept {
+-  return scalar::utf16::to_well_formed_utf16<endianness::LITTLE>(input, len,
+-                                                                 output);
++  return utf16fix_sse<endianness::LITTLE>(input, len, output);
+ }
+ 
+ void implementation::to_well_formed_utf16be(const char16_t *input, size_t len,
+                                             char16_t *output) const noexcept {
+-  return scalar::utf16::to_well_formed_utf16<endianness::BIG>(input, len,
+-                                                              output);
++  return utf16fix_sse<endianness::BIG>(input, len, output);
+ }
+ #endif // SIMDUTF_FEATURE_UTF16
+ 
+ #if SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ simdutf_warn_unused bool
+ implementation::validate_utf32(const char32_t *buf, size_t len) const noexcept {
+-  return scalar::utf32::validate(buf, len);
++  return utf32::validate(buf, len);
+ }
+ #endif // SIMDUTF_FEATURE_UTF32 || SIMDUTF_FEATURE_DETECT_ENCODING
+ 
+ #if SIMDUTF_FEATURE_UTF32
+ simdutf_warn_unused result implementation::validate_utf32_with_errors(
+     const char32_t *buf, size_t len) const noexcept {
+-  return scalar::utf32::validate_with_errors(buf, len);
++  return utf32::validate_with_errors(buf, len);
+ }
+ #endif // SIMDUTF_FEATURE_UTF32
+ 
+@@ -1041,12 +1107,12 @@ void implementation::change_endianness_utf16(const char16_t *input,
+ 
+ simdutf_warn_unused size_t implementation::count_utf16le(
+     const char16_t *input, size_t length) const noexcept {
+-  return scalar::utf16::count_code_points<endianness::LITTLE>(input, length);
++  return utf16::count_code_points<endianness::LITTLE>(input, length);
+ }
+ 
+ simdutf_warn_unused size_t implementation::count_utf16be(
+     const char16_t *input, size_t length) const noexcept {
+-  return scalar::utf16::count_code_points<endianness::BIG>(input, length);
++  return utf16::count_code_points<endianness::BIG>(input, length);
+ }
+ #endif // SIMDUTF_FEATURE_UTF16
+ 
+@@ -1373,22 +1439,12 @@ size_t implementation::binary_to_base64_with_lines(
+ 
+ const char *implementation::find(const char *start, const char *end,
+                                  char character) const noexcept {
+-  for (; start < end; ++start) {
+-    if (*start == character) {
+-      return start;
+-    }
+-  }
+-  return end;
++  return util::find(start, end, character);
+ }
+ 
+ const char16_t *implementation::find(const char16_t *start, const char16_t *end,
+                                      char16_t character) const noexcept {
+-  for (; start < end; ++start) {
+-    if (*start == character) {
+-      return start;
+-    }
+-  }
+-  return end;
++  return util::find(start, end, character);
+ }
+ 
+ simdutf_warn_unused size_t implementation::binary_length_from_base64(
+diff --git L7/src/westmere/sse_utf16fix.cpp L7/src/westmere/sse_utf16fix.cpp
+new file mode 100644
+index 0000000..ec9a749
+--- /dev/null
++++ b/src/westmere/sse_utf16fix.cpp
+@@ -0,0 +1,82 @@
++/*
++ * Process one block of 8 characters.  If in_place is false,
++ * copy the block from in to out.  If there is a sequencing
++ * error in the block, overwrite the illsequenced characters
++ * with the replacement character.  This function reads one
++ * character before the beginning of the buffer as a lookback.
++ * If that character is illsequenced, it too is overwritten.
++ */
++template <endianness big_endian, bool in_place>
++simdutf_really_inline void utf16fix_block_sse(char16_t *out,
++                                              const char16_t *in) {
++  auto swap_if_needed = [](uint16_t x) constexpr -> uint16_t {
++    return scalar::utf16::swap_if_needed<big_endian>(x);
++  };
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++
++  __m128i lookback, block, lb_masked, block_masked, lb_is_high, block_is_low;
++  __m128i illseq, lb_illseq, block_illseq;
++
++  lookback = _mm_loadu_si128((const __m128i *)(in - 1));
++  block = _mm_loadu_si128((const __m128i *)in);
++  lb_masked = _mm_and_si128(lookback, _mm_set1_epi16(swap_if_needed(0xfc00U)));
++  block_masked = _mm_and_si128(block, _mm_set1_epi16(swap_if_needed(0xfc00U)));
++  lb_is_high =
++      _mm_cmpeq_epi16(lb_masked, _mm_set1_epi16(swap_if_needed(0xd800U)));
++  block_is_low =
++      _mm_cmpeq_epi16(block_masked, _mm_set1_epi16(swap_if_needed(0xdc00U)));
++
++  illseq = _mm_xor_si128(lb_is_high, block_is_low);
++  if (_mm_movemask_epi8(illseq) != 0) {
++    int lb;
++
++    /* compute the cause of the illegal sequencing */
++    lb_illseq = _mm_andnot_si128(block_is_low, lb_is_high);
++    block_illseq = _mm_or_si128(_mm_andnot_si128(lb_is_high, block_is_low),
++                                _mm_bsrli_si128(lb_illseq, 2));
++
++    /* fix illegal sequencing in the lookback */
++    lb = _mm_cvtsi128_si32(lb_illseq);
++    lb = (lb & replacement) | (~lb & out[-1]);
++    out[-1] = char16_t(lb);
++    /* fix illegal sequencing in the main block */
++    block =
++        _mm_or_si128(_mm_andnot_si128(block_illseq, block),
++                     _mm_and_si128(block_illseq, _mm_set1_epi16(replacement)));
++    _mm_storeu_si128((__m128i *)out, block);
++  } else if (!in_place) {
++    _mm_storeu_si128((__m128i *)out, block);
++  }
++}
++
++template <endianness big_endian>
++void utf16fix_sse(const char16_t *in, size_t n, char16_t *out) {
++  const char16_t replacement = scalar::utf16::replacement<big_endian>();
++  size_t i;
++  if (n < 9) {
++    scalar::utf16::to_well_formed_utf16<big_endian>(in, n, out);
++    return;
++  }
++
++  out[0] =
++      scalar::utf16::is_low_surrogate<big_endian>(in[0]) ? replacement : in[0];
++
++  /* duplicate code to have the compiler specialise utf16fix_block() */
++  if (in == out) {
++    for (i = 1; i + 8 < n; i += 8) {
++      utf16fix_block_sse<big_endian, true>(out + i, in + i);
++    }
++
++    utf16fix_block_sse<big_endian, true>(out + n - 8, in + n - 8);
++  } else {
++    for (i = 1; i + 8 < n; i += 8) {
++      utf16fix_block_sse<big_endian, false>(out + i, in + i);
++    }
++
++    utf16fix_block_sse<big_endian, false>(out + n - 8, in + n - 8);
++  }
++
++  out[n - 1] = scalar::utf16::is_high_surrogate<big_endian>(out[n - 1])
++                   ? replacement
++                   : out[n - 1];
++}
+diff --git L7/src/westmere/sse_validate_utf16.cpp L7/src/westmere/sse_validate_utf16.cpp
+new file mode 100644
+index 0000000..f416f0d
+--- /dev/null
++++ b/src/westmere/sse_validate_utf16.cpp
+@@ -0,0 +1,17 @@
++template <endianness big_endian>
++simd8<uint8_t> utf16_gather_high_bytes(const simd16<uint16_t> in0,
++                                       const simd16<uint16_t> in1) {
++  if (big_endian) {
++    // we want lower bytes
++    const auto mask = simd16<uint16_t>(0x00ff);
++    const auto t0 = in0 & mask;
++    const auto t1 = in1 & mask;
++
++    return simd16<uint16_t>::pack(t0, t1);
++  } else {
++    const auto t0 = in0.shr<8>();
++    const auto t1 = in1.shr<8>();
++
++    return simd16<uint16_t>::pack(t0, t1);
++  }
++}

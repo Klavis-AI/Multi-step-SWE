@@ -1,0 +1,34 @@
+"""
+This example shows experimental support to integrate waf and bento.
+
+You need to define the WAFDIR environment variable, pointing to the root of waf sources. This requires waf 1.6.x
+"""
+import os
+
+from bento.commands import hooks
+
+import waflib
+
+class write_module(waflib.Task.Task):
+    color = "CYAN"
+    vars = ["CONTENT"]
+    def run(self):
+        self.outputs[0].write(self.env.CONTENT)
+
+@waflib.TaskGen.feature("gen_pymodule")
+def process_write_config(self):
+    output = self.path.find_or_declare(self.target)
+    tsk = self.create_task("write_module")
+    tsk.set_outputs(output)
+
+    # Bento-specific part
+    bento_context = self.bld.bento_context
+    # XXX: hack to convert a waf node into a bento node
+    b_output = bento_context.make_build_node(output.bldpath())
+    bento_context.register_outputs_simple([b_output])
+
+@hooks.pre_build
+def pre_build(context):
+    bld = context.waf_context
+    bld.env.CONTENT = "print 'foo'"
+    bld(features="gen_pymodule", target="yoyo.py")

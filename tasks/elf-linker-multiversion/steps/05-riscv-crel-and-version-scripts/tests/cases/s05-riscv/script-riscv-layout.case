@@ -1,0 +1,58 @@
+# arch: riscv64
+# what: a SECTIONS script drives the layout of a RISC-V link, and the two
+# script spellings that arrive at this step -- the attached `-TFILE` and the
+# space-separated `--script FILE` -- are accepted and mean exactly what
+# `-T FILE` means: all three produce the same bytes.
+rt_obj rt.o
+cat > d.s <<'S'
+        .section .rvdata,"aw",@progbits
+        .globl rv_lo
+rv_lo:  .byte 0x11
+        .byte 0x22
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d.o d.s
+cat > m.c <<'C'
+#include "rt.h"
+extern char rv_lo[];
+extern char script_mark[];
+int entry(void) {
+    print("rv-script");
+    /* 0x11 + 0x22 = 51, plus 18 when the script's `script_mark = .` landed
+       exactly on the first byte KEEP'd into the same description. */
+    return rv_lo[0] + rv_lo[1] + (script_mark == rv_lo ? 18 : 0);
+}
+C
+cc_obj m.o m.c
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+    . = 0x700000;
+    payload : {
+        script_mark = .;
+        KEEP(*(.rvdata))
+    }
+}
+L
+# The attached short form and the space-separated long form both arrive at this
+# step; `-T FILE` already worked at step 4 and is the reference here.
+link_ok base    -T lay.ld     --no-relax rt.o m.o d.o
+link_ok attached -Tlay.ld     --no-relax rt.o m.o d.o
+link_ok spaced  --script lay.ld --no-relax rt.o m.o d.o
+want "target stayed RISC-V" "$(hdr base | awk -F': +' '/Machine/{print $2}')" "RISC-V"
+want "script placed payload" "$(( 16#$(sec_addr base payload) ))" "$(( 0x700000 ))"
+textaddr=$(( 16#$(sec_addr base .text) ))
+# The counter is set to 0x600000 before `.text`; where inside that page the
+# section itself lands depends on how many header bytes the release puts first
+# (measured: 0x600000 at 0.6.0-0.9.0, 0x6014d0 at 0.10.0), so grade the bucket.
+want "script moved .text into its own region" \
+  "$([ "$textaddr" -ge "$(( 0x600000 ))" ] && [ "$textaddr" -lt "$(( 0x700000 ))" ] && echo yes)" "yes"
+want "payload holds both bytes" "$(( 16#$(sec_size base payload) ))" "2"
+want "script_mark == payload start" "$(( 16#$(sym_value base script_mark) ))" "$(( 0x700000 ))"
+cmp -s base attached || die "-Tlay.ld differs from -T lay.ld"
+cmp -s base spaced   || die "--script lay.ld differs from -T lay.ld"
+want "attached form is byte-identical" "$(cmp -s base attached && echo same)" "same"
+want "spaced form is byte-identical"   "$(cmp -s base spaced   && echo same)" "same"
+run_expect base "rv-script" 69
+asserts_at_least 7

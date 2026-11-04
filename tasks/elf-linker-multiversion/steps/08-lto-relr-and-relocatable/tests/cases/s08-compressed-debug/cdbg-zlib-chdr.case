@@ -1,0 +1,57 @@
+# arch: x86_64
+# --compress-debug-sections=zlib sets SHF_COMPRESSED on the debug sections and
+# prefixes each with an Elf64_Chdr naming ELFCOMPRESS_ZLIB and the original size.
+rt_obj rt.o
+python3 - > big.c <<'PY'
+print('long sys_write(long fd, const void *buf, long len);')
+for i in range(120):
+    print(f"int fn_{i}(int a, int b) {{ int t = a * {i+1} + b; return t ^ {i}; }}")
+print('int entry(void) { return fn_7(3, 4) & 63; }')
+PY
+cc_obj big.o big.c -gdwarf-4
+link_ok none --no-gc-sections --compress-debug-sections=none rt.o big.o
+link_ok zl   --no-gc-sections --compress-debug-sections=zlib rt.o big.o
+
+rep=$(python3 - <<'PY'
+import struct
+def shdrs(p):
+    b = open(p, "rb").read()
+    shoff, = struct.unpack_from("<Q", b, 0x28)
+    ent, num, strndx = struct.unpack_from("<HHH", b, 0x3a)
+    noff = struct.unpack_from("<Q", b, shoff + strndx * ent + 0x18)[0]
+    d = {}
+    for i in range(num):
+        nm, ty, fl, ad, off, sz = struct.unpack_from("<IIQQQQ", b, shoff + i * ent)
+        e = b.index(b"\0", noff + nm)
+        d[b[noff + nm:e].decode()] = (fl, off, sz)
+    return b, d
+rb, rd = shdrs("none")
+cb, cd = shdrs("zl")
+for s in (".debug_info", ".debug_abbrev", ".debug_frame"):
+    fl, off, sz = cd[s]
+    ct, _, csz, cal = struct.unpack_from("<IIQQ", cb, off)
+    print(s, "flagC=%d" % (1 if fl & 0x800 else 0), "ch_type=%d" % ct,
+          "ch_size=%x" % csz, "orig=%x" % rd[s][2], "align=%d" % cal,
+          "shrank=%d" % (1 if sz < rd[s][2] else 0),
+          "plainC=%d" % (1 if rd[s][0] & 0x800 else 0))
+print(".text", "flagC=%d" % (1 if cd[".text"][0] & 0x800 else 0))
+PY
+) || die "could not read section headers"
+
+for s in .debug_info .debug_abbrev .debug_frame; do
+  line=$(awk -v n="$s" '$1 == n { print }' <<<"$rep")
+  [ -n "$line" ] || die "$s missing from compressed output"
+  want_has "$s SHF_COMPRESSED" "$line" 'flagC=1'
+  want_has "$s ELFCOMPRESS_ZLIB" "$line" 'ch_type=1'
+  want_has "$s smaller than uncompressed" "$line" 'shrank=1'
+  want_has "$s not compressed with =none" "$line" 'plainC=0'
+  osz=$(sed -n 's/.* orig=\([0-9a-f]*\) .*/\1/p' <<<"$line")
+  csz=$(sed -n 's/.* ch_size=\([0-9a-f]*\) .*/\1/p' <<<"$line")
+  want "$s ch_size is the original size" "$csz" "$osz"
+done
+want_has ".text never compressed" "$rep" '^\.text flagC=0'
+run_expect zl "" 27
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 16

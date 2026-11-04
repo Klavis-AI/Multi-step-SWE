@@ -1,0 +1,34 @@
+# arch: x86_64
+# The bitmap also covers relocations that are not adjacent: alternating
+# relocated and plain words still pack into a single address plus bitmap pair,
+# which a list-of-addresses encoding cannot do.
+n=32
+{ echo 'static int target[4];'
+  echo 'struct slot { long pad; int *p; };'
+  printf 'const struct slot tab[%d] = {' "$n"
+  for i in $(seq 0 $((n - 1))); do printf '{%d,&target[%d]},' "$i" $((i % 4)); done
+  echo '};'
+  echo 'int fetch(int i) { return *tab[i].p; }'
+} > p.c
+cc_obj p.o p.c -fPIC
+link_ok lib.so -shared -z pack-relative-relocs --no-gc-sections p.o
+
+has_section lib.so '\.relr\.dyn' || die "no .relr.dyn was produced"
+r=$(relocs lib.so)
+got=$(awk "/'.relr.dyn'/{for(i=1;i<=NF;i++) if(\$i==\"contains\"){print \$(i+1); exit}}" <<<"$r")
+want "every other word is relocated" "$got" "$n"
+
+# The decoded relocations must be 16 bytes apart -- that is the gap pattern the
+# bitmap has to represent.
+offs=$(awk "/'.relr.dyn'/{f=1;next} f&&/R_X86_64_RELATIVE/{print \$1}" <<<"$r")
+first=$(head -1 <<<"$offs"); second=$(sed -n 2p <<<"$offs")
+want "relocated words are 16 bytes apart" "$(( 16#$second - 16#$first ))" "16"
+
+sz=$(awk '/\(RELRSZ\)/{print $(NF-1)}' <<<"$(dynamic lib.so)")
+[ "$sz" -le 32 ] || die "RELRSZ is $sz bytes for $n interleaved relocations: not bitmap-packed"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

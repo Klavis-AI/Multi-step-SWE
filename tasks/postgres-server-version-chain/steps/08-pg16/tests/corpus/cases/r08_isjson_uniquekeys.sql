@@ -1,0 +1,5 @@
+SELECT '{"a":1,"a":2}'::text IS JSON WITH UNIQUE KEYS;
+SELECT '{"a":1,"a":2}'::text IS JSON WITHOUT UNIQUE KEYS;
+SELECT '{"a":1,"b":2}'::text IS JSON WITH UNIQUE KEYS;
+SELECT '{"a":{"b":1,"b":2}}'::text IS JSON WITH UNIQUE KEYS;
+SELECT '[{"a":1,"a":2}]'::text IS JSON ARRAY WITH UNIQUE KEYS;

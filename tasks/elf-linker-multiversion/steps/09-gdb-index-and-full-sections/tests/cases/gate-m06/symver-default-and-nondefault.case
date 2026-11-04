@@ -1,0 +1,46 @@
+# arch: x86_64
+# A .symver non-default alias (foo@VER_1) and a .symver default alias
+# (foo@@VER_2) of the same name must coexist in .dynsym, keep their own
+# addresses, and get the right hidden bit in .gnu.version.
+cat > v.s <<'S'
+        .text
+        .globl foo_v1
+foo_v1: mov     $1, %eax
+        ret
+        .globl foo_v2
+foo_v2: mov     $2, %eax
+        ret
+        .symver foo_v1, foo@VER_1
+        .symver foo_v2, foo@@VER_2
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj v.o v.s
+cat > vs.txt <<'V'
+VER_1 { global: foo; local: *; };
+VER_2 { global: foo; local: *; } VER_1;
+V
+link_ok libfoo.so -shared -soname libfoo.so --version-script=vs.txt v.o
+
+ds=$(dynsyms libfoo.so)
+want_has "foo@VER_1 exported"  "$ds" 'GLOBAL DEFAULT +[0-9]+ foo@VER_1$'
+want_has "foo@@VER_2 exported" "$ds" 'GLOBAL DEFAULT +[0-9]+ foo@@VER_2$'
+want "exactly two versioned foo entries" "$(printf '%s' "$ds" | grep -cE ' foo@')" "2"
+want_not "no unversioned foo" "$ds" ' foo$'
+# The two versions must resolve to the two different implementations, 6 bytes
+# apart, exactly as foo_v1/foo_v2 sit in the input .text.
+a1=$(printf '%s' "$ds" | awk '$8 == "foo@VER_1"  { print $2 }')
+a2=$(printf '%s' "$ds" | awk '$8 == "foo@@VER_2" { print $2 }')
+[ -n "$a1" ] && [ -n "$a2" ] || die "missing dynsym values: $ds"
+want "foo@@VER_2 is 6 bytes past foo@VER_1" "$(( 16#$a2 - 16#$a1 ))" "6"
+want "foo@VER_1 == foo_v1" "$a1" "$(sym_value libfoo.so foo_v1)"
+
+vn=$(vernum libfoo.so)
+want_has "VER_1 marked hidden (non-default)" "$vn" '[0-9]+h\(VER_1\)'
+want_has "VER_2 not hidden (default)"        "$vn" '[0-9]+ \(VER_2\)'
+want_has "version_d defines VER_1" "$vn" 'Name: VER_1'
+want_has "version_d defines VER_2" "$vn" 'Name: VER_2'
+want_has "VER_2 inherits VER_1"    "$vn" 'Parent 1: VER_1'
+want_has "version_d base is the soname" "$vn" 'Flags: BASE.*Name: libfoo\.so'
+want_has ".gnu.version_d section present" "$(sections libfoo.so)" "\.gnu\.version_d +VERDEF"
+
+asserts_at_least 13

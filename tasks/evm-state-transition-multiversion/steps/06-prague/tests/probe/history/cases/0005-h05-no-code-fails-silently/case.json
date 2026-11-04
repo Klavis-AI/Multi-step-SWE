@@ -1,0 +1,20 @@
+{
+  "chainid": 1,
+  "expect": {
+    "checks": [
+      "storage",
+      "gasUsed"
+    ],
+    "gasUsed": "0x0",
+    "storage": {
+      "0x0000f90827f1c53a10cb7a02335b175320002935": {
+        "0x000000000000000000000000000000000000000000000000000000000000003f": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  },
+  "fork": "Prague",
+  "name": "h05-no-code-fails-silently",
+  "note": "'if no code exists at HISTORY_STORAGE_ADDRESS, the call must fail silently' -- the run still succeeds, charges nothing, and writes nothing. Measured this round against both pinned binaries: `bin/evm-v1.15.0` and `bin/evm-v1.14.0` each exit 0 with gasUsed 0x0, stateRoot 0x517f2cdf6adb1a644878c390ffab4e130f1bed4b498ef7ce58c5addd98d61018 and a post-state holding only the sender at 0xde0b6b3a7640000 -- so the case is coverage either way, not a Prague/Cancun discriminator. `gasUsed` is the observable consequence: it is scored by `t8ncheck.py` without any `--check` flag, so a tool that charges the system call as a real call (or, having found no code, aborts) reports a non-zero total and fails. The `alloc` key the round-3 finding asked for is deliberately NOT declared: `prague_probe.sh` does not pass `--check alloc`, and adding that flag would resurrect `t8ncheck.py`'s legacy vocabulary on `r02`, whose whole assertion is that `stateRoot` is absent -- the probe set's other half. The `storage` key stays for the same reason the doc clause is here: it pins the address to absent-and-unwritten rather than to a wrong value.",
+  "reward": "-1",
+  "source": "synthetic: docs/fork/prague/eip-2935.md (the doc supplies the silent-failure clause; gasUsed 0x0 and the post-state were measured on both pinned binaries)"
+}

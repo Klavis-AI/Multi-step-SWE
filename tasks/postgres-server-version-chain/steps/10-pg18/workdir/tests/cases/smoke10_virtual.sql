@@ -1,0 +1,4 @@
+CREATE TABLE svg(a int, b int GENERATED ALWAYS AS (a*3) VIRTUAL);
+INSERT INTO svg(a) VALUES (2);
+SELECT * FROM svg;
+DROP TABLE svg;

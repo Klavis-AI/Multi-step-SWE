@@ -1,0 +1,6 @@
+CREATE TABLE q3_dbi(i int);
+BEGIN;
+DO $$ BEGIN INSERT INTO q3_dbi VALUES (1); COMMIT; END $$;
+ROLLBACK;
+SELECT count(*) FROM q3_dbi;
+DROP TABLE q3_dbi;

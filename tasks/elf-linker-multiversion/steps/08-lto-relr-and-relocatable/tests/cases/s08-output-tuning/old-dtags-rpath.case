@@ -1,0 +1,46 @@
+# arch: x86_64
+# --disable-new-dtags switches the search path from DT_RUNPATH to the obsolete
+# DT_RPATH, and takes DT_BIND_NOW with it; --enable-new-dtags restores the
+# default. Earlier milestones accept both options and ignore them, so what is
+# graded here is that they now select between the two encodings.
+cat > a.c <<'C'
+int bump(int x) { return x + 1; }
+C
+cc_obj a.o a.c -fPIC
+
+# The default, and the option that names it, are the new tags.
+link_ok new.so -shared -rpath /opt/lib a.o --no-gc-sections
+dn=$(dynamic new.so)
+want_has "the default records DT_RUNPATH" "$dn" '\(RUNPATH\)'
+want_has "and it names the directory"     "$dn" '/opt/lib'
+want_not "the default records no DT_RPATH" "$dn" '\(RPATH\)'
+
+link_ok enabled.so -shared --enable-new-dtags -rpath /opt/lib a.o --no-gc-sections
+want_has "--enable-new-dtags is the default" "$(dynamic enabled.so)" '\(RUNPATH\)'
+
+# --disable-new-dtags selects the old encoding instead -- one tag, not both.
+link_ok old.so -shared --disable-new-dtags -rpath /opt/lib a.o --no-gc-sections
+do_=$(dynamic old.so)
+want_has "--disable-new-dtags records DT_RPATH" "$do_" '\(RPATH\)'
+want_has "and it names the directory"          "$do_" '/opt/lib'
+want_not "and drops DT_RUNPATH entirely"       "$do_" '\(RUNPATH\)'
+[ -n "$(dynsyms old.so | awk '$8 == "bump" { print $2; exit }')" ] \
+  || die "the old-dtags output lost its exported symbol"
+
+# The same switch selects the old spelling of eager binding: DT_BIND_NOW in
+# place of the DF_BIND_NOW bit of DT_FLAGS. DT_FLAGS_1 is not affected.
+link_ok oldnow.so -shared --disable-new-dtags -rpath /opt/lib -z now a.o --no-gc-sections
+dz=$(dynamic oldnow.so)
+want_has "old dtags spell eager binding DT_BIND_NOW" "$dz" '\(BIND_NOW\)'
+want_has "DT_FLAGS_1 still carries NOW"              "$dz" '\(FLAGS_1\).*NOW'
+want_not "and DT_FLAGS is gone with DT_RUNPATH"      "$dz" '\(FLAGS\) '
+
+# Last one on the command line wins, in either order.
+link_ok back.so -shared --disable-new-dtags --enable-new-dtags -rpath /opt/lib a.o --no-gc-sections
+want_has "enable after disable restores DT_RUNPATH" "$(dynamic back.so)" '\(RUNPATH\)'
+link_ok forth.so -shared --enable-new-dtags --disable-new-dtags -rpath /opt/lib a.o --no-gc-sections
+want_has "disable after enable selects DT_RPATH" "$(dynamic forth.so)" '\(RPATH\)'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 12

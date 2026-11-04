@@ -1,0 +1,91 @@
+# arch: x86_64
+# How --retain-symbols-file reads its file: names match exactly, with no
+# trimming, no glob expansion and no comment syntax, and empty lines are
+# skipped. The option touches .symtab only -- the dynamic symbol table is left
+# alone -- and it is a strip mode, so the last strip mode on the command line
+# wins. The one clause of spec/13 s3 left unasserted here is the carriage-return
+# rule (one trailing \r is removed, so a CRLF file behaves like an LF one); no
+# assertion below depends on it.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int helper(int x) { return x + 1; }
+int foo_one(void) { return 1; }
+int foo_two(void) { return 2; }
+int entry(void) { return helper(foo_one() + foo_two() + 8); }
+C
+cc_obj m.o m.c
+
+retained() { # retained <out> -- the .symtab view only
+  local t; t=$(symbols "$1")
+  awk '/^Symbol table .\.symtab/{on=1;next} /^Symbol table /{on=0} on' <<<"$t"
+}
+
+# Leading whitespace is not trimmed: this retains a symbol literally called
+# "  entry", which nothing is, so entry itself is dropped.
+printf -- '  entry\n' > untrimmed.txt
+link_ok t1 --no-gc-sections --retain-symbols-file untrimmed.txt rt.o m.o
+want_not "a leading-space line does not match 'entry'" "$(retained t1)" ' entry$'
+run_expect t1 "" 12
+
+# Globs are not expanded; foo_* matches nothing.
+printf -- 'foo_*\n' > glob.txt
+link_ok t2 --no-gc-sections --retain-symbols-file glob.txt rt.o m.o
+s2=$(retained t2)
+want_not "foo_one not retained by a glob" "$s2" ' foo_one$'
+want_not "foo_two not retained by a glob" "$s2" ' foo_two$'
+
+# Empty lines are skipped rather than retaining an empty name or ending the file.
+printf -- '\n\nentry\n\n\nfoo_one\n' > blanks.txt
+link_ok t3 --no-gc-sections --retain-symbols-file blanks.txt rt.o m.o
+s3=$(retained t3)
+want_has "entry survives the blank lines"   "$s3" ' entry$'
+want_has "foo_one survives the blank lines" "$s3" ' foo_one$'
+want_not "an unlisted name is still dropped" "$s3" ' helper$'
+
+# '#' starts no comment: "#entry" is a name nothing has, so entry is dropped
+# while the listed helper is kept.
+printf -- '#entry\nhelper\n' > hash.txt
+link_ok t4 --no-gc-sections --retain-symbols-file hash.txt rt.o m.o
+s4=$(retained t4)
+want_has "helper retained" "$s4" ' helper$'
+want_not "'#entry' did not retain entry" "$s4" ' entry$'
+
+# The file has to exist, and the diagnostic names it.
+link_fails t6 --no-gc-sections --retain-symbols-file nosuch.txt rt.o m.o
+want_has "the missing retain file is named" "$LINK_ERR" 'nosuch\.txt'
+
+# .dynsym is unaffected: a shared object exports everything its version scope
+# allows, however short the retain file is.
+cat > lib.c <<'C'
+int expa(void) { return 1; }
+int expb(void) { return 2; }
+C
+cc_obj lib.o lib.c -fPIC
+printf -- 'expa\n' > one.txt
+link_ok libx.so -shared -soname libx.so --retain-symbols-file one.txt lib.o
+dyn=$(dynsyms libx.so)
+want_has "expa still exported dynamically" "$dyn" ' expa$'
+want_has "expb still exported dynamically" "$dyn" ' expb$'
+st=$(retained libx.so)
+want_has "expa kept in .symtab" "$st" ' expa$'
+want_not "expb dropped from .symtab" "$st" ' expb$'
+
+# The option is a strip mode, so it competes with --strip-all and the last one
+# on the command line wins. Which linker-defined symbols survive alongside the
+# listed name is not asserted -- only that the listed name is there, that an
+# unlisted one is not, and that .symtab exists at all.
+printf -- 'helper\n' > just-helper.txt
+link_ok t7 --no-gc-sections --strip-all --retain-symbols-file just-helper.txt rt.o m.o
+want_has "a later --retain-symbols-file wins over --strip-all" \
+         "$(sections t7)" '\.symtab +SYMTAB'
+s7=$(retained t7)
+want_has "and it retains the listed name"    "$s7" ' helper$'
+want_not "and still drops an unlisted name"  "$s7" ' foo_two$'
+
+link_ok t8 --no-gc-sections --retain-symbols-file just-helper.txt --strip-all rt.o m.o
+want_not "a later --strip-all wins over --retain-symbols-file" \
+         "$(sections t8)" '\.symtab +SYMTAB'
+run_expect t8 "" 12
+
+asserts_at_least 17

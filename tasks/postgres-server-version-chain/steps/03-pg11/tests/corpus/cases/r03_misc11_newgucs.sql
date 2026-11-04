@@ -1,0 +1,6 @@
+SHOW jit;
+SHOW enable_partitionwise_join;
+SHOW enable_partitionwise_aggregate;
+SHOW enable_partition_pruning;
+SHOW max_parallel_maintenance_workers;
+SHOW parallel_leader_participation;

@@ -1,0 +1,42 @@
+# arch: x86_64
+# The script constructs the specification marks MUST-reject are refused, the
+# link fails, and no output file is left behind: HIDDEN(), the two-argument
+# ALIGN, ABSOLUTE(), CONSTANT(), MEMORY region attribute flags, and a chained
+# comparison (relational operators do not chain).
+#
+# Only the refusal is graded, never its wording.
+rt_obj rt.o
+cat > n.c <<'C'
+int entry(void) { return 19; }
+C
+cc_obj n.o n.c
+
+# Positive control first: a script using the same milestone's constructs must
+# still link and run, so a linker that simply rejected every script could not
+# pass this case.
+cat > ok.ld <<'L'
+PROVIDE(ok_sym = 0x2a);
+ASSERT((1 << 4) == 16, "shift evaluated wrongly");
+L
+link_ok fine -T ok.ld rt.o n.o --no-gc-sections
+want "the control script's symbol" "$(sym_value fine ok_sym)" "000000000000002a"
+run_expect fine "" 19
+
+reject() { # reject <label> <script text>
+  printf '%s\n' "$2" > r.ld
+  rm -f r.out
+  link_fails r.out -T r.ld rt.o n.o --no-gc-sections
+  [ -e r.out ] && die "$1: the link was refused but an output file was still written"
+  return 0
+}
+
+reject "HIDDEN(sym = expr)"     'HIDDEN(hsym = 0x2a);'
+reject "two-argument ALIGN"     'PROVIDE(a = ALIGN(0x10, 16));'
+reject "ABSOLUTE(expr)"         'PROVIDE(a = ABSOLUTE(0x10));'
+reject "CONSTANT(MAXPAGESIZE)"  'PROVIDE(a = CONSTANT(MAXPAGESIZE));'
+reject "MEMORY attribute flags" 'MEMORY { ram (rwx) : ORIGIN = 0x300000, LENGTH = 1M }'
+reject "chained comparison"     'ASSERT(1 < 2 < 3, "comparisons do not chain");'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 1

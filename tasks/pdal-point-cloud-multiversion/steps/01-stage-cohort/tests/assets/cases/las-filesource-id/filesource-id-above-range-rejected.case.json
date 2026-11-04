@@ -1,0 +1,69 @@
+{
+ "doc": "stages/writers.las.rst: 'filesource_id: The file source id number to use for this file (a value between 0 and 65535 - 0 implies \"unassigned\") [Default: 0]' and apps/info.rst: '--metadata  Dump file metadata info'. 65536 is outside 0..65535 and the writer refuses it; no file is produced. The in-range value 1234 in the same working directory is accepted and appears in the header.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "out.las",
+    "--writers.las.filesource_id=65536"
+   ]
+  },
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "ok.las",
+    "--writers.las.filesource_id=1234"
+   ]
+  },
+  {
+   "argv": [
+    "info",
+    "--metadata",
+    "ok.las"
+   ],
+   "stdout_to": "meta.json"
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "writers\\.las"
+  },
+  {
+   "kind": "file_absent",
+   "file": "out.las"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "equals": 0
+  },
+  {
+   "kind": "file_json",
+   "file": "meta.json",
+   "path": [
+    "metadata",
+    "filesource_id"
+   ],
+   "equals": 1234
+  }
+ ]
+}

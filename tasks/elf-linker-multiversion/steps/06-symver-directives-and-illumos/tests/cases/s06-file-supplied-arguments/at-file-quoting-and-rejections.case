@@ -1,0 +1,102 @@
+# arch: x86_64
+# The tokeniser for @FILE contents: whitespace separates and collapses, both
+# quote characters quote (each making the other literal), a backslash escapes
+# the next character, '#' is not a comment, an empty file contributes nothing,
+# and @FILE nests. The four malformed forms the contract lists are rejected,
+# each with a non-zero status, a diagnostic on stderr and no file at the -o
+# path; the message wording is not asserted anywhere.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("args\n"); return 9; }
+C
+cc_obj m.o m.c
+mkdir -p 'sp dir'
+cp m.o 'sp dir/m.o'
+cp m.o 'q".o'
+
+# --- accepted forms -------------------------------------------------------
+
+# A double-quoted token keeps its spaces; the single quote inside it is literal.
+printf -- 'rt.o\n"sp dir/m.o"\n' > dq.args
+link_ok dq @dq.args
+run_expect dq "args" 9
+
+# A single-quoted token keeps a literal double quote.
+printf -- "rt.o\n'q\".o'\n" > sq.args
+link_ok sq @sq.args
+run_expect sq "args" 9
+
+# A backslash outside a quote escapes the next character, so this is one
+# argument containing a space -- the same file as the double-quoted form.
+printf -- 'rt.o\nsp\\ dir/m.o\n' > bs.args
+link_ok bs @bs.args
+run_expect bs "args" 9
+
+# Nesting: an argument file may name another argument file, to any depth.
+printf -- 'rt.o\n@mid.args\n'  > top.args
+printf -- '@inner.args\n'      > mid.args
+printf -- 'm.o\n'              > inner.args
+link_ok nest @top.args
+run_expect nest "args" 9
+
+# Separators collapse and an empty file contributes no arguments at all.
+printf -- 'rt.o \t\n\n   m.o\n' > ws.args
+: > empty.args
+link_ok ws @empty.args @ws.args @empty.args
+run_expect ws "args" 9
+
+# --- rejected forms -------------------------------------------------------
+#
+# spec/13 s4 makes each of the five shapes below a MUST-reject. Three things are
+# graded per shape and nothing else: a non-zero status, at least one line on
+# *stderr* -- 00-compatibility-profile.md s8 routes diagnostics there and
+# forbids stdout -- and no file at the -o path, because the tokeniser refuses
+# the argument list before the linker writes anything (measured: absent at every
+# release 0.2.0-0.10.0). The prose is deliberately NOT asserted: s8 of
+# 00-compatibility-profile.md and s8 of 12-version-scripts.md both leave the
+# wording to the implementation, so the only token matched is the one spec/13
+# s4 itself names -- the file name, in the '#' case.
+
+# '#' has no special meaning: this is a filename, and the link fails because no
+# such file exists -- the name, hash and all, comes back in the diagnostic.
+printf -- '#nosuch.o\n' > hash.args
+link_fails r1 rt.o m.o @hash.args
+want_has "'#' is part of the filename, not a comment" "$LINK_ERR" '#nosuch\.o'
+want "the '#' rejection prints nothing on stdout" "$LINK_STDOUT" ""
+want "the '#' rejection leaves no output at the -o path" \
+     "$([ -e r1 ] && echo present || echo absent)" absent
+
+# A quote may only start an argument.
+printf -- '-o"x"\n' > q1.args
+link_fails r2 rt.o m.o @q1.args
+want_has 'a quote inside a token is diagnosed on stderr' "$LINK_ERR" '.'
+want 'the -o"x" rejection prints nothing on stdout' "$LINK_STDOUT" ""
+want 'the -o"x" rejection leaves no output at the -o path' \
+     "$([ -e r2 ] && echo present || echo absent)" absent
+
+# A closing quote must be followed by whitespace or end of input.
+printf -- '"-o"x\n' > q2.args
+link_fails r3 rt.o m.o @q2.args
+want_has 'a token glued to a closing quote is diagnosed on stderr' "$LINK_ERR" '.'
+want 'the "-o"x rejection prints nothing on stdout' "$LINK_STDOUT" ""
+want 'the "-o"x rejection leaves no output at the -o path' \
+     "$([ -e r3 ] && echo present || echo absent)" absent
+
+# An unterminated quote is an error rather than a quote to end of file.
+printf -- 'rt.o "m.o\n' > q3.args
+link_fails r4 @q3.args
+want_has 'an unterminated quote is diagnosed on stderr' "$LINK_ERR" '.'
+want 'the unterminated-quote rejection prints nothing on stdout' "$LINK_STDOUT" ""
+want 'the unterminated-quote rejection leaves no output at the -o path' \
+     "$([ -e r4 ] && echo present || echo absent)" absent
+
+# So is a backslash with nothing left to escape (no trailing newline here).
+printf -- 'rt.o m.o \\' > q4.args
+link_fails r5 @q4.args
+want_has 'a trailing backslash is diagnosed on stderr' "$LINK_ERR" '.'
+want 'the trailing-backslash rejection prints nothing on stdout' "$LINK_STDOUT" ""
+want 'the trailing-backslash rejection leaves no output at the -o path' \
+     "$([ -e r5 ] && echo present || echo absent)" absent
+
+asserts_at_least 15

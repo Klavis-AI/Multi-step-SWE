@@ -1,0 +1,9 @@
+CREATE TABLE q3_mvm_a(i int);
+CREATE TABLE q3_mvm_b(i int);
+INSERT INTO q3_mvm_a SELECT generate_series(1,5);
+INSERT INTO q3_mvm_b SELECT generate_series(1,5);
+VACUUM q3_mvm_a, q3_mvm_b;
+ANALYZE q3_mvm_a, q3_mvm_b;
+VACUUM (ANALYZE) q3_mvm_a, q3_mvm_b;
+SELECT count(*) FROM q3_mvm_a, q3_mvm_b;
+DROP TABLE q3_mvm_a, q3_mvm_b;

@@ -1,0 +1,47 @@
+# arch: x86_64
+# what: `sym = .;` inside an output-section description defines a real symbol
+# at the current location -- before the matchers it is the section start, after
+# them the section end -- and the program can read the pair at run time.
+rt_obj rt.o
+cat > d.s <<'S'
+        .section .blob,"aw",@progbits
+        .quad 0x1122334455667788
+        .quad 0x0102030405060708
+        .quad 0x0000000000000000
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d.o d.s
+cat > m.c <<'C'
+#include "rt.h"
+extern char blob_start[], blob_end[];
+int entry(void) { putdec(blob_end - blob_start); print("\n"); return 0; }
+C
+cc_obj m.o m.c
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+    . = 0x700000;
+    blob : {
+        blob_start = .;
+        KEEP(*(.blob))
+        blob_end = .;
+    }
+}
+L
+link_ok out -T lay.ld rt.o m.o d.o
+bs=$(( 16#$(sym_value out blob_start) ))
+be=$(( 16#$(sym_value out blob_end) ))
+[ "$bs" != 0 ] || die "blob_start was not defined by the script"
+[ "$be" != 0 ] || die "blob_end was not defined by the script"
+want "blob_start == section start" "$bs" "$(( 16#$(sec_addr out blob) ))"
+want "blob_end - blob_start == section size" "$(( be - bs ))" "$(( 16#$(sec_size out blob) ))"
+want "section size" "$(( 16#$(sec_size out blob) ))" "24"
+# The script symbols must be real defined SYMTAB entries, not UND placeholders.
+want "blob_start is not UND" \
+  "$(symbols out | awk '$8=="blob_start"{print ($7=="UND")?"UND":"def"}')" "def"
+want "blob_end is not UND" \
+  "$(symbols out | awk '$8=="blob_end"{print ($7=="UND")?"UND":"def"}')" "def"
+# And the running program has to see the same 24 bytes.
+run_expect out "24" 0
+asserts_at_least 5

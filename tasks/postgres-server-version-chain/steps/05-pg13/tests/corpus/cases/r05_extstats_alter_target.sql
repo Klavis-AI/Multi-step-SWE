@@ -1,0 +1,11 @@
+CREATE TABLE x05_39a(a int, b int);
+CREATE STATISTICS x05_39s (mcv) ON a, b FROM x05_39a;
+SELECT stxname, stxstattarget FROM pg_statistic_ext WHERE stxname='x05_39s';
+ALTER STATISTICS x05_39s SET STATISTICS 250;
+SELECT stxname, stxstattarget FROM pg_statistic_ext WHERE stxname='x05_39s';
+ALTER STATISTICS x05_39s SET STATISTICS -1;
+SELECT stxname, stxstattarget FROM pg_statistic_ext WHERE stxname='x05_39s';
+ALTER STATISTICS x05_39s RENAME TO x05_39s2;
+SELECT count(*) FROM pg_statistic_ext WHERE stxname='x05_39s2';
+DROP STATISTICS x05_39s2;
+DROP TABLE x05_39a;

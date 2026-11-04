@@ -1,0 +1,46 @@
+# arch: x86_64
+# SHT_NOBITS .bss occupies no file space: it only widens the MemSiz of the
+# writable PT_LOAD that contains it past that segment's FileSiz, and the
+# process sees it zeroed.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int big_bss[262144];            /* 1 MiB that must not be written to the file */
+int entry(void) {
+  long i, nz = 0;
+  for (i = 0; i < 262144; i++) if (big_bss[i]) nz++;
+  big_bss[262143] = 5;
+  putdec(nz); print("\n");
+  return big_bss[262143];
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o
+want ".bss is NOBITS" \
+     "$(sections out | awk '$2==".bss"{print $3; exit} $3==".bss"{print $4; exit}')" "NOBITS"
+bsz=$((0x$(sec_size out .bss)))
+[ "$bsz" -ge 1048576 ] || die ".bss is $bsz bytes, expected at least 1 MiB"
+fsz=$(stat -c %s out)
+[ "$fsz" -lt "$bsz" ] || die "output is $fsz bytes but .bss is $bsz: NOBITS took file space"
+loads=$(segments out | awk '$1=="LOAD"{f=""; for(i=7;i<NF;i++) f=f $i; print $3, $5, $6, f}')
+# Locate the containing segment by address. Looking up "the RW PT_LOAD" by its
+# permissions is wrong from 0.9.0 on, where a second writable PT_LOAD (RELRO)
+# is emitted and matched first.
+ba=$((0x$(sec_addr out .bss)))
+seg=$(while read -r v fz m f; do
+        [ -n "$v" ] || continue
+        [ "$ba" -ge $((v)) ] && [ $((ba + bsz)) -le $(( $((v)) + $((m)) )) ] \
+          && { printf '%s %s %s' "$fz" "$m" "$f"; break; }
+      done <<<"$loads")
+[ -n "$seg" ] || die ".bss is not covered by any PT_LOAD"
+set -- $seg
+want ".bss lives in a writable PT_LOAD" "$3" "RW"
+[ $(( $2 - $1 )) -ge "$bsz" ] \
+  || die "containing PT_LOAD MemSiz-FileSiz is $(( $2 - $1 )), want at least $bsz"
+run_expect out "0" 5
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

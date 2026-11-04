@@ -1,0 +1,231 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward
+# gate, so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. `target/` is excluded because the verifier never
+# reads it -- it rebuilds from source into its own CARGO_TARGET_DIR outside
+# /app, so a stale binary cannot be graded -- and because a dev-profile
+# target/ measures ~1.1 GB here, which would otherwise be collected and
+# restored on all fifteen steps.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["target"] },
+]
+
+[task]
+name = "harbor/python-package-resolver-multiversion"
+version = "1.0.0"
+description = "Build a pip-compatible Python package resolver and installer, then carry it through fifteen cumulative releases of behaviour change. Each step is checked only on that release's new capability, with every earlier release's behaviour as an inherited regression requirement."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["python", "packaging", "resolver", "rust", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["python-packaging", "dependency-resolution", "rust", "cli", "multi-step"]
+
+[environment]
+# Agent environment, built from environment/Dockerfile: a Rust toolchain wide
+# enough to build the workspace at any point in the chain, plus the crate
+# registry the offline verifier will also hold.
+build_timeout_sec = 1800.0
+cpus = 8
+memory_mb = 32768
+storage_mb = 61440
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench: withholding the network is not a
+# legitimate way to make a task harder.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context.
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+# Sizes the verifier containers; without this section a copy of [environment]
+# is reused. Sized for the grading corpus, not for the agent: the
+# candidate workspace is rebuilt here from source, which is the single largest
+# consumer of CPU, RAM and disk in the whole package.
+#
+#   cpus        a cold dev-profile build of the largest tag measured 4m10s
+#               wall against 38m23s user -- it parallelises, so cores are the
+#               only lever on the build deadline below.
+#   memory_mb   rustc peak RSS across the workspace link plus up to `--jobs`
+#               concurrent probe processes, each with its own venv.
+#   storage_mb  base image + prewarmed CARGO_HOME + the five interpreters +
+#               the dev-profile target/ tree the build produces.
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 8
+memory_mb = 32768
+storage_mb = 61440
+gpus = 0
+workdir = "/app"
+# Grading never reaches the network: the crate registry is prewarmed into the
+# image at build time from a `Cargo.lock`-pinned, checksummed set, the
+# interpreters are pinned by sha256, and every package index a probe reads is
+# built on the fly and served from 127.0.0.1. `cargo` runs with
+# CARGO_NET_OFFLINE=true so a missing crate fails loudly instead of silently
+# fetching one.
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local 0-1>} to reward.json, plus a
+# reward_details.json attributing the result to individual groups and probes.
+# No min_reward: a zero or partial score never stops the trial.
+#
+# SIZING `[steps.verifier].timeout_sec` -- derived, not copied.
+#
+# It is a CEILING on everything charged to the verifier phase, and
+# test.sh enforces its own, smaller, internal deadlines. Summing the worst
+# case that test.sh can legitimately reach:
+#
+#     docker build of the verifier image (incl. `cargo fetch`)   1800 s
+#     /app artifact round trip                                    600 s
+#     `timeout 3600` around the candidate cargo build            3600 s
+#     `timeout 2700` around the single runner.py grading pass    2700 s
+#     loaded-host margin                                          900 s
+#                                                             -------
+#                                                                9600 s
+#
+# There is no per-group term to add: runner.py evaluates every group in one
+# process from one set of probe observations, so the group count moves the
+# grading pass, not the number of passes. That is deliberate -- a per-group
+# invocation would re-run every shared probe once per group and make the
+# ceiling scale with a number that grows to 23 groups by step 15.
+#
+# The build and grading deadlines are enforced inside test.sh, which reports a
+# zero with `verifier_stage` set rather than being killed by the runner: a harness
+# kill produces a complete-looking partial score, and nothing in the output
+# would say the run was truncated.
+
+[[steps]]
+name = "01-pip-compatible-core"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "02-find-links-hashes-editables"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "03-interpreter-discovery"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "04-project-tool-script-interfaces"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "05-packaging-opt-out"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "06-breaking-batch-paths-and-groups"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "07-forking-universal-resolver"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "08-extras-and-conflicts-enforced"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "09-project-version-and-pylock-export"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "10-managed-python-on-path"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "11-python-314-default"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "12-destructive-operations-become-errors"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "13-resolution-and-index-precedence-batch"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "14-build-systems-restored"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0
+
+[[steps]]
+name = "15-twelve-line-consolidation"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 9600.0

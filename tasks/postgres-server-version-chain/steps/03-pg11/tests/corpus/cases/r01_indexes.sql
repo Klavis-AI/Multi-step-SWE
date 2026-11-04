@@ -1,0 +1,11 @@
+CREATE TABLE ix(a int, b text, c int);
+INSERT INTO ix SELECT g, 't'||g, g%3 FROM generate_series(1,10) g;
+CREATE INDEX ix_a ON ix(a);
+CREATE UNIQUE INDEX ix_b ON ix(b);
+CREATE INDEX ix_expr ON ix(lower(b));
+CREATE INDEX ix_part ON ix(c) WHERE c > 0;
+SELECT indexname FROM pg_indexes WHERE tablename='ix' ORDER BY indexname;
+INSERT INTO ix VALUES (11,'t1',0);
+DROP INDEX ix_a;
+SELECT count(*) FROM pg_indexes WHERE tablename='ix';
+DROP TABLE ix;

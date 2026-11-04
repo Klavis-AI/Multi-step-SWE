@@ -1,0 +1,57 @@
+# arch: x86_64
+# what: an output-section description with a name no built-in rule knows
+# gathers input sections chosen by exact and trailing-wildcard patterns, in the
+# order the matchers appear, and sweeps in nothing the patterns do not name.
+rt_obj rt.o
+cat > d.s <<'S'
+        .section .data.first,"aw",@progbits
+        .byte 0x11
+        .section .data.rest1,"aw",@progbits
+        .byte 0x22
+        .section .data.rest2,"aw",@progbits
+        .byte 0x33
+        .section .data.other,"aw",@progbits
+        .globl other_byte
+other_byte: .byte 0x44
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d.o d.s
+cat > m.c <<'C'
+#include "rt.h"
+extern char payload_lo[];
+extern char other_byte;
+int entry(void) { return payload_lo[0] + payload_lo[1] + payload_lo[2] + other_byte; }
+C
+cc_obj m.o m.c
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+    . = 0x700000;
+    payload : {
+        payload_lo = .;
+        KEEP(*(.data.first))
+        KEEP(*(.data.rest*))
+    }
+}
+L
+link_ok out -T lay.ld rt.o m.o d.o
+want "payload exists once" "$(sections out | grep -cE '[[:space:]]payload[[:space:]]')" "1"
+pa_hex=$(sec_addr out payload); ps_hex=$(sec_size out payload)
+pl_hex=$(sym_value out payload_lo); ob_hex=$(sym_value out other_byte)
+[ -n "$pa_hex" ] && [ -n "$ps_hex" ] && [ -n "$pl_hex" ] && [ -n "$ob_hex" ] \
+  || die "payload or its symbols are missing (addr '$pa_hex', size '$ps_hex', payload_lo '$pl_hex', other_byte '$ob_hex')"
+want "payload address" "$(( 16#$pa_hex ))" "$(( 0x700000 ))"
+# Exactly the three matched bytes -- .data.other was not swept in by .data.rest*.
+want "payload size" "$(( 16#$ps_hex ))" "3"
+want "payload contents" \
+  "$($OBJDUMP -s -j payload out | awk '/^ 700000/{print $2}')" "112233"
+want "payload_lo == payload start" "$(( 16#$pl_hex ))" "$(( 0x700000 ))"
+ob=$(( 16#$ob_hex ))
+[ "$ob" -ge "$(( 0x700000 ))" ] && [ "$ob" -lt "$(( 0x700003 ))" ] \
+  && die "other_byte at $ob was swept into payload"
+run_expect out "" 170
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 5

@@ -1,0 +1,1 @@
+/dev/null: groups/01_singular_group.proto

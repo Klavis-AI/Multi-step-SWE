@@ -1,0 +1,45 @@
+# arch: aarch64
+# A branch whose target lands outside the +/-128MiB JUMP26 window is a
+# diagnosed error naming the relocation type and the symbol, not a silently
+# truncated branch.
+# NOTE: spec/07 S3 grades exactly two tokens -- the relocation type and the
+# symbol -- and then says no prefix, phrasing or exit value is graded.  So this
+# case asserts those two tokens and nothing about how the message words "out of
+# range"; a conforming linker may phrase that any way it likes, and the
+# relocation type is matched case-insensitively without the R_AARCH64_ prefix.
+rt_obj rt.o
+cat > far.s <<'S'
+        .globl faraway
+        faraway = 0x10000000
+        .section .note.GNU-stack,"",@progbits
+S
+cat > call.s <<'S'
+        .text
+        .globl entry
+entry:  b       faraway
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj far.o far.s; as_obj call.o call.s
+relocs call.o > call.rel
+grep -qE 'R_AARCH64_JUMP26 .* faraway' call.rel || die "input lacks JUMP26: $(cat call.rel)"
+link_fails out rt.o call.o far.o
+printf '%s\n' "$LINK_OUT" > err.txt
+# spec/07 S3 requires the relocation TYPE to be named; it does not prescribe a
+# spelling, so the `R_AARCH64_` prefix and the case are both the linker's
+# choice.  `JUMP26`, `jump26` and `R_AARCH64_JUMP26` all name the type.
+grep -qiE 'JUMP26' err.txt || die "diagnostic does not name the relocation type: $(cat err.txt)"
+grep -qE 'faraway'          err.txt || die "diagnostic does not name the symbol: $(cat err.txt)"
+# The in-range form of exactly the same branch must still link and run.
+cat > near.s <<'S'
+        .text
+        .globl entry
+entry:  b       near_target
+        .globl near_target
+near_target:
+        mov     w0, #5
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj near.o near.s
+link_ok out2 rt.o near.o
+run_expect out2 "" 5

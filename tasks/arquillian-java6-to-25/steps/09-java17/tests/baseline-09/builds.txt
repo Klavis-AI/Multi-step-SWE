@@ -1,0 +1,30 @@
+# Step 06 -- C-5's CONVERT half: the 7 src/main call sites that build a fixed
+# collection and must become List.of / Set.of / Map.of / List.copyOf, as
+# <file>#<method> buckets.
+#
+# Six of them are `Arrays.asList(...)` or `Collections.emptyList()` over values
+# the method has in hand, and EXP-06E converted exactly those six and recorded
+# 0 differing transcripts of 935 (NOTES 11.6). The seventh --
+# DeploymentScenario#getStartupDeploymentsFor -- is spelled
+# `Collections.unmodifiableList(...)`, which is why it looks like a view and is
+# not one: the list it wraps is a local built two lines earlier by a stream and
+# a sort. It was in EXP-06D's eight-site arm, and EXP-06D's single differing
+# transcript was ServiceLoader's, not this one, so its conversion is measured
+# invisible as well.
+#
+# Derived:
+#
+#   sed -n 's/^legacycoll\[[0-9]*\]=//p' baseline-step06-source.txt \
+#     | awk '$0 ~ /src\/main/ && ($0 ~ /kind=build/ || $0 ~ /arg=local/) { ... }'
+#
+# src/test is deliberately out of scope for this leg. There are 11 more
+# `Arrays.asList` sites under src/test, several of them building deliberately
+# MUTABLE inputs for the case under test, and no arm has measured converting
+# them. A requirement nobody has measured does not get scored.
+impl-base/src/main/java/org/jboss/arquillian/impl/ArquillianProfile.java#getClientProfile
+impl-base/src/main/java/org/jboss/arquillian/impl/ArquillianProfile.java#getContainerProfile
+junit/src/main/java/org/jboss/arquillian/junit/Arquillian.java#<init>
+junit/src/main/java/org/jboss/arquillian/junit/JUnitTestRunner.java#getRunListeners
+spi/src/main/java/org/jboss/arquillian/spi/client/deployment/DeploymentScenario.java#getStartupDeploymentsFor
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/MethodParameterInjectionPoint.java#getAnnotations
+testng/src/main/java/org/jboss/arquillian/testng/TestNGTestRunner.java#execute

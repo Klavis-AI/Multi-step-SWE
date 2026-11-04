@@ -1,0 +1,42 @@
+# arch: x86_64
+# .symtab is parsed and re-emitted as SHT_SYMTAB with 24-byte entries, its
+# sh_link points at the SHT_STRTAB holding its names, and its sh_info is the
+# index of the first non-local symbol.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("t\n"); return 0; }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o
+# index name type addr off size entsize ... link info align
+snorm=$(sections out | sed -n 's/^ *\[ *\([0-9][0-9]*\)\] \(.*\)$/\1 \2/p')
+sl=$(printf '%s\n' "$snorm" | awk '$2==".symtab"')
+[ -n "$sl" ] || die "output has no .symtab"
+want ".symtab sh_type"    "$(printf '%s' "$sl" | awk '{print $3}')"      "SYMTAB"
+want ".symtab sh_entsize" "$(printf '%s' "$sl" | awk '{print $7}')"      "18"
+lk=$(printf '%s' "$sl" | awk '{print $(NF-2)}')
+inf=$(printf '%s' "$sl" | awk '{print $(NF-1)}')
+tl=$(printf '%s\n' "$snorm" | awk -v n="$lk" '$1+0==n')
+[ -n "$tl" ] || die ".symtab sh_link=$lk names no section"
+want ".symtab sh_link name" "$(printf '%s' "$tl" | awk '{print $2}')" ".strtab"
+want ".symtab sh_link type" "$(printf '%s' "$tl" | awk '{print $3}')" "STRTAB"
+[ "$inf" -ge 1 ] || die ".symtab sh_info is $inf, want at least 1"
+bad=$(symbols out | awk -v n="$inf" '/^ *[0-9]+:/ {
+        i = $1; sub(":", "", i);
+        if (i + 0 <  n && $5 != "LOCAL") print "nonlocal-below-sh_info:" i;
+        if (i + 0 >= n && $5 == "LOCAL") print "local-above-sh_info:" i; }')
+want ".symtab sh_info partitions locals from globals" "$bad" ""
+# the names really are in that string table
+ev=$(sym_value out entry)
+[ -n "$ev" ] || die "entry missing from .symtab"
+ta=$((0x$(sec_addr out .text))); tz=$((0x$(sec_size out .text)))
+[ $((0x$ev)) -ge "$ta" ] && [ $((0x$ev)) -lt $((ta + tz)) ] \
+  || die "entry at 0x$ev is not inside .text"
+run_expect out "t" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 5

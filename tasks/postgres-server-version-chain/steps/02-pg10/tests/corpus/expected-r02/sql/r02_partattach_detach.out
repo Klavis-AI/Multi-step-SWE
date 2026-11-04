@@ -1,0 +1,29 @@
+CREATE TABLE q2_pad(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q2_pad_1 PARTITION OF q2_pad FOR VALUES FROM (1) TO (10);
+CREATE TABLE q2_pad_2 PARTITION OF q2_pad FOR VALUES FROM (10) TO (20);
+INSERT INTO q2_pad VALUES (5,'a'),(15,'b');
+ALTER TABLE q2_pad DETACH PARTITION q2_pad_2;
+SELECT count(*) FROM q2_pad;
+ count 
+-------
+     1
+(1 row)
+
+SELECT relispartition FROM pg_class WHERE relname = 'q2_pad_2';
+ relispartition 
+----------------
+ f
+(1 row)
+
+INSERT INTO q2_pad VALUES (15,'c');
+ERROR:  no partition of relation "q2_pad" found for row
+DETAIL:  Partition key of the failing row contains (a) = (15).
+ALTER TABLE q2_pad ATTACH PARTITION q2_pad_2 FOR VALUES FROM (10) TO (20);
+SELECT a, b FROM q2_pad ORDER BY a;
+ a  | b 
+----+---
+  5 | a
+ 15 | b
+(2 rows)
+
+DROP TABLE q2_pad, q2_pad_2;

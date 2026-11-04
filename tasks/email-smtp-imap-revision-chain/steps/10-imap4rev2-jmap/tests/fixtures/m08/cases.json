@@ -1,0 +1,576 @@
+[
+  {
+    "id": "smtp.ehlo.still.auth",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_smtp_contains": [
+      "AUTH"
+    ]
+  },
+  {
+    "id": "smtp.7bit.helo.compat",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "HELO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "smtp.data.arc.listid",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "DATA\r\n",
+      "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: list TOKEN-ARC-001\r\nList-Id: <ann.example.test>\r\nList-Unsubscribe: <mailto:u@example.test>\r\n\r\nbody\r\n.\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "354",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_maildir_contains": [
+      "TOKEN-ARC-001",
+      "ARC-Seal:",
+      "ARC-Message-Signature:",
+      "ARC-Authentication-Results:",
+      "List-Id:",
+      "cv=none",
+      "i=1"
+    ],
+    "notes": "token TOKEN-ARC-001",
+    "expect_dkim_real": true
+  },
+  {
+    "id": "smtp.data.listid.preserved",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "DATA\r\n",
+      "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: lu TOKEN-LST-001\r\nList-Post: <mailto:list@example.test>\r\n\r\nx\r\n.\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "354",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_maildir_contains": [
+      "TOKEN-LST-001",
+      "List-Post:"
+    ],
+    "notes": "token TOKEN-LST-001"
+  },
+  {
+    "id": "smtp.auth.plain.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "AUTH PLAIN AGFsaWNlAGFsaWNlLXNlY3JldA==\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "235",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "smtp.help.still.500",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "HELP\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "500",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "smtp.source.route.still.501",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<@r:alice@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "501",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "smtp.smtputf8.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_smtp_contains": [
+      "SMTPUTF8"
+    ]
+  },
+  {
+    "id": "smtp.authresults.still",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "DATA\r\n",
+      "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: ar TOKEN-AR-008\r\n\r\n.\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "354",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_maildir_contains": [
+      "Authentication-Results:",
+      "DKIM-Signature:",
+      "TOKEN-AR-008"
+    ],
+    "notes": "token TOKEN-AR-008"
+  },
+  {
+    "id": "smtp.nested.mail.still.503",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "MAIL FROM:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "503",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "smtp.rcpt.unknown.still.550",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<nobody@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "550",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "sieve.auth.ok",
+    "kind": "sieve",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "AUTHENTICATE \"PLAIN\" \"AGJvYgBib2Itc2VjcmV0\"\r\n",
+      "LOGOUT\r\n"
+    ],
+    "sieve_status": [
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "sieve.putscript.fileinto",
+    "kind": "sieve",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "AUTHENTICATE \"PLAIN\" \"AGJvYgBib2Itc2VjcmV0\"\r\n",
+      "PUTSCRIPT \"t\" {44+}\r\n",
+      "require [\"fileinto\"];\r\nfileinto \"Archive\";\r\n",
+      "SETACTIVE \"t\"\r\n",
+      "LOGOUT\r\n"
+    ],
+    "sieve_status": [
+      "OK",
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "sieve.unauth.putscript.no",
+    "kind": "sieve",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "PUTSCRIPT \"x\" {2}\r\n",
+      "x\r\n",
+      "LOGOUT\r\n"
+    ],
+    "sieve_status": [
+      "NO",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "sieve.noop",
+    "kind": "sieve",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "AUTHENTICATE \"PLAIN\" \"AGJvYgBib2Itc2VjcmV0\"\r\n",
+      "NOOP\r\n",
+      "LOGOUT\r\n"
+    ],
+    "sieve_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "sieve.capability",
+    "kind": "sieve",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "AUTHENTICATE \"PLAIN\" \"AGJvYgBib2Itc2VjcmV0\"\r\n",
+      "CAPABILITY\r\n",
+      "LOGOUT\r\n"
+    ],
+    "sieve_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "sieve.havespace",
+    "kind": "sieve",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "AUTHENTICATE \"PLAIN\" \"AGJvYgBib2Itc2VjcmV0\"\r\n",
+      "HAVESPACE \"t\" 100\r\n",
+      "LOGOUT\r\n"
+    ],
+    "sieve_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    }
+  },
+  {
+    "id": "smtp.fileinto.archive",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "DATA\r\n",
+      "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: siev TOKEN-SIV-001\r\n\r\nbody\r\n.\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "354",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_maildir_contains": [
+      "TOKEN-SIV-001"
+    ],
+    "notes": "token TOKEN-SIV-001"
+  },
+  {
+    "id": "imap.login.compat",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.enable.utf8.still",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 ENABLE UTF8=ACCEPT\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.fetch.empty.still.bad",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 FETCH 1 RFC822\r\n",
+      "a4 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "BAD",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.uid.star.empty.ok",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 SELECT INBOX\r\n",
+      "a3 UID FETCH 1:* (UID)\r\n",
+      "a4 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.capability.imap4rev1",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 CAPABILITY\r\n",
+      "a2 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_capability": [
+      "IMAP4rev1"
+    ]
+  },
+  {
+    "id": "imap.create.inbox.still.no",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 CREATE INBOX\r\n",
+      "a3 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "NO",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_capability": []
+  },
+  {
+    "id": "imap.append.fetch.gate",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN bob bob-secret\r\n",
+      "a2 APPEND INBOX {77}\r\n",
+      "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: seed\r\n\r\nhello seed\r\n",
+      "a3 SELECT INBOX\r\n",
+      "a4 FETCH 1 (FLAGS UID RFC822.SIZE)\r\n",
+      "a5 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK",
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "provenance": {
+      "oracle": "RFC 8617 ARC field names; RFC 5804 ManageSieve (Dovecot Pigeonhole greeting/OK/NO); RFC 5228 fileinto",
+      "recorded_at": "2026-09-04T04:18:19.011149+00:00"
+    },
+    "expect_capability": []
+  }
+]

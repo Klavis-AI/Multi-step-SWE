@@ -1,0 +1,105 @@
+# arch: x86_64
+# spec/10 s.13 row 9: "symbol assignment with a general expression both inside
+# and between output-section descriptions, and `. = expr;` moving the counter
+# inside one". Every other case in this step assigns at script top level,
+# before SECTIONS; this one puts assignments in all three positions and moves
+# the counter inside two different output sections, so that each section's
+# counter has to advance on its own.
+#
+# The skipped bytes are graded too: spec/10 s.7 says an in-section `. = expr;`
+# fills what it skips with that section's fill pattern, and the two sections
+# here carry different '=fillexp' suffixes, so a linker that keeps one global
+# pattern -- or that grows the file rather than the section -- is visible.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 5;
+int entry(void) { print("counters\n"); return g; }
+C
+cc_obj m.o m.c
+cat > b.c <<'C'
+__attribute__((section(".blob.a"), used, retain, aligned(1))) const char ba[2] = { 0x41, 0x42 };
+__attribute__((section(".blob.b"), used, retain, aligned(1))) const char bb[2] = { 0x43, 0x44 };
+C
+cc_obj b.o b.c
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+bytes() { local o s; o=$(sec_off "$1" "$2"); s=$(sec_size "$1" "$2")
+          [ -n "$o" ] && [ -n "$s" ] || die "$1 has no section $2"
+          dd if="$1" of=y.bin bs=1 skip=$((16#$o)) count=$((16#$s)) status=none
+          od -An -tx1 -v y.bin | tr -s ' \n' ' '; }
+
+# Control: the same two sections with no assignments and no counter moves. It
+# links at every milestone from step 4, so a failure in the graded arm is the
+# in-section statements and not the rest of the script.
+cat > c.ld <<'L'
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .one  : { *(.blob.a) }
+  .two  : { *(.blob.b) }
+  .data : { *(.data .data.*) }
+}
+L
+link_ok ctl -T c.ld --no-gc-sections rt.o m.o b.o
+want "control .one holds just its payload" "$(sec_size ctl .one)" "000002"
+want "control .two holds just its payload" "$(sec_size ctl .two)" "000002"
+
+cat > t.ld <<'L'
+top = (7 % 4) * 8 + 1;
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .one : {
+    one_start = .;
+    *(.blob.a)
+    . = . + 0x20;
+    one_end = .;
+  } = 0xdeadbeef
+  mid = (9 % 4) * 0x10 + 3;
+  .two : {
+    two_start = .;
+    *(.blob.b)
+    . = . + 0x8;
+    two_end = .;
+  } = 0xcafebabe
+  .data : { *(.data .data.*) }
+}
+L
+link_ok out -T t.ld --no-gc-sections rt.o m.o b.o
+
+# A general expression at script top level, and another between two
+# output-section descriptions. Neither reads the layout, so both are plain
+# arithmetic: 3*8+1 and 1*16+3.
+want "a general expression at top level"            "$(( 16#$(sym_value out top) ))" "25"
+want "a general expression between two descriptions" "$(( 16#$(sym_value out mid) ))" "19"
+
+# Assignments inside a description see the location counter, and `. = . + N`
+# grows that section by N.
+one_a=$(( 16#$(sec_addr out .one) )); one_s=$(( 16#$(sec_size out .one) ))
+two_a=$(( 16#$(sec_addr out .two) )); two_s=$(( 16#$(sec_size out .two) ))
+want ". at the head of .one is the section address"  "$(( 16#$(sym_value out one_start) ))" "$one_a"
+want ". at the head of .two is the section address"  "$(( 16#$(sym_value out two_start) ))" "$two_a"
+want ".one grew by the 0x20 its own counter skipped" "$one_s" "$(( 2 + 0x20 ))"
+want ".two grew by the 0x8 its own counter skipped"  "$two_s" "$(( 2 + 0x8 ))"
+want ". after the move is the end of .one" "$(( 16#$(sym_value out one_end) ))" "$(( one_a + one_s ))"
+want ". after the move is the end of .two" "$(( 16#$(sym_value out two_end) ))" "$(( two_a + two_s ))"
+
+# Independent counters: .one's 0x20 did not leak into .two, whose own size is
+# set only by its own payload and its own move -- that is the assertion two
+# lines up. All that is graded of the boundary itself is that the counter
+# carried forward rather than restarting: .two begins at or after the end of
+# .one. How far after is the implementation's alignment choice, exactly as
+# fill-expression.case says of gap location, and spec/10 s.4 does not fix the
+# inter-section advance.
+want ".two begins at or after the end of .one" \
+     "$(( two_a >= one_a + one_s ))" "1"
+
+# spec/10 s.7: the skipped bytes carry that section's fill pattern, and the two
+# patterns are different.
+expect() { local pat=$1 len=$2 i out= p; read -r -a p <<<"$pat"
+           for ((i = 0; i < len; i++)); do out+="${p[i % 4]} "; done; printf '%s' "${out% }"; }
+want ".one's skipped bytes take .one's fill"  "$(bytes out .one)" " 41 42 $(expect 'de ad be ef' 32) "
+want ".two's skipped bytes take .two's fill"  "$(bytes out .two)" " 43 44 $(expect 'ca fe ba be' 8) "
+
+run_expect out "counters" 5
+asserts_at_least 13

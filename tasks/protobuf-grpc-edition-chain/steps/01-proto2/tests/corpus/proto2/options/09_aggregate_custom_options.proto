@@ -1,0 +1,90 @@
+// DESC: Aggregate option syntax: nesting, lists, angle brackets, groups, extensions, semicolons
+syntax = "proto2";
+package c2.options.aggregate_custom_options;
+
+import "google/protobuf/descriptor.proto";
+
+message Config {
+  optional int32 a = 1;
+  optional Sub b = 2;
+  repeated Sub subs = 3;
+  optional Kind kind = 4;
+  repeated int32 nums = 5;
+  optional string s = 6;
+  optional bool flag = 7;
+  optional bytes raw = 8;
+  optional double d = 9;
+  optional float f = 10;
+  optional int64 big = 11;
+  optional uint64 ubig = 12;
+  map<string, int32> table = 13;
+
+  message Sub {
+    optional int32 c = 1;
+    optional Sub deeper = 2;
+    repeated string names = 3;
+    optional group InlineGroup = 4 { optional int32 g = 1; }
+  }
+  enum Kind { KIND_ZERO = 0; KIND_ONE = 1; KIND_TWO = 2; }
+  extensions 100 to 200;
+}
+
+extend Config { optional string config_ext = 100; optional Config.Sub sub_ext = 101; }
+extend google.protobuf.MessageOptions { optional Config config = 50601; }
+extend google.protobuf.FileOptions { optional Config file_config = 50602; }
+
+// Aggregate (text-format) option syntax in all its shapes: nested braces,
+// bracketed repeated lists, comma- and whitespace-separated elements, enum
+// identifiers, escaped bytes, angle brackets, groups and extensions.
+option (file_config) = {
+  a: 1
+  s: "file-level"
+  nums: [10, 20, 30]
+};
+
+message Target {
+  option (config) = {
+    a: 42
+    b {
+      c: 1
+      deeper { c: 2 deeper { c: 3 names: "deep" } }
+      names: ["n1", "n2"]
+      InlineGroup { g: 9 }
+    }
+    subs [ { c: 10 }, { c: 11 names: "x" }, { c: 12 } ]
+    subs { c: 13 }
+    kind: KIND_TWO
+    nums: [1, 2, 3]
+    nums: 4
+    s: "quoted \"string\" with \\ escapes\n"
+    flag: true
+    raw: "\001\002\377"
+    d: -1.5e10
+    f: 0.25
+    big: -9223372036854775808
+    ubig: 18446744073709551615
+    table { key: "k1" value: 1 }
+    table { key: "k2" value: 2 }
+    [c2.options.aggregate_custom_options.config_ext]: "extension value"
+    [c2.options.aggregate_custom_options.sub_ext] { c: 77 }
+  };
+  optional int32 z = 1;
+}
+
+message AngleBracketForm {
+  // The aggregate value itself must open with '{', but nested submessages
+  // inside it may use the angle-bracket form.
+  option (config) = {
+    a: 7
+    b < c: 8 names: "angle" >
+    subs [ < c: 1 >, < c: 2 > ]
+    kind: KIND_ONE
+  };
+  optional int32 z = 1;
+}
+
+message SemicolonSeparated {
+  // Fields inside an aggregate may be separated by ';' or ',' as well.
+  option (config) = { a: 1; s: "semi"; flag: false };
+  optional int32 z = 1;
+}

@@ -1,0 +1,46 @@
+{
+ "doc": "stages/filters.assign.rst, 'Assignment Expressions' section: 'The assignment expression syntax is an expansion on the :ref:`PDAL expression` syntax that provides for assignment of values to points.' and 'A ``ValueExpression`` consists of constants, dimension names and mathematical operators that evaluates to a numeric value.'  The page names no function at all -- it lists only the operators -- so the accepted function names come from the profile.  PROFILE.md 7.2: '**`filters.assign` accepts unary maths** in an assignment expression. The page lists only the arithmetic operators, so the accepted function names are named here, because they are what the binary parses and an unknown one is refused outright (`Invalid function name '<name>'`): `floor`, `ceil`, `round`, `abs`, `fabs`, `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `log` (natural), `log2`, `log10`, `exp`, `exp2`. They nest, they may read any dimension, and `WHERE` still gates the assignment.'  The fixture's Intensity is the point index 0..999, so sqrt runs from 0 to sqrt(999)=31.60696126 with mean 21.06583311.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"value\": \"NewDim=sqrt(Intensity)\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\", \"minor_version\": 4, \"extra_dims\": \"NewDim=float64\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "dims": {
+    "NewDim": {
+     "min": {
+      "approx": 0,
+      "tol": 1e-06
+     },
+     "max": {
+      "approx": 31.60696126,
+      "tol": 1e-06
+     },
+     "mean": {
+      "approx": 21.06583311,
+      "tol": 1e-06
+     }
+    }
+   }
+  }
+ ]
+}

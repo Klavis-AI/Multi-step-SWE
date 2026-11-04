@@ -1,0 +1,11 @@
+CREATE TABLE x07_32a(a int);
+CREATE VIEW x07_32v AS SELECT * FROM x07_32a;
+SELECT reloptions FROM pg_class WHERE relname='x07_32v';
+ALTER VIEW x07_32v SET (security_invoker = true);
+SELECT reloptions FROM pg_class WHERE relname='x07_32v';
+ALTER VIEW x07_32v SET (security_invoker = false);
+SELECT reloptions FROM pg_class WHERE relname='x07_32v';
+ALTER VIEW x07_32v RESET (security_invoker);
+SELECT reloptions FROM pg_class WHERE relname='x07_32v';
+DROP VIEW x07_32v;
+DROP TABLE x07_32a;

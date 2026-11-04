@@ -1,0 +1,51 @@
+CREATE TABLE sb(i int, v int);
+INSERT INTO sb VALUES (1,10),(2,20),(3,30);
+SELECT (SELECT max(v) FROM sb);
+ max 
+-----
+  30
+(1 row)
+
+SELECT i FROM sb WHERE v > (SELECT avg(v) FROM sb) ORDER BY i;
+ i 
+---
+ 3
+(1 row)
+
+SELECT i, (SELECT v FROM sb b WHERE b.i = sb.i) FROM sb ORDER BY i;
+ i | v  
+---+----
+ 1 | 10
+ 2 | 20
+ 3 | 30
+(3 rows)
+
+SELECT * FROM (SELECT i, v*2 AS d FROM sb) x WHERE d > 20 ORDER BY i;
+ i | d  
+---+----
+ 2 | 40
+ 3 | 60
+(2 rows)
+
+SELECT i FROM sb WHERE v = ANY(ARRAY[10,30]) ORDER BY i;
+ i 
+---
+ 1
+ 3
+(2 rows)
+
+SELECT i FROM sb WHERE v > ALL(SELECT v FROM sb WHERE i<3) ORDER BY i;
+ i 
+---
+ 3
+(1 row)
+
+SELECT (SELECT v FROM sb WHERE i > 99);
+ v 
+---
+  
+(1 row)
+
+SELECT (SELECT v FROM sb);
+ERROR:  more than one row returned by a subquery used as an expression
+DROP TABLE sb;

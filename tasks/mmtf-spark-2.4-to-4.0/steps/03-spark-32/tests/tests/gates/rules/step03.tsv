@@ -1,0 +1,65 @@
+# Step 3 (03-spark-32): the gate, composed.
+#
+# Seven lines, and three of them are new shapes on this ladder.
+#
+#   common.tsv   the standing rules -- true of the untouched tree, so a FAIL is
+#                a void reading rather than an unmigrated one
+#   floor.tsv    the two standing rules whose thresholds are this codebase's
+#   cheats.tsv   the nine ways to fake a step on this ladder, priced at the
+#                whole reward
+#   cheats3.tsv  the nine that are step 3's own, at the same price. Split from
+#                cheats.tsv rather than added to it because step 2's instruction
+#                does not state them, and a prohibition the instruction does not
+#                state is a trap. score.py reads both files.
+#   m01.tsv      *held*: step 1's requirements become preconditions. Two of them
+#                are false at this rung and m03.tsv restates them -- see the
+#                overrides at the top of that file, and step02.tsv's header,
+#                which predicted this step by name.
+#   m02.tsv      *held*: step 2's requirements likewise. Nothing in it is
+#                rung-sensitive -- every rule reads Dataset/RDD bytecode or
+#                probe.job rows -- so it carries across the fence unchanged.
+#
+#                This is also where step 3's two run-integrity checks come from:
+#                `held-replay-probed` (the replay ran with the listener
+#                attached) and `held-probe-submit-clean` (nothing this verifier
+#                submitted failed). They are not restated here, because a second
+#                copy under a second name would report the same fact twice in a
+#                report a human reads. Any later step that drops `hold m02.tsv`
+#                must restate them, or its gate will be green on a run that
+#                never happened.
+#
+#                One sentence of m02.tsv's header stopped being true here:
+#                `probe-submit-clean`'s reason says common.tsv's
+#                `probe-submit-ok` is satisfied by the control run alone. As of
+#                round 1 of step 3's item-5 review, step 3's test.sh no longer
+#                feeds the verifier's own control run to the gate at all (the
+#                reasoning is in test.sh, section 6). The rule is unchanged and
+#                still worth holding -- "a submit happened" and "none of them
+#                failed" remain different claims -- but at this step the second
+#                one is no longer the only one that reads the candidate's run.
+#
+#   rung3.tsv    the three engine preconditions this rung brings with it,
+#                standing rather than graded -- item 4.3 measured every one of
+#                them green on a tree that changed nothing, because the replay
+#                runs the image's Spark and not the pom's. Read that file's
+#                header before moving one of them back.
+#   cheats3.tsv  the nine prohibitions that undo this rung, priced at the whole
+#                reward. score.py reads this file by name alongside cheats.tsv.
+#                Seven of them until round 2 of the item-5 review: the two
+#                adaptive-execution switches were read off the engine only, and
+#                every other prohibition here has a second, independent read.
+#                They now have their `setconf` twin.
+#   m03.tsv      m1 and m2, the requirements weights.tsv pays for.
+#
+# Order matters: the overrides in m03.tsv replace rules that `hold m01.tsv`
+# defines, and rules.py requires an override's target to already exist.
+
+include common.tsv
+include floor.tsv
+include cheats.tsv
+include cheats3.tsv
+include rung3.tsv
+hold m01.tsv
+hold m02.tsv
+include m03.tsv
+include m03-inherit.tsv

@@ -1,0 +1,20 @@
+{
+  "doc": "stages/writers.fbi.rst: 'Support for all point attributes in LAS 1.2 format so data can be converted between LAS 1.2 and Fast Binary formats without any loss of point attribute information.' -- Intensity and Classification are LAS 1.2 point attributes, so both must survive the round trip unchanged: Intensity 0..999 with sum 499500, and 500 points in each of Classification 1 and 2.",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "ref.las": {"fixture": "grid.las"},
+    "w.json": {"text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.fbi\",\"filename\":\"mid.fbi\"}]}"},
+    "r.json": {"text": "{\"pipeline\":[{\"type\":\"readers.fbi\",\"filename\":\"mid.fbi\"},{\"type\":\"writers.las\",\"filename\":\"back.las\"}]}"}
+  },
+  "run": [{"argv": ["pipeline", "w.json"]}, {"argv": ["pipeline", "r.json"]}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "exit", "run": 1, "equals": 0},
+    {"kind": "las", "file": "back.las", "header": {"point_count": 1000},
+     "dims": {"Intensity": {"min": {"equals": 0}, "max": {"equals": 999},
+                            "sum": {"approx": 499500, "tol": 1e-6}},
+              "Classification": {"count_equal": {"1": 500, "2": 500}}}},
+    {"kind": "las_compare", "a": "back.las", "b": "ref.las",
+     "dims": ["Intensity", "Classification", "ReturnNumber", "PointSourceId"]}
+  ]
+}

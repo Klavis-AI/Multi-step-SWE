@@ -1,0 +1,38 @@
+# A second option word on the compile context: the PCRE2_EXTRA_* mechanism with
+# its first two members.  ChangeLog 10.30 items 33 and 37; pcre2api.3, "Extra
+# compile options"; pcre2test.1, "Setting compilation options".
+
+# ALLOW_SURROGATE_ESCAPES permits \x{d800}-\x{dfff} in UTF-8 and UTF-32 mode and
+# is a compile error, with its own message, in UTF-16 mode.
+/^\x{d800}\x{dfff}$/utf,allow_surrogate_escapes,info
+Capturing subpattern count = 0
+Compile options: utf
+Overall options: anchored utf
+First code unit = \xed
+Subject length lower bound = 2
+
+/^\x{db80}$/utf,allow_surrogate_escapes,caseless
+
+/^\x{d800}$/utf
+Failed: error 173 at offset 8: disallowed Unicode code point (>= 0xd800 && <= 0xdfff)
+
+# BAD_ESCAPE_IS_LITERAL turns an unrecognized escape into the literal
+# character instead of a compile error.
+/^r\qs$/bad_escape_is_literal,info
+Capturing subpattern count = 0
+Compile options: <none>
+Overall options: anchored
+First code unit = 'r'
+Subject length lower bound = 3
+    rqs
+ 0: rqs
+
+/^r\qs$/
+Failed: error 103 at offset 3: unrecognized character follows \
+
+/^[r\q]+$/bad_escape_is_literal
+    rqqr
+ 0: rqqr
+
+/^[r\q]+$/
+Failed: error 103 at offset 4: unrecognized character follows \

@@ -1,0 +1,52 @@
+# \x not followed by { or a hexadecimal digit is now a compile error; it
+# previously meant NUL.  PCRE2_EXTRA_NO_BS0 and PCRE2_EXTRA_PYTHON_OCTAL
+# change the reading of \0 and of backslash followed by a digit.
+# ChangeLog 10.45 items 25 and 31; pcre2pattern.3, "Non-printing characters"
+# and "Python rules for non-class backslash 1-9".
+
+/mo\xrn/
+Failed: error 178 at offset 4: digits missing after \x or in \x{} or \o{} or \N{U+}
+
+/mo\x/
+Failed: error 178 at offset 4: digits missing after \x or in \x{} or \o{} or \N{U+}
+
+/[mo\xrn]/
+Failed: error 178 at offset 5: digits missing after \x or in \x{} or \o{} or \N{U+}
+
+/mo\x{72}n/
+    morn
+ 0: morn
+
+/mo\x72n/
+    morn
+ 0: morn
+
+# \0 on its own is still a NUL unless PCRE2_EXTRA_NO_BS0 is set.
+/mo\0rn/
+    mo\x{00}rn
+ 0: mo\x00rn
+
+/mo\0rn/no_bs0
+Failed: error 198 at offset 4: octal digit missing after \0 (PCRE2_EXTRA_NO_BS0 is set)
+
+/mo\00rn/no_bs0
+    mo\x{00}rn
+ 0: mo\x00rn
+
+# Python's unambiguous rules for backslash followed by a digit.
+/(m)(o)\2/python_octal
+    moo
+ 0: moo
+ 1: m
+ 2: o
+
+/mo\12/python_octal
+Failed: error 115 at offset 4: reference to non-existent subpattern
+
+/mo\012/python_octal
+    mo\x{0a}
+ 0: mo\x0a
+
+/mo\12/
+    mo\x{0a}
+ 0: mo\x0a

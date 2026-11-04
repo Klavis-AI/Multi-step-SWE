@@ -1,0 +1,5 @@
+SELECT true AND NULL, false AND NULL, true OR NULL, false OR NULL, NOT NULL;
+SELECT true IS TRUE, NULL IS NOT TRUE, NULL IS UNKNOWN;
+SELECT 1 IS DISTINCT FROM NULL, NULL IS NOT DISTINCT FROM NULL;
+SELECT 't'::bool, 'yes'::bool, 'off'::bool, '1'::bool;
+SELECT 'maybe'::bool;

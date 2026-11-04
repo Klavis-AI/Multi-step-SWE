@@ -1,0 +1,46 @@
+# arch: x86_64
+# One -T script may carry ENTRY, a multi-node VERSION block with globs and
+# inheritance, and SECTIONS at once; all three must take effect together.
+cat > s.c <<'C'
+int pub_one(int x) { return x + 1; }
+int pub_two(int x) { return x + 2; }
+int other(int x) { return x + 4; }
+int helper_a(int x) { return x + 3; }
+C
+cc_obj s.o s.c -fPIC
+cat > t.ld <<'L'
+ENTRY(pub_one)
+VERSION {
+  BASE_1.0 { global: pub_*; local: *; };
+  NEXT_2.0 { global: other; local: *; } BASE_1.0;
+}
+SECTIONS {
+  .text : { *(.text) *(.text.*) }
+}
+L
+link_ok libv.so -shared -soname libv.so -T t.ld s.o
+
+want "e_type" "$(hdr libv.so | awk '/^ *Type:/{print $2}')" "DYN"
+ds=$(dynsyms libv.so)
+want_has "glob pub_* -> BASE_1.0" "$ds" 'pub_one@@BASE_1\.0$'
+want_has "glob pub_* -> BASE_1.0" "$ds" 'pub_two@@BASE_1\.0$'
+want_has "other -> NEXT_2.0"      "$ds" 'other@@NEXT_2\.0$'
+want_not "helper_a is local"      "$ds" 'helper_a'
+want "three exports" "$(printf '%s' "$ds" | grep -cE '@@(BASE|NEXT)_')" "3"
+
+vn=$(vernum libv.so)
+want_has "BASE_1.0 defined" "$vn" 'Name: BASE_1\.0'
+want_has "NEXT_2.0 defined" "$vn" 'Name: NEXT_2\.0'
+want_has "NEXT_2.0 inherits BASE_1.0" "$vn" 'Parent 1: BASE_1\.0'
+want "base record plus two versions" "$(printf '%s' "$vn" | grep -c 'Rev: 1')" "3"
+
+# ENTRY from the same script, on a shared object.
+ep=$(hdr libv.so | awk '/Entry point/{print $NF}')
+want "entry is pub_one" "$(( ep ))" "$(( 16#$(sym_value libv.so pub_one) ))"
+[ "$(( ep ))" -ne 0 ] || die "shared object got no entry point despite ENTRY()"
+
+# SECTIONS from the same script: all code landed in one .text.
+want_has "single .text output section" "$(sections libv.so)" '\.text +PROGBITS'
+want "exactly one .text" "$(sections libv.so | grep -cE '[[:space:]]\.text[[:space:]]')" "1"
+
+asserts_at_least 13

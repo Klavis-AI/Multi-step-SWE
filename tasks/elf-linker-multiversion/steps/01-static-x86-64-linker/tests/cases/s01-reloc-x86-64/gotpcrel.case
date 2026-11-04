@@ -1,0 +1,54 @@
+# arch: x86_64
+# R_X86_64_GOTPCREL loads the symbol's address out of a GOT slot the linker
+# had to create; the loaded pointer must be the symbol's final address.
+rt_obj rt.o
+cat > t.s <<'S'
+        .data
+        .globl  gvar
+gvar:   .quad   0x5a5a5a5a
+        .globl  gvar2
+gvar2:  .quad   0xa5a5a5a5
+        .section .note.GNU-stack,"",@progbits
+S
+cat > r.s <<'S'
+        .text
+        .globl  addr_of_gvar
+addr_of_gvar:
+        movq    gvar@GOTPCREL(%rip), %rax
+        ret
+        .globl  load_gvar2
+load_gvar2:
+        movq    gvar2@GOTPCREL(%rip), %rax
+        movq    (%rax), %rax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj t.o t.s
+# -mrelax-relocations=no keeps these as plain R_X86_64_GOTPCREL, not the
+# relaxable REX_GOTPCRELX form.
+as_obj r.o r.s -Wa,-mrelax-relocations=no
+ri=$(relocs r.o)
+want_has "input has plain R_X86_64_GOTPCREL" "$ri" "R_X86_64_GOTPCREL +[0-9a-f]+ +gvar -"
+want "no relaxable form was emitted" "$(printf '%s' "$ri" | grep -c GOTPCRELX)" "0"
+cat > m.c <<'C'
+#include "rt.h"
+extern unsigned long gvar, gvar2;
+unsigned long *addr_of_gvar(void); unsigned long load_gvar2(void);
+int entry(void) {
+  int ok = 0;
+  if (addr_of_gvar() == &gvar) ok |= 1;
+  if (*addr_of_gvar() == 0x5a5a5a5aUL) ok |= 2;
+  if (load_gvar2() == 0xa5a5a5a5UL) ok |= 4;
+  putdec(ok); print("\n");
+  return ok;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o t.o r.o m.o
+run_expect out "7" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

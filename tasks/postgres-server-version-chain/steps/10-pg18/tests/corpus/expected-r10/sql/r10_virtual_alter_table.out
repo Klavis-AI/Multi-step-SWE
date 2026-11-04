@@ -1,0 +1,26 @@
+CREATE TABLE r10vgd(a int);
+INSERT INTO r10vgd VALUES (4);
+ALTER TABLE r10vgd ADD COLUMN b int GENERATED ALWAYS AS (a * 5) VIRTUAL;
+SELECT a, b FROM r10vgd ORDER BY a;
+ a | b  
+---+----
+ 4 | 20
+(1 row)
+
+ALTER TABLE r10vgd ALTER COLUMN a TYPE bigint;
+ERROR:  cannot alter type of a column used by a generated column
+DETAIL:  Column "a" is used by generated column "b".
+SELECT a, b FROM r10vgd ORDER BY a;
+ a | b  
+---+----
+ 4 | 20
+(1 row)
+
+ALTER TABLE r10vgd DROP COLUMN b;
+SELECT attname, attgenerated FROM pg_attribute WHERE attrelid = 'r10vgd'::regclass AND attnum > 0 AND NOT attisdropped ORDER BY attnum;
+ attname | attgenerated 
+---------+--------------
+ a       | 
+(1 row)
+
+DROP TABLE r10vgd;

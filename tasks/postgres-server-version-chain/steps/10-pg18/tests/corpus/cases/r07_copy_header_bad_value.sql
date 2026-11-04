@@ -1,0 +1,7 @@
+CREATE TABLE x07_71a(a int, b text);
+COPY x07_71a TO stdout WITH (FORMAT csv, HEADER 2);
+COPY x07_71a TO stdout WITH (FORMAT csv, HEADER MATCH);
+COPY x07_71a TO stdout WITH (FORMAT csv, HEADER nosuch);
+INSERT INTO x07_71a VALUES (1,'x');
+COPY x07_71a TO stdout WITH (FORMAT csv, HEADER true);
+DROP TABLE x07_71a;

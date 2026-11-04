@@ -1,0 +1,113 @@
+# Step 4's requirements: the 3.3 fence, the entry-point consolidation, and ANSI
+# adopted at the point the consolidation creates.
+#
+# m1 is the version fence, read twice and deliberately not the same read twice:
+# once off the resolved pom and once off the engine the replayed jobs actually
+# met. A pom that says 3.3.4 and a runtime that is something else is the
+# failure mode this pair exists to separate, and it is not hypothetical -- at
+# step 3 the two reads disagreed by construction, because spark-core is
+# `provided` and the replay submits through the image's spark-submit
+# (NOTES 6.3.11). Here they must agree.
+#
+# m2 is the step's work. Sixty-three of the mains still open with
+# `new SparkConf()` + `new JavaSparkContext(conf)`, the pre-2.0 entry point;
+# eight sites in the same tree already use the target idiom, so the pattern to
+# copy is the repository's own (NOTES 6.4.3). Three things make the selectors
+# below the shape they are, and each was measured before it was written:
+#
+#   the target idiom is itself a `new JavaSparkContext`
+#                    `new JavaSparkContext(spark.sparkContext())` is what the
+#                    step asks for, so an `absent` rule over the *constructor*
+#                    would forbid the answer. `ast.newclass` records only the
+#                    argument count, so it cannot tell that call from
+#                    `new JavaSparkContext(conf)`: both are `JavaSparkContext 1`.
+#                    The descriptor can, and only the bytecode carries it --
+#                    measured on the step-4 start tree as 126 refs at
+#                    `(Lorg/apache/spark/SparkConf;)V` against 12 at
+#                    `(Lorg/apache/spark/SparkContext;)V`. So the discriminating
+#                    read is the jar's, and `SparkConf` is what the source read
+#                    can honestly ask about.
+#   the tests are not the candidate's
+#                    `src/test` holds 42 more `new SparkConf()` sites, and
+#                    test.sh wipes `/app/src/test` and re-copies a pristine
+#                    `git archive` overlay before the suite runs, so no
+#                    candidate can migrate them and none should try. ast-scan
+#                    is handed `/app/src`, which is both halves, so the source
+#                    rule is scoped to `src/main` -- unscoped it would be
+#                    unpassable by the oracle, and it would also pay a
+#                    candidate for deleting the test tree. The jar rule needs
+#                    no scope: both jars under /app/target carry 201
+#                    `edu/sdsc/mmtf` classes and no test classes at all.
+#   counts on the jar are doubled
+#                    `--classes '/app/target/*.jar'` matches the shaded jar and
+#                    the original both, and the same class in two jars emits the
+#                    same ref twice. Every `atleast:` rule on bytecode in this
+#                    package is therefore `atleast:1` and scoped to a named
+#                    class. The one counted rule below reads the AST instead,
+#                    which is one tree scanned once.
+#
+# m3 is ANSI, and it is one line in one place only because m2 created the place.
+# `setconf` and `conf` are two different questions: `setconf` is what the
+# application's SparkConf holds, so `builder().config(...)` shows there and a
+# post-hoc `spark.conf.set(...)` does not, which is how "at the consolidated
+# point" is stated as a fact. `conf` is what the live session reported, which is
+# whether it took effect. Neither is free: the replay harness sets no
+# `spark.sql.*` key but `spark.sql.warehouse.dir`, measured over the whole of
+# gold-probe.tsv, and the do-nothing tree reports `ansi.enabled false` on every
+# one of its 124 probe files.
+#
+# Neither m3 rule is a count, and getting there took a second measurement and a
+# static review to see. The first draft made them `atleast:70` over the flat
+# `probe.conf` and `probe.setconf` tables, because an `absent` rule over those
+# is unpassable by construction: 40 of the 124 probe files have no live
+# SparkSession at all, so their WATCH keys are Spark's defaults and ANSI reads
+# `false` there whatever the candidate does, and 27 of them are HarnessDriver
+# rows -- the verifier's own replay driver, not a repo main. A threshold was
+# the only shape left, and a threshold has two faults the review named: the
+# number is in no document the candidate can read, and `atleast` is satisfied
+# by *adding* rows, which the driver JVM that hosts the listener can do.
+#
+# What was missing was not a different rule but a different fact. The flat
+# table cannot say whose reading a row is; the per-file probe outputs can, and
+# gate-run.sh now judges each one before it concatenates them and re-emits the
+# rows of this repository's own programs as `appsession` / `appconf` /
+# `appsetconf` (schema.tsv). A missing key comes through as `<unset>` and a
+# file with no session as `<no-session>`, so `absent` over "anything but true"
+# is a real uniformity statement: every program, no threshold, and a forged
+# extra row can only add a reading to a rule that fails on readings.
+#
+# Non-vacuity is already guaranteed and is not restated here as a floor.
+# `replay-probed` (floor.tsv) wants 100 labelled probe files and only 27 of
+# them can be HarnessDriver, so at least 73 of this repository's programs are
+# always in the reading.
+#
+# m2 is `absent` throughout for the same reason. `m2-session-adopted` was
+# `atleast:90` over `builder` call sites, which one class with thirty-six
+# unused methods answers as well as thirty-six programs do; it now reads the
+# per-file `ast.unit` row and asks the negative question directly -- a file
+# with a main method and no session built in it. The handed tree has 48 of
+# those and the golden tree has none (NOTES 6.4.8), and no amount of dead code
+# anywhere else moves either number.
+#
+# What counts as a session built there was tightened by the review's round 2:
+# a `getOrCreate()` whose receiver chain starts at `SparkSession.builder()`,
+# not a `builder()` call on its own, because `SparkSession.builder()` returns a
+# builder and a file can call it and never bring a session into being. On both
+# trees the two readings agree exactly -- 54 sessions on the handed tree and
+# 102 on the golden one, and the same 78/48/0 per-file split either way (NOTES
+# 6.4.9) -- so the tightening costs a candidate who did the work nothing and
+# closes the cheapest way to answer the question with a line that does not.
+
+m1-spark-334	atleast:1	pom.resolved\torg\.apache\.spark:spark-core_2\.12\t3\.3\.4\t.+	pom-spark324.tsv	the build does not resolve spark-core_2.12 at 3.3.4, so the runtime this step targets was never reached
+m1-spark-334-uniform	absent	pom.resolved\torg\.apache\.spark:.*\t(?!3\.3\.4$).*\t*	pom-spark334-mixed.tsv	an org.apache.spark artifact resolves at a version other than 3.3.4; a build that mixes Spark releases runs whichever one the classpath orders first, and which that is is not a property of the pom
+m1-session-334	atleast:1	probe.probe\tspark\.version\t3\.3\.4	probe-session-324.tsv	no replayed job ran in a Spark 3.3.4 session; the pom may say 3.3.4 but the engine the code met did not
+m1-session-334-uniform	absent	probe.probe\tspark\.version\t(?!3\.3\.4$).*	probe-session-324.tsv	a replayed job ran in a session that was not Spark 3.3.4, so the run was not uniformly on this step's runtime
+m2-no-sparkconf-src	absent	ast.newclass\t(.*/)?src/main/.*\t*\t(org\.apache\.spark\.)?SparkConf\t*	ast-sparkconf.tsv	a main still constructs a SparkConf; the pre-2.0 entry point is still in the sources, so the consolidation was not done, only hidden
+m2-no-sparkconf-jar	absent	bytecode.ref\tedu/sdsc/mmtf/.*\torg/apache/spark/SparkConf\t*\t*	bytecode-sparkconf.tsv	the built jar still references SparkConf, so whatever the sources say, the artifact that runs still carries the old entry point
+m2-ctx-from-session-only	absent	bytecode.ref\tedu/sdsc/mmtf/.*\torg/apache/spark/api/java/JavaSparkContext\t<init>\t(?!\(Lorg/apache/spark/SparkContext;\)V$).*	bytecode-ctx-from-conf.tsv	a JavaSparkContext is built from something other than a SparkContext; the step asks for one derived from the session, and this one was not
+m2-no-raw-sparkcontext	absent	bytecode.ref\tedu/sdsc/mmtf/.*\torg/apache/spark/SparkContext\t<init>\t*	bytecode-raw-sparkcontext.tsv	a SparkContext is constructed directly, which routes around the session rather than deriving from it and leaves the settings the session carries unapplied
+m2-session-adopted	absent	ast.unit\t(.*/)?src/main/.*\t[1-9][0-9]*\t.*\t0	ast-few-sessions.tsv	a program under src/main declares a main method and builds no SparkSession inside it, so that program's entry point was not consolidated whatever the rest of the tree does -- a build somewhere else in the same file is the idiom without the entry point
+m2-session-live	absent	probe.appsession\t.+\t(?!true$).*	probe-no-session.tsv	one of this repository's programs ran without a live SparkSession; the sources may carry the idiom but the program that executed did not reach it
+m3-ansi-set	absent	probe.appsetconf\tspark\.sql\.ansi\.enabled\t(?!true$).*	probe-ansi-off.tsv	one of this repository's programs did not hold ANSI mode on in its own configuration; it was either never adopted there or adopted somewhere the session the program built did not read
+m3-ansi-no-dissent	absent	probe.setconf\tspark\.sql\.ansi\.enabled\t(?!true$).*	probe-ansi-off.tsv	a replayed job set ANSI mode to something other than on, so the adoption is not uniform across the corpus
+m3-ansi-effective	absent	probe.appconf\tspark\.sql\.ansi\.enabled\t(?!true$).*	probe-ansi-off.tsv	one of this repository's programs ran in a session that did not report ANSI mode in force; it was set somewhere that did not reach the engine that program actually ran on

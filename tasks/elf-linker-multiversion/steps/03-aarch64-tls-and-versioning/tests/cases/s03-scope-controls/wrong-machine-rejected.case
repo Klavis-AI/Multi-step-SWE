@@ -1,0 +1,36 @@
+# arch: x86_64
+# An input object built for another architecture must be rejected with a
+# diagnostic naming the offending file, not silently mixed in.
+# NOTE: spec/00 S8 and spec/07 S12.1 require the FILE to be named and nothing
+# else; the wording around it is not graded.  This case therefore asserts the
+# file name only -- not the word "aarch64", not "incompatible".
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int other_arch_fn(void);
+int entry(void) { print("x"); return 0; }
+C
+cc_obj m.o m.c
+cat > w.s <<'S'
+        .text
+        .globl other_arch_fn
+other_arch_fn:
+        mov     w0, #1
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+$CLANG -target aarch64-unknown-linux-gnu -c w.s -o w.o 2> w.err \
+  || die "could not build the aarch64 fixture: $(tail -2 w.err)"
+want "fixture really is aarch64" "$(hdr w.o | awk '/Machine:/{print $2}')" "AArch64"
+link_fails out rt.o m.o w.o
+printf '%s\n' "$LINK_OUT" > err.txt
+grep -q 'w\.o' err.txt || die "diagnostic does not name the file: $(cat err.txt)"
+# The same link without the foreign object succeeds.
+link_ok out2 rt.o m.o
+run_expect out2 "x" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

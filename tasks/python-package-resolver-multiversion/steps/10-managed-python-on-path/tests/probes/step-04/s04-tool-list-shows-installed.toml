@@ -1,0 +1,127 @@
+id = "s04-tool-list-shows-installed"
+step = 4
+group = "tool-interface"
+python = "3.12"
+mode = "bare"
+timeout = 300
+setup_argv = [["tool", "install", "./mytool"]]
+argv = ["tool", "list"]
+observe = ["status", "stdout"]
+
+[files]
+"mytool/pyproject.toml" = '''
+[project]
+name = "greeter"
+version = "1.0.0"
+requires-python = ">=3.9"
+dependencies = []
+
+[build-system]
+requires = []
+build-backend = "minibackend"
+backend-path = ["_backend"]
+
+[tool.minibackend]
+console = "greet = greeter:main"
+'''
+"mytool/_backend/minibackend.py" = '''
+"""Minimal in-tree PEP 517 backend: no build requirements, fully offline."""
+import base64
+import hashlib
+import io
+import os
+import re
+import tarfile
+import tomllib
+import zipfile
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _plan():
+    with open(os.path.join(HERE, "pyproject.toml"), "rb") as fh:
+        cfg = tomllib.load(fh)
+    name = cfg["project"]["name"]
+    version = cfg["project"]["version"]
+    console = cfg.get("tool", {}).get("minibackend", {}).get("console")
+    dist = re.sub(r"[-_.]+", "_", name.lower())
+    mod = re.sub(r"[^0-9a-z_]", "_", dist)
+    di = dist + "-" + version + ".dist-info"
+    nl = chr(10)
+    src = ("VALUE = " + repr(name + "-ok") + nl * 3
+           + "def main():" + nl + "    print(VALUE)" + nl)
+    meta = "Metadata-Version: 2.1" + chr(10) + "Name: " + name + chr(10) \
+        + "Version: " + version + chr(10) + chr(10)
+    wheel = ("Wheel-Version: 1.0" + chr(10) + "Generator: minibackend" + chr(10)
+             + "Root-Is-Purelib: true" + chr(10) + "Tag: py3-none-any" + chr(10))
+    entries = [(mod + "/__init__.py", src.encode()),
+               (di + "/METADATA", meta.encode()),
+               (di + "/WHEEL", wheel.encode())]
+    if console:
+        entries.append((di + "/entry_points.txt",
+                        ("[console_scripts]" + chr(10) + console + chr(10) + chr(10)).encode()))
+    return dist, version, di, entries
+
+
+def _wheel(wheel_directory):
+    dist, version, di, entries = _plan()
+    fname = dist + "-" + version + "-py3-none-any.whl"
+    rows = []
+    for arc, data in entries:
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+        rows.append(arc + ",sha256=" + digest + "," + str(len(data)))
+    rows.append(di + "/RECORD,,")
+    with zipfile.ZipFile(os.path.join(wheel_directory, fname), "w") as zf:
+        for arc, data in entries:
+            info = zipfile.ZipInfo(arc, date_time=(1980, 1, 1, 0, 0, 0))
+            zf.writestr(info, data)
+        info = zipfile.ZipInfo(di + "/RECORD", date_time=(1980, 1, 1, 0, 0, 0))
+        zf.writestr(info, chr(10).join(rows) + chr(10))
+    return fname
+
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    return _wheel(wheel_directory)
+
+
+def build_editable(wheel_directory, config_settings=None, metadata_directory=None):
+    return _wheel(wheel_directory)
+
+
+def build_sdist(sdist_directory, config_settings=None):
+    dist, version, di, entries = _plan()
+    root = dist + "-" + version
+    fname = root + ".tar.gz"
+    body = dict(entries)[di + "/METADATA"]
+    with tarfile.open(os.path.join(sdist_directory, fname), "w:gz") as tf:
+        info = tarfile.TarInfo(root + "/PKG-INFO")
+        info.size = len(body)
+        info.mtime = 315532800
+        tf.addfile(info, io.BytesIO(body))
+    return fname
+
+
+def get_requires_for_build_wheel(config_settings=None):
+    return []
+
+
+def get_requires_for_build_editable(config_settings=None):
+    return []
+
+
+def prepare_metadata_for_build_wheel(metadata_directory, config_settings=None):
+    dist, version, di, entries = _plan()
+    out = os.path.join(metadata_directory, di)
+    os.makedirs(out, exist_ok=True)
+    for arc, data in entries:
+        if arc.startswith(di + "/"):
+            with open(os.path.join(metadata_directory, arc), "wb") as fh:
+                fh.write(data)
+    with open(os.path.join(out, "RECORD"), "w") as fh:
+        fh.write("")
+    return di
+
+
+def prepare_metadata_for_build_editable(metadata_directory, config_settings=None):
+    return prepare_metadata_for_build_wheel(metadata_directory, config_settings)
+'''

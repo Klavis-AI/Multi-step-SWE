@@ -1,0 +1,8 @@
+CREATE TABLE q3_dft(a int) PARTITION BY LIST (a);
+CREATE TABLE q3_dft_d1 PARTITION OF q3_dft DEFAULT;
+CREATE TABLE q3_dft_d2 PARTITION OF q3_dft DEFAULT;
+CREATE TABLE q3_dft_ext(a int);
+ALTER TABLE q3_dft ATTACH PARTITION q3_dft_ext DEFAULT;
+SELECT count(*) FROM pg_inherits WHERE inhparent = 'q3_dft'::regclass;
+DROP TABLE IF EXISTS q3_dft;
+DROP TABLE IF EXISTS q3_dft_ext;

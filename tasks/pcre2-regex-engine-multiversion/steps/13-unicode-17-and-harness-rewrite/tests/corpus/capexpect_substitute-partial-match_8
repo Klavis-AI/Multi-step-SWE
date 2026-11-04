@@ -1,0 +1,25 @@
+# pcre2_substitute() now supports partial matching, but only together with
+# PCRE2_SUBSTITUTE_REPLACEMENT_ONLY, and $' or $_ in the replacement is
+# rejected with PCRE2_ERROR_PARTIALSUBS whenever partial matching is enabled.
+
+/qr/
+    pqrs\=ps,replace=<[$&]>,substitute_replacement_only
+ 1: <[qr]>
+    pqrs\=ph,replace=<[$&]>,substitute_replacement_only
+ 1: <[qr]>
+    pq\=ph,replace=<[$&]>,substitute_replacement_only
+Failed: error -2: partial match
+    pq\=ps,replace=<[$&]>,substitute_replacement_only
+Failed: error -2: partial match
+    pqrs\=ps,replace=<A$'B>,substitute_replacement_only
+Failed: error -76 at offset 4 in replacement: replacement $' or $_ not supported with partial match
+        here: <A$' |<--| B>
+    pqrs\=ps,replace=<A$_B>,substitute_replacement_only
+Failed: error -76 at offset 4 in replacement: replacement $' or $_ not supported with partial match
+        here: <A$_ |<--| B>
+    pqrs\=ps,replace=<A$`B>,substitute_replacement_only
+ 1: <ApB>
+    pqrs\=ps,replace=<[$&]>
+Failed: error -34: bad option value
+    pqrsqr\=ps,global,replace=<[$&]>,substitute_replacement_only
+ 2: <[qr]><[qr]>

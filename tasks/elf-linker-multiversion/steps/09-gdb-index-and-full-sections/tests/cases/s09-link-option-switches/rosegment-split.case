@@ -1,0 +1,53 @@
+# arch: x86_64
+# --rosegment is the DEFAULT and the counterpart switch, and the last of the
+# pair on the command line wins: read-only data sits in a non-executable
+# segment of its own unless --no-rosegment is the last word on the subject.
+# Both halves are checked here -- the default with neither switch passed, and
+# the restore with --no-rosegment --rosegment -- so that an implementation
+# which only honours the explicit spelling does not pass by accident.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char msg[] = "split";
+int g = 2;
+int entry(void) { print(msg); print("\n"); return g; }
+C
+cc_obj m.o m.c
+link_ok out --no-rosegment --rosegment rt.o m.o
+
+# Inline helper (caselib has none for segments). Since 0.9.0 wild emits a
+# second writable PT_LOAD for RELRO, so segments are located by the address
+# they cover, never by ordinal or by permission bits.
+loads() { local t; t=$(segments "$1"); awk '/^ *LOAD /{f=""; for(i=7;i<NF;i++) f=f $i; print $3, $6, f}' <<<"$t"; }
+seg_of() { # seg_of <file> <hex-addr> -> "<index> <flags>"
+  local a=$((16#$2)) i=0 v m f
+  while read -r v m f; do
+    [ -n "$v" ] || continue
+    if [ "$a" -ge "$((v))" ] && [ "$a" -lt "$((v + m))" ]; then echo "$i $f"; return 0; fi
+    i=$((i + 1))
+  done <<<"$(loads "$1")"
+  return 1
+}
+
+# No switch at all: --rosegment's behaviour must already be what happens.
+link_ok dflt rt.o m.o
+dts=$(seg_of dflt "$(sec_addr dflt .text)")   || die "default: .text is in no PT_LOAD"
+drs=$(seg_of dflt "$(sec_addr dflt .rodata)") || die "default: .rodata is in no PT_LOAD"
+[ "${drs%% *}" != "${dts%% *}" ] \
+  || die "--rosegment is the default, but .rodata shared the code segment with no switch passed"
+want "by default the rodata segment is read-only" "${drs##* }" "R"
+want "and by default the code segment is executable" "${dts##* }" "RE"
+run_expect dflt "split" 2
+
+ts=$(seg_of out "$(sec_addr out .text)")   || die ".text is in no PT_LOAD"
+rs=$(seg_of out "$(sec_addr out .rodata)") || die ".rodata is in no PT_LOAD"
+[ "${rs%% *}" != "${ts%% *}" ] || die "--rosegment did not undo the earlier --no-rosegment"
+want "the code segment is executable"    "${ts##* }" "RE"
+want "the rodata segment is read-only"   "${rs##* }" "R"
+run_expect out "split" 2
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

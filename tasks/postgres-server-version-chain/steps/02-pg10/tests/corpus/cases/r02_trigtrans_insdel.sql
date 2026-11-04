@@ -1,0 +1,19 @@
+CREATE TABLE q2_tti(i int);
+CREATE FUNCTION q2_tti_f() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    RAISE NOTICE 'inserted %', (SELECT string_agg(i::text, ',' ORDER BY i) FROM q2_tti_new);
+  ELSE
+    RAISE NOTICE 'deleted %', (SELECT string_agg(i::text, ',' ORDER BY i) FROM q2_tti_old);
+  END IF;
+  RETURN NULL;
+END $$;
+CREATE TRIGGER q2_tti_ins AFTER INSERT ON q2_tti
+  REFERENCING NEW TABLE AS q2_tti_new FOR EACH STATEMENT EXECUTE PROCEDURE q2_tti_f();
+CREATE TRIGGER q2_tti_del AFTER DELETE ON q2_tti
+  REFERENCING OLD TABLE AS q2_tti_old FOR EACH STATEMENT EXECUTE PROCEDURE q2_tti_f();
+INSERT INTO q2_tti VALUES (3),(1),(2);
+DELETE FROM q2_tti WHERE i > 1;
+SELECT i FROM q2_tti ORDER BY i;
+DROP TABLE q2_tti;
+DROP FUNCTION q2_tti_f();

@@ -1,0 +1,48 @@
+# arch: x86_64
+# The zlib payload really is the uncompressed section: inflating it reproduces
+# the bytes the same link emits with --compress-debug-sections=none.
+rt_obj rt.o
+python3 - > big.c <<'PY'
+print('long sys_write(long fd, const void *buf, long len);')
+for i in range(120):
+    print(f"int fn_{i}(int a, int b) {{ int t = a * {i+1} + b; return t ^ {i}; }}")
+print('int entry(void) { return fn_7(3, 4) & 63; }')
+PY
+cc_obj big.o big.c -gdwarf-4
+link_ok none --no-gc-sections --compress-debug-sections=none rt.o big.o
+link_ok zl   --no-gc-sections --compress-debug-sections=zlib rt.o big.o
+
+res=$(python3 - <<'PY'
+import struct, zlib
+def shdrs(p):
+    b = open(p, "rb").read()
+    shoff, = struct.unpack_from("<Q", b, 0x28)
+    ent, num, strndx = struct.unpack_from("<HHH", b, 0x3a)
+    noff = struct.unpack_from("<Q", b, shoff + strndx * ent + 0x18)[0]
+    d = {}
+    for i in range(num):
+        nm, ty, fl, ad, off, sz = struct.unpack_from("<IIQQQQ", b, shoff + i * ent)
+        e = b.index(b"\0", noff + nm)
+        d[b[noff + nm:e].decode()] = (fl, off, sz)
+    return b, d
+rb, rd = shdrs("none")
+cb, cd = shdrs("zl")
+for s in (".debug_info", ".debug_abbrev", ".debug_frame"):
+    fl, off, sz = cd[s]
+    ct, _, csz, cal = struct.unpack_from("<IIQQ", cb, off)
+    try:
+        dec = zlib.decompress(cb[off + 24:off + sz])
+    except Exception as e:
+        print(s, "inflate-failed", e); continue
+    roff, rsz = rd[s][1], rd[s][2]
+    print(s, "ok" if dec == rb[roff:roff + rsz] else "MISMATCH", len(dec), rsz)
+PY
+) || die "inflate step failed"
+for s in .debug_info .debug_abbrev .debug_frame; do
+  line=$(awk -v n="$s" '$1 == n { print }' <<<"$res")
+  want_has "$s inflates to the uncompressed section" "$line" "^$s ok "
+done
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 3

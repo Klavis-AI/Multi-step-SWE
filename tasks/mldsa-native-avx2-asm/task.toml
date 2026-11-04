@@ -1,0 +1,121 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. A step's reward is
+# `correctness x mean_<f,ps>( ln(max(1, speedup_<f,ps>)) )` over the
+# (library entry point, parameter set) pairs in its scope -- i.e. correctness x
+# ln(geometric mean of the per-pair speedups). Correctness is binary and
+# multiplies, so a tree that changes behaviour scores 0 however fast it is; a
+# correct but unimproved tree scores 0 too. The value is a log and is routinely
+# above 1: measured per step on this revision's frozen reference ladder, 8.10x /
+# 4.04x / 13.61x / 14.36x / 2.14x / 4.69x geometric mean, i.e. rewards 2.092 /
+# 1.396 / 2.611 / 2.665 / 0.759 / 1.545 (trial 1.845), against a measured no-op
+# floor of 0.073 (see the task README).
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Anything in `exclude` is absent during grading, so
+# build output is dropped and the verifier rebuilds from source. These patterns
+# match a path component at any depth, so they are checked against the tree
+# rather than against intent; see the task README.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build", "build/**", ".git", ".git/**"] },
+]
+
+[task]
+name = "harbor/mldsa-native-avx2-asm"
+version = "1.0.0"
+description = "Optimize the mldsa-native ML-DSA post-quantum signature library one arithmetic backend stage at a time. Six cumulative steps, each rewarded by per-entry-point measured speedup gated on bit-exact output against the portable C reference that stays in the tree."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "avx2", "post-quantum", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c", "assembly", "simd", "cryptography"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+# Grade each step in its own container, built from that step's tests/Dockerfile
+# with its tests/ as the build context. The verifier reconstructs this step's
+# reference tree from the pinned upstream commit, builds it, runs the project's
+# own functional, differential-unit and KAT suites on both trees, and times the
+# step's entry points in both.
+[verifier]
+environment_mode = "separate"
+
+# cpus must stay >= 2: measurement pins to a single core, and a container with
+# one CPU cannot pin.
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local>} to reward.json. No min_reward:
+# a zero or partial score never stops the trial, so every step runs.
+#
+# verifier timeout_sec covers the verifier image build (an upstream clone, a
+# full library build for three parameter sets, all test binaries and the
+# reference harnesses) plus the artifact round trip plus the grading run, whose
+# longest part is building the candidate tree the same way and running both
+# trees' suites and timing runs.
+[[steps]]
+name = "01-transform-ntt-intt"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "02-pointwise-and-norm"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "03-decompose-gamma32"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "04-decompose-gamma88"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "05-rejection-sampling"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "06-polyz-unpack"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

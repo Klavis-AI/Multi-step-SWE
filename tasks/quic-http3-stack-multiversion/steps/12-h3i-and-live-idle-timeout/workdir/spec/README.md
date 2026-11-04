@@ -1,0 +1,21 @@
+# Specification material — step 12
+
+The full text of every RFC this task touches is in this directory,
+byte-identical to the IETF originals (`SHA256SUMS` covers them). It is
+here so the milestone can be worked offline and so that every step reads
+the same words. This environment has no general network access, so these
+documents and what the image already holds are all the reference material
+there is.
+
+What is load-bearing *for this step*:
+
+| document | sections | why it matters here |
+| --- | --- | --- |
+| `rfc9000.txt` | 18 (transport parameter encoding), 18.1 (reserved transport parameters), 18.2 (transport parameter definitions), 7.4 (transport parameters), 7.4.1 (values of transport parameters for 0-RTT), 10.1 (idle timeout) | Section 18 is the encoding this step both re-runs and remembers: identifier, length, value, repeated, with the rule that **an endpoint MUST ignore transport parameters it does not understand**. "Ignore" is what the previous milestones did literally; this one keeps a bounded copy of what it is ignoring, which the section permits and does not describe. 18.1 is the reserved space and the arithmetic behind `is_reserved`: identifiers of the form `31 * N + 27` are reserved to exercise exactly the requirement above and have no semantics ever. A candidate that treats them as an error rather than as something to ignore is wrong at the protocol level, not merely at this API. 18.2 is the catalogue the decoder recognises, and therefore the definition, by subtraction, of which identifiers are "unknown". 7.4 is why re-encoding matters. Transport parameters are carried in the TLS handshake and are fixed for the life of the connection from the peer's point of view -- there is no mechanism to update them later. That is the whole reason `Connection::set_max_idle_timeout` is documented as "immediately after creating a connection, before any packet is sent or received", and the whole reason it has to re-serialise rather than merely store. 10.1 is what the value means once it is there: both endpoints advertise one, the effective timeout is the minimum of the two non-zero values, and zero means no timeout. Read it for why a connection's *own* setting is observable at the **peer** and not by asking the connection that set it. |
+| `rfc9114.txt` | 4.1 (HTTP message framing), 4.1.1 (request cancellation and rejection), 4.1.2 (malformed requests and responses), 6.2.2 (push streams), 7.2.2 (HEADERS frames) | 4.1 is the whole contract of `send_additional_headers`. It gives the permitted shape of a message as a sequence of header sections: an optional run of informational responses, then the final header section, then the body, then an optional trailer section -- and it is the reason the method takes a boolean rather than being two methods, because both are HEADERS frames in the same position language. 4.1 is also where the asymmetry comes from, and it is worth reading rather than taking on trust: informational (1xx) responses are a *response* construct, so a request cannot contain one, which is why a client calling the method with `is_trailer_section == false` is refused before anything else is examined. Trailers belong to both directions. 7.2.2 is the frame itself: nothing distinguishes an informational, final or trailing header section on the wire, so the receiver's ability to tell them apart is positional, which is why the case reads them in order. |
+| `rfc9204.txt` | 4.2 (encoder and decoder streams), 4.3 (encoder instructions), 4.4 (decoder instructions) | The two counters `h3::Stats` reports are byte counts on the streams 4.2 defines, so read it for what those streams are and when they are opened -- a unidirectional stream each way, identified by a leading stream type, at most one of each per connection per direction. 4.3 and 4.4 are what travels on them, and are the reason the counters are small and not zero for a stack that encodes only literal field lines: the stream type byte is sent whether or not any instruction follows it. |
+
+`appendix-a-vectors.json` holds RFC 9001 Appendix A's worked
+example decomposed into named byte strings. The grader uses the same
+file, so a disagreement with it is a disagreement with the RFC.
+

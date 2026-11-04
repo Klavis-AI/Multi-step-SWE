@@ -1,0 +1,81 @@
+# arch: x86_64
+# The wide end-to-end path for this step. There are no gate groups here --
+# s01-static-core is a scored group (tests/groups.tsv) -- so this case earns
+# its share like any other. It is deliberately broad rather than focused:
+# every other case in the corpus isolates one behaviour, and this one checks
+# that the same behaviours still compose in a single link that runs.
+#
+# In a single link this exercises:
+#   * archive extraction driven by the symbol index -- the member that defines
+#     an undefined symbol is pulled in, the one that defines nothing needed
+#     is not;
+#   * dead-section elimination, which is on by default at this milestone;
+#   * string merging across two translation units, checked from inside the
+#     running program rather than from the section table;
+#   * .eh_frame_hdr synthesis and the PT_GNU_EH_FRAME that covers it;
+#   * a complete static non-PIE image -- ET_EXEC, entry at _start, no
+#     relocation left unresolved -- that runs and returns the right value.
+rt_obj rt.o
+cat > wanted.c <<'C'
+const char *shared_literal(void) { return "milestone one still links"; }
+int wanted_fn(void) { return 5; }
+C
+cat > spare.c <<'C'
+int spare_member_fn(void) { return 6; }
+C
+cat > lib.s <<'S'
+        .section .text.reached,"ax",@progbits
+        .globl  reached_fn
+reached_fn:
+        mov     $2, %eax
+        ret
+        .section .text.unreached,"ax",@progbits
+        .globl  unreached_fn
+unreached_fn:
+        mov     $22, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+cat > m.c <<'C'
+#include "rt.h"
+int wanted_fn(void);
+int reached_fn(void);
+const char *shared_literal(void);
+static const char *own_literal(void) { return "milestone one still links"; }
+int entry(void) {
+  print("hello\n");
+  /* Both translation units spell the same literal; after merging they must be
+     the same address at run time. */
+  if (shared_literal() != own_literal()) return 90;
+  return wanted_fn() + reached_fn();
+}
+C
+cc_obj wanted.o wanted.c -fasynchronous-unwind-tables
+cc_obj spare.o spare.c
+cc_obj m.o m.c -fasynchronous-unwind-tables
+as_obj lib.o lib.s
+mkar libx.a wanted.o spare.o
+link_ok out --gc-sections --eh-frame-hdr rt.o lib.o m.o libx.a
+want "e_type" "$(hdr out | awk '/^ *Type:/{print $2}')" "EXEC"
+# llvm-readelf renders the entry point in upper-case hex and the symbol table
+# in lower-case, so compare the numbers, not the spellings.
+estart=$(sym_value out _start)
+[ -n "$estart" ] || die "_start is missing from the output symbol table: $(symbols out)"
+want "entry is _start" \
+  "$(( $(hdr out | awk '/^ *Entry point/{print $NF}') ))" "$(( 16#$estart ))"
+want_has "the archive member that resolves an undefined symbol was extracted" \
+  "$(symbols out)" '[[:space:]]wanted_fn$'
+want_not "the archive member that resolves nothing was not extracted" \
+  "$(symbols out)" 'spare_member_fn'
+want_has "a referenced section survives --gc-sections" \
+  "$(symbols out)" '[[:space:]]reached_fn$'
+want_not "an unreferenced section does not" "$(symbols out)" 'unreached_fn'
+want_has ".eh_frame_hdr was synthesised" "$(sections out)" '[[:space:]]\.eh_frame_hdr[[:space:]]'
+want "exactly one PT_GNU_EH_FRAME" \
+  "$(segments out | grep -cE '^ *GNU_EH_FRAME ')" "1"
+want "no relocation survives into the static image" \
+  "$(relocs out | grep -cE 'R_X86_64_')" "0"
+# 5 (from the archive member) + 2 (from the surviving lib.o section); 90 would
+# mean the two identical literals did not merge to one address.
+run_expect out "hello" 7
+asserts_at_least 9

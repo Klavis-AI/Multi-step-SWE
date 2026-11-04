@@ -1,0 +1,130 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward
+# gate, so every step runs and each verifier reports a step-local reward.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Build output is excluded so the verifier rebuilds
+# from source and cannot be fooled by a prebuilt wrap of a system MTA.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [
+    "build", "build/**",
+    ".git", ".git/**",
+  ] },
+]
+
+[task]
+name = "harbor/email-smtp-imap-revision-chain"
+version = "1.0.0"
+description = "Ten-step C++ MTA+IMAP (later JMAP) stack through the SMTP/IMAP RFC revision chain: 821/822 through IMAP4rev2 and JMAP, with Postfix 3.8.6 and Dovecot 2.3.21 start/config and Maildir storage."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["email", "smtp", "imap", "jmap", "postfix", "dovecot", "maildir", "multi-step", "cpp"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["email", "smtp", "imap", "rfc", "cpp", "multi-step", "mta"]
+
+[environment]
+build_timeout_sec = 900.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+# Each verifier writes {"reward": <step-local 0 or 1>} to reward.json. No
+# min_reward: a zero reward never stops the trial, and every step runs
+# regardless of how earlier steps scored.
+[[steps]]
+name = "01-rfc821-imap4rev1"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "02-rfc2821-2822"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "03-rfc5321-submission"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "04-esmtp-extensions"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "05-imap-extensions"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "06-eai-smtputf8"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "07-auth-spf-dkim-dmarc"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "08-arc-sieve"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "09-mta-sts-dane"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "10-imap4rev2-jmap"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0

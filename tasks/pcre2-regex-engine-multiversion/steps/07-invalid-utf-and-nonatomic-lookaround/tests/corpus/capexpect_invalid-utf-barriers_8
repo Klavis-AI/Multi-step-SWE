@@ -1,0 +1,49 @@
+# PCRE2_MATCH_INVALID_UTF forces PCRE2_UTF on, and an invalid code unit
+# sequence in the subject acts as a barrier that no match can cross.
+/x./I,match_invalid_utf
+Capture group count = 0
+Options: match_invalid_utf utf
+First code unit = 'x'
+Subject length lower bound = 2
+    xa\x80b\=g
+ 0: xa
+
+/./utf,match_invalid_utf
+    a\x80b\=g
+ 0: a
+ 0: b
+
+/\p{Any}/utf,match_invalid_utf
+    a\x80b\=g
+ 0: a
+ 0: b
+
+/[^q]/utf,match_invalid_utf
+    a\x80b\=g
+ 0: a
+ 0: b
+
+# A lookbehind fails if it must step back over an invalid sequence.
+/(?<=z)y/utf,match_invalid_utf
+    zy
+ 0: y
+    z\x80y
+No match
+
+# Fragment boundaries behave as subject ends for \b and \B ...
+/\bpq\b/utf,match_invalid_utf
+    \x80pq\xff
+ 0: pq
+
+/\Bpq/utf,match_invalid_utf
+    \x80pq\xff
+No match
+
+# ... but they are not line boundaries.
+/^pq/utf,match_invalid_utf
+    \x80pq
+No match
+
+/pq$/utf,match_invalid_utf
+    pq\xff
+No match

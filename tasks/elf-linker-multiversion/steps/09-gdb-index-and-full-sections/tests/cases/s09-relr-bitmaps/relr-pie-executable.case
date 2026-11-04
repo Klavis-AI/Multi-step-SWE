@@ -1,0 +1,31 @@
+# arch: x86_64
+# Bitmap packing is not limited to shared objects: a PIE with the same run of
+# relative relocations gets the same treatment, and the RELA table stays empty
+# of relative entries because they all moved into .relr.dyn.
+rt_obj rt.o
+n=40
+{ echo '#include "rt.h"'
+  echo 'static int target[4];'
+  printf 'int *const ptrs[%d] = {' "$n"
+  for i in $(seq 0 $((n - 1))); do printf '&target[%d],' $((i % 4)); done
+  echo '};'
+  echo 'int entry(void) { return (int)(long)(ptrs[0] != 0); }'
+} > p.c
+cc_obj p.o p.c -fPIC
+link_ok out -pie -z pack-relative-relocs --no-gc-sections rt.o p.o
+
+want "e_type" "$(hdr out | awk '/^ *Type:/{print $2}')" "DYN"
+has_section out '\.relr\.dyn' || die "no .relr.dyn in the PIE"
+r=$(relocs out)
+got=$(awk "/'.relr.dyn'/{for(i=1;i<=NF;i++) if(\$i==\"contains\"){print \$(i+1); exit}}" <<<"$r")
+want "all relative relocations are in .relr.dyn" "$got" "$n"
+want_not "none were left in .rela.dyn" "$(awk "/'.rela.dyn'/,/^\$/" <<<"$r")" 'R_X86_64_RELATIVE'
+
+sz=$(awk '/\(RELRSZ\)/{print $(NF-1)}' <<<"$(dynamic out)")
+[ "$sz" -le 32 ] || die "RELRSZ is $sz bytes for $n relocations: not bitmap-packed"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

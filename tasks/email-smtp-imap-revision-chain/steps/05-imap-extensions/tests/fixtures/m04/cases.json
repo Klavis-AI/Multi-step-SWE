@@ -1,0 +1,388 @@
+[
+  {
+    "id": "smtp.ehlo.keywords",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO client.example.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "expect_smtp_contains": [
+      "8BITMIME",
+      "PIPELINING",
+      "SIZE",
+      "DSN",
+      "CHUNKING",
+      "STARTTLS",
+      "AUTH",
+      "SCRAM-SHA-1"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO: PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3207 STARTTLS; RFC 4954 AUTH; RFC 5802 SCRAM-SHA-1 (Postfix smtpd with SASL)",
+      "recorded_at": "2026-09-04T00:01:49.224123Z"
+    }
+  },
+  {
+    "id": "smtp.helo.compat",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "HELO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "imap.rev1.compat",
+    "kind": "imap",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "a1 LOGIN alice alice-secret\r\n",
+      "a2 LOGOUT\r\n"
+    ],
+    "tag_status": [
+      "OK",
+      "OK"
+    ],
+    "expect_capability": [],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.bdat.last",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "RCPT TO:<bob@example.test>\r\n",
+      "BDAT 44 LAST\r\nSubject: bdat TOKEN-BDAT-001\r\n\r\nhello-bdat\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "250",
+      "221"
+    ],
+    "notes": "token TOKEN-BDAT-001",
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.starttls.handshake",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "STARTTLS\r\n",
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "220",
+      "250",
+      "221"
+    ],
+    "expect_smtp_contains": [
+      "PIPELINING"
+    ],
+    "provenance": {
+      "oracle": "RFC 3207 \u00a74.2: after TLS, EHLO MUST NOT advertise STARTTLS; Postfix 3.7 smtpd omits STARTTLS post-handshake",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    },
+    "expect_reply_contains": {
+      "2": [
+        "PIPELINING",
+        "SIZE"
+      ]
+    },
+    "expect_reply_excludes": {
+      "2": [
+        "STARTTLS"
+      ]
+    }
+  },
+  {
+    "id": "smtp.auth.plain.ok",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": true,
+    "script": [
+      "EHLO c.test\r\n",
+      "AUTH PLAIN AGFsaWNlAGFsaWNlLXNlY3JldA==\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "235",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.auth.scram.ok",
+    "kind": "smtp_scram",
+    "stratum": "core",
+    "gate": true,
+    "user": "alice",
+    "password": "alice-secret",
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.dsn.mail.ret",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test> RET=HDRS ENVID=abc\r\n",
+      "RCPT TO:<bob@example.test> NOTIFY=SUCCESS,FAILURE ORCPT=rfc822;bob@example.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.size.param",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test> SIZE=100\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.8bitmime.body",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test> BODY=8BITMIME\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.starttls.after.mail.503",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "STARTTLS\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "503",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.auth.bad",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "AUTH PLAIN AGFsaWNlAG5vcGU=\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "535",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.pipelining.keyword",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "221"
+    ],
+    "expect_smtp_contains": [
+      "PIPELINING"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.help.still.500",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "HELP\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "500",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.nested.mail",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "MAIL FROM:<alice@example.test>\r\n",
+      "MAIL FROM:<bob@example.test>\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "250",
+      "503",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "postfix-3.7.11 EHLO PIPELINING SIZE 8BITMIME DSN CHUNKING; RFC 3030 BDAT; RFC 3207 STARTTLS handshake; RFC 5802 SCRAM-SHA-1; OpenDKIM rsa-sha256 bh/b",
+      "recorded_at": "2026-09-04T06:14:07.591678+00:00"
+    }
+  },
+  {
+    "id": "smtp.auth.login.ok",
+    "kind": "smtp",
+    "stratum": "core",
+    "gate": false,
+    "script": [
+      "EHLO c.test\r\n",
+      "AUTH LOGIN\r\n",
+      "YWxpY2U=\r\n",
+      "YWxpY2Utc2VjcmV0\r\n",
+      "QUIT\r\n"
+    ],
+    "codes": [
+      "250",
+      "334",
+      "334",
+      "235",
+      "221"
+    ],
+    "provenance": {
+      "oracle": "RFC 4954 AUTH LOGIN; Postfix smtpd 334 username/password then 235"
+    }
+  },
+  {
+    "id": "smtp.pipelining.group",
+    "kind": "smtp_pipeline",
+    "stratum": "interaction",
+    "gate": false,
+    "banner_code": "220",
+    "groups": [
+      {
+        "send": "EHLO c.test\r\n",
+        "replies": 1
+      },
+      {
+        "send": "MAIL FROM:<alice@example.test>\r\nRCPT TO:<bob@example.test>\r\nDATA\r\n",
+        "replies": 3
+      },
+      {
+        "send": "From: alice@example.test\r\nTo: bob@example.test\r\nSubject: pipeline TOKEN-PIPE-001\r\n\r\npipelined-body\r\n.\r\n",
+        "replies": 1
+      },
+      {
+        "send": "QUIT\r\n",
+        "replies": 1
+      }
+    ],
+    "codes": [
+      "250",
+      "250",
+      "250",
+      "354",
+      "250",
+      "221"
+    ],
+    "notes": "deliver token TOKEN-PIPE-001",
+    "provenance": {
+      "oracle": "composed from recorded transcripts, not a new recording: EHLO 250 from postfix-3.7.11 (m04 smtp.ehlo.keywords, recorded 2026-09-04T06:14:07Z); MAIL/RCPT/DATA/body/QUIT 250/250/354/250/221 from postfix-3.7.11 (m01 smtp.data.*, recorded 2026-09-04T00:01:49Z)",
+      "derivation": "RFC 2920 3.1: grouping MAIL/RCPT/DATA into a single send changes only reply timing, not the reply codes, so the recorded single-command values are the expected values"
+    }
+  }
+]

@@ -1,0 +1,85 @@
+{
+ "doc": "stages/writers.raster.rst: 'gdaldriver -- GDAL code of the `GDAL driver`_ to use to write the output. [Default: \"GTiff\"]'",
+ "files": {
+  "plane.txt": {
+   "text": "X,Y,Z\n0,0,0\n4,0,4\n0,4,0\n4,4,4\n"
+  },
+  "def.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"plane.txt\"}, {\"type\": \"filters.delaunay\"}, {\"type\": \"filters.faceraster\", \"resolution\": 1, \"origin_x\": 0.5, \"origin_y\": 0.5, \"width\": 4, \"height\": 4}, {\"type\": \"writers.raster\", \"filename\": \"def.tif\", \"data_type\": \"double\"}]}"
+  },
+  "gt.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"plane.txt\"}, {\"type\": \"filters.delaunay\"}, {\"type\": \"filters.faceraster\", \"resolution\": 1, \"origin_x\": 0.5, \"origin_y\": 0.5, \"width\": 4, \"height\": 4}, {\"type\": \"writers.raster\", \"filename\": \"gt.tif\", \"data_type\": \"double\", \"gdaldriver\": \"GTiff\"}]}"
+  },
+  "rd.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.gdal\", \"filename\": \"def.tif\", \"header\": \"Z\"}, {\"type\": \"writers.las\", \"filename\": \"def.las\"}]}"
+  },
+  "rg.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.gdal\", \"filename\": \"gt.tif\", \"header\": \"Z\"}, {\"type\": \"writers.las\", \"filename\": \"gt.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "def.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "gt.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "rd.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "rg.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 3,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "def.las",
+   "header": {
+    "point_count": 16
+   }
+  },
+  {
+   "kind": "las_compare",
+   "a": "def.las",
+   "b": "gt.las",
+   "dims": [
+    "X",
+    "Y",
+    "Z"
+   ]
+  }
+ ]
+}

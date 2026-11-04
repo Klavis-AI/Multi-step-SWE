@@ -1,0 +1,53 @@
+# arch: x86_64
+# An output with 0xff00 or more sections cannot state its section count in the
+# 16-bit e_shnum field. The count escapes into section header 0: e_shnum reads
+# 0, e_shstrndx reads SHN_XINDEX, and section 0's sh_size and sh_link carry the
+# real count and the real .shstrtab index (spec 17 S7).
+rt_obj rt.o
+cat > m.c <<'C'
+int entry(void) { return 9; }
+C
+cc_obj m.o m.c
+
+# 65300 allocated sections, each with a symbol so none of them is nameless.
+awk 'BEGIN { for (i = 1; i <= 65300; i++)
+               printf ".section .d%d,\"a\",@progbits\n.globl v%d\nv%d: .byte %d\n", i, i, i, i % 251
+             print ".section .note.GNU-stack,\"\",@progbits" }' > many.s
+as_obj many.o many.s
+
+link_ok out rt.o m.o many.o --no-gc-sections
+
+# Read the header fields raw. readelf prints the DERIVED count and marks the
+# escape only with parentheses, so grepping it cannot tell the two apart. od is
+# in coreutils and prints a decimal field directly, so no hex conversion step
+# stands between the file and the assertion.
+u2() { od -An -tu2 -j "$1" -N 2 -- out | tr -d ' \n'; }
+u4() { od -An -tu4 -j "$1" -N 4 -- out | tr -d ' \n'; }
+u8() { od -An -tu8 -j "$1" -N 8 -- out | tr -d ' \n'; }
+
+want "e_shnum escapes to zero"          "$(u2 60)" "0"
+want "e_shstrndx escapes to SHN_XINDEX" "$(u2 62)" "65535"
+
+shoff=$(u8 40)
+[ -n "$shoff" ] && [ "$shoff" -gt 0 ] || die "no section header table in the output"
+
+# Section header 0: sh_size is the section count, sh_link the .shstrtab index.
+real=$(u8 "$((shoff + 32))")
+link=$(u4 "$((shoff + 40))")
+[ "$real" -ge 65302 ] || die "section 0 sh_size is $real, want at least the 65302 sections linked in"
+[ "$real" -lt 70000 ] || die "section 0 sh_size is $real, which is not a plausible section count"
+[ "$link" -ge 65280 ] || die "section 0 sh_link is $link, but .shstrtab must be past the 0xff00 escape point"
+[ "$link" -lt "$real" ] || die "section 0 sh_link $link is outside the $real section headers"
+
+# The escaped count must agree with what a reader derives from it.
+derived=$(hdr out | sed -n 's/.*Number of section headers: *//p' | tr -cd '0-9 ' | awk '{print $NF}')
+want "the derived section count matches section 0" "$derived" "$real"
+
+# The escape is not an excuse for a broken output.
+want_has "the section table survived" "$(sections out)" '\.symtab_shndx'
+want_has "so did the entry code"      "$(sections out)" '\.text'
+run_expect out "" 9
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 5

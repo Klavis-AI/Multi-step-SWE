@@ -1,0 +1,41 @@
+# arch: x86_64
+# --sort-section=name orders the input sections contributing to an output
+# section by input-section name, overriding the default link order.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+__attribute__((section(".rodata.zulu"),  used, retain)) const int z = 1;
+__attribute__((section(".rodata.mike"),  used, retain)) const int m = 2;
+__attribute__((section(".rodata.alpha"), used, retain)) const int a = 3;
+int entry(void) { print("sorted\n"); return z + m + a; }
+C
+cc_obj m.o m.c
+
+order() { # order <file> -> the three names in ascending address order
+  local za zm zz
+  za=$(sym_value "$1" a); zm=$(sym_value "$1" m); zz=$(sym_value "$1" z)
+  [ -n "$za" ] && [ -n "$zm" ] && [ -n "$zz" ] || die "$1: missing one of a/m/z"
+  printf '%s\n' "$((16#$za)) a" "$((16#$zm)) m" "$((16#$zz)) z" | sort -n | awk '{printf "%s", $2}'
+}
+
+# Control: the relative order of the input sections merged into one output
+# section is explicitly NOT graded (spec/00 s.2 -- it is whatever order the
+# linker chose), so this arm only establishes that without the switch all
+# three inputs are present at three distinct addresses. The switch's effect is
+# graded in the arm below, against the sorted order it is documented to make.
+link_ok def --no-gc-sections rt.o m.o
+da=$(sym_value def a); dm=$(sym_value def m); dz=$(sym_value def z)
+[ -n "$da" ] && [ -n "$dm" ] && [ -n "$dz" ] || die "control: missing one of a/m/z"
+want "control keeps all three inputs at distinct addresses" \
+     "$(printf '%s\n' "$da" "$dm" "$dz" | sort -u | wc -l)" "3"
+
+link_ok out --sort-section=name --no-gc-sections rt.o m.o
+want "--sort-section=name sorts by input section name" "$(order out)" "amz"
+want_has "sorted output is still contiguous rodata" "$(sections out)" "\.rodata"
+run_expect out "sorted" 6
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

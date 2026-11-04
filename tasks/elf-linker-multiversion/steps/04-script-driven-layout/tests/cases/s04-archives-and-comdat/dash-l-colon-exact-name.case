@@ -1,0 +1,43 @@
+# arch: x86_64
+# what: -l:NAME looks for exactly the file NAME on the library search path,
+# with no lib prefix and no .a/.so suffix synthesis, and a plain -lNAME for the
+# same library is a diagnosed failure.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int odd_fn(void);
+int entry(void) { return odd_fn(); }
+C
+cc_obj m.o m.c
+cat > o.c <<'C'
+int odd_fn(void) { return 13; }
+C
+cc_obj o.o o.c
+mkdir -p libdir
+# Deliberately not named libodd.a, so only an exact-name lookup can find it.
+mkar libdir/oddly.named.a o.o
+# Plain -l cannot find it: there is no liboddly.named.a or .so anywhere.
+link_fails nope rt.o m.o -Llibdir -loddly.named
+want_has "diagnostic names the library" "$LINK_OUT" 'oddly\.named'
+# Compatibility profile 8, third column: nothing is written on a failed link.
+want "no output file on the -l miss" "$([ -e nope ] && echo present || echo absent)" "absent"
+# -l: finds it by its exact file name.
+link_ok out rt.o m.o -Llibdir -l:oddly.named.a
+want "odd_fn is defined" \
+  "$(symbols out | awk '$8=="odd_fn"{print ($7=="UND")?"UND":"def"}')" "def"
+want "no DT_NEEDED for a static archive" "$(dynamic out | grep -c '(NEEDED)')" "0"
+run_expect out "" 13
+# -l: still honours the search path order: an earlier -L wins.
+mkdir -p first
+cat > o2.c <<'C'
+int odd_fn(void) { return 21; }
+C
+cc_obj o2.o o2.c
+mkar first/oddly.named.a o2.o
+link_ok out2 rt.o m.o -Lfirst -Llibdir -l:oddly.named.a
+run_expect out2 "" 21
+# -l: with a name that is not on the path is diagnosed, naming the file.
+link_fails nope2 rt.o m.o -Llibdir -l:absent.archive.a
+want_has "diagnostic names the missing file" "$LINK_OUT" 'absent\.archive\.a'
+want "no output file on the -l: miss" "$([ -e nope2 ] && echo present || echo absent)" "absent"
+asserts_at_least 6

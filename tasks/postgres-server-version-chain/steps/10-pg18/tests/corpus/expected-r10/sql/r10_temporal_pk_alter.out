@@ -1,0 +1,23 @@
+CREATE TABLE r10tpb(id int4range, valid_at daterange);
+INSERT INTO r10tpb VALUES (int4range(1,2), daterange('2020-01-01','2020-06-01'));
+ALTER TABLE r10tpb ADD CONSTRAINT r10tpb_pk PRIMARY KEY (id, valid_at WITHOUT OVERLAPS);
+INSERT INTO r10tpb VALUES (int4range(1,2), daterange('2020-02-01','2020-03-01'));
+ERROR:  conflicting key value violates exclusion constraint "r10tpb_pk"
+DETAIL:  Key (id, valid_at)=([1,2), [2020-02-01,2020-03-01)) conflicts with existing key (id, valid_at)=([1,2), [2020-01-01,2020-06-01)).
+SELECT conname, contype, conperiod FROM pg_constraint WHERE conrelid = 'r10tpb'::regclass ORDER BY conname;
+         conname          | contype | conperiod 
+--------------------------+---------+-----------
+ r10tpb_id_not_null       | n       | f
+ r10tpb_pk                | p       | t
+ r10tpb_valid_at_not_null | n       | f
+(3 rows)
+
+ALTER TABLE r10tpb DROP CONSTRAINT r10tpb_pk;
+INSERT INTO r10tpb VALUES (int4range(1,2), daterange('2020-02-01','2020-03-01'));
+SELECT count(*) FROM r10tpb;
+ count 
+-------
+     2
+(1 row)
+
+DROP TABLE r10tpb;

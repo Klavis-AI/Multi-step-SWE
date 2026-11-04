@@ -1,0 +1,96 @@
+How environment/docs/ was produced: the build stage below fetched each
+document from its official source, checked it against the pinned sha256,
+and made the text conversions. It ran at image build time until
+2026-10-20; the files are now stored in docs/ and copied in directly.
+Re-run these steps to refresh a document.
+
+# Offline documentation, fetched and sha256-checked here; only pages reach the
+# final image:
+#  - /opt/docs/redis: redis.io's command reference (content/commands) and its
+#    data-type and reference pages (content/develop/data-types, .../reference
+#    without the module C API) from github.com/redis/docs at c86ecc63, the last
+#    commit before Redis 8.2 GA (2025-08-04). Licence: LICENSE alongside
+#    (CC BY-NC-SA 4.0; redis-doc-derived parts CC BY-SA 4.0). No Redis source,
+#    no test suite.
+#  - /opt/docs/lua-5.1: the Lua 5.1 reference manual (doc/ of lua-5.1.5.tar.gz,
+#    MIT), the scripting language SPEC/redis-doc/eval-intro.md names. The
+#    tarball's sources stay in this stage.
+#  - /opt/docs/luaj-3.0.1: the API documentation (javadoc, HTML only, MIT) of
+#    LuaJ 3.0.1, the one dependency SPEC/BUILD_AND_RUN.md allows, from Maven
+#    Central (the same release as /opt/redis-deps/luaj-jse-3.0.1.jar).
+FROM debian:bookworm-slim AS docs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    mkdir -p /tmp/dl /opt/docs/redis /opt/docs/lua-5.1 /opt/docs/luaj-3.0.1; cd /tmp/dl; \
+    rev=c86ecc63abe32df0859a9d310e2269ac95ff9fec; \
+    url="https://codeload.github.com/redis/docs/tar.gz/$rev"; \
+    sum=3db432515197f0005614ef25a74a9971e13a8305d369e5d978181fefc3babc57; \
+    curl -fsSL --retry 3 -o redis-docs.tar.gz "$url"; \
+    echo "$sum  redis-docs.tar.gz" | sha256sum -c -; \
+    tar -xzf redis-docs.tar.gz -C /opt/docs/redis --strip-components=2 \
+        "docs-$rev/content/commands" \
+        "docs-$rev/content/develop/data-types" \
+        "docs-$rev/content/develop/reference"; \
+    tar -xzf redis-docs.tar.gz -C /opt/docs/redis --strip-components=1 "docs-$rev/LICENSE"; \
+    rm -rf /opt/docs/redis/develop/reference/modules; \
+    printf '%s  %s\n(subset: content/commands, content/develop/data-types, content/develop/reference without modules/, LICENSE)\n' \
+        "$sum" "$url" > /opt/docs/redis/SOURCES.txt; \
+    test "$(ls /opt/docs/redis/commands/*.md | wc -l)" -ge 500; \
+    for f in commands/set.md commands/hgetex.md commands/json.set.md commands/bf.add.md \
+             commands/ts.add.md commands/vadd.md develop/data-types/json/path.md \
+             develop/reference/key-specs.md; do test -s "/opt/docs/redis/$f"; done; \
+    lsum=2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333; \
+    curl -fsSL --retry 3 -o lua-5.1.5.tar.gz https://www.lua.org/ftp/lua-5.1.5.tar.gz; \
+    echo "$lsum  lua-5.1.5.tar.gz" | sha256sum -c -; \
+    tar -xzf lua-5.1.5.tar.gz -C /opt/docs/lua-5.1 --strip-components=2 \
+        lua-5.1.5/doc/manual.html lua-5.1.5/doc/contents.html \
+        lua-5.1.5/doc/manual.css lua-5.1.5/doc/lua.css lua-5.1.5/doc/logo.gif; \
+    printf '%s  %s\n(subset: doc/manual.html, contents.html, manual.css, lua.css, logo.gif)\n' \
+        "$lsum" https://www.lua.org/ftp/lua-5.1.5.tar.gz > /opt/docs/lua-5.1/SOURCES.txt; \
+    grep -q 'Lua 5.1 Reference Manual' /opt/docs/lua-5.1/manual.html; \
+    jurl=https://repo1.maven.org/maven2/org/luaj/luaj-jse/3.0.1/luaj-jse-3.0.1-javadoc.jar; \
+    jsum=61bc7e21c68877cac1a0491fbd8b228c26710499dadf3233cd69972bbbd46797; \
+    curl -fsSL --retry 3 -o luaj-javadoc.jar "$jurl"; \
+    echo "$jsum  luaj-javadoc.jar" | sha256sum -c -; \
+    unzip -q luaj-javadoc.jar -d /opt/docs/luaj-3.0.1 -x 'META-INF/*'; \
+    printf '%s  %s\n' "$jsum" "$jurl" > /opt/docs/luaj-3.0.1/SOURCES.txt; \
+    test -s /opt/docs/luaj-3.0.1/index.html; \
+    test -s /opt/docs/luaj-3.0.1/org/luaj/vm2/Globals.html; \
+    test -z "$(find /opt/docs -type f \( -name '*.c' -o -name '*.h' -o -name '*.tcl' -o -name 'Makefile' \))"; \
+    cd /; rm -rf /tmp/dl; chmod -R a+rX /opt/docs
+
+# Added 2026-10-21 (wave R, trajectory review g27 R4): Maven's javadoc jar has
+# no pages for org.luaj.vm2.lib itself (BaseLib, DebugLib, OneArgFunction,
+# VarArgFunction, ...), the package Redis's redis.* bindings are built from.
+# Those pages were generated once, on the authoring host, from the sources jar
+# of the same release and copied into docs/luaj-3.0.1/org/luaj/vm2/lib/; the
+# javadoc jar's own files are unchanged. JDK 17's javadoc needs --release 8
+# because CoroutineLib declares a class named `yield`. No source file is
+# shipped (no -linksource).
+#   ssum=e9fc8eb5593ef489bafb79b5561b49114e8a233834f160c4657efe927a613f53
+#   surl=https://repo1.maven.org/maven2/org/luaj/luaj-jse/3.0.1/luaj-jse-3.0.1-sources.jar
+#   curl -fsSL -o luaj-sources.jar "$surl"; echo "$ssum  luaj-sources.jar" | sha256sum -c -
+#   unzip -q luaj-sources.jar -d src
+#   javadoc --release 8 -quiet -Xdoclint:none -notimestamp -encoding ISO-8859-1 \
+#       -sourcepath src -d out -windowtitle "Luaj API" org.luaj.vm2.lib
+#   cp out/org/luaj/vm2/lib/*.html docs/luaj-3.0.1/org/luaj/vm2/lib/
+
+# Added 2026-10-21 (wave R, user decision on review finding F2): /opt/docs/redis-rdb-format,
+# a third-party description of the RDB file format, because the format is otherwise defined
+# only by Redis's source, which is never shipped. From github.com/sripathikrishnan/redis-rdb-tools
+# at commit 548b11ec3c81a603f5b321228d07a61a0b940159 (MIT licence; its LICENSE covers the
+# "software and associated documentation files" and ships alongside). Only the two format
+# documents and the LICENSE: no parser code. Coverage: byte-level layouts for the formats up
+# to RDB version 6 (Redis 2.8); the version history lists what versions 7-9 (Redis 3.2, 4.0,
+# 5.0) added, without byte layouts; nothing newer than Redis 5.0's format.
+#   c=548b11ec3c81a603f5b321228d07a61a0b940159
+#   base=https://raw.githubusercontent.com/sripathikrishnan/redis-rdb-tools/$c
+#   curl -fsSL -o RDB_File_Format.textile     $base/docs/RDB_File_Format.textile
+#   curl -fsSL -o RDB_Version_History.textile $base/docs/RDB_Version_History.textile
+#   curl -fsSL -o LICENSE                     $base/LICENSE
+#   sha256: 8974782b2b876b75ff8b605ad00fa699f8c6c5efa319cbe2ba65b277cf8820b3  RDB_File_Format.textile
+#           267f9b264b0a6bc831a175030bffdb867d2b7c104c0b461e8307dd77d82d860d  RDB_Version_History.textile
+#           445d195cba5157aec3a8fb358cf2b34725f6079b828123001dc6d5fae8582403  LICENSE
+#   copied unchanged into docs/redis-rdb-format/, with docs/redis-rdb-format/SOURCES.txt.

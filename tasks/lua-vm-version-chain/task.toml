@@ -1,0 +1,108 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches the
+# verifier container. Build output is excluded so the verifier always rebuilds the
+# interpreter from the sources the candidate left behind.
+# The patterns are matched by `tar --exclude` against member names that start
+# with "./", so they must be anchored: a bare "lua" would also match src/lua/.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [
+    "./build",
+    "./gen",
+    "./lua",
+    "./.git",
+  ] },
+]
+
+[task]
+name = "harbor/lua-vm-version-chain"
+version = "1.0.0"
+description = "Five-step Lua implementation in Java carried from Lua 5.1 to Lua 5.5: the 5.1 language and standard library, the 5.2 _ENV/goto/ephemeron generation, the 5.3 integer subtype, the 5.4 generational GC and to-be-closed variables, and 5.5 with its LUA_COMPAT_* matrix, graded against the official Lua test suites and PUC-Lua-recorded conformance programs."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["lua", "interpreter", "java", "multi-step", "language-implementation"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["lua", "compiler", "virtual-machine", "java", "multi-step", "conformance"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+# Seven scored programs run at once under a 1 GiB resident ceiling each, so the
+# container has to be larger than 7 GiB for the watchdog -- not the kernel -- to
+# be what stops a runaway candidate.
+memory_mb = 12288
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-lua-5-1"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# Worst case is dominated by builds, and the build count is per step: every step
+# runs the initial `make` and the MYCFLAGS pass-through build, plus one build per
+# entry in that step's builds.json. Steps 1-4 have a single entry, so three builds
+# (2700 s); step 5 carries the compatibility matrix and has three, so five builds
+# (4500 s). Each is capped at 900 s by as_user, against the grader's own
+# BUDGET=4800, and conformance programs run at a 15 s ceiling over 7 workers with
+# anything not started before the deadline scored as a failure rather than
+# dropped. The limit has to be above that or a slow candidate gets the verifier
+# killed before it writes reward.json, which would abort every later step.
+timeout_sec = 5400.0
+
+[[steps]]
+name = "02-lua-5-2"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "03-lua-5-3"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "04-lua-5-4"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "05-lua-5-5"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0

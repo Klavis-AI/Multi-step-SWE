@@ -1,0 +1,19 @@
+CREATE TABLE x05_70a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x05_70a1 PARTITION OF x05_70a FOR VALUES FROM (0) TO (10);
+CREATE FUNCTION x05_70f() RETURNS trigger LANGUAGE plpgsql AS
+  $$ BEGIN RETURN NULL; END $$;
+CREATE TRIGGER x05_70t BEFORE INSERT ON x05_70a FOR EACH ROW EXECUTE FUNCTION x05_70f();
+INSERT INTO x05_70a VALUES (1,'x');
+SELECT count(*) FROM x05_70a;
+ count 
+-------
+     0
+(1 row)
+
+INSERT INTO x05_70a VALUES (99,'y');
+ERROR:  no partition of relation "x05_70a" found for row
+DETAIL:  Partition key of the failing row contains (a) = (99).
+CREATE TRIGGER x05_70t2 BEFORE INSERT ON x05_70a FOR EACH ROW EXECUTE FUNCTION nosuch_x05_70();
+ERROR:  function nosuch_x05_70() does not exist
+DROP TABLE x05_70a;
+DROP FUNCTION x05_70f();

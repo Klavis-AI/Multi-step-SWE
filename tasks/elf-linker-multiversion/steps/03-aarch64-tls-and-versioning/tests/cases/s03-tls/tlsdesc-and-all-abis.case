@@ -1,0 +1,64 @@
+# arch: x86_64
+# TLSDESC, general dynamic and initial exec must all work, at once, in one
+# shared object: R_X86_64_TLSDESC, a DTPMOD64/DTPOFF64 pair and a TPOFF64,
+# one per variable, each naming its own symbol.
+cat > s.s <<'S'
+        .text
+        .globl get_desc
+get_desc:
+        leaq    d_var@TLSDESC(%rip), %rax
+        call    *d_var@TLSCALL(%rax)
+        addq    %fs:0, %rax
+        ret
+        .globl get_ie
+get_ie: movq    i_var@GOTTPOFF(%rip), %rax
+        addq    %fs:0, %rax
+        ret
+        .section .tdata,"awT",@progbits
+        .p2align 3
+        .globl d_var
+d_var:  .quad 1
+        .globl i_var
+i_var:  .quad 2
+        .globl g_var
+g_var:  .quad 3
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj s.o s.s
+cat > g.c <<'C'
+extern __thread long g_var;
+long *get_gd(void) { return &g_var; }
+C
+cc_obj g.o g.c -fPIC -ftls-model=global-dynamic
+relocs s.o > s.rel; relocs g.o > g.rel
+grep -q 'R_X86_64_GOTPC32_TLSDESC' s.rel || die "input lacks GOTPC32_TLSDESC: $(cat s.rel)"
+grep -q 'R_X86_64_TLSDESC_CALL'    s.rel || die "input lacks TLSDESC_CALL: $(cat s.rel)"
+grep -q 'R_X86_64_TLSGD'           g.rel || die "input lacks TLSGD: $(cat g.rel)"
+link_ok libs.so -shared s.o g.o
+relocs libs.so > out.rel
+grep -qE 'R_X86_64_TLSDESC +[0-9a-f]+ d_var'  out.rel || die "no TLSDESC for d_var: $(cat out.rel)"
+grep -qE 'R_X86_64_TPOFF64 +[0-9a-f]+ i_var'  out.rel || die "no TPOFF64 for i_var: $(cat out.rel)"
+grep -qE 'R_X86_64_DTPMOD64 +[0-9a-f]+ g_var' out.rel || die "no DTPMOD64 for g_var: $(cat out.rel)"
+grep -qE 'R_X86_64_DTPOFF64 +[0-9a-f]+ g_var' out.rel || die "no DTPOFF64 for g_var: $(cat out.rel)"
+want "one TLSDESC slot" "$(grep -c 'R_X86_64_TLSDESC' out.rel)" "1"
+want "one DTPMOD64"     "$(grep -c 'R_X86_64_DTPMOD64' out.rel)" "1"
+# The descriptor lives in the GOT and get_desc's leaq points straight at it.
+do_=$(awk '/R_X86_64_TLSDESC/ { print $1; exit }' out.rel)
+gotaddr=$(sec_addr libs.so .got); gotsize=$(sec_size libs.so .got)
+[ $((0x$do_)) -ge $((0x$gotaddr)) ] && [ $((0x$do_)) -lt $((0x$gotaddr + 0x$gotsize)) ] \
+  || die "TLSDESC slot 0x$do_ is not inside .got [0x$gotaddr, +0x$gotsize)"
+$OBJDUMP -d --no-show-raw-insn libs.so > dis.txt
+sed -n '/<get_desc>:/,/ret/p' dis.txt > gd.txt
+# readelf prints r_offset zero-padded to 16 digits, objdump prints the rip
+# target with no leading zeros, and how many hex digits an output address
+# occupies is a layout choice spec/00 S5 leaves free.  So compare the VALUES,
+# normalised to the shortest lowercase hex form, never a fixed rendering.
+dox=$(printf '%x' $((0x$do_)))
+grep -qE "# 0x$dox([^0-9a-fA-F]|$)" gd.txt \
+  || die "leaq in get_desc does not target 0x$dox: $(cat gd.txt)"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

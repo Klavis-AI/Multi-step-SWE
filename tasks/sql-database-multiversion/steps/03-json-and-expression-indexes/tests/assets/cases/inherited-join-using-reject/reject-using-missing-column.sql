@@ -1,0 +1,5 @@
+CREATE TABLE l(a, x);
+CREATE TABLE r(b, y);
+INSERT INTO l VALUES(1,'p');
+SELECT * FROM l JOIN r USING(a);
+SELECT a, x FROM l;

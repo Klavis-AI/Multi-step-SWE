@@ -1,0 +1,19 @@
+# `-p`/`--python` takes either a bare executable name to be looked for on
+# `PATH` or an absolute path to an interpreter, which is used as given.
+# `venv-default-layout` drives the bare-name form. This probe drives the
+# absolute-path form, and it names an interpreter that is *not* the one on
+# `PATH`: the probe runs with `python = "3.12"`, so `PATH` offers 3.12, while
+# the path given is a 3.11 interpreter. The environment that comes out must
+# therefore be a 3.11 environment -- `bin/python3.11` and
+# `lib/python3.11/site-packages`, and no `lib/python3.12` tree -- which an
+# implementation that resolved the request on `PATH` instead of using the path
+# as given cannot produce. The same layout rules as `venv-default-layout`
+# apply, so the three `bin/python*` entries, the `pyvenv.cfg` and a
+# site-packages that holds no distribution are asserted here too.
+id = "venv-absolute-interpreter"
+step = 1
+group = "venv-creation"
+python = "3.12"
+mode = "bare"
+argv = ["venv", "--python", "{PYROOT}/cpython-3.11-linux-x86_64-gnu/bin/python3.11", "env-abs"]
+observe = ["status", "glob:env-abs/pyvenv.cfg", "glob:env-abs/bin/python*", "glob:env-abs/lib/python3.11/site-packages", "glob:env-abs/lib/python3.11/site-packages/*.dist-info", "glob:env-abs/lib/python3.12/site-packages"]

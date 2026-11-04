@@ -1,0 +1,23 @@
+CREATE TABLE q3_cvc(a int, b int, c text);
+ALTER TABLE q3_cvc ADD CONSTRAINT q3_cvc_pk PRIMARY KEY (a) INCLUDE (b);
+ALTER TABLE q3_cvc ADD CONSTRAINT q3_cvc_uq UNIQUE (b) INCLUDE (c);
+SELECT conname, contype FROM pg_constraint WHERE conrelid = 'q3_cvc'::regclass ORDER BY conname;
+      conname      | contype 
+-------------------+---------
+ q3_cvc_a_not_null | n
+ q3_cvc_pk         | p
+ q3_cvc_uq         | u
+(3 rows)
+
+SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'q3_cvc' ORDER BY indexname;
+ indexname |                                  indexdef                                  
+-----------+----------------------------------------------------------------------------
+ q3_cvc_pk | CREATE UNIQUE INDEX q3_cvc_pk ON public.q3_cvc USING btree (a) INCLUDE (b)
+ q3_cvc_uq | CREATE UNIQUE INDEX q3_cvc_uq ON public.q3_cvc USING btree (b) INCLUDE (c)
+(2 rows)
+
+INSERT INTO q3_cvc VALUES (1,1,'x');
+INSERT INTO q3_cvc VALUES (1,2,'y');
+ERROR:  duplicate key value violates unique constraint "q3_cvc_pk"
+DETAIL:  Key (a)=(1) already exists.
+DROP TABLE q3_cvc;

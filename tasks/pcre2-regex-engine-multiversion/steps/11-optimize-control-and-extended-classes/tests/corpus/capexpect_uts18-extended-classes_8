@@ -1,0 +1,74 @@
+# PCRE2_ALT_EXTENDED_CLASS turns ordinary [...] classes into the UTS#18
+# extended form.  ChangeLog 10.45 item 41; pcre2pattern.3, "UTS#18 EXTENDED
+# CHARACTER CLASSES".
+
+# || union, && intersection, -- subtraction, ~~ symmetric difference.
+/^[\w&&[^\d]]+$/alt_extended_class
+    hedge
+ 0: hedge
+    hedge7
+No match
+
+/^[[aeiou]||\d]+$/alt_extended_class
+    ea90
+ 0: ea90
+    eaz
+No match
+
+/^[\w--[aeiou]]+$/alt_extended_class
+    rhythm
+ 0: rhythm
+    rhyme
+No match
+
+/^[[a-m]~~[g-z]]+$/alt_extended_class
+    abcdef
+ 0: abcdef
+    ghijk
+No match
+
+# "[" becomes a metacharacter inside a class and must be escaped.
+/^[a\[b]+$/alt_extended_class
+    a[b
+ 0: a[b
+
+/^[a[b]+$/alt_extended_class
+Failed: error 212 at offset 8: missing terminating ] for extended character class (note '[' must be escaped under PCRE2_ALT_EXTENDED_CLASS)
+
+# Juxtaposition is an implicit union that binds tighter than any explicit
+# operator.
+/^[[abc][xyz]--[cx]]+$/alt_extended_class
+    abyz
+ 0: abyz
+    abcx
+No match
+
+# Precedence between two explicit operators is undefined, so it is an error.
+/^[\w&&[a-z]--[q]]+$/alt_extended_class
+Failed: error 211 at offset 13: square brackets needed to clarify operator precedence in extended character class
+
+# A literal "-" at the start or end of a range must be escaped.
+/^[\--1]+$/alt_extended_class
+    -0.1
+ 0: -0.1
+
+/^[--1]+$/alt_extended_class
+Failed: error 209 at offset 4: unexpected operator in extended character class (no preceding operand)
+
+# Nested classes are themselves extended.
+/^[[a-z]&&[[a-c]||[x-z]]]+$/alt_extended_class
+    abz
+ 0: abz
+    abm
+No match
+
+# Without the option the same text is ordinary Perl class syntax: the class
+# ends at the first unescaped ], "&" and "[" are literal members of it, and
+# the second ] is a literal that must be matched.
+/^[\w&&[^\d]]+$/
+    a]
+ 0: a]
+    &]]]
+ 0: &]]]
+    hedge
+No match

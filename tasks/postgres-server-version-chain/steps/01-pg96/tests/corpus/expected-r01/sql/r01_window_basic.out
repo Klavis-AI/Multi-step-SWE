@@ -1,0 +1,55 @@
+CREATE TABLE wb(g int, v int);
+INSERT INTO wb VALUES (1,10),(1,20),(1,20),(2,5),(2,7);
+SELECT g,v,row_number() OVER w, rank() OVER w, dense_rank() OVER w
+  FROM wb WINDOW w AS (PARTITION BY g ORDER BY v) ORDER BY g,v,row_number() OVER w;
+ g | v  | row_number | rank | dense_rank 
+---+----+------------+------+------------
+ 1 | 10 |          1 |    1 |          1
+ 1 | 20 |          2 |    2 |          2
+ 1 | 20 |          3 |    2 |          2
+ 2 |  5 |          1 |    1 |          1
+ 2 |  7 |          2 |    2 |          2
+(5 rows)
+
+SELECT g,v,sum(v) OVER (PARTITION BY g ORDER BY v), count(*) OVER (PARTITION BY g) FROM wb ORDER BY g,v;
+ g | v  | sum | count 
+---+----+-----+-------
+ 1 | 10 |  10 |     3
+ 1 | 20 |  50 |     3
+ 1 | 20 |  50 |     3
+ 2 |  5 |   5 |     2
+ 2 |  7 |  12 |     2
+(5 rows)
+
+SELECT g,v,lag(v) OVER w, lead(v) OVER w, first_value(v) OVER w
+  FROM wb WINDOW w AS (PARTITION BY g ORDER BY v) ORDER BY g,v;
+ g | v  | lag | lead | first_value 
+---+----+-----+------+-------------
+ 1 | 10 |     |   20 |          10
+ 1 | 20 |  10 |   20 |          10
+ 1 | 20 |  20 |      |          10
+ 2 |  5 |     |    7 |           5
+ 2 |  7 |   5 |      |           5
+(5 rows)
+
+SELECT v, sum(v) OVER (ORDER BY v ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM wb ORDER BY v;
+ v  | sum 
+----+-----
+  5 |   5
+  7 |  12
+ 10 |  22
+ 20 |  42
+ 20 |  62
+(5 rows)
+
+SELECT v, sum(v) OVER (ORDER BY v ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM wb ORDER BY v;
+ v  | sum 
+----+-----
+  5 |  12
+  7 |  22
+ 10 |  37
+ 20 |  50
+ 20 |  40
+(5 rows)
+
+DROP TABLE wb;

@@ -1,0 +1,46 @@
+{
+ "doc": "stages/filters.zsmooth.rst: 'All points within some distance in the X-Y plane from a reference point are ordered by Z value.' and '50 specifies the mathematical median of the values. [Default: 50]' -- the default medianpercent is what is graded here, so the smoothed value must be the middle of the ordered Z values of the X-Y neighbourhood.\nThe raw lattice cannot carry that assertion. grid.las puts ten points at every X-Y position, so a radius-2 neighbourhood pools N whole columns and the ordered run is N copies of each of 0..9 -- an EVEN run of 10N values whose midpoint falls between the 4s and the 5s. Whether 4, 4.5 or 5 comes out of that run is not decided by the page: it depends on whether a midpoint lying between two order statistics is interpolated or truncated, and on which of the coincident distance-0 points the neighbour search hands back first. Two neighbourhoods with identical Z multisets can legitimately answer differently, so no assertion on the raw lattice is a statement about the requirement.\nSo the case builds a plateau first. filters.assign (its page, plus the 'where' clause every filter carries -- PROFILE.md 2.1 for the grammar) clamps every Z below 9 to 4, turning each column into nine 4s and one 9. A pooled neighbourhood of N columns is then 9N fours and N nines, and the midpoint of the sorted run sits deep inside the run of 4s: lower-middle, upper-middle, the average of the two, and dropping any single element all give 4. The plateau is there for exactly that reason -- so that what is graded is the page's requirement and not how an implementation breaks ties among coincident points or rounds a fractional index. Measured on the 2.5.0 binary: minimum 4, maximum 4, average 4, count 1000.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.assign\",\"value\":\"Z = 4\",\"where\":\"Z < 9\"},{\"type\":\"filters.zsmooth\",\"radius\":2,\"dim\":\"Zadj\"},{\"type\":\"filters.assign\",\"value\":\"Z = Zadj\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": 1000
+   },
+   "dims": {
+    "Z": {
+     "min": {
+      "equals": 4.0
+     },
+     "max": {
+      "equals": 4.0
+     },
+     "unique": [
+      4.0
+     ]
+    }
+   }
+  }
+ ]
+}

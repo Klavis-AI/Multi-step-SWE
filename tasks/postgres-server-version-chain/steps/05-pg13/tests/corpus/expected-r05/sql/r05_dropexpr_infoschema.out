@@ -1,0 +1,32 @@
+CREATE TABLE x05_35a(a int, b int GENERATED ALWAYS AS (a*3) STORED);
+SELECT column_name, is_generated, generation_expression
+  FROM information_schema.columns WHERE table_name='x05_35a' ORDER BY ordinal_position;
+ column_name | is_generated | generation_expression 
+-------------+--------------+-----------------------
+ a           | NEVER        | 
+ b           | ALWAYS       | (a * 3)
+(2 rows)
+
+SELECT pg_get_expr(adbin, adrelid) FROM pg_attrdef
+  WHERE adrelid='x05_35a'::regclass ORDER BY adnum;
+ pg_get_expr 
+-------------
+ (a * 3)
+(1 row)
+
+ALTER TABLE x05_35a ALTER COLUMN b DROP EXPRESSION;
+SELECT column_name, is_generated, generation_expression
+  FROM information_schema.columns WHERE table_name='x05_35a' ORDER BY ordinal_position;
+ column_name | is_generated | generation_expression 
+-------------+--------------+-----------------------
+ a           | NEVER        | 
+ b           | NEVER        | 
+(2 rows)
+
+SELECT count(*) FROM pg_attrdef WHERE adrelid='x05_35a'::regclass;
+ count 
+-------
+     0
+(1 row)
+
+DROP TABLE x05_35a;

@@ -1,0 +1,11 @@
+CREATE TABLE q3_dbt(i int);
+DO $$
+BEGIN
+  INSERT INTO q3_dbt VALUES (1);
+  COMMIT;
+  INSERT INTO q3_dbt VALUES (2);
+  ROLLBACK;
+  INSERT INTO q3_dbt VALUES (3);
+END $$;
+SELECT i FROM q3_dbt ORDER BY i;
+DROP TABLE q3_dbt;

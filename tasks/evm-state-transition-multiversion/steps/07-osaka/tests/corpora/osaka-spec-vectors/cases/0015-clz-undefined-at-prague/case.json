@@ -1,0 +1,46 @@
+{
+  "chainid": 1,
+  "expect": {
+    "checks": [
+      "rejected"
+    ],
+    "rejected": [],
+    "storage": {
+      "0x0000000000000000000000000000000000001000": {
+        "0x0": "0x3e8",
+        "0x1": "0x0",
+        "0x2": "0x0",
+        "0x3": "0x1"
+      }
+    }
+  },
+  "fork": "Prague",
+  "note": "EIP-7939 gating: the caller runs at Prague and CALLs a callee whose code is `PUSH32 0; CLZ; PUSH1 1; SSTORE`. Below Osaka 0x1e is undefined, so the callee's frame aborts and writes nothing; the CALL returns no data and the caller's own frame survives -- both numbers recorded in `source`.",
+  "source": {
+    "measured": {
+      "evm-v1.15.0": {
+        "Osaka": {
+          "callee_slots": {},
+          "returndatasize": "0x0"
+        },
+        "Prague": {
+          "callee_slots": {},
+          "returndatasize": "0x0"
+        }
+      },
+      "evm-v1.16.2": {
+        "Osaka": {
+          "callee_slots": {
+            "0x0": "0x1"
+          },
+          "returndatasize": "0x0"
+        },
+        "Prague": {
+          "callee_slots": {},
+          "returndatasize": "0x0"
+        }
+      }
+    },
+    "why": "Both numbers measured before the case was written. The expected slots are the Prague row; the Osaka row on the Oracle is the discriminating half -- a tool that executes 0x1e at Prague writes slot 0 of the callee and returns 0x20 of return data, reports `0x1` in the caller's slot 1, and fails this case."
+  }
+}

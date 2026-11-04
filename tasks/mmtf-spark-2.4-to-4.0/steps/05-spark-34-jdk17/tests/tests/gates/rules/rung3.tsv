@@ -1,0 +1,47 @@
+# The rung-3 engine facts: standing rules, not requirements.
+#
+# These were written as requirements m3 and m4 and were demoted here after item
+# 4.3 measured them. The measurement, which is the whole reason this file exists
+# (NOTES 6.3.11):
+#
+#   At this step the runtime is the *verifier image's* Spark, not the pom's.
+#   spark-core is `provided` scope, the jar is shaded without it, and the
+#   replay's spark-submit is /opt/spark/bin/spark-submit -- which is 3.2.4 in
+#   step 3's image whatever `<spark.version>` says. So the tree that changed
+#   nothing was replayed at 3.2.4 and reported conf=true, adaptiveUpdate 2/6/2/2
+#   over four of five sampled jobs, and statisticalAggregate=false -- the same
+#   five facts the golden tree reports. Graded as requirements they paid a
+#   do-nothing tree 0.14 for the image's version number.
+#
+# A requirement no candidate can fail prices nothing, so they stopped being
+# requirements. What they actually measured was two different things, and round
+# 1 of the item-5 review was right that one file could not carry both:
+#
+#   a precondition   the reading happened on an engine where the 3.1 and 3.2
+#                    semantics are in force and the optimiser really ran. If one
+#                    of these is FAIL the run is not the run this step grades,
+#                    and the migrated family voids rather than losing a share.
+#                    That is what is left in this file.
+#   a prohibition    the tree, or the way it was submitted, switched one of
+#                    those semantics back off. Both agent-visible documents
+#                    price that as a faked step -- worth nothing at all,
+#                    requirements and behaviour alike -- and a standing rule
+#                    cannot charge that, because it leaves behaviour standing.
+#                    Those four moved to rules/cheats3.tsv, which is the file
+#                    score.py reads for prohibitions.
+#
+# What did NOT get demoted with any of them is the thing they stood for. The 3.1
+# statistical-aggregate change is still graded, through the replay: stddev over
+# a single-row group renders NaN at 3.0.3 and null at 3.2.4, and c04 -- the
+# reference census -- carries the 3.2.4 value in AnalyzeWaterInteractions4. A
+# tree that forced the legacy semantics back on fails the replay family on its
+# own output. The step stopped paying twice for one fact; it did not stop
+# measuring it.
+#
+# Included from step 3 onward and not from common.tsv, because every one of
+# these is false at steps 1 and 2 by construction: 3.0.3 has adaptive execution
+# off by default and does not have the statisticalAggregate key at all.
+
+rung3-adaptive-on	atleast:1	probe.conf\tspark\.sql\.adaptive\.enabled\ttrue	probe-adaptive-off.tsv	no replayed job ran with adaptive query execution enabled; at this runtime that is the default, so this reading was not taken on the engine this step grades
+rung3-adaptive-acting	atleast:1	probe.event\tadaptiveUpdate\t(?!0$).*	probe-adaptive-off.tsv	the optimiser never reported re-planning a query across the whole replay, so adaptive execution was switched on and never did anything -- the setting is a fact about the version, and only the re-plan is a fact about the run
+rung3-stat-aggregate-modern	atleast:1	probe.conf\tspark\.sql\.legacy\.statisticalAggregate\tfalse	probe-stat-legacy.tsv	no replayed job ran with Spark 3.1 statistical-aggregate semantics in force; stddev over a single-row group would still render NaN

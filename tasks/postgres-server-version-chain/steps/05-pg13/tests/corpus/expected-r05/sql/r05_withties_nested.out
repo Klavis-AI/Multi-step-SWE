@@ -1,0 +1,31 @@
+CREATE TABLE x05_07a(i int, v int);
+INSERT INTO x05_07a SELECT g, g/3 FROM generate_series(1,9) g;
+SELECT * FROM (SELECT * FROM x05_07a ORDER BY v FETCH FIRST 2 ROWS WITH TIES) s ORDER BY i;
+ i | v 
+---+---
+ 1 | 0
+ 2 | 0
+(2 rows)
+
+WITH q AS (SELECT * FROM x05_07a ORDER BY v FETCH FIRST 2 ROWS WITH TIES)
+  SELECT count(*), min(i), max(i) FROM q;
+ count | min | max 
+-------+-----+-----
+     2 |   1 |   2
+(1 row)
+
+SELECT i FROM x05_07a WHERE i IN
+  (SELECT i FROM x05_07a ORDER BY v FETCH FIRST 2 ROWS WITH TIES) ORDER BY i;
+ i 
+---
+ 1
+ 2
+(2 rows)
+
+SELECT (SELECT count(*) FROM (SELECT 1 FROM x05_07a ORDER BY v FETCH FIRST 3 ROWS WITH TIES) t);
+ count 
+-------
+     5
+(1 row)
+
+DROP TABLE x05_07a;

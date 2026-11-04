@@ -1,0 +1,27 @@
+# arch: x86_64
+# An unrecognised option must be diagnosed even when it appears alongside
+# otherwise-valid library search flags, the way a compiler driver would emit
+# it -- it must not be silently absorbed as a library name or search path.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int fn(void);
+int entry(void) { print("g\n"); return fn(); }
+C
+cc_obj m.o m.c
+cat > lib.c <<'C'
+int fn(void) { return 0; }
+C
+cc_obj lib.o lib.c
+mkdir -p libdir
+mkar libdir/libgood.a lib.o
+link_fails out rt.o m.o -L libdir -lgood --this-flag-does-not-exist
+# stderr only -- spec/00 8's routing rule. Measured empty on stdout at all nine.
+printf '%s\n' "$LINK_ERR" > err.txt
+grep -q -- '--this-flag-does-not-exist' err.txt || die "diagnostic does not name the offending option on stderr: $(cat err.txt)"
+want "nothing was printed on stdout" "$LINK_STDOUT" ""
+[ -e out ] && die "a failed link left a file at the -o path: $(ls -l out)"
+# The identical link without the bogus option succeeds and runs.
+link_ok out2 rt.o m.o -L libdir -lgood
+run_expect out2 "g" 0
+asserts_at_least 1

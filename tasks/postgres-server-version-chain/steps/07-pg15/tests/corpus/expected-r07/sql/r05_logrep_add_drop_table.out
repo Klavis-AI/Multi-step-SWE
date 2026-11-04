@@ -1,0 +1,36 @@
+CREATE TABLE x05_16a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x05_16a1 PARTITION OF x05_16a FOR VALUES FROM (0) TO (10);
+CREATE TABLE x05_16b(a int);
+CREATE PUBLICATION x05_16p FOR TABLE x05_16b WITH (publish_via_partition_root = true);
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_16p' ORDER BY tablename;
+ tablename 
+-----------
+ x05_16b
+(1 row)
+
+ALTER PUBLICATION x05_16p ADD TABLE x05_16a;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_16p' ORDER BY tablename;
+ tablename 
+-----------
+ x05_16a
+ x05_16b
+(2 rows)
+
+ALTER PUBLICATION x05_16p DROP TABLE x05_16b;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_16p' ORDER BY tablename;
+ tablename 
+-----------
+ x05_16a
+(1 row)
+
+ALTER PUBLICATION x05_16p SET TABLE x05_16b;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_16p' ORDER BY tablename;
+ tablename 
+-----------
+ x05_16b
+(1 row)
+
+DROP PUBLICATION x05_16p;
+DROP TABLE x05_16a, x05_16b;

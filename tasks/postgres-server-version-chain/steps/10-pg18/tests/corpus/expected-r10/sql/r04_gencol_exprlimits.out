@@ -1,0 +1,28 @@
+CREATE TABLE q4_gcx(a int, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
+CREATE TABLE q4_gcy(a int, b int GENERATED ALWAYS AS (random() * 10) STORED);
+ERROR:  generation expression is not immutable
+CREATE TABLE q4_gcz(a int, b int GENERATED ALWAYS AS (a * 2) STORED,
+                    d int GENERATED ALWAYS AS (b * 2) STORED);
+ERROR:  cannot use generated column "b" in column generation expression
+LINE 2:                     d int GENERATED ALWAYS AS (b * 2) STORED...
+                                                       ^
+DETAIL:  A generated column cannot reference another generated column.
+CREATE TABLE q4_gcw(a int, b int GENERATED ALWAYS AS ((SELECT 1)) STORED);
+ERROR:  cannot use subquery in column generation expression
+LINE 1: ...TE TABLE q4_gcw(a int, b int GENERATED ALWAYS AS ((SELECT 1)...
+                                                             ^
+CREATE TABLE q4_gcv(a int, b int GENERATED ALWAYS AS (a * 2) STORED DEFAULT 3);
+ERROR:  both default and generation expression specified for column "b" of table "q4_gcv"
+LINE 1: ...v(a int, b int GENERATED ALWAYS AS (a * 2) STORED DEFAULT 3)...
+                                                             ^
+SELECT count(*) FROM pg_class WHERE relname IN ('q4_gcx','q4_gcy','q4_gcz','q4_gcw','q4_gcv');
+ count 
+-------
+     1
+(1 row)
+
+DROP TABLE IF EXISTS q4_gcx, q4_gcy, q4_gcz, q4_gcw, q4_gcv;
+NOTICE:  table "q4_gcy" does not exist, skipping
+NOTICE:  table "q4_gcz" does not exist, skipping
+NOTICE:  table "q4_gcw" does not exist, skipping
+NOTICE:  table "q4_gcv" does not exist, skipping

@@ -1,0 +1,274 @@
+# Step 4 (04-session-entry-point): what each scored family is worth.
+#
+# Since 2026-10-13 (user decision, product scoring) the two families are
+# multiplied, not added: reward = T1 x T2, where T1 is the migrated family's
+# points over its total weight below and T2 is the behavior family's points
+# over its total weight below (score.py, product_reward). The weights still
+# sum to 1; they now set the proportions inside each factor. Where the prose
+# below speaks of a family's share of the reward, read it as that family's
+# share before this change.
+#
+# Two families, as rule 5 requires, and neither below ~30%:
+#
+#   behavior   0.34   the tree still does what it did      replay + the repo's own tests
+#   migrated   0.66   the build resolves Spark 3.3.4, every entry point is
+#                     derived from a SparkSession, and ANSI is on deliberately
+#
+# The same .34/.66 balance steps 2 and 3 settled on, re-split inside itself.
+#
+# --- why three requirements here, and why m3 is one of them ------------------
+#
+# Step 3 learned the expensive version of this lesson (NOTES 6.3.11): at replay
+# time the jobs run the *verifier image's* Spark, because spark-core is
+# `provided`, the shaded jar does not carry it, and the replay's spark-submit is
+# /opt/spark/bin/spark-submit. So any requirement whose only evidence is a
+# session property the image already sets is a requirement nobody can fail, and
+# step 3 had two of them priced at 0.14 before it measured them.
+#
+# That test was run against every candidate requirement here before this file
+# was written (NOTES 6.4.4), and it disqualified one and kept one:
+#
+#   spark.sql.storeAssignmentPolicy   already ANSI on all 123 probe rows of the
+#                                     do-nothing tree -- free, so it is a cheat
+#                                     rule in cheats4.tsv, not a requirement
+#   spark.sql.ansi.enabled            false on all 123 rows of the do-nothing
+#                                     tree, and the harness's only setconf key
+#                                     is spark.sql.warehouse.dir -- earnable
+#
+# So m3 is graded, and it is graded on `setconf` as well as `conf`: `setconf`
+# comes from `conf.getAll()` filtered to spark.sql.* (GateProbe.java:441), which
+# is the *application's* SparkConf. A value set at the builder shows there; the
+# image's default and a post-hoc `spark.conf.set` do not. That is what makes the
+# requirement "ANSI is on because this tree asked for it" rather than "ANSI is
+# on".
+#
+# m1 is priced at 0.10, the lowest of the three, and honestly: only its two pom
+# rules read something the candidate supplied. Its two session rules read the
+# image, exactly as step 3's did, and they are kept for step 3's reason -- they
+# cost nothing and would still catch a tree that forced a different Spark onto
+# the submit line. m1 is not demoted to a standing rule the way step 3's m3/m4
+# were, because unlike those, half of it is genuinely candidate-answered.
+#
+# m2 carries 0.44, the substance of the step: 63 sites in src/main construct a
+# SparkConf and hand it to a JavaSparkContext, and the move is to derive the
+# context from a SparkSession instead. This is the requirement a pom-only tree
+# cannot touch.
+#
+# --- the calibrations --------------------------------------------------------
+#
+# Measured rather than reasoned. The handed-tree figure is already in hand,
+# because step 3's golden tree *is* step 4's do-nothing tree; the gate was run
+# against it with all five scanners on real facts (NOTES 6.4.4):
+#
+#   the tree the agent is handed    0.00   measured end to end: m1, m2 and m3
+#                                          all red (151 PASS / 9 FAIL / 0
+#                                          ERROR, and all 9 are this step's own
+#                                          requirements), and `session_adopted`
+#                                          False, so the behaviour family is
+#                                          not graded and the reward is 0.000
+#                                          rather than 0.34. The earlier
+#                                          hand-assembled reading of this same
+#                                          tree said 146/11 (NOTES 6.4.4); the
+#                                          three that moved are the two m1
+#                                          session rules and `probe-submit-ok`,
+#                                          all three of which need real probe
+#                                          facts a hand-assembled set cannot
+#                                          carry, and none of which changes the
+#                                          0.00 (NOTES 6.4.7)
+#   pom.xml edited and nothing else  0.10   measured: m1 only (the pom pair goes
+#                                          green, the session pair was already
+#                                          green), m2 and m3 red, behaviour
+#                                          gated to 0. Inside 4.3's "<= ~30%"
+#   the golden solution              1.00   measured: migrated 0.66, behaviour
+#                                          0.34, no rule red and no standing
+#                                          rule tripped
+#
+# Four cheat trees were measured alongside them (NOTES 6.4.7): a tree that
+# deletes the 63 confs and builds nothing in their place scores 0.22, one that
+# routes every consolidated entry point through a factory rather than through
+# its own session scores the same 0.22, and the two that reach the requirement
+# through reflection or by loosening the store-assignment policy score 0.00 --
+# both of those on a VOID, having earned 1.00 before the standing rules read it.
+#
+# Item 4.3 first calibrated three *counted* thresholds in m04.tsv, and the
+# static review's round 1 retired all three (NOTES 6.4.8). Two facts about
+# those measurements are why. `m2-session-adopted atleast:90` read 54 builder
+# call sites on the handed tree and 102 on the golden one -- and a call site is
+# not a program: one unused class with thirty-six builders in it -- 36 being
+# just what 90 less the handed tree's own 54 comes to -- clears any threshold
+# in that range while forty-seven entry points still have none.
+# `m3-ansi-set`/`m3-ansi-effective` at `atleast:70` read 0 and 97 -- and 97 is
+# not 124 because 16 of the golden tree's 113 live sessions belong to the
+# suite's own HarnessDriver, which no candidate edits, so the threshold had to
+# be set low enough to tolerate rows the candidate does not own and was
+# therefore also low enough to tolerate rows the candidate *does* own being
+# wrong.
+#
+# All three are now `absent` over per-compilation-unit and per-probe-file
+# derived facts, which is the only rule shape an extra row cannot help:
+#
+#   m2-session-adopted   `ast.unit` carries (mains, sessions) per file. 78
+#                        files under src/main declare a `public static void
+#                        main` in both trees; 48 of them build no session on
+#                        the handed tree and 0 do on the golden one. What
+#                        counts as a session built was narrowed by the review's
+#                        round 2 from a bare `builder()` call to a
+#                        `getOrCreate()` whose receiver chain starts at
+#                        `SparkSession.builder()`; both trees read the same
+#                        either way (NOTES 6.4.9).
+#   m2-session-live      `probe.appsession` is one row per program of this
+#                        repository that the replay ran: 96 of the 123 probe
+#                        files, the other 27 being the suite's HarnessDriver.
+#                        29 of the handed tree's 96 bring up no session at all;
+#                        all 96 of the golden tree's do.
+#   m3-ansi-set          `probe.appsetconf` is what that program's own session
+#                        was built with: 67 `<unset>` and 29 `<no-session>` on
+#                        the handed tree, 96 `true` on the golden one.
+#   m3-ansi-effective    `probe.appconf` is what the engine it ran in reported:
+#                        67 `false` and 29 `<no-session>` on the handed tree,
+#                        96 `true` on the golden one.
+#
+# The HarnessDriver problem disappears with the threshold rather than being
+# tolerated: probe-derive.py drops those rows before the rule ever sees them,
+# so "every program" can mean every program.
+#
+# --- the graded predicate ----------------------------------------------------
+#
+# Steps 2 and 3 gate the behaviour family on a milestone, because a tree that
+# did not make the move preserves behaviour trivially and the marks are for a
+# tree that made it. Step 4 needs it for the sharpest version of that reason
+# yet: rung 04 is behaviourally silent on this codebase -- §6.4.1 measures
+# c04 -> c05b as SAME on all 140 recordings and §6.4.2 measures the test suite as
+# byte-identical with ANSI forced on -- so a tree that bumps one line of pom.xml
+# replays 140/140 and passes the suite.
+#
+# `session_adopted` in score.py is this step's milestone: true when the gate
+# reports no `SparkConf` constructed anywhere in src/main and none referenced
+# from the jar, **and** `m2-session-adopted` green -- no file under src/main
+# with a `public static void main` in it and no `SparkSession` built in the
+# same file -- **and** `m2-session-live` green, no program the replay ran
+# having come up without reaching one. All three parts read the same gate
+# report m2 is scored from, and the rule ids and their modes are parsed out of
+# m04.tsv rather than kept as a second copy here, so that "m2 happened" cannot
+# come to mean two different things in two files.
+#
+# Why the conjunction rather than any one of them. The `no SparkConf` part
+# alone is bought by deleting the 63 constructions and leaving the mains
+# without a context -- which loses the replay, but would keep the .34 if
+# behaviour were ungated, and breaking output is the failure mode this whole
+# task exists to catch. The `sessions built` part alone is bought by adding a
+# builder beside a SparkConf that is still there, which is the tree that read
+# the instruction and did not do it. And the two of them together are bought by
+# a tree whose sources carry the idiom in every one of the 78 files and whose
+# programs never execute it -- the builder behind a branch that is false, or
+# after the work it was meant to configure, or in a class the jar does not
+# invoke. `m2-session-live` is what asks the run, and the static review's round
+# 2 added it to this gate for that reason (NOTES 6.4.9). None of the three is
+# the claim on its own.
+#
+# The second half is the one that needed a measurement to be worth anything.
+# The handed tree already calls `SparkSession.builder` 54 times in src/main,
+# because an earlier step added a session to 15 demos without retiring their
+# SparkConf (NOTES 6.4.3) -- so any rule that merely counts those calls is a
+# requirement partly satisfied by work this step did not do, and one that a
+# single class full of builders satisfies outright. What the handed tree does
+# not have is a session in each of its 48 conf-only entry points, and that is
+# what the rule asks: `absent` over `ast.unit` rows whose file is under
+# src/main, whose `main` count is non-zero and whose session count is 0.
+# score.py carries the handed tree's 48 as `HANDED_MAINS_WITHOUT_SESSION` and
+# `session_rule_ids` refuses any `-session-adopted` rule that is not that
+# shape -- not `absent`, not over `ast.unit`, not scoped to src/main, or not
+# asking for a session count of zero -- so the floor cannot be lowered by
+# editing the rule file alone. The third part is guarded the same way and for
+# the same reason: `HANDED_PROGRAMS_WITHOUT_SESSION` is the 29 of 96, and a
+# `-session-live` rule that is not `absent`, that reads some fact other than
+# the per-program `probe.appsession`, or that accepts a value other than `true`
+# is refused, because each of those is green on the tree the agent is handed.
+# score.py's selftest rehearses every one of those refusals and
+# rehearse-step04.sh rehearses three of them against doctored copies of the
+# real file -- the count shape being the exact text that was on disk before the
+# review.
+#
+# What it costs, stated rather than hidden: the item-6 floor -- step 3's
+# finished solution scored by this verifier -- reports 0.0 rather than the .34 an
+# ungated behaviour family would pay it. That is the 0.00 measured above, it
+# satisfies item 6's "<= 0.5" with room, and it is right for the reason it was
+# right at steps 2 and 3: step 4 is not paid for step 3's work at all, which is
+# what `hold m03.tsv` means.
+#
+# --- within the families -----------------------------------------------------
+#
+# Within `migrated`, a requirement scores all or nothing: every rule carrying
+# its prefix must be PASS. For m1 that is trivially right -- "mostly at 3.3.4"
+# is not a state a build can be in. For m3 it is right because the claim is
+# uniformity: `m3-ansi-no-dissent` exists so that a tree which sets ANSI on most
+# sessions and explicitly false on one does not collect the requirement, and a
+# proportional score would have paid it for the majority.
+#
+# The static review's rounds 1 and 2 both raised the same consequence of that
+# choice and it is recorded here rather than argued away: a candidate who lands
+# on 3.3.4, consolidates 40 of the 63 entry points and sets ANSI on those 40
+# scores 0.10 -- the same as a candidate who edited one line of pom.xml and
+# stopped. migration_prompt.md's rule 8 asks for proportional credit, and what
+# this file pays proportionally is the behaviour family: the replay is credited
+# per block over 140 jobs and the suite per test over 140 tests. Inside a
+# requirement the credit is all-or-nothing, across the three requirements it is
+# not, and both documents the candidate reads say so in those words. The
+# alternative -- paying m2 per file migrated -- was measured against the trees
+# in NOTES 6.4.7 and rejected there: it would pay a tree whose 23 untouched
+# entry points still build their own SparkConf more than the `nosession` tree
+# that at least ends up internally consistent, and it would make the behaviour
+# gate a threshold again, which is what round 1 retired. The cliff is real,
+# it is disclosed, and it is the price of the milestone being a milestone.
+#
+# For m2 it is the substantive choice, and it is deliberate. Sixty-two of the 63
+# sites migrated is not 62/63 of the move: the one left behind still builds its
+# own SparkConf, which means the step's actual claim -- that configuration is
+# set in one place per main and the entry point is derived from it -- is false
+# for that program. The 63 sites are also not 63 copies of one edit; 15 files
+# already carry both a SparkConf and a SparkSession (NOTES 6.4.3), so in those
+# the migrator has to retire the conf and re-point the context at the session
+# that is already there, rather than add a session.
+#
+# Within `behavior`, credit is proportional and the unit is rule 7's scored
+# input. The suite's denominator is 140 and not step 3's 142:
+# `StructType.toString()` dropped a space between 3.2.4 and 3.3.4 and
+# CustomReportServiceTest hardcodes the old rendering, so its two tests are red
+# at this rung for every tree including the golden one -- test.sh replaces
+# /app/src/test with the commit's own copy before the suite runs, so a
+# candidate's correction is deleted before it can be scored. Scoring them would
+# cap the oracle at 0.9986 and, worse, pay the same for deleting the file as for
+# repairing it. They leave both baselines and come back as a precondition
+# (NOTES 6.4.2). The recordings are the c05b census: the same tree at Spark 3.3.4, JDK 8,
+# Scala 2.12 -- this step's own rung, because a step that moves the runtime must
+# be graded against recordings made on the runtime it runs on.
+#
+# --- what it costs to score, measured -----------------------------------------
+#
+# 32m53s, from this step's verifier container starting to its reward.json: the
+# oracle run of 2026-09-19 (jobs dir m27-s4-oracle, job
+# 27-spark24-to-4.0__QVT3WTN), at cpus = 7, on a box shared with another
+# agent's jobs, so it is a loaded reading rather than a clean one. The same run
+# scored steps 1, 2 and 3 at 29m25s, 30m07s and 30m36s. Rule 10 aims at ~30
+# minutes a step and caps at 60; this is inside the cap and just over the aim,
+# and the estimate that stood here before it was taken -- "the same place as
+# step 3" -- was right to within four minutes.
+#
+# The 140-job replay is the bulk of it, and neither it nor the 46-class suite is
+# reducible without asking a smaller question: rule 10's own instruction is not
+# to shrink a fixture set to fit a clock. The same tree scored by run-verifier.sh
+# on this box, outside Harbor, takes 28m19s; the difference is the image start,
+# the artifact hand-off and the second agent.
+#
+# This paragraph names the run before it rather than the run that certifies it.
+# A payload cannot cite the run that measures the package containing it -- the
+# citation would change the package, which would invalidate the run. The run
+# taken against these bytes is m27-s4-oracle-rebuilt, and it is recorded in
+# NOTES-authoring.md rather than here (the same regress step 3 walked out of).
+#
+# family	key	weight	what it is a claim about
+behavior	replay	0.24	the 140 recorded jobs of the c05b census answer the same way, compared after norm.py and projection.tsv
+behavior	tests	0.10	the repository's own 46 graded test classes / 140 graded tests still pass, run from a pristine copy; CustomReportServiceTest's two are outside both baselines at this rung and are a precondition instead
+migrated	m1	0.10	the build resolves Spark 3.3.4 for Scala 2.12 and nothing else, and the sessions the jar actually ran in were 3.3.4
+migrated	m2	0.44	no SparkConf is constructed in src/main and every JavaSparkContext is derived from a SparkSession
+migrated	m3	0.12	spark.sql.ansi.enabled is true, set by this tree on the session it built, with no session dissenting

@@ -1,0 +1,116 @@
+# Copyright 2016 OpenMarket Ltd
+# Copyright 2018 New Vector Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+openapi: 3.1.0
+info:
+  title: Matrix Application Service API
+  version: 1.0.0
+paths:
+  "/transactions/{txnId}":
+    put:
+      summary: Send some events to the application service.
+      description: |-
+        This API is called by the homeserver when it wants to push an event
+        (or batch of events) to the application service.
+
+        Note that the application service should distinguish state events
+        from message events via the presence of a `state_key`, rather than
+        via the event type.
+      operationId: sendTransaction
+      security:
+        - homeserverAccessToken: []
+      parameters:
+        - in: path
+          name: txnId
+          description: |-
+            The transaction ID for this set of events. Homeservers generate
+            these IDs and they are used to ensure idempotency of requests.
+          required: true
+          example: "35"
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              example: {
+                "ephemeral": [
+                  {
+                    "$ref": "../../event-schemas/examples/m.receipt.yaml",
+                    "room_id": "!jEsUZKDJdhlrceRyVU:example.org"
+                  },
+                  {
+                    "$ref": "../../event-schemas/examples/m.presence.yaml"
+                  },
+                ],
+                "events": [
+                  {
+                    "$ref": "../../event-schemas/examples/m.room.member.yaml"
+                  },
+                  {
+                    "$ref": "../../event-schemas/examples/m.room.message$m.text.yaml"
+                  }
+                ]
+              }
+              properties:
+                events:
+                  type: array
+                  description: A list of events, formatted as per the Client-Server API.
+                  items:
+                    $ref: ../client-server/definitions/client_event.yaml
+                ephemeral:
+                  type: array
+                  x-addedInMatrixVersion: "1.13"
+                  description: |-
+                    A list of ephemeral data, if the `receive_ephemeral` setting was enabled in the
+                    [registration](/application-service-api/#registration) file.
+
+                    There are only three event types that can currently occur in this list: `m.presence`,
+                    `m.typing`, and `m.receipt`. Room-scoped ephemeral data (`m.typing` and
+                    `m.receipt`) MUST include a `room_id` property to identify the room that they
+                    were sent in.
+
+                    This property can be omitted if it would be empty.
+                  items:
+                    $ref: ../../event-schemas/schema/core-event-schema/event.yaml
+              required:
+                - events
+        description: Transaction information
+      responses:
+        "200":
+          description: The transaction was processed successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                response:
+                  value: {}
+servers:
+  - url: "{protocol}://{hostname}{basePath}"
+    variables:
+      protocol:
+        enum:
+          - http
+          - https
+        default: https
+      hostname:
+        default: localhost:8008
+      basePath:
+        default: /_matrix/app/v1
+components:
+  securitySchemes:
+    homeserverAccessToken:
+      $ref: definitions/security.yaml#/homeserverAccessToken

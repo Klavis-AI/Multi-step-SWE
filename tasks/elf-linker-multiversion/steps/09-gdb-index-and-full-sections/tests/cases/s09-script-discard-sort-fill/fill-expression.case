@@ -1,0 +1,82 @@
+# arch: x86_64
+# A '=fillexp' suffix on an output section fills the padding wild inserts
+# inside and after it, instead of leaving zeroes.
+#
+# WHERE the padding falls is NOT graded. The address an output section gets and
+# the alignment it takes are the implementation's choices -- spec/04 s.1.1 only
+# requires the output section's sh_addralign to be at least the maximum of its
+# contributions' (16 here) -- so this case reads .filled's address and size out
+# of the section header it produced and derives the gap boundaries from them.
+# What is graded is the pattern: the low 32 bits of the expression, big-endian,
+# repeating (spec/10 s.4), restarted at the start of each gap rather than run
+# continuously across the section (TEST_INTERFACE, step 9).
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+__attribute__((section(".fill.a"), used, retain, aligned(1)))  const char fa[2] = { 0x41, 0x42 };
+__attribute__((section(".fill.b"), used, retain, aligned(16))) const char fb[2] = { 0x43, 0x44 };
+int g = 5;
+int entry(void) { print("filled\n"); return g; }
+C
+cc_obj m.o m.c
+mkscript() { cat > t.ld <<L
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }
+  .filled : { *(.fill.a) *(.fill.b) } $1
+  .data   : { *(.data .data.*) }
+}
+L
+}
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+bytes() { local o s; o=$(sec_off "$1" "$2"); s=$(sec_size "$1" "$2")
+          [ -n "$o" ] && [ -n "$s" ] || die "$1 has no section $2"
+          dd if="$1" of=b.bin bs=1 skip=$((16#$o)) count=$((16#$s)) status=none
+          od -An -tx1 -v b.bin | tr -s ' \n' ' '; }
+
+# Control first: the identical script with no fill expression. It links and
+# lays out the same at every tag, leaving zeroes in the alignment gaps, so the
+# only thing that changes below is the '=fillexp' suffix itself.
+mkscript ""
+link_ok zeroed -T t.ld --no-gc-sections rt.o m.o
+mkscript "= 0xdeadbeef"
+link_ok filled -T t.ld --no-gc-sections rt.o m.o
+want "the fill did not move anything" "$(sec_size filled .filled)" "$(sec_size zeroed .filled)"
+want "nor did it move the section"    "$(sec_addr filled .filled)" "$(sec_addr zeroed .filled)"
+
+addr=$(( 16#$(sec_addr filled .filled) ))
+size=$(( 16#$(sec_size filled .filled) ))
+# .fill.a has alignment 1 and is named by the first pattern, so it sits at
+# offset 0; .fill.b has alignment 16, so it begins at the first 16-aligned
+# address at or after addr+2, wherever the linker put the section.
+b_off=$(( (addr + 2 + 15) / 16 * 16 - addr ))
+g1=$(( b_off - 2 )); g2=$(( size - b_off - 2 ))
+[ "$g1" -gt 0 ] && [ "$g2" -ge 0 ] \
+  || die ".filled geometry makes no sense: addr=$addr size=$size b_off=$b_off"
+
+FB=$(bytes filled .filled)
+ZB=$(bytes zeroed .filled)
+[ "$(printf '%s' "$FB" | wc -w)" -eq "$size" ] \
+  || die "read $(printf '%s' "$FB" | wc -w) bytes of .filled, expected $size"
+# slice <dump> <offset> <length> -- <length> bytes of a dump, space-separated
+slice()  { local a; read -r -a a <<<"$1"; local off=$2 len=$3 i out=
+           for ((i = 0; i < len; i++)); do out+="${a[off + i]} "; done; printf '%s' "${out% }"; }
+expect() { local len=$1 i out= p=(de ad be ef)
+           for ((i = 0; i < len; i++)); do out+="${p[i % 4]} "; done; printf '%s' "${out% }"; }
+zeros()  { local len=$1 i out=
+           for ((i = 0; i < len; i++)); do out+="00 "; done; printf '%s' "${out% }"; }
+
+want "the .fill.a payload survived" "$(slice "$FB" 0 2)" "41 42"
+want "the .fill.b payload survived" "$(slice "$FB" "$b_off" 2)" "43 44"
+want "the interior gap is the fill pattern, restarted at the gap" \
+     "$(slice "$FB" 2 "$g1")" "$(expect "$g1")"
+want "and without the suffix that gap is zeroed" \
+     "$(slice "$ZB" 2 "$g1")" "$(zeros "$g1")"
+if [ "$g2" -gt 0 ]; then
+  want "the trailing gap is the fill pattern, restarted at the gap" \
+       "$(slice "$FB" "$((b_off + 2))" "$g2")" "$(expect "$g2")"
+  want "and without the suffix that gap is zeroed too" \
+       "$(slice "$ZB" "$((b_off + 2))" "$g2")" "$(zeros "$g2")"
+fi
+run_expect filled "filled" 5
+asserts_at_least 6

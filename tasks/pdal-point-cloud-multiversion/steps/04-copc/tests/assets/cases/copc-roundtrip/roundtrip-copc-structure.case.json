@@ -1,0 +1,27 @@
+{
+  "doc": "stages/writers.copc.rst: 'The COPC Writer supports writing to `COPC format`_ files.' and stages/readers.copc.rst: 'The COPC Reader supports reading from COPC format files.' A file written and then read back must carry the ('copc', 1) VLR the format requires and still expose its octree to an independent reader. Node count is the writer's choice (PROFILE.md 4.3), so only non-emptiness is asserted.",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "write.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"mid.copc.laz\"}]"},
+    "read.json": {"text": "[{\"type\":\"readers.copc\",\"filename\":\"mid.copc.laz\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]"}
+  },
+  "run": [
+    {"argv": ["pipeline", "write.json"]},
+    {"argv": ["pipeline", "read.json"]}
+  ],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "exit", "run": 1, "equals": 0},
+    {"kind": "las", "file": "mid.copc.laz",
+     "header": {"vlr_ids": {"contains": "copc/1"}}},
+    {"kind": "las", "file": "out.las",
+     "header": {"point_count": {"equals": 1000}}},
+    {"kind": "copc", "file": "mid.copc.laz",
+     "point_count": {"equals": 1000},
+     "hierarchy_entries": {"min": 1},
+     "queries": [
+       {"bounds": [[0, 3], [0, 3], [0, 3]], "count": {"equals": 64}},
+       {"count": {"equals": 1000}}
+     ]}
+  ]
+}

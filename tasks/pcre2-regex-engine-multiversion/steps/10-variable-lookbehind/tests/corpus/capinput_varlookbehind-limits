@@ -1,0 +1,39 @@
+# The maximum length of one variable-length lookbehind branch is set by the
+# calling program and defaults to 255 characters.  pcre2test.1, "Specifying a
+# maximum for variable lookbehinds"; pcre2limits.3, "SIZE AND OTHER
+# LIMITATIONS"; ChangeLog 10.43 item 24.
+
+/(?<=p{1,255})Q/
+    ppQ
+
+/(?<=p{1,256})Q/
+
+# max_varlookbehind changes the limit for later compilations.
+/(?<=ho?ld)Q/max_varlookbehind=4
+    holdQ
+    hldQ
+
+/(?<=ho?ld)Q/max_varlookbehind=3
+
+/(?<=ho?ld)Q/max_varlookbehind=255
+    holdQ
+
+# Branches that all match a fixed length are outside that limit; they keep
+# the older 65535-character ceiling.
+/(?<=p{5})Q/max_varlookbehind=2
+    pppppQ
+    pppQ
+
+/(?<=wharf|quay)Q/max_varlookbehind=1
+    wharfQ
+    quayQ
+
+# Unlimited repetition is refused however high the limit is set.
+/(?<=p*)Q/max_varlookbehind=255
+
+/(?<=ab+)Q/max_varlookbehind=255
+
+# \X is not permitted, and neither is recursion into a group already active.
+/(?<=\Xz)Q/
+
+/(?<=a(?R)?b)Q/

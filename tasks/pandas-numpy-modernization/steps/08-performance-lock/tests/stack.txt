@@ -1,0 +1,123 @@
+# Step 8's verifier stack.
+#
+# The scored library pins are character-for-character the ones this step's
+# workdir/setup.sh installs into the agent's /opt/venv, with one deliberate
+# subset (below). They have to be: this step's expectation is step 1's recording
+# plus the cumulative flips through step 7, and a replay under a different
+# matplotlib, pandas or numpy would report the library's own changes as the
+# candidate's regressions -- or, worse, would silently satisfy a flip that the
+# pinned stack does not actually produce.
+#
+# The verifier installs them itself rather than inheriting the agent image, so
+# nothing the candidate did to /opt/venv can reach the scorer.
+#
+# NOTHING that drives the corpus moves at step 8. matplotlib holds at 3.10.9,
+# pandas at 3.0.5, numpy at 2.3.5, scipy at 1.16.3, scikit-learn at 1.7.2,
+# seaborn at 0.13.2 and pyarrow at 21.0.0 -- all identical to step 7. Step 8's
+# work is a performance lock: three interpreter-level hot paths
+# (filter_collinearity, InteractionTermTransformer.transform,
+# GainsStatisticalReport.as_data_frame) are vectorised so the
+# hot-path-row-iteration gate falls 7 -> 0, and item 5's gates require that
+# rewrite to change no recorded answer within tolerance. Because no scored
+# library moves, the behaviour recording is byte-identical to step 7's and the
+# flip set (flips-step08.json) is step 7's 318, carried verbatim.
+#
+# What step 8 ADDS to the environment is the columnar-engine and notebook
+# toolchain: polars, duckdb, nbclient, nbformat and ipykernel. Two of the five
+# are pinned here, three are not, and the split is deliberate:
+#
+#   * polars==1.35.1 and duckdb==1.4.4 ARE in the verifier. D-7 leaves the
+#     vectorisation engine open: a candidate may take a hot path off row
+#     iteration with numpy (as the reference golden does) OR by pushing it into
+#     polars/duckdb "where results are identical". The verifier imports the
+#     candidate's own skutil to record the corpus and to run the inherited
+#     suite, so a tree whose vectorised path does `import polars` must find it
+#     installed -- otherwise an honest engine-based solution would fail to
+#     import and score zero on family B. They are here so the scorer can grade
+#     the property (no row iteration, identical results) regardless of engine.
+#
+#   * nbclient, nbformat and ipykernel are NOT in the verifier. The three
+#     notebooks under doc/examples/ are AST-scanned like any other source, and
+#     (review round 2) two of them are also executed -- but as plain scripts:
+#     `skutil_gates.run notebooks` joins their code cells (magics blanked) and
+#     runs them with this image's own interpreter, which needs no kernel. Neither
+#     that stage nor skutil's library code imports the notebook kernel
+#     toolchain, so pinning it into the scorer would pull a jupyter closure the
+#     verifier never exercises. The agent image (setup.sh) still installs all
+#     five so the agent can run the notebooks while developing; the verifier
+#     installs only what it imports (skops, below, included).
+#
+# The build system does NOT move here: step 5 replaced numpy.distutils with
+# meson-python and that build carries forward unchanged. Cython holds at 3.1.6,
+# ninja at 1.13.0, meson-python at 0.18.0, setuptools at 80.9.0 and wheel at
+# 0.45.1.
+setuptools==80.9.0
+wheel==0.45.1
+numpy==2.3.5
+scipy==1.16.3
+pandas==3.0.5
+scikit-learn==1.7.2
+matplotlib==3.10.9
+seaborn==0.13.2
+pyarrow==21.0.0
+Cython==3.1.6
+meson-python==0.18.0
+ninja==1.13.0
+pytest==8.4.2
+polars==1.35.1
+duckdb==1.4.4
+
+# No tomli pin here, unlike steps 1-5.
+#
+# skutil_gates.suppress reads pyproject.toml to count the suppressions
+# configured there, and meson-python reads the same file to drive the build.
+# Steps 1-5 ran on Python 3.9, which has no TOML reader in the stdlib, so they
+# pinned tomli==1.2.3 to give the suppression scan a parser. Python grew tomllib
+# into the stdlib at 3.11; on this step's 3.12 interpreter the scan uses tomllib
+# and needs nothing installed. The suppression ceiling is a carried check, so it
+# matters that the parser did not change out from under it: tomllib is CPython's
+# own vendored copy of tomli and reads the same document to the same table, so
+# the ceiling measured here compares with the one steps 1-5 measured through
+# tomli. (meson-python 0.18.0 likewise uses stdlib tomllib on 3.11+.)
+
+# ---- transitive closure, pinned (tools/pin_closure.py) ----
+#
+# Not named by anything above; pip chose them while resolving it.
+# Written down because the behaviour corpus was recorded against
+# these exact versions and some of them move on their own
+# schedule, so an image rebuilt later would not be the image the
+# recording came from. Regenerate: python tools/pin_closure.py <image> <this file>
+#
+# Step 7's closure, carried verbatim, plus one addition that polars pulls.
+# duckdb ships as a single dependency-free binary wheel. polars 1.35, though,
+# is split: the `polars` wheel is a thin frontend that requires a separate
+# runtime distribution, and pip resolves that to polars-runtime-32==1.35.1 on
+# this host's CPU (the portable x86-64 build; the -64 variant is the one gated
+# on newer SIMD). That runtime is pinned below so an image rebuilt later is the
+# image the corpus was recorded against -- the same reason every other line in
+# this block is written down. Neither engine raises any of step 7's closure
+# floors, so the rest resolves to exactly the set step 7 pinned.
+polars-runtime-32==1.35.1
+cloudpickle==3.1.2
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.65.0
+iniconfig==2.3.0
+joblib==1.6.0
+kiwisolver==1.5.1
+meson==1.12.0
+packaging==26.3
+pillow==12.3.0
+pluggy==1.6.0
+Pygments==2.21.0
+pyparsing==3.3.2
+pyproject-metadata==0.12.1
+python-dateutil==2.9.0.post0
+six==1.17.0
+threadpoolctl==3.7.0
+# Review round 2: the pipeline walkthrough notebook persists its model through
+# skops.io at step 8 and runs as a test here, so skops is part of the image,
+# with the two dependencies of it the stack above does not already carry.
+skops==0.13.0
+prettytable==3.18.0
+wcwidth==0.9.2

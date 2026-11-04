@@ -1,0 +1,151 @@
+[
+ {
+  "name": "commit-graph-write-verify",
+  "probes": [
+   {
+    "cmd": "git commit-graph verify && echo VERIFY-OK",
+    "digest": "741347cc3dba1ef7f8278788f619642619e5829514b26ccb168e5825d787d73e"
+   },
+   {
+    "cmd": "test -f .git/objects/info/commit-graph && echo graph-present",
+    "digest": "40749cd587de2f255660dd526ce3f8e4e1077ebd4635d909d5ce46b43b5c80b5"
+   },
+   {
+    "cmd": "git log --oneline --format='%H %s' | sort",
+    "digest": "a566e557c5be349211d5fc593e2f41c9355cd2e68db0d8259394d8417a599e20"
+   },
+   {
+    "cmd": "git rev-list --count --all",
+    "digest": "1670e42340a0bb0f16266d018cf7d23af52cf5616ffc08efcf8935af1b03203f"
+   },
+   {
+    "cmd": "git rev-list --count HEAD",
+    "digest": "1670e42340a0bb0f16266d018cf7d23af52cf5616ffc08efcf8935af1b03203f"
+   }
+  ],
+  "setup_output": "",
+  "setup_status": 0
+ },
+ {
+  "name": "commit-graph-generation-consistency",
+  "probes": [
+   {
+    "cmd": "git merge-base main topic > /tmp/after-mb && diff /tmp/before-mb /tmp/after-mb && echo MB-SAME",
+    "digest": "0426163258a6557de38c85068d7fd516e9f75634c4b3fb20f1e3bccbe6d9e8b5"
+   },
+   {
+    "cmd": "git rev-list --count --all > /tmp/after-count && diff /tmp/before-count /tmp/after-count && echo COUNT-SAME",
+    "digest": "ae4b88b8be380442880163d2be70985c42b66b01f92fabcaf8316d72e491302a"
+   },
+   {
+    "cmd": "git rev-list --topo-order HEAD | wc -l",
+    "digest": "1670e42340a0bb0f16266d018cf7d23af52cf5616ffc08efcf8935af1b03203f"
+   }
+  ],
+  "setup_output": "",
+  "setup_status": 0
+ },
+ {
+  "name": "commit-graph-advisory",
+  "probes": [
+   {
+    "cmd": "rm -f .git/objects/info/commit-graph && git log --oneline --format='%H %s' | sort > /tmp/no-graph && diff /tmp/with-graph /tmp/no-graph && echo ADVISORY-OK",
+    "digest": "ff0059e2a9c8b76bab90e1d3d068635135f8b10bf5dcb4100eede3c8a24634a7"
+   },
+   {
+    "cmd": "git rev-list --count --all",
+    "digest": "1670e42340a0bb0f16266d018cf7d23af52cf5616ffc08efcf8935af1b03203f"
+   }
+  ],
+  "setup_output": "",
+  "setup_status": 0
+ },
+ {
+  "name": "midx-write-verify",
+  "probes": [
+   {
+    "cmd": "git multi-pack-index verify && echo MIDX-VERIFY-OK",
+    "digest": "b468e14a4115cc6d9d481992017af7a557c122f3ceb6dbd03162f0ef417a34fe"
+   },
+   {
+    "cmd": "test -f .git/objects/pack/multi-pack-index && echo midx-present",
+    "digest": "eddd3e5fe9dbd6bedc0f4b84f3a98e069312af760f6a52484a77283117e4d84e"
+   },
+   {
+    "cmd": "git rev-list --count --objects --all | awk '{print $1}' | tail -1; git rev-list --count --all",
+    "digest": "a8b7c17e9f81f0f88bef2a481f45ab07b3ba04182e037661417fb687f5dcd6c7"
+   },
+   {
+    "cmd": "git cat-file -t HEAD",
+    "digest": "502a54bfa106bc521b4d2691b3ddcd87b3de78de928e023acc80abf29858d9b0"
+   },
+   {
+    "cmd": "git fsck --strict 2>&1 | grep -v '^Checking' | tail -1; echo fsck-done",
+    "digest": "a1b92032e264c48de883af2786e3691f4505589181cdc61755eebc6ba1e7ee82"
+   }
+  ],
+  "setup_output": "",
+  "setup_status": 0
+ },
+ {
+  "name": "midx-advisory",
+  "probes": [
+   {
+    "cmd": "git rev-list --objects --all | sort > /tmp/withmidx && diff /tmp/nomidx /tmp/withmidx && echo MIDX-ADVISORY-OK",
+    "digest": "239fc03e48ea134d059d3e8290a687364b23f8eacb243f333ce4ea5647306bf9"
+   },
+   {
+    "cmd": "rm -f .git/objects/pack/multi-pack-index && git rev-list --count --all",
+    "digest": "584a80e59d0d5a7fd5c4d968ab77548840d083dff98015748aa5fb3feed7b39f"
+   }
+  ],
+  "setup_output": "",
+  "setup_status": 0
+ },
+ {
+  "name": "pack-bitmap",
+  "probes": [
+   {
+    "cmd": "ls .git/objects/pack/*.bitmap >/dev/null 2>&1 && echo bitmap-present",
+    "digest": "541694a1b6ac193051306ce31d2379bdb86ad703ad049c5af76b43bddce492bc"
+   },
+   {
+    "cmd": "git rev-list --use-bitmap-index --count --all",
+    "digest": "d9b877ced18282e72021744fee875b9b864272d28e33f68a886f60958135fe03"
+   },
+   {
+    "cmd": "git rev-list --count --all",
+    "digest": "d9b877ced18282e72021744fee875b9b864272d28e33f68a886f60958135fe03"
+   },
+   {
+    "cmd": "git rev-list --test-bitmap HEAD >/dev/null 2>&1 && echo TESTBITMAP-OK",
+    "digest": "f610a8a3bb8f700af9ab40bb1e4c46fa71a59638e38435ce5962b7a3cb4459e9"
+   },
+   {
+    "cmd": "git rev-list --use-bitmap-index --count HEAD",
+    "digest": "d9b877ced18282e72021744fee875b9b864272d28e33f68a886f60958135fe03"
+   }
+  ],
+  "setup_output": "",
+  "setup_status": 0
+ },
+ {
+  "name": "midx-bitmap",
+  "probes": [
+   {
+    "cmd": "git multi-pack-index verify && echo MIDX-BITMAP-VERIFY-OK",
+    "digest": "8d8f719f823240d27c4613ed4540dbbe2742cb9ab0f3c053f68650e74e229b82"
+   },
+   {
+    "cmd": "git rev-list --use-bitmap-index --count --all",
+    "digest": "f38c2765cfa197dbbb6b9b1a584a186b8255b0a1db17fc0b9ddc675922fe747d"
+   },
+   {
+    "cmd": "git rev-list --count --all",
+    "digest": "f38c2765cfa197dbbb6b9b1a584a186b8255b0a1db17fc0b9ddc675922fe747d"
+   }
+  ],
+  "setup_output": "",
+  "setup_status": 0
+ }
+]

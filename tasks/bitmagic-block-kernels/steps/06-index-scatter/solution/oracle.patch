@@ -1,0 +1,831 @@
+diff -ruN a/src/bm.h b/src/bm.h
+--- a/src/bm.h	2026-09-23 19:23:32.693746379 +0000
++++ b/src/bm.h	2026-09-23 19:24:03.176368642 +0000
+@@ -6534,7 +6534,7 @@
+         const bm::word_t* arg_blk;
+         do
+         {
+-        #if 0
++        #if defined(BM64_AVX2) || defined(BM64_AVX512)
+             if (!avx2_test_all_eq_wave2(blk_blk + j, blk_blk_arg + j))
+             {
+                 BM_OR_OP(0)
+@@ -6543,7 +6543,7 @@
+                 BM_OR_OP(3)
+             }
+             j += 4;
+-        #elif 0
++        #elif defined(BM64_SSE4)
+             if (!sse42_test_all_eq_wave2(blk_blk + j, blk_blk_arg + j))
+             {
+                 BM_OR_OP(0)
+@@ -6626,7 +6626,7 @@
+         const bm::word_t* arg_blk;
+         do
+         {
+-        #if 0
++        #if defined(BM64_AVX2) || defined(BM64_AVX512)
+             if (!avx2_test_all_zero_wave2(blk_blk + j, blk_blk_arg + j))
+             {
+                 BM_XOR_OP(0)
+@@ -6635,7 +6635,7 @@
+                 BM_XOR_OP(3)
+             }
+             j += 4;
+-        #elif 0
++        #elif defined(BM64_SSE4)
+             if (!sse42_test_all_zero_wave2(blk_blk + j, blk_blk_arg + j))
+             {
+                 BM_XOR_OP(0)
+@@ -6721,7 +6721,7 @@
+         const bm::word_t* arg_blk;
+         do
+         {
+-        #if 0
++        #if defined(BM64_AVX2) || defined(BM64_AVX512)
+             if (!avx2_test_all_zero_wave(blk_blk + j))
+             {
+                 BM_AND_OP(0)
+@@ -6730,7 +6730,7 @@
+                 BM_AND_OP(3)
+             }
+             j += 4;
+-        #elif 0
++        #elif defined(BM64_SSE4)
+             if (!sse42_test_all_zero_wave(blk_blk + j))
+             {
+                 BM_AND_OP(0)
+@@ -6791,7 +6791,7 @@
+         unsigned j = 0;
+         do
+         {
+-        #if 0
++        #if defined(BM64_AVX2) || defined(BM64_AVX512)
+             if (!avx2_test_all_zero_wave(blk_blk + j))
+             {
+                 BM_SUB_OP(0)
+@@ -6800,7 +6800,7 @@
+                 BM_SUB_OP(3)
+             }
+             j += 4;
+-        #elif 0
++        #elif defined(BM64_SSE4)
+             if (!sse42_test_all_zero_wave(blk_blk + j))
+             {
+                 BM_SUB_OP(0)
+diff -ruN a/src/bmalgo.h b/src/bmalgo.h
+--- a/src/bmalgo.h	2026-09-23 19:23:32.705747411 +0000
++++ b/src/bmalgo.h	2026-09-23 19:24:03.176368642 +0000
+@@ -225,7 +225,7 @@
+         unsigned j = 0;
+         do
+         {
+-        #if 0
++        #ifdef BM64_AVX2
+             if (!avx2_test_all_zero_wave(blk_blk + j))
+             {
+                 BM_SCANNER_OP(0)
+@@ -234,7 +234,7 @@
+                 BM_SCANNER_OP(3)
+             }
+             j += 4;
+-        #elif 0
++        #elif defined(BM64_SSE4)
+             if (!sse42_test_all_zero_wave(blk_blk + j))
+             {
+                 BM_SCANNER_OP(0)
+diff -ruN a/src/bmavx2.h b/src/bmavx2.h
+--- a/src/bmavx2.h	2026-09-23 19:23:32.705747411 +0000
++++ b/src/bmavx2.h	2026-09-23 19:24:03.176368642 +0000
+@@ -1145,9 +1145,202 @@
+ 
+ 
+ 
++/*!
++    @brief AVX2 block memset
++    *dst = value
++
++    @ingroup AVX2
++*/
++BMFORCEINLINE
++void avx2_set_block(__m256i* BMRESTRICT dst, bm::word_t value)
++{
++    __m256i* BMRESTRICT dst_end =
++        (__m256i*)((bm::word_t*)(dst) + bm::set_block_size);
++
++    __m256i ymm0 = _mm256_set1_epi32(int(value));
++    do
++    {
++        _mm256_store_si256(dst,   ymm0);
++        _mm256_store_si256(dst+1, ymm0);
++        _mm256_store_si256(dst+2, ymm0);
++        _mm256_store_si256(dst+3, ymm0);
++        
++        dst += 4;
++    } while (dst < dst_end);
++}
+ 
+ 
+ 
++/*!
++    @brief AVX2 block copy
++    *dst = *src
++
++    @ingroup AVX2
++*/
++inline
++void avx2_copy_block(__m256i* BMRESTRICT dst,
++                     const __m256i* BMRESTRICT src)
++{
++    __m256i ymm0, ymm1, ymm2, ymm3;
++
++    const __m256i* BMRESTRICT src_end =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size);
++
++    do
++    {
++        ymm0 = _mm256_load_si256(src+0);
++        ymm1 = _mm256_load_si256(src+1);
++        ymm2 = _mm256_load_si256(src+2);
++        ymm3 = _mm256_load_si256(src+3);
++        
++        _mm256_store_si256(dst+0, ymm0);
++        _mm256_store_si256(dst+1, ymm1);
++        _mm256_store_si256(dst+2, ymm2);
++        _mm256_store_si256(dst+3, ymm3);
++        
++        ymm0 = _mm256_load_si256(src+4);
++        ymm1 = _mm256_load_si256(src+5);
++        ymm2 = _mm256_load_si256(src+6);
++        ymm3 = _mm256_load_si256(src+7);
++        
++        _mm256_store_si256(dst+4, ymm0);
++        _mm256_store_si256(dst+5, ymm1);
++        _mm256_store_si256(dst+6, ymm2);
++        _mm256_store_si256(dst+7, ymm3);
++
++        src += 8; dst += 8;
++
++    } while (src < src_end);
++}
++
++/*!
++    @brief AVX2 block copy (unaligned SRC)
++    *dst = *src
++
++    @ingroup AVX2
++*/
++inline
++void avx2_copy_block_unalign(__m256i* BMRESTRICT dst,
++                             const __m256i* BMRESTRICT src)
++{
++    __m256i ymm0, ymm1, ymm2, ymm3;
++
++    const __m256i* BMRESTRICT src_end =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size);
++
++    do
++    {
++        ymm0 = _mm256_loadu_si256(src+0);
++        ymm1 = _mm256_loadu_si256(src+1);
++        ymm2 = _mm256_loadu_si256(src+2);
++        ymm3 = _mm256_loadu_si256(src+3);
++
++        _mm256_store_si256(dst+0, ymm0);
++        _mm256_store_si256(dst+1, ymm1);
++        _mm256_store_si256(dst+2, ymm2);
++        _mm256_store_si256(dst+3, ymm3);
++
++        ymm0 = _mm256_loadu_si256(src+4);
++        ymm1 = _mm256_loadu_si256(src+5);
++        ymm2 = _mm256_loadu_si256(src+6);
++        ymm3 = _mm256_loadu_si256(src+7);
++
++        _mm256_store_si256(dst+4, ymm0);
++        _mm256_store_si256(dst+5, ymm1);
++        _mm256_store_si256(dst+6, ymm2);
++        _mm256_store_si256(dst+7, ymm3);
++
++        src += 8; dst += 8;
++
++    } while (src < src_end);
++}
++
++
++
++/*!
++    @brief AVX2 block copy
++    *dst = *src
++
++    @ingroup AVX2
++*/
++inline
++void avx2_stream_block(__m256i* BMRESTRICT dst,
++                       const __m256i* BMRESTRICT src)
++{
++    __m256i ymm0, ymm1, ymm2, ymm3;
++
++    const __m256i* BMRESTRICT src_end =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size);
++
++    do
++    {
++        ymm0 = _mm256_load_si256(src+0);
++        ymm1 = _mm256_load_si256(src+1);
++        ymm2 = _mm256_load_si256(src+2);
++        ymm3 = _mm256_load_si256(src+3);
++        
++        _mm256_stream_si256(dst+0, ymm0);
++        _mm256_stream_si256(dst+1, ymm1);
++        _mm256_stream_si256(dst+2, ymm2);
++        _mm256_stream_si256(dst+3, ymm3);
++        
++        ymm0 = _mm256_load_si256(src+4);
++        ymm1 = _mm256_load_si256(src+5);
++        ymm2 = _mm256_load_si256(src+6);
++        ymm3 = _mm256_load_si256(src+7);
++        
++        _mm256_stream_si256(dst+4, ymm0);
++        _mm256_stream_si256(dst+5, ymm1);
++        _mm256_stream_si256(dst+6, ymm2);
++        _mm256_stream_si256(dst+7, ymm3);
++
++        src += 8; dst += 8;
++
++    } while (src < src_end);
++}
++
++/*!
++    @brief AVX2 block copy (unaligned SRC)
++    *dst = *src
++
++    @ingroup AVX2
++*/
++inline
++void avx2_stream_block_unalign(__m256i* BMRESTRICT dst,
++                              const __m256i* BMRESTRICT src)
++{
++    __m256i ymm0, ymm1, ymm2, ymm3;
++
++    const __m256i* BMRESTRICT src_end =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size);
++
++    do
++    {
++        ymm0 = _mm256_loadu_si256(src+0);
++        ymm1 = _mm256_loadu_si256(src+1);
++        ymm2 = _mm256_loadu_si256(src+2);
++        ymm3 = _mm256_loadu_si256(src+3);
++
++        _mm256_stream_si256(dst+0, ymm0);
++        _mm256_stream_si256(dst+1, ymm1);
++        _mm256_stream_si256(dst+2, ymm2);
++        _mm256_stream_si256(dst+3, ymm3);
++
++        ymm0 = _mm256_loadu_si256(src+4);
++        ymm1 = _mm256_loadu_si256(src+5);
++        ymm2 = _mm256_loadu_si256(src+6);
++        ymm3 = _mm256_loadu_si256(src+7);
++
++        _mm256_stream_si256(dst+4, ymm0);
++        _mm256_stream_si256(dst+5, ymm1);
++        _mm256_stream_si256(dst+6, ymm2);
++        _mm256_stream_si256(dst+7, ymm3);
++
++        src += 8; dst += 8;
++
++    } while (src < src_end);
++}
++
+ 
+ 
+ /*!
+@@ -1185,6 +1378,35 @@
+     } while (dst < dst_end);
+ }
+ 
++/*!
++    @brief check if block is all zero bits
++    @ingroup AVX2
++*/
++inline
++bool avx2_is_all_zero(const __m256i* BMRESTRICT block)
++{
++    const __m256i* BMRESTRICT block_end =
++        (const __m256i*)((bm::word_t*)(block) + bm::set_block_size);
++
++    do
++    {
++        __m256i w0 = _mm256_load_si256(block+0);
++        __m256i w1 = _mm256_load_si256(block+1);
++
++        __m256i wA = _mm256_or_si256(w0, w1);
++        
++        __m256i w2 = _mm256_load_si256(block+2);
++        __m256i w3 = _mm256_load_si256(block+3);
++
++        __m256i wB = _mm256_or_si256(w2, w3);
++        wA = _mm256_or_si256(wA, wB);
++        
++        if (!_mm256_testz_si256(wA, wA))
++            return false;
++        block += 4;
++    } while (block < block_end);
++    return true;
++}
+ 
+ /*!
+     @brief check if digest stride is all zero bits
+@@ -1214,10 +1436,69 @@
+     _mm256_store_si256(dst + 3, mV);
+ }
+ 
++/*!
++    @brief check if block is all one bits
++    @return true if all bits are 1
++    @ingroup AVX2
++*/
++inline
++bool avx2_is_all_one(const __m256i* BMRESTRICT block)
++{
++    const __m256i maskF = _mm256_set1_epi32(~0u); // brosdcast 0xFF
++    const __m256i* BMRESTRICT block_end =
++        (const __m256i*)((bm::word_t*)(block) + bm::set_block_size);
++    do
++    {
++        __m256i m1A = _mm256_load_si256(block+0);
++        __m256i m1B = _mm256_load_si256(block+1);
++        m1A = _mm256_xor_si256(m1A, maskF);
++        m1B = _mm256_xor_si256(m1B, maskF);
++        m1A = _mm256_or_si256(m1A, m1B);
++        if (!_mm256_testz_si256(m1A, m1A))
++            return false;
++        block += 2;
++    } while (block < block_end);
++    return true;
++}
++
+ 
+ 
++/*!
++    @brief check if wave of pointers is all NULL
++    @ingroup AVX2
++*/
++BMFORCEINLINE
++bool avx2_test_all_zero_wave(const void* ptr)
++{
++    __m256i w0 = _mm256_loadu_si256((__m256i*)ptr);
++    return _mm256_testz_si256(w0, w0);
++}
+ 
++/*!
++    @brief check if 2 wave of pointers are all NULL
++    @ingroup AVX2
++*/
++BMFORCEINLINE
++bool avx2_test_all_zero_wave2(const void* ptr0, const void* ptr1)
++{
++    __m256i w0 = _mm256_loadu_si256((__m256i*)ptr0);
++    __m256i w1 = _mm256_loadu_si256((__m256i*)ptr1);
++    w0 = _mm256_or_si256(w0, w1);
++    return _mm256_testz_si256(w0, w0);
++}
+ 
++/*!
++    @brief check if 2 wave of pointers are all the same (NULL or FULL)
++    @ingroup AVX2
++*/
++BMFORCEINLINE
++bool avx2_test_all_eq_wave2(const void* ptr0, const void* ptr1)
++{
++    __m256i w0 = _mm256_loadu_si256((__m256i*)ptr0);
++    __m256i w1 = _mm256_loadu_si256((__m256i*)ptr1);
++    w0 = _mm256_xor_si256(w0, w1);
++    return _mm256_testz_si256(w0, w0);
++}
+ 
+ /*!
+     @brief block shift left by 1
+@@ -1716,16 +1997,296 @@
+ 
+ 
+ 
++/*!
++     AVX2 index lookup to check what belongs to the same block (8 elements)
++     \internal
++*/
++inline
++unsigned avx2_idx_arr_block_lookup(const unsigned* idx, unsigned size,
++                                   unsigned nb, unsigned start)
++{
++    const unsigned unroll_factor = 16;
++    const unsigned len = (size - start);
++    const unsigned len_unr = len - (len % unroll_factor);
++    unsigned k;
++
++    idx += start;
++
++    __m256i nbM = _mm256_set1_epi32(int(nb));
++
++    for (k = 0; k < len_unr; k+=unroll_factor)
++    {
++        __m256i idxA = _mm256_loadu_si256((__m256i*)(idx+k));
++        __m256i nbA =  _mm256_srli_epi32(idxA, bm::set_block_shift); // idx[k] >> bm::set_block_shift
++
++        __m256i wcmpA= _mm256_cmpeq_epi8(nbM, nbA);
++        if (~0u != unsigned(_mm256_movemask_epi8(wcmpA)))
++            break;
++        __m256i idxB = _mm256_loadu_si256((__m256i*)(idx+k+8));
++        __m256i nbB =  _mm256_srli_epi32(idxB, bm::set_block_shift);
++
++        __m256i wcmpB = _mm256_cmpeq_epi8(nbM, nbB);
++        if (~0u != unsigned(_mm256_movemask_epi8(wcmpB)))
++            break;
++    } // for k
++    for (; k < len; ++k)
++    {
++        if (nb != unsigned(idx[k] >> bm::set_block_shift))
++            break;
++    } // for k
++    return start + k;
++}
++
+ 
+ 
++/** Set a bits in an AVX target, by indexes (int4) from the source
++    @internal
++*/
++BMFORCEINLINE
++__m256i avx2_setbit_256(__m256i target, __m256i source)
++{
++    __m256i stride_idx = _mm256_set_epi32(224, 192, 160, 128, 96, 64, 32, 0);
++    __m256i mask1 = _mm256_set1_epi32(1);
++
++    __m256i v0, v1, acc1, acc2;
++    v0 = _mm256_permutevar8x32_epi32(source, _mm256_set1_epi32(0));
++    v1 = _mm256_permutevar8x32_epi32(source, _mm256_set1_epi32(1));
++    v0 = _mm256_sub_epi32(v0, stride_idx);
++    v1 = _mm256_sub_epi32(v1, stride_idx);
++    v0   = _mm256_sllv_epi32(mask1, v0);
++    v1   = _mm256_sllv_epi32(mask1, v1);
++    acc1 = _mm256_or_si256(v1, v0);
++    v0 = _mm256_permutevar8x32_epi32(source, _mm256_set1_epi32(2));
++    v1 = _mm256_permutevar8x32_epi32(source, _mm256_set1_epi32(3));
++    v0 = _mm256_sub_epi32(v0, stride_idx);
++    v1 = _mm256_sub_epi32(v1, stride_idx);
++    v0   = _mm256_sllv_epi32(mask1, v0);
++    v1   = _mm256_sllv_epi32(mask1, v1);
++    acc2 = _mm256_or_si256(v1, v0);
++    target = _mm256_or_si256(target, acc1);
++    v0 = _mm256_permutevar8x32_epi32(source, _mm256_set1_epi32(4));
++    v1 = _mm256_permutevar8x32_epi32(source, _mm256_set1_epi32(5));
++    v0 = _mm256_sub_epi32(v0, stride_idx);
++    v1 = _mm256_sub_epi32(v1, stride_idx);
++    v0   = _mm256_sllv_epi32(mask1, v0);
++    v1   = _mm256_sllv_epi32(mask1, v1);
++    acc1 = _mm256_or_si256(v1, v0);
++    target = _mm256_or_si256(target, acc2);
++    v0 = _mm256_permutevar8x32_epi32(source, _mm256_set1_epi32(6));
++    v1 = _mm256_permutevar8x32_epi32(source, _mm256_set1_epi32(7));
++    v0 = _mm256_sub_epi32(v0, stride_idx);
++    v1 = _mm256_sub_epi32(v1, stride_idx);
++    v0   = _mm256_sllv_epi32(mask1, v0);
++    v1   = _mm256_sllv_epi32(mask1, v1);
++    acc2 = _mm256_or_si256(v1, v0);
++    
++    target = _mm256_or_si256(target, acc1);
++    target = _mm256_or_si256(target, acc2);
++    return target;
++}
+ 
+ 
++/** Experimental code to set bits via AVX strides
++    @internal
++*/
++inline
++void avx2_set_block_bits3(bm::word_t* BMRESTRICT block,
++                          const unsigned* BMRESTRICT idx,
++                          unsigned start, unsigned stop )
++{
++    const unsigned unroll_factor = 8;
++    const unsigned len = (stop - start);
++    const unsigned len_unr = len - (len % unroll_factor);
+ 
++    idx += start;
+ 
++    __m256i stride_idx = _mm256_set_epi32(224, 192, 160, 128, 96, 64, 32, 0);
++    __m256i mask1 = _mm256_set1_epi32(1);
+ 
++    __m256i sb_mask = _mm256_set1_epi32(bm::set_block_mask);
++    __m256i stride_bit_mask = _mm256_set1_epi32(0xFF);
+ 
++    unsigned BM_ALIGN32 mstride_v[8] BM_ALIGN32ATTR;
++    int BM_ALIGN32 mstride_bit_v[8] BM_ALIGN32ATTR;
+ 
++    // define the very first block stride based on index 0
++    unsigned stride = unsigned(idx[0] & bm::set_block_mask) >> 8;
++    
++    __m256i* block_avx = (__m256i*)block;
++    __m256i* avx_stride_p = block_avx + stride;
++    
++    __m256i blkA = _mm256_load_si256(avx_stride_p); // load the first accum
+ 
++    unsigned k = 0, mask;
++    for (; k < len_unr; k+=unroll_factor)
++    {
++        __m256i idxA = _mm256_loadu_si256((__m256i*)(idx+k));
++        __m256i nbitA = _mm256_and_si256 (idxA, sb_mask); // nbit = idx[k] & bm::set_block_mask
++        __m256i strideA = _mm256_srli_epi32 (nbitA, 8); // new_stride = nbit >> 8
++        __m256i strideBitA = _mm256_and_si256 (nbitA, stride_bit_mask); // stride_bit = nbit & 0xFF;
++
++        // construct a cmp vector from broadcasted v[0]
++        __m256i mask_tmp = _mm256_shuffle_epi32 (strideA, 0x0);
++        mask_tmp = _mm256_permute2x128_si256 (mask_tmp, mask_tmp, 0);
++        mask = _mm256_movemask_epi8(_mm256_cmpeq_epi32(mask_tmp, strideA));
++        if (mask == ~0u) // all idxs belong the same avx2 stride
++        {
++            unsigned new_stride = (unsigned)_mm256_extract_epi32(strideA, 0);
++            if (new_stride != stride)
++            {
++                _mm256_store_si256(avx_stride_p, blkA); // flush avx2 accum
++                stride = new_stride;
++                avx_stride_p = block_avx + stride;
++                blkA = _mm256_load_si256(avx_stride_p); // re-load accum
++            }
++            // set 8 bits all at once
++            blkA = bm::avx2_setbit_256(blkA, strideBitA);
++        }
++        else // stride mix here, process one by one
++        {
++            _mm256_store_si256 ((__m256i*)mstride_bit_v, strideBitA); // store block stride-bit idxs
++            _mm256_store_si256 ((__m256i*)mstride_v, strideA);
++            for (unsigned j = 0; j < 8; ++j)
++            {
++                unsigned new_stride = mstride_v[j];
++                if (new_stride != stride)
++                {
++                    _mm256_store_si256(avx_stride_p, blkA); // flush avx2 accum
++                    stride = new_stride;
++                    avx_stride_p = block_avx + stride;
++                    blkA = _mm256_load_si256(avx_stride_p); // re-load accum
++                }
++                // set avx2 bits one by one
++                mask_tmp = _mm256_set1_epi32(mstride_bit_v[j]);
++                mask_tmp = _mm256_sub_epi32(mask_tmp, stride_idx);
++                mask_tmp   = _mm256_sllv_epi32(mask1, mask_tmp);
++                blkA = _mm256_or_si256(blkA, mask_tmp);
++            } // for j
++        }
++    } // for k
++   _mm256_store_si256(avx_stride_p, blkA);
++
++    // set the tail bits conventionally
++    for (; k < len; ++k)
++    {
++        unsigned n = idx[k];
++        unsigned nbit = unsigned(n & bm::set_block_mask);
++        unsigned nword  = nbit >> bm::set_word_shift;
++        nbit &= bm::set_word_mask;
++        block[nword] |= (1u << nbit);
++    } // for k
++}
++
++
++
++
++
++
++
++
++/*!
++     AVX2 bit block gather-scatter
++ 
++     @param arr - destination array to set bits
++     @param blk - source bit-block
++     @param idx - gather index array
++     @param size - gather array size
++     @param start - gaher start index
++     @param bit_idx - bit to set in the target array
++ 
++     \internal
++
++    C algorithm:
++ 
++    for (unsigned k = start; k < size; ++k)
++    {
++        nbit = unsigned(idx[k] & bm::set_block_mask);
++        nword  = unsigned(nbit >> bm::set_word_shift);
++        mask0 = 1u << (nbit & bm::set_word_mask);
++        arr[k] |= TRGW(bool(blk[nword] & mask0) << bit_idx);
++    }
++
++*/
++inline
++void avx2_bit_block_gather_scatter(unsigned* BMRESTRICT arr,
++                                   const unsigned* BMRESTRICT blk,
++                                   const unsigned* BMRESTRICT idx,
++                                   unsigned                   size,
++                                   unsigned                   start,
++                                   unsigned                   bit_idx)
++{
++    const unsigned unroll_factor = 8;
++    const unsigned len = (size - start);
++    const unsigned len_unr = len - (len % unroll_factor);
++    
++    __m256i sb_mask = _mm256_set1_epi32(bm::set_block_mask);
++    __m256i sw_mask = _mm256_set1_epi32(bm::set_word_mask);
++    __m256i maskFF  = _mm256_set1_epi32(~0u);
++
++    __m256i mask_tmp, mask_0;
++    
++    unsigned BM_ALIGN32 mword_v[8] BM_ALIGN32ATTR;
++
++    unsigned k = 0, mask, w_idx;
++    for (; k < len_unr; k+=unroll_factor)
++    {
++        __m256i nbitA, nwordA;
++        const unsigned base = start + k;
++        __m256i* idx_ptr = (__m256i*)(idx+base);   // idx[base]
++        
++        nbitA = _mm256_and_si256 (_mm256_loadu_si256(idx_ptr), sb_mask); // nbit = idx[base] & bm::set_block_mask
++        nwordA = _mm256_srli_epi32 (nbitA, bm::set_word_shift); // nword  = nbit >> bm::set_word_shift
++
++        // shufffle + permute to prepare comparison vector
++        mask_tmp = _mm256_shuffle_epi32 (nwordA, _MM_SHUFFLE(1,1,1,1));
++        mask_tmp = _mm256_permute2x128_si256 (mask_tmp, mask_tmp, 0);
++        mask = _mm256_movemask_epi8(_mm256_cmpeq_epi32(mask_tmp, nwordA));
++        _mm256_store_si256((__m256i*)mword_v, nwordA);
++
++        if (mask == ~0u) // all idxs belong the same word avoid (costly) gather
++        {
++            w_idx = mword_v[0];
++            mask_tmp = _mm256_set1_epi32(blk[w_idx]); // use broadcast
++        }
++        else // gather for: blk[nword]  (.. & mask0 )
++        {
++            mask_tmp = _mm256_set_epi32(blk[mword_v[7]], blk[mword_v[6]],
++                                        blk[mword_v[5]], blk[mword_v[4]],
++                                        blk[mword_v[3]], blk[mword_v[2]],
++                                        blk[mword_v[1]], blk[mword_v[0]]);
++        }
++        
++        // mask0 = 1u << (nbit & bm::set_word_mask);
++        //
++        __m256i shiftA = _mm256_and_si256 (nbitA, sw_mask);
++        __m256i mask1  = _mm256_srli_epi32 (maskFF, 31);
++        mask_0 = _mm256_sllv_epi32(mask1, shiftA);
++        
++        mask_tmp = _mm256_and_si256(mask_tmp, mask_0);
++        if (!_mm256_testz_si256(mask_tmp, mask_tmp)) // AND tests empty
++        {
++            __m256i* target_ptr = (__m256i*)(arr+base); // arr[base]
++            // bool(blk[nword]  ... )
++            __m256i maskZ   = _mm256_xor_si256(maskFF, maskFF); // all zero
++            mask1 = _mm256_slli_epi32(mask1, bit_idx); // << bit_idx
++            mask_tmp = _mm256_cmpeq_epi32 (mask_tmp, maskZ); // set 0xFF if==0
++            mask_tmp = _mm256_xor_si256 (mask_tmp, maskFF);  // invert
++            mask_tmp = _mm256_and_si256 (mask_tmp, mask1);
++            _mm256_storeu_si256 (target_ptr,          // arr[base] |= MASK_EXPR
++                         _mm256_or_si256 (mask_tmp,
++                                          _mm256_loadu_si256(target_ptr)));
++        }
++        
++    } // for
++    
++    for (; k < len; ++k)
++    {
++        const unsigned base = start + k;
++        unsigned nbit = unsigned(idx[base] & bm::set_block_mask);
++        arr[base] |= unsigned(bool(blk[nbit >> bm::set_word_shift] & (1u << (nbit & bm::set_word_mask))) << bit_idx);
++    }
++
++}
+ 
+ /**
+     Convert bit block to GAP block
+@@ -2006,12 +2567,26 @@
+ #define VECT_XOR_BLOCK_2WAY(dst, src1, src2) \
+     avx2_xor_block_2way((__m256i*) dst, (__m256i*) (src1), (__m256i*) (src2))
+ 
++#define VECT_COPY_BLOCK(dst, src) \
++    avx2_copy_block((__m256i*) dst, (__m256i*) (src))
+ 
++#define VECT_COPY_BLOCK_UNALIGN(dst, src) \
++    avx2_copy_block_unalign((__m256i*) dst, (__m256i*) (src))
+ 
++#define VECT_STREAM_BLOCK(dst, src) \
++    avx2_stream_block((__m256i*) dst, (__m256i*) (src))
+ 
++#define VECT_STREAM_BLOCK_UNALIGN(dst, src) \
++    avx2_stream_block_unalign((__m256i*) dst, (__m256i*) (src))
+ 
++#define VECT_SET_BLOCK(dst, value) \
++    avx2_set_block((__m256i*) dst, (value))
+ 
++#define VECT_IS_ZERO_BLOCK(dst) \
++    avx2_is_all_zero((__m256i*) dst)
+ 
++#define VECT_IS_ONE_BLOCK(dst) \
++    avx2_is_all_one((__m256i*) dst)
+ 
+ #define VECT_IS_DIGEST_ZERO(start) \
+     avx2_is_digest_zero((__m256i*)start)
+@@ -2029,7 +2604,11 @@
+ #define VECT_SHIFT_R1_AND(b, co, m, digest) \
+     avx2_shift_r1_and((__m256i*)b, co, (__m256i*)m, digest)
+     
++#define VECT_ARR_BLOCK_LOOKUP(idx, size, nb, start) \
++    avx2_idx_arr_block_lookup(idx, size, nb, start)
+ 
++#define VECT_SET_BLOCK_BITS(block, idx, start, stop) \
++    avx2_set_block_bits3(block, idx, start, stop)
+     
+ #define VECT_BLOCK_CHANGE(block, size) \
+     avx2_bit_block_calc_change((__m256i*)block, size)
+diff -ruN a/src/bmblocks.h b/src/bmblocks.h
+--- a/src/bmblocks.h	2026-09-23 19:23:32.705747411 +0000
++++ b/src/bmblocks.h	2026-09-23 19:24:03.196370362 +0000
+@@ -2105,7 +2105,7 @@
+         unsigned j = 0; bm::word_t* blk;
+         do
+         {
+-        #if 0
++        #if defined(BM64_AVX2) || defined(BM64_AVX512)
+             if (!avx2_test_all_zero_wave(blk_blk + j))
+             {
+                 BM_FREE_OP(0)
+@@ -2114,7 +2114,7 @@
+                 BM_FREE_OP(3)
+             }
+             j += 4;
+-        #elif 0
++        #elif defined(BM64_SSE4)
+             if (!sse42_test_all_zero_wave(blk_blk + j))
+             {
+                 BM_FREE_OP(0)
+diff -ruN a/src/bmfunc.h b/src/bmfunc.h
+--- a/src/bmfunc.h	2026-09-23 19:23:32.705747411 +0000
++++ b/src/bmfunc.h	2026-09-23 19:24:03.196370362 +0000
+@@ -2054,7 +2054,7 @@
+         unsigned j = 0;
+         do
+         {
+-#if 0
++#if defined(BM64_AVX2) || defined(BM64_AVX512)
+             if (!avx2_test_all_zero_wave(blk_blk + j))
+             {
+                 non_empty_top = 1;
+@@ -2090,7 +2090,7 @@
+                 f.on_empty_block(r + j + 2); f.on_empty_block(r + j + 3);
+             }
+             j += 4;
+-#elif 0
++#elif defined(BM64_SSE4)
+             if (!sse42_test_all_zero_wave((blk_blk + j)))
+             {
+                 non_empty_top = 1;
+@@ -5214,7 +5214,7 @@
+ inline 
+ void bit_block_set(bm::word_t* BMRESTRICT dst, bm::word_t value) BMNOEXCEPT
+ {
+-#if 0
++#ifdef BMVECTOPT
+     VECT_SET_BLOCK(dst, value);
+ #else
+     ::memset(dst, int(value), bm::set_block_size * sizeof(bm::word_t));
+@@ -7536,7 +7536,7 @@
+ void bit_block_copy(bm::word_t* BMRESTRICT dst,
+                     const bm::word_t* BMRESTRICT src) BMNOEXCEPT
+ {
+-#if 0
++#ifdef BMVECTOPT
+     VECT_COPY_BLOCK(dst, src);
+ #else
+     ::memcpy(dst, src, bm::set_block_size * sizeof(bm::word_t));
+@@ -10680,7 +10680,7 @@
+     return static_cast<unsigned short>(cnt0);
+ }
+ 
+-#if 0
++#if defined (BM64_SSE4) || defined(BM64_AVX2) || defined(BM64_AVX512)
+ /**
+     bit index to word gather-scatter algorithm (SIMD)
+     @ingroup bitfunc
+@@ -10695,7 +10695,7 @@
+ {
+ typedef unsigned TRGW;
+ typedef unsigned IDX;
+-#if 0
++#if defined(BM64_SSE4)
+     // TODO: provide 16 and 64-bit optimized implementations
+     // optimized for unsigned
+     if constexpr (sizeof(TRGW)==4 && sizeof(IDX)==4)
+@@ -10703,7 +10703,7 @@
+         sse4_bit_block_gather_scatter(arr, blk, idx, size, start, bit_idx);
+         return;
+     }
+-#elif 0
++#elif defined(BM64_AVX2) || defined(BM64_AVX512)
+     if constexpr (sizeof(TRGW)==4 && sizeof(IDX)==4)
+     {
+         avx2_bit_block_gather_scatter(arr, blk, idx, size, start, bit_idx);

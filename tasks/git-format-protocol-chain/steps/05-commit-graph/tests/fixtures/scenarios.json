@@ -1,0 +1,69 @@
+[
+ {
+  "name": "commit-graph-write-verify",
+  "setup": "git init -q -b main . &&\nfor i in 1 2 3 4 5; do printf '%s\\n' \"$i\" > f$i && git add f$i && GIT_AUTHOR_DATE=\"@$((1112911993+i)) +0000\" GIT_COMMITTER_DATE=\"@$((1112911993+i)) +0000\" git commit -q -m \"c$i\"; done &&\ngit checkout -q -b topic HEAD~3 &&\nprintf 't\\n' > tf && git add tf && GIT_AUTHOR_DATE='@1112912100 +0000' GIT_COMMITTER_DATE='@1112912100 +0000' git commit -q -m ct &&\ngit checkout -q main && GIT_AUTHOR_DATE='@1112912200 +0000' GIT_COMMITTER_DATE='@1112912200 +0000' git merge -q --no-ff -m merge topic\ngit commit-graph write --reachable\n",
+  "probes": [
+   "git commit-graph verify && echo VERIFY-OK",
+   "test -f .git/objects/info/commit-graph && echo graph-present",
+   "git log --oneline --format='%H %s' | sort",
+   "git rev-list --count --all",
+   "git rev-list --count HEAD"
+  ]
+ },
+ {
+  "name": "commit-graph-generation-consistency",
+  "setup": "git init -q -b main . &&\nfor i in 1 2 3 4 5; do printf '%s\\n' \"$i\" > f$i && git add f$i && GIT_AUTHOR_DATE=\"@$((1112911993+i)) +0000\" GIT_COMMITTER_DATE=\"@$((1112911993+i)) +0000\" git commit -q -m \"c$i\"; done &&\ngit checkout -q -b topic HEAD~3 &&\nprintf 't\\n' > tf && git add tf && GIT_AUTHOR_DATE='@1112912100 +0000' GIT_COMMITTER_DATE='@1112912100 +0000' git commit -q -m ct &&\ngit checkout -q main && GIT_AUTHOR_DATE='@1112912200 +0000' GIT_COMMITTER_DATE='@1112912200 +0000' git merge -q --no-ff -m merge topic\ngit rev-list --count --all > /tmp/before-count &&\ngit merge-base main topic > /tmp/before-mb &&\ngit commit-graph write --reachable\n",
+  "probes": [
+   "git merge-base main topic > /tmp/after-mb && diff /tmp/before-mb /tmp/after-mb && echo MB-SAME",
+   "git rev-list --count --all > /tmp/after-count && diff /tmp/before-count /tmp/after-count && echo COUNT-SAME",
+   "git rev-list --topo-order HEAD | wc -l"
+  ]
+ },
+ {
+  "name": "commit-graph-advisory",
+  "setup": "git init -q -b main . &&\nfor i in 1 2 3 4 5; do printf '%s\\n' \"$i\" > f$i && git add f$i && GIT_AUTHOR_DATE=\"@$((1112911993+i)) +0000\" GIT_COMMITTER_DATE=\"@$((1112911993+i)) +0000\" git commit -q -m \"c$i\"; done &&\ngit checkout -q -b topic HEAD~3 &&\nprintf 't\\n' > tf && git add tf && GIT_AUTHOR_DATE='@1112912100 +0000' GIT_COMMITTER_DATE='@1112912100 +0000' git commit -q -m ct &&\ngit checkout -q main && GIT_AUTHOR_DATE='@1112912200 +0000' GIT_COMMITTER_DATE='@1112912200 +0000' git merge -q --no-ff -m merge topic\ngit commit-graph write --reachable &&\ngit log --oneline --format='%H %s' | sort > /tmp/with-graph\n",
+  "probes": [
+   "rm -f .git/objects/info/commit-graph && git log --oneline --format='%H %s' | sort > /tmp/no-graph && diff /tmp/with-graph /tmp/no-graph && echo ADVISORY-OK",
+   "git rev-list --count --all"
+  ]
+ },
+ {
+  "name": "midx-write-verify",
+  "setup": "git init -q -b main . &&\nprintf 'a\\n' > a && git add a && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1 && git repack -q -a -d &&\nprintf 'b\\n' > b && git add b && GIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m c2 && git repack -q -d &&\nprintf 'c\\n' > c && git add c && GIT_AUTHOR_DATE='@1112912100 +0000' GIT_COMMITTER_DATE='@1112912100 +0000' git commit -q -m c3 && git repack -q -d &&\ngit multi-pack-index write\n",
+  "probes": [
+   "git multi-pack-index verify && echo MIDX-VERIFY-OK",
+   "test -f .git/objects/pack/multi-pack-index && echo midx-present",
+   "git rev-list --count --objects --all | awk '{print $1}' | tail -1; git rev-list --count --all",
+   "git cat-file -t HEAD",
+   "git fsck --strict 2>&1 | grep -v '^Checking' | tail -1; echo fsck-done"
+  ]
+ },
+ {
+  "name": "midx-advisory",
+  "setup": "git init -q -b main . &&\nfor i in 1 2 3; do printf '%s\\n' \"$i\" > f$i && git add f$i && GIT_AUTHOR_DATE=\"@$((1112911993+i)) +0000\" GIT_COMMITTER_DATE=\"@$((1112911993+i)) +0000\" git commit -q -m c$i && git repack -q -d; done &&\ngit rev-list --objects --all | sort > /tmp/nomidx &&\ngit multi-pack-index write\n",
+  "probes": [
+   "git rev-list --objects --all | sort > /tmp/withmidx && diff /tmp/nomidx /tmp/withmidx && echo MIDX-ADVISORY-OK",
+   "rm -f .git/objects/pack/multi-pack-index && git rev-list --count --all"
+  ]
+ },
+ {
+  "name": "pack-bitmap",
+  "setup": "git init -q -b main . &&\nfor i in 1 2 3 4 5; do printf '%s\\n' \"$i\" > f$i && git add f$i && GIT_AUTHOR_DATE=\"@$((1112911993+i)) +0000\" GIT_COMMITTER_DATE=\"@$((1112911993+i)) +0000\" git commit -q -m c$i; done &&\ngit repack -q -a -d --write-bitmap-index\n",
+  "probes": [
+   "ls .git/objects/pack/*.bitmap >/dev/null 2>&1 && echo bitmap-present",
+   "git rev-list --use-bitmap-index --count --all",
+   "git rev-list --count --all",
+   "git rev-list --test-bitmap HEAD >/dev/null 2>&1 && echo TESTBITMAP-OK",
+   "git rev-list --use-bitmap-index --count HEAD"
+  ]
+ },
+ {
+  "name": "midx-bitmap",
+  "setup": "git init -q -b main . &&\nfor i in 1 2 3 4; do printf '%s\\n' \"$i\" > f$i && git add f$i && GIT_AUTHOR_DATE=\"@$((1112911993+i)) +0000\" GIT_COMMITTER_DATE=\"@$((1112911993+i)) +0000\" git commit -q -m c$i && git repack -q -d; done &&\ngit multi-pack-index write --bitmap\n",
+  "probes": [
+   "git multi-pack-index verify && echo MIDX-BITMAP-VERIFY-OK",
+   "git rev-list --use-bitmap-index --count --all",
+   "git rev-list --count --all"
+  ]
+ }
+]

@@ -1,0 +1,69 @@
+# arch: x86_64
+# Referencing versioned symbols from a shared object must produce
+# .gnu.version_r with a Verneed naming the library's SONAME and one Vernaux
+# per version actually referenced, plus DT_VERNEED / DT_VERNEEDNUM / DT_VERSYM
+# -- and the result RUNS, so the records are checked against a real loader's
+# version matching rather than only read back.
+# The .so fixture is built with the system `ld`: it is an input, not the thing
+# under test.
+# NOTE: inspection output is dumped to a file and grepped there, so that no
+# assertion rides on the exit status of a pipeline ending in `grep -q`.
+rt_obj rt.o
+cat > v.s <<'S'
+        .text
+        .globl getval_v1
+getval_v1: movl $11, %eax; ret
+        .globl getval_v2
+getval_v2: movl $22, %eax; ret
+        .symver getval_v1, getval@VER_1
+        .symver getval_v2, getval@@VER_2
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj v.o v.s -fPIC
+cat > v.map <<'M'
+VER_1 { global: getval; local: *; };
+VER_2 { global: getval; } VER_1;
+M
+ld -shared -soname libver.so.1 --version-script=v.map -o libver.so.1 v.o 2> ld.err \
+  || die "fixture ld failed: $(tail -2 ld.err)"
+cat > m.c <<'C'
+__asm__(".symver getval_old, getval@VER_1");
+int getval_old(void); int getval(void);
+int entry(void) { return getval_old() + getval(); }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o libver.so.1 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -rpath '$ORIGIN'
+sections out > sec.txt; dynamic out > dyn.txt; vernum out > ver.txt
+grep -qE '\.gnu\.version_r +VERNEED' sec.txt || die "no .gnu.version_r section: $(cat sec.txt)"
+grep -qE '\.gnu\.version +VERSYM'    sec.txt || die "no .gnu.version section: $(cat sec.txt)"
+grep -q '(VERNEED)'    dyn.txt || die "no DT_VERNEED: $(cat dyn.txt)"
+grep -q '(VERSYM)'     dyn.txt || die "no DT_VERSYM: $(cat dyn.txt)"
+want "DT_VERNEEDNUM" "$(awk '/\(VERNEEDNUM\)/{print $NF}' dyn.txt)" "1"
+grep -qE 'Version: 1 +File: libver\.so\.1 +Cnt: 2' ver.txt \
+  || die "Verneed does not name libver.so.1 with 2 versions: $(cat ver.txt)"
+grep -qE 'Name: VER_1 +Flags: none +Version: [0-9]+' ver.txt || die "no Vernaux for VER_1: $(cat ver.txt)"
+grep -qE 'Name: VER_2 +Flags: none +Version: [0-9]+' ver.txt || die "no Vernaux for VER_2: $(cat ver.txt)"
+# vna_hash is the classic SysV ELF hash of the version name (spec/09 S6):
+# VER_1 -> 0x005aa821, VER_2 -> 0x005aa822.  `readelf -V` never prints it, and
+# a loader that misses on a wrong hash reports the version as missing even
+# though the record is there -- so read the section's bytes.  Records are
+# 4-aligned and both hashes are the first word of their Vernaux, so each one
+# appears as a whole little-endian word in the dump.
+$READELF --hex-dump=.gnu.version_r out > vr.hex 2> vr.err \
+  || die "could not dump .gnu.version_r: $(tail -2 vr.err)"
+grep -q '21a85a00' vr.hex || die "no Vernaux carries elf_hash(\"VER_1\") = 0x005aa821: $(cat vr.hex)"
+grep -q '22a85a00' vr.hex || die "no Vernaux carries elf_hash(\"VER_2\") = 0x005aa822: $(cat vr.hex)"
+i1=$(awk '/Name: VER_1/{print $NF}' ver.txt); i2=$(awk '/Name: VER_2/{print $NF}' ver.txt)
+[ "$i1" != "$i2" ] || die "VER_1 and VER_2 share version index $i1"
+[ "$i1" -ge 2 ] && [ "$i2" -ge 2 ] || die "version indices must start at 2, got $i1 and $i2"
+# Run it. getval@VER_1 must bind to getval_v1 (11) and the unversioned
+# reference to the default getval@@VER_2 (22), so the program exits 33.  A
+# wrong vna_hash, a broken Vernaux chain or a mis-sized .gnu.version array all
+# show up here as a loader failure rather than a wrong number.
+run_expect out "" 33
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

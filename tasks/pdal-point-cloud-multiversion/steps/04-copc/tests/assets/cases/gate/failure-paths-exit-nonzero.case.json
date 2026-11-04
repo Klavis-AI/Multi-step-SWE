@@ -1,0 +1,106 @@
+{
+ "doc": "The negative half of the CLI contract, asserted as behaviour rather than as wording, and asserted at both anchors because none of it changes across the release. Four bad invocations must each exit non-zero and must each leave no output behind: (0) the input file does not exist, (1) the output path runs through a component that is an existing regular file, (2) the reader is handed a file that is not LAS at all, (3) the writer is asked to open a file whose parent is an existing regular file. Runs 1 and 3 differ in which side of the failed open is already a file -- a path component versus the parent directory itself -- so a writer that clears only one of the two is caught. Run 4 is the positive control -- the same pipeline shape against a real file exits 0 and writes its output -- so a binary that rejects everything cannot pass. No diagnostic string is asserted (PROFILE.md 4.3 keeps rejection messages out of scope).",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "missing.json": {
+   "text": "[{\"type\":\"readers.las\",\"filename\":\"nope.las\"},{\"type\":\"writers.las\",\"filename\":\"never1.las\"}]"
+  },
+  "notlas.json": {
+   "text": "[{\"type\":\"readers.las\",\"filename\":\"notlas.las\"},{\"type\":\"writers.las\",\"filename\":\"never3.las\"}]"
+  },
+  "nodir.json": {
+   "text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.las\",\"filename\":\"in.las/never4.las\"}]"
+  },
+  "control.json": {
+   "text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]"
+  },
+  "notlas.las": {
+   "text": "this is not a LAS file\n"
+  },
+  "isadir.json": {
+   "text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.las\",\"filename\":\"isadir.las/x.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "missing.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "isadir.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "notlas.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "nodir.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "control.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "nonzero": true
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "nonzero": true
+  },
+  {
+   "kind": "exit",
+   "run": 3,
+   "nonzero": true
+  },
+  {
+   "kind": "file_absent",
+   "file": "never1.las"
+  },
+  {
+   "kind": "file_absent",
+   "file": "never3.las"
+  },
+  {
+   "kind": "file_absent",
+   "file": "never4.las"
+  },
+  {
+   "kind": "exit",
+   "run": 4,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": {
+     "equals": 1000
+    }
+   }
+  }
+ ]
+}

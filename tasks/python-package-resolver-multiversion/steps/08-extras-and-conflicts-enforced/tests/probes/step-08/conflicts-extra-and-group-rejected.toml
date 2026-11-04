@@ -1,0 +1,39 @@
+# PROFILE.md 7 `[tool.uv] conflicts`: "Enabling two items declared to conflict
+# in one invocation fails with exit status 2", over items that are "a table
+# with exactly one key: `extra = \"<name>\"` ... or `group = \"<name>\"`". The
+# pair declared here mixes the two kinds and both halves are named in one
+# command line, so this is the request the rule refuses. The site-packages
+# glob is read too: it distinguishes a refusal from a run that installed one
+# half of the pair before giving up. `conflicts-single-extra-settles` is the
+# accept side of the same declaration.
+id = "conflicts-extra-and-group-rejected"
+step = 8
+group = "project-request-validation"
+python = "3.12"
+mode = "bare"
+argv = ["sync", "--extra", "x", "--group", "g"]
+observe = ["status", "glob:.venv/lib/python3.12/site-packages/*.dist-info"]
+timeout = 300
+
+[files]
+"pyproject.toml" = """
+[project]
+name = "proj"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+x = ["a==1.0.0"]
+
+[dependency-groups]
+g = ["a==2.0.0"]
+
+[tool.uv]
+package = false
+index-url = "{INDEX}"
+conflicts = [[{ extra = "x" }, { group = "g" }]]
+"""
+
+[index.packages.a.versions."1.0.0"]
+[index.packages.a.versions."2.0.0"]

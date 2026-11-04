@@ -1,0 +1,9 @@
+CREATE TABLE q3_fdb(a int);
+INSERT INTO q3_fdb SELECT generate_series(1,5);
+ALTER TABLE q3_fdb ADD COLUMN b int NOT NULL DEFAULT 7;
+ALTER TABLE q3_fdb ADD COLUMN c text NOT NULL DEFAULT 'q';
+SELECT a, b, c FROM q3_fdb ORDER BY a;
+INSERT INTO q3_fdb(a) VALUES (6);
+UPDATE q3_fdb SET b = 8 WHERE a = 1;
+SELECT a, b, c FROM q3_fdb ORDER BY a;
+DROP TABLE q3_fdb;

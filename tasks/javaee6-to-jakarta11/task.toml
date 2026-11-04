@@ -1,0 +1,567 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. `exclude` is empty: the candidate's whole working
+# tree is scored, and build output that arrives with it is deleted by the
+# verifier's own build.sh before anything is built or scanned, so every class
+# file scored is one this image's Maven produced from source.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/javaee6-to-jakarta11"
+version = "1.0.0"
+description = "mini-git-server, a 2011 Java EE 6 WAR hosting git over HTTP and SSH, migrated to Jakarta EE 11 / Spring Boot 4 on Java 21. The codebase carries no Spring, no JPA and no SOAP, so its early steps are its toolchain and its server libraries rather than framework upgrades. Each step is scored as migrated-ness x preserved behaviour against observations recorded from the pinned baseline."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["migration", "java", "jakarta-ee", "spring-boot", "maven", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["migration", "java-ee-6", "jakarta-ee-11", "spring-boot-4", "jgit", "multi-step"]
+
+[environment]
+# One agent image for all ten steps: schema 1.4 has no per-step [environment].
+# It carries JDK 11, 17 and 21 with 11 as the default, Maven 3.9.16, and a
+# Maven cache warmed from the inherited tree's own dependencies. The build is
+# three JDK downloads and a full dependency warm, so the timeout is generous.
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 12288
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. Each verifier image pins
+# exactly one JDK -- the one that step's release targets -- so shelling out to a
+# retired toolchain is impossible by construction.
+[verifier]
+environment_mode = "separate"
+
+# Sizes the verifier containers; without this section Harbor silently reuses a
+# copy of [environment]. Sized for the corpus rather than for the agent: the
+# build runs with -Xmx3g and the behaviour suite then holds three server
+# instances up at once, on three config profiles.
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 12288
+gpus = 0
+workdir = "/app"
+# The verifier resolves the candidate's dependency graph, so the network is
+# open; nothing it measures with depends on a live network -- the JDK, Maven,
+# the servlet container, the scanners and the whole Maven repository it builds
+# against are baked into the image and checksum-pinned.
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local 0-1>} to reward.json. No
+# min_reward: a zero or partial score never stops the trial.
+[[steps]]
+# This codebase has no Spring, no JPA and no SOAP, so step 1 is the 2011-build
+# rung rather than a framework rung -- JDK 11 via `release`, Maven 3.9, JUnit 5.
+name = "01-java11-junit5-build"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip as well as
+# the run itself: package, test, the dependency graph, two scans and 428
+# recorded observations across three config profiles.
+timeout_sec = 2400.0
+
+[[steps]]
+# JGit off a 2011 personal fork onto upstream 5.13 (the last javax.servlet
+# line), MINA SSHD 0.5 onto 2.19, the two client SSH libraries out, and the
+# servlet API out of the WAR and onto `provided`. This codebase has no Spring
+# to put on Boot and no JNDI to externalize, so its "get off the third-party
+# libraries that block the jakarta move" rung is its server stack.
+name = "02-server-libraries"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape as step 01 and the same budget: package, test, the dependency
+# graph, two scans and 428 recorded observations across three config profiles.
+# Measured at 103 s for the reference and 97 s for the untouched tree on a
+# 7-cpu container, of which 60 s is the replay itself. The worst case is not
+# the reference: a tree
+# whose SSH daemon never opens its port makes launch.sh wait out a 60 s grace on
+# each of the three profiles, measured at 308 s end to end. Still an eighth of
+# this budget, and a quarter of it after doubling for a shared host.
+timeout_sec = 2400.0
+
+[[steps]]
+# Guice 2.0 out and Spring Framework 5.3 in, configured from Java, still a WAR
+# on javax.servlet. This codebase has no Boot to upgrade and no metrics to
+# instrument, and the framework it does have to leave is a 2010 dependency
+# injector. Getting off it is the prerequisite for everything the later rungs
+# assume is already there -- Boot, `jakarta`, and the configuration
+# binding those two are stated in terms of -- so it is the rung that goes here.
+name = "03-spring-di"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape and budget as steps 01 and 02: package, test, the dependency
+# graph, two scans and 428 recorded observations across three config profiles.
+# Measured at 109 s for the reference and 108 s for step 02's finished tree, on a
+# 7-cpu container. The worst case is still the one step 02 measured -- a tree
+# whose SSH daemon never opens its port waits out a 60 s grace on each of the
+# three profiles, 308 s end to end -- and this step can reach it by a route
+# step 02 could not, since a context that fails to refresh takes the daemon
+# down with it. A quarter of this budget after doubling for a shared host.
+timeout_sec = 2400.0
+
+[[steps]]
+# The WAR becomes a Spring Boot 2.7 executable jar: the servlet container and
+# the servlet API move inside the deployable, `java -jar` replaces the deploy,
+# and the servlets and filters the container used to be handed are registered
+# by the application. Boot arrives at this rung because the codebase had no
+# Spring to put on Boot until step 03 put it on Spring. Still javax.servlet 3.1
+# and still JDK
+# 11: Boot 3 would drag Spring Framework 6, Java 17 and `jakarta` along with
+# it, and those are steps 05 and 09's work, not this one's.
+name = "04-spring-boot"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape and budget as steps 01 to 03: package, test, the dependency graph,
+# two scans and 428 recorded observations across three config profiles.
+# Measured at 107 s for the reference and 29 s for step 03's finished tree, on a
+# 7-cpu container -- the floor run is the fast one because a tree that still
+# packages a WAR produces no bootjar, so launch and replay never start.
+#
+# The worst case moves on this rung and is worth stating. Through step 03 a
+# server that failed to come up still had a container under it, and launch.sh
+# waited out a 60 s grace per profile, 308 s end to end. Here the container is
+# inside the artifact, so the same failure is a JVM that exits at once and the
+# grace is not spent at all; what replaces it as the slow path is a jar that
+# starts but binds nothing, which waits the same grace on each of the three
+# profiles. Same 308 s ceiling, a quarter of this budget after doubling for a
+# shared host.
+timeout_sec = 2400.0
+
+[[steps]]
+# The Jakarta namespace: `javax.servlet` becomes `jakarta.servlet` everywhere
+# this application writes it, which drags Spring Framework 6, Spring Boot 3 and
+# Java 17 in behind it because none of the three will run on the other side of
+# the rename. This is the "javax to jakarta" rung, arriving where the
+# codebase can finally take it -- there was no Spring to move until step 03 and
+# no Boot to move until step 04. JGit moves with it: `org.eclipse.jgit.http.
+# server` is itself a servlet application, and 7.0 is the first line of it
+# built against `jakarta.servlet`.
+#
+# One carve-out from the usual migrated-ness criterion of zero
+# `javax/(servlet|persistence|validation|ws|annotation)` references in
+# compiled bytecode: the packaged-EE absence this step scores
+# covers servlet, el, websocket, auth.message, persistence, validation,
+# transaction, inject and enterprise, but deliberately not `javax.annotation`.
+# `com.google.code.findbugs:jsr305:1.3.9` packages 35 classes under
+# `javax.annotation` into both the predecessor jar and the reference jar --
+# `mini-git-server-server` and `mini-git-server-httpd` each declare the
+# coordinate outright, so it is a dependency two modules compile against and
+# not something JGit drags in -- and JSR-305 is not an EE API and has no
+# jakarta spelling to move to, so scoring that package here would fail the
+# correct tree rather than measure the rename.
+name = "05-jakarta"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape and budget as steps 01 to 04: package, test, the dependency graph,
+# two scans and 428 recorded observations across three config profiles.
+# Measured at 100 s for the reference and 113 s for step 04's finished tree, on
+# a 7-cpu container.
+#
+# The floor run is the slow one here, and that is new. Through step 04 a
+# predecessor tree either failed to produce a deployable at all (step 04's
+# floor: 29 s, nothing to launch) or failed to come up; step 05's predecessor
+# is a working Boot 2.7 server that starts, binds and answers 407 of the 428
+# observations, so the floor pays for a full replay on all three profiles like
+# any correct tree. The worst case is unchanged -- a jar that starts but binds
+# nothing waits out a 60 s grace on each of the three profiles, 308 s end to
+# end -- and that is still an eighth of this budget, a quarter after doubling
+# for a shared host.
+timeout_sec = 2400.0
+
+[[steps]]
+# Step 06 -- log4j 1.2 retires and the SSH audit log is ported to logback.
+#
+# This is the first rung whose leap is not a framework version: log4j 1.2 has
+# been end-of-life since August 2015, it is a different codebase from log4j 2,
+# and the only supported destination for a tree already holding fourteen slf4j
+# call sites is logback behind the facade it already uses.
+#
+# It is a port and not a dependency swap because of one class. `SshLog` writes
+# the SSH audit trail and it does not log through a facade -- it constructs an
+# appender, gives it a layout, wraps it in an asynchronous appender and pushes
+# events into it by hand. A facade call site is portable by construction; an
+# appender is not. That is also why the standard automated escape from log4j
+# 1.2 does not reach here: `log4j-over-slf4j` republishes `org.apache.log4j`
+# with the caller side only -- 30 classes, no `DailyRollingFileAppender`, no
+# `AsyncAppender`, and a `spi.LoggingEvent` stub with no `getTimeStamp()` --
+# so a tree that adopts it does not compile. Measured: OpenRewrite's broadest
+# logging recipe and two charitable bridge variants all score 0.000000.
+#
+# 28 gates over 50.5 weight: 12 for the leap (25.5 of log4j removal and
+# logback arrival, 3.0 for the audit log still being written, 1.0 for the
+# three properties this rung can break without failing anything above), 9
+# common gates at 11.5, and seven holds at 9.5 carrying steps 01 to 05.
+# `one-log4j-provider` from step 04 is widened to `<= 1` inside
+# `inherited-boot-hold` here, because this rung is what makes zero correct;
+# left as it was, it would be an inherited test this rung's own requirements
+# made unpassable.
+#
+# Measured floor: the predecessor tree scores 25.0/50.5 = 0.495050 with all
+# 428 behaviour observations passing, so the leap is what separates the two
+# ends and the behaviour multiplier does not do the work.
+name = "06-logging"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape as steps 01 to 05 -- package, test, the dependency graph, two
+# scans and 428 recorded observations across three config profiles -- plus one
+# addition this rung needs: the probe hook reads each profile's audit log off
+# the site directory after the drive and before the servers are stopped, which
+# costs no measurable time.
+#
+# Measured on a 7-cpu container: 108 s for the reference, 105 s for the
+# predecessor floor. The floor is a full replay here, as at step 05, because
+# the predecessor is a working Boot 3 server that answers all 428 observations
+# -- it is log4j that is wrong with it, not the service. The worst case is
+# unchanged: a jar that starts but binds nothing waits out a 60 s grace on
+# each of the three profiles, 308 s end to end, an eighth of this budget and a
+# quarter of it after doubling for a shared host.
+timeout_sec = 2400.0
+
+[[steps]]
+# Step 07 -- the 2003-2011 library stack retires.
+#
+# Fourteen artifacts published between 2003 and 2011 are still inside the
+# deployable or on the compile classpath: ehcache-core 1.7.2, velocity 1.6.4,
+# commons-io 2.0.1, util-compress 1.28, commons-compress 1.1, commons-lang
+# 2.5, commons-net 2.0, jsr305 1.3.9, args4j 2.0.12, antlr and antlr-runtime
+# 3.2, commons-collections 3.2.1, oro 2.0.8, and two bouncycastle *-jdk15:140
+# at provided scope. None has had a release under those coordinates in over a
+# decade. Nine are declared by this project's own poms; the rest arrive
+# underneath those nine, which is why "no pom declares it" and "nothing in the
+# resolved graph is it" are separate questions here.
+#
+# The rung is a port and not a delete-and-declare because four of the fourteen
+# are load-bearing: the cache subsystem is Ehcache, `SshUtil` decodes with
+# commons-codec, `LocalDiskRepositoryManager`'s startup zip expansion is
+# commons-io plus util-compress, and every SSH command's option parsing is
+# args4j. Nothing in this tree calls any of them -- no cache is declared, no
+# caller reaches `SshUtil`, no fixture ships a zip -- so a tree that deletes
+# all four passes every absence check and all 428 behaviour observations. That
+# is the reason for the weight split: five absence rows carry 16.0 and nine
+# presence rows carry 14.0 of the 30.0 leap.
+#
+# commons-codec is a stated exception: JGit depends on it and resolving JGit's
+# graph brings 1.18.0 back, so the rung asks only that no pom pins it and that
+# no source or class names `org.apache.commons.codec`.
+#
+# 32 gates over 54.0 weight: 14 for the leap at 30.0, 9 common gates at 11.5,
+# and nine holds at 12.5 carrying steps 01 to 06. Three inherited checks are
+# widened here because this rung's own requirements move them:
+# `logging-levels-declared` from six categories to five (two of the six name
+# retired packages), `slf4j-facade-intact` from 14 call sites to 13 (the disk
+# store's log lines leave with Ehcache), and `no-javax-ee-apis-packaged` gains
+# `javax.annotation` (jsr305 leaves).
+#
+# Measured floor: the predecessor tree scores 27.0/54.0 = 0.500000 with all
+# 428 behaviour observations passing. The 27.0 it keeps is 11.5 of common
+# gates, 10.5 of holds, and 5.0 over the three anti-deletion rows it already
+# satisfies -- a row that asks something already true to stay true cannot
+# discriminate, and is not there to.
+name = "07-retire-legacy-stack"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape as steps 01 to 06 -- package, test, the dependency graph, two
+# scans, the probe hook and 428 recorded observations across three config
+# profiles. The leap gates read the same two scans; none of them costs a
+# process.
+#
+# Measured on a 7-cpu container: 126 s for the reference, 109 s for the
+# predecessor floor. The floor is a full replay again, because the predecessor
+# is a working Boot 3 server that answers all 428 observations -- it is the
+# 2009 jars inside it that are wrong, not the service. The worst case is
+# unchanged: a jar that starts but binds nothing waits out a 60 s grace on
+# each of the three profiles, 308 s end to end, an eighth of this budget and a
+# quarter of it after doubling for a shared host.
+timeout_sec = 2400.0
+
+[[steps]]
+# Step 08 -- the work comes off the thread pools.
+#
+# Seven rungs have moved this application's code forward and none of them has
+# touched its concurrency model, which is still one platform thread per unit
+# of work. `WorkQueue.Executor extends ScheduledThreadPoolExecutor`; two
+# instances of it are sized out of `gerrit.config` -- `sshd.threads`,
+# `sshd.batchThreads`, `sshd.streamThreads` -- and stay alive from startup to
+# shutdown whether or not anything is being asked of the server; three
+# anonymous `ThreadFactory` implementations name those threads and drop two of
+# the queues to `Thread.MIN_PRIORITY`; and `BaseCommand.startThread` builds a
+# `new Thread` per admin command. This rung moves all of it onto virtual
+# threads, and moves the reactor to `release=21` because it has to: virtual
+# threads are preview API before JDK 21 and `release=17` will not compile
+# `Thread.ofVirtual` without `--enable-preview`.
+#
+# It is the first rung on this ladder whose claim cannot be read out of the
+# tree. "The command ran on a virtual thread" is true only while the command
+# is running, so the verifier's probe puts six units of work into the live
+# server -- four `git-upload-pack` ssh sessions and two `git-upload-pack`
+# POSTs, each blocked reading a body that never arrives -- and takes a pair of
+# thread dumps while they are stuck: `Thread.dump_to_file -format=json`, which
+# lists every thread, and `Thread.print`, which on JDK 21 lists exactly the
+# platform ones. Five of the ten leap rows read that pair, and they ask which
+# *kind* of thread had a `UploadPack` frame on its stack rather than what any
+# thread was called: JGit's `InterruptTimer` names a platform helper after the
+# command it is timing, and `BaseCommand$TaskThunk` renames whatever thread it
+# is on for the duration of a command, so names are not evidence here.
+#
+# What makes the rung dangerous is that "virtual threads are cheap, so stop
+# counting them" is a true sentence with a false ending. The interactive bound
+# is not there because threads are expensive; it is there because
+# `git-upload-pack` forks a pack builder and holds a repository open. A
+# candidate who deletes the bound, deletes the `gerrit.config` keys that set
+# it, or deletes the 300-line task registry along with the pool it wrapped
+# still answers all 428 observations. Three hold rows at 6.0 are what refuse
+# those trees, one of them measured live: with the fixture's `sshd.threads =
+# 4` and `sshd.batchThreads = 2`, four commands offered at once must leave at
+# most two in flight.
+#
+# 32 gates over 59.5 weight: 12 for the leap at 30.5 -- five live rows at
+# 16.5, five structural at 12.0, and `class-release`/`compiler-release` at 2.0,
+# which belong to this rung rather than to the inherited set because the
+# predecessor fails both -- 3 hold rows at 6.0, 7 common gates at 8.5, and ten
+# holds at 14.5 carrying steps 01 to 07. No inherited check is widened here;
+# nothing this rung does touches a library coordinate.
+#
+# Measured floor: the predecessor tree scores 29.0/59.5 = 0.487395 with all 428
+# behaviour observations passing. Nothing in the 428 observes a thread -- the
+# audit log records `SSHD` as its thread name on both sides because `SshLog`
+# sets that string rather than reading `Thread.currentThread()` -- so
+# `must-flip.jsonl` gains no records at this rung and carries step 05's 123
+# unchanged.
+name = "08-virtual-threads"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Steps 01 to 07's shape -- package, test, the dependency graph, two scans,
+# the probe hook and 428 recorded observations across three config profiles --
+# plus this rung's live measurement, which is the only thing that costs more
+# than the rungs below it. The probe's second section waits for two commands
+# to have advertised refs (bounded poll, 20 s ceiling), settles 3 s, takes two
+# dumps and kills the load: under 30 s on the reference, and bounded whatever
+# the candidate's tree does, because every client it starts is wrapped in
+# `timeout 45`.
+#
+# Measured on a 7-cpu container: 122 s for the reference, 117 s for the
+# predecessor floor, against step 07's 126 s and 109 s; 141 s and 151 s when
+# re-measured while another job had the machine. The
+# probe's own section is 7 s of that on the reference, and the rest is the same
+# package, test and scan work.
+#
+# The worst case is dominated by launch.sh, not by the probe, and it is bounded
+# by fixed timeouts rather than by how slow the host is. Per profile: an
+# artifact that never answers HTTP costs LAUNCH_TIMEOUT=180 s, one relaunch,
+# and another 180 s before that profile is given up on; an artifact whose HTTP
+# half comes up but whose sshd never binds costs at most 180 s plus the 60 s
+# SSH_GRACE, and the grace loop exits early if the process dies. So three
+# profiles are at most 3 x 360 s = 1080 s, after which drive.py refuses 428
+# connections quickly and the probe finds no pid and returns at once. Call it
+# 1200 s end to end, half of this budget -- and unlike the measured numbers it
+# does not double on a shared host, because a timeout is wall-clock either way.
+timeout_sec = 2400.0
+
+[[steps]]
+# Step 09 -- the source comes up to the language.
+#
+# Eight rungs have moved this application's platform from 2009 to the present
+# and none of them has moved its prose. The tree compiles at `release=21` and
+# is written for Java 5: `java.util.Calendar` behind a lock renders the audit
+# log's timestamp, eleven anonymous inner classes implement single-method
+# interfaces, twenty-five `instanceof` tests are followed by the cast they
+# already proved safe, and the CLI layer uses args4j's `Setter` and
+# `OptionHandler` raw under six `@SuppressWarnings("unchecked")`. Asked with
+# every category on -- `-Xlint:all` -- this reactor answers with 21 warnings.
+#
+# This rung's definition is that number going to zero and staying there: the
+# source is brought up to the language, and then `-Xlint:all -Werror` is put
+# in the parent pom's compiler-plugin block so the tenth rung and everything
+# after it inherits a tree that cannot quietly rot. The 21 warnings partition
+# into the rung's four subjects -- 8 raw args4j uses, 2 deprecated
+# `PersonIdent(Date,TimeZone)` constructions, 1 JEP 411 `AccessController`
+# call, 2 `Serializable` contract warnings on a servlet -- plus 8 ordinary
+# defects (4 lossy compound assignments in `IdGenerator`, a deprecated
+# `java.net.URL(String)`, a deprecated args4j `CmdLineException` constructor,
+# and 2 calls to this project's own deprecated `CurrentUser.isAdministrator`).
+#
+# What makes the rung dangerous is that every edit it asks for is an edit to
+# the expression of something rather than to the thing expressed, so the two
+# plausible failures are opposite. One is the tree that gets to zero warnings
+# by switching categories off (`-Xlint:all,-deprecation`) or by suppressing
+# everything: `lint-is-enforced` refuses a negated category by parsing the
+# argument rather than searching it for `all`, and `suppressions` caps the
+# count at 8 arguments against a reference that spends 6 and a predecessor
+# that spends 10. The other is the tree that gets to zero by deleting the
+# warned-about code -- an unused private method, a field nobody reads, a
+# `catch` that cannot be entered. The eight common gates already refuse that
+# shape (110 source files, 135 declared types, 19 tests, no orphan types), and
+# this rung deliberately leaves them there rather than adding anti-deletion
+# rows of its own, which is why its column (b) is empty and no other rung's
+# is.
+#
+# The rung asks for nothing this tree has no site for. There are no records,
+# no sealed hierarchies, no text blocks and no switch expressions in the
+# reference, because measuring the tree first found no place where one would
+# be an improvement rather than a costume. The toolchain does not move:
+# `release` stays 21 and `class-release`/`compiler-release` return to the
+# inherited column, where step 08 left them after moving them.
+#
+# 29 gates over 59.5 weight: 10 for the leap at 32.5, none in column (b), 8
+# common gates at 10.5 and 11 holds at 16.5 carrying steps 01 to 08 -- the
+# eleventh being `inherited-virtual-hold`, which collapses step 08's thirteen
+# concurrency gates, five of which still take live thread dumps. No inherited
+# check is widened here; nothing this rung does touches a library coordinate
+# or a runtime behaviour.
+#
+# Measured floor: the predecessor tree scores 27.0/59.5 = 0.453782 with all
+# 428 behaviour observations passing. Nothing in the 428 observes a rendered
+# date -- `must-flip.jsonl` carries step 05's 123 unchanged -- which is
+# exactly why `no-legacy-date-api` is paired with `java-time-in-use` and why
+# `inherited-logging-hold` still pins the audit timestamp's wire format.
+name = "09-java21"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Steps 01 to 08's shape -- package, test, the dependency graph, two scans,
+# the probe hook and 428 recorded observations across three config profiles.
+# This rung adds no new measurement apparatus: nine of its ten gates read the
+# two scans this verifier already takes, and the tenth reads the build
+# transcript `build.sh` already writes to /score/log/build.log. It inherits
+# step 08's live thread-dump probe through `inherited-virtual-hold`, so the
+# probe's cost is carried, not added.
+#
+# The same worst case as step 08 bounds this one, and for the same reason:
+# it is dominated by launch.sh's fixed timeouts rather than by how slow the
+# host is. Three profiles are at most 3 x 360 s = 1080 s, after which
+# drive.py refuses 428 connections quickly and the probe finds no pid and
+# returns at once.
+timeout_sec = 2400.0
+
+[[steps]]
+# Step 10 -- the platform comes up to current, and the source comes with it.
+#
+# Nine rungs moved a 2011 Java EE 6 WAR to a Spring Boot 3 executable jar at
+# `release` 21, and every one of them left it exactly one major version behind
+# the platform: Boot 3.5.16, Spring Framework 6.2.19, Servlet 6.0 out of
+# tomcat-embed 10.1.55, JUnit jupiter 5.10.2 beside platform 1.10.2. This rung
+# moves all four and is the Jakarta EE 11 / Spring Boot 4 destination, which
+# is why it is last.
+#
+# The version move is the half that is easy to check and easy to do: it is one
+# property in the parent pom, plus deleting the `junit-bom` import that
+# property makes wrong -- Boot 4's dependency management manages `org.junit.*`
+# and Boot 3's did not, so a reactor that keeps its own bom is a reactor that
+# pins itself to JUnit 5 with the very import that was meant to keep JUnit
+# consistent. The other half is four source conventions Boot 4 is designed
+# around and cannot install on a tree's behalf, and they are the reason this
+# rung is not a one-line diff: 18 packages of main source declaring nullness
+# with JSpecify's `@NullMarked`, 18 null-returning methods saying so with
+# `@Nullable`, 31 `@Autowired` annotations coming off sole constructors the
+# container has inferred since Framework 4.3, and 12 `serialVersionUID` fields
+# getting `@Serial`. A tree that does only the versions builds, starts and
+# answers all 428 observations.
+#
+# Two of the eleven leap rows are worth recording because of how they are
+# measured. `servlet-api-6-1` reads `jakarta.servlet.http.HttpSession$Accessor`
+# out of the deployable rather than off a coordinate, because nothing was
+# removed between Servlet 6.0 and 6.1 that a scan could look for and because
+# the API arrives inside `tomcat-embed-core` here and would arrive as a
+# standalone jar beside Jetty; four jars were opened to find one positive
+# marker and no negative one. `rewrite-clean` is the only row on
+# this ladder whose instrument is somebody else's: scan-extra.sh runs
+# `rewrite-spring`'s `UpgradeSpringBoot_4_0` in dryRun over a copy of the
+# candidate's tree and this reads the patch, counting any `.java` line and any
+# groupId/artifactId change as a finding and ignoring `<version>` elements and
+# `*Version` properties, which are resolved from live Central metadata and
+# would otherwise make the gate a clock. It fails closed on a missing or
+# non-zero `rewrite.rc`: an empty patch means "found nothing" and it also means
+# "never ran", and those must not score the same.
+#
+# 28 gates over 55.5 weight: 11 for the leap at 30.0, 5 top-level floor rows at
+# 6.5, and 12 holds at 19.0 carrying steps 01 to 09 -- the last of them
+# `inherited-java21-hold`, which collapses step 09's ten idiom rows together
+# with `class-release`, `compiler-release` and `no-jdk-internals` into 2.5.
+#
+# Three inherited checks are widened here rather than re-pinned, and the
+# distinction matters. `spring-boot-dep` accepts `^(3|4)\.`,
+# `spring-6` becomes `spring-6-or-7` accepting `^(6|7)\.`, and
+# `no-spring-off-6` becomes `no-spring-off-6-or-7`. Re-pinning them to 4 and 7
+# would break the ladder invariant every rung below depends on: the floor must
+# pass every
+# inherited row and fail every own row, and step 09's floor is 27.0 of 59.5
+# precisely because that is its inherited total. A re-pinned `spring-6` fails
+# the floor on the version alone and drags `inherited-di-hold` and
+# `inherited-boot-hold` down with it, because a hold fails whole. The new
+# statements are made by new rows -- `boot-4` and `framework-7` -- where the
+# floor is supposed to lose them. Step 06's `one-log4j-provider` widening is
+# the precedent.
+#
+# Two usual parts of a Jakarta EE 11 / Boot 4 move are left out, on
+# measurement. Jakarta Persistence 3.2 is not applicable: this codebase has no
+# JPA and no database, as the task description records. And
+# `spring-boot-properties-migrator` is vacuous here: the
+# application sets exactly one Spring property, `spring.threads.virtual.
+# enabled`, which Boot 4 neither renamed nor removed, so the migrator reports
+# nothing on the reference -- and on the floor it would be a Boot 3 jar being
+# asked to load a Boot 4 agent, which is not a measurement. A row both controls
+# pass adds no signal and raises the floor, so it is not shipped;
+# `rewrite-clean` covers the same ground with an instrument that discriminates.
+#
+# Measured floor: the predecessor tree scores 25.5/55.5 = 0.459459 with all 428
+# behaviour observations passing. Nothing in the 428 observes a platform
+# version, an annotation or a starter's artifactId -- `must-flip.jsonl` carries
+# step 05's 123 records unchanged, as at steps 08 and 09 -- which is exactly
+# why every row here is a static or graph reading and why three of them carry
+# an explicit anti-deletion floor (>= 6 Boot coordinates, >= 45
+# single-constructor types, >= 8 `serialVersionUID` fields).
+name = "10-boot4-jakarta11"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Steps 01 to 09's shape -- package, test, the dependency graph, two scans, the
+# probe hook and 428 recorded observations across three config profiles --
+# plus one addition this rung needs: scan.sh's `scan-extra.sh` hook runs the
+# OpenRewrite dryRun (`rewrite-clean`) against a copy of /app, after the artifact
+# scan, the AST scan and the dependency graph, so nothing it does can be read
+# back by a gate that was supposed to be looking at the candidate's own build.
+# Measured at 47 s warm against a pre-seeded plugin and recipe; the recipe
+# coordinates are pinned by full version so the tree under test cannot choose
+# the instrument.
+#
+# The same worst case as steps 08 and 09 bounds this one, and for the same
+# reason: it is dominated by launch.sh's fixed timeouts rather than by how slow
+# the host is. Three profiles are at most 3 x 360 s = 1080 s, after which
+# drive.py refuses 428 connections quickly and the probe finds no pid and
+# returns at once. The rewrite run adds a bounded 600 s of its own.
+timeout_sec = 2400.0

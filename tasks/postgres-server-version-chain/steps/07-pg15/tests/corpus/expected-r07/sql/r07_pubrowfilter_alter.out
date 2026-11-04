@@ -1,0 +1,26 @@
+CREATE TABLE x07_20a(a int PRIMARY KEY, b text);
+CREATE PUBLICATION x07_20p FOR TABLE x07_20a WHERE (a > 5);
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT rowfilter FROM pg_publication_tables WHERE pubname='x07_20p';
+ rowfilter 
+-----------
+ (a > 5)
+(1 row)
+
+ALTER PUBLICATION x07_20p SET TABLE x07_20a WHERE (a < 5);
+SELECT rowfilter FROM pg_publication_tables WHERE pubname='x07_20p';
+ rowfilter 
+-----------
+ (a < 5)
+(1 row)
+
+ALTER PUBLICATION x07_20p SET TABLE x07_20a;
+SELECT rowfilter IS NULL AS no_filter FROM pg_publication_tables WHERE pubname='x07_20p';
+ no_filter 
+-----------
+ t
+(1 row)
+
+DROP PUBLICATION x07_20p;
+DROP TABLE x07_20a;

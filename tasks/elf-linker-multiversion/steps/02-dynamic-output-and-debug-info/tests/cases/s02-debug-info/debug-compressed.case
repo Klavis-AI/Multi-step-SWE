@@ -1,0 +1,46 @@
+# arch: x86_64
+# A SHF_COMPRESSED input debug section is decompressed into the output at its
+# full size and its relocations are applied to the decompressed bytes.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+nre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" && die "$1: unexpected /$3/"; return 0; }
+secbytes() { local o s
+  o=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+3) } }' | sed -n 1p)
+  s=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+4) } }' | sed -n 1p)
+  [ -n "$o" ] || die "output has no $2 section: $(sections "$1")"
+  dd if="$1" of="$3" bs=1 skip=$(( 16#$o )) count=$(( 16#$s )) status=none
+}
+u64at() { od -An -tx8 -j "$2" -N 8 "$1" | tr -d ' \n'; }
+rt_obj rt.o
+cat > z.s <<'S'
+        .text
+        .globl marker
+marker: ret
+        .globl entry
+entry:  call    marker
+        xor     %eax, %eax
+        ret
+        .section .debug_info,"",@progbits
+        .rept   18
+        .ascii  "COMPRESSIBLE"
+        .endr
+        .quad   marker
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj z.o z.s -Wa,--compress-debug-sections=zlib
+wre "input really is SHF_COMPRESSED" "$($READELF -S --wide z.o)" '[[:space:]]\.debug_info[[:space:]].*[[:space:]]C[[:space:]]'
+isz=$(sections z.o | awk '{ for (i=1;i<=NF;i++) if ($i==".debug_info") { print $(i+4) } }' | sed -n 1p)
+[ $(( 16#$isz )) -lt 224 ] || die "input .debug_info was not actually compressed ($(( 16#$isz )) bytes)"
+link_ok out rt.o z.o
+wre ".debug_info survives" "$(sections out)" '[[:space:]]\.debug_info[[:space:]]'
+nre "output section is not left compressed" "$(sections out)" '[[:space:]]\.debug_info[[:space:]].*[[:space:]]C[[:space:]]'
+secbytes out .debug_info di.bin
+want "decompressed size" "$(wc -c < di.bin)" "224"
+want "decompressed payload" "$(head -c 24 di.bin)" "COMPRESSIBLECOMPRESSIBLE"
+want "relocation applied to decompressed bytes" "$(u64at di.bin 216)" "$(sym_value out marker)"
+[ "$(( 16#$(sym_value out marker) ))" -ne 0 ] || die "marker resolved to 0"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 6

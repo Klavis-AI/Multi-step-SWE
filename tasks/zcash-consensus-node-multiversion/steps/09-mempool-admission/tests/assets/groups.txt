@@ -1,0 +1,34 @@
+# groups.txt -- step 09, "mempool-admission" (upstream v1.0.0-alpha.17).
+#
+# name <tab> kind <tab> weight <tab> crate <tab> arg
+#
+#   kind   gate    proof of life + inherited regression. Binary, earns nothing,
+#                  vetoes the whole step. Weight column MUST be 0.
+#          scored  this step's new capability + peripheral breadth. Positive
+#                  integer weight; the scored weights sum to 100.
+#   crate  a crate name -> driver group; arg is the exact number of test cases
+#          @build       -> build group;  arg is a whole cargo invocation
+#
+#   reward = gate x score
+#
+# Gate groups carry no weight on purpose. Pricing inherited work is what let a
+# no-op collect a share of the score; under this model it collects nothing.
+#
+# Every driver arg is the exact `#[test]` count of the shipped file, counted with
+# `grep -c '^#\[test\]'` after the last edit to that file, and witnessed as the
+# same number in that driver's `test result:` line against app-09.
+#
+# workspace-checks uses --all-features because zebra-chain/benches/block.rs
+# reaches zebra_chain::block::tests::generate, which block.rs gates behind
+# #[cfg(any(test, feature = "bench"))]; a bench target is not built with
+# cfg(test), so the plain --all-targets form does not compile this tag.
+
+build	gate	0	@build	build -p zebra-chain --tests
+workspace-checks	gate	0	@build	check --workspace --all-targets --all-features
+unmined-transaction-ids	scored	25	zebra-chain	10
+wtxid-wire-format	scored	20	zebra-chain	12
+mempool-verifier-request	scored	20	zebra-consensus	10
+chain-tip-interface	scored	15	zebra-chain	9
+coinbase-input-predicates	scored	10	zebra-chain	9
+network-mempool-requests	scored	10	zebra-network	9
+inherited-block-codec	gate	0	zebra-chain	8

@@ -1,0 +1,72 @@
+{
+ "doc": "stages/filters.griddecimation.rst: 'The **grid decimation filter** transform only one point in each cells of a grid calculated from the points cloud and a resolution therm. The transformation is done by the value information. The selected point could be the highest or the lowest point on the cell.' and its Options block: output_type 'The type of points transform by the value information. The value should be ``\"max\"`` for transform the highest point, or ``\"min\"`` for the lowest.'; resolution 'The resolution of the cells in meter. [Default: 1.]'; value 'A list of :ref:`assignment expressions <Assignment Expressions>` to be applied to points. The list of values is evaluated in order. [Default: none]'.  value 'A list of :ref:`assignment expressions <Assignment Expressions>` to be applied to points. The list of values is evaluated in order.'  The second expression wins for the points the first also matches.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "gd.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.gridDecimation\", \"resolution\": 2, \"output_type\": \"max\", \"value\": [\"Classification=9\", \"Classification=8\"]}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]"
+  },
+  "cnt8.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"out.las\"}, {\"type\": \"filters.expression\", \"expression\": \"Classification==8\"}, {\"type\": \"writers.las\", \"filename\": \"cnt8.las\"}]"
+  },
+  "cnt9.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"out.las\"}, {\"type\": \"filters.expression\", \"expression\": \"Classification==9\"}, {\"type\": \"writers.las\", \"filename\": \"cnt9.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "gd.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "cnt8.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "cnt9.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "cnt8.las",
+   "header": {
+    "point_count": {
+     "equals": 25
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "cnt9.las",
+   "header": {
+    "point_count": {
+     "equals": 0
+    }
+   }
+  }
+ ]
+}

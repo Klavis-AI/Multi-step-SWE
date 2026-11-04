@@ -1,0 +1,138 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's reward. There is no min_reward gate, so
+# every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches the
+# verifier container. Build output is excluded so the verifier rebuilds from the
+# candidate's own sources.
+artifacts = [
+  # Collected per path rather than as one /app tree: Harbor's pod-exec transport
+  # decodes the stream as UTF-8, so only text survives the trip. These three
+  # paths are the candidate's own work and are text by construction; the build
+  # output under /app/build is deliberately not collected, which also forces the
+  # verifier to rebuild from source.
+  { source = "/app/src", destination = "workspace/src" },
+  { source = "/app/Makefile", destination = "workspace/Makefile" },
+  { source = "/app/WORKSPACE_HANDOFF.md", destination = "workspace/WORKSPACE_HANDOFF.md" },
+]
+
+[task]
+name = "harbor/redis-server-version-chain"
+version = "1.0.0"
+description = "Eleven-step Java Redis-compatible server across the Redis release train, 2.8 to 8.0: RESP2 and the core types with RDB and AOF persistence, PSYNC replication and Sentinel, cluster hash slots and the cluster bus, GEO and BITFIELD, the 4.0 memory surface, streams, RESP3 with ACLs, TLS and client-side caching, the 6.2 additions, functions and multi-part AOF, hash-field expiration, and the 8.0 bundled data types. Graded with Redis's own Tcl test suite at every rung plus RDB and AOF fixtures produced by real redis-server binaries."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["redis", "resp", "wire-protocol", "java", "multi-step", "persistence", "replication", "cluster"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["redis", "resp", "java", "multi-step", "protocol", "database"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 2700.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-core-2-8"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-replication-2-8"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-cluster-3-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-geo-bitfield-3-2"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-memory-4-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-streams-5-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-resp3-acl-tls-6-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-getex-scan-6-2"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "09-functions-7-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "10-hashttl-7-4"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "11-datatypes-8-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

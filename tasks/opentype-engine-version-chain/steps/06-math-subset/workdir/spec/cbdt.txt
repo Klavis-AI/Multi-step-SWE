@@ -1,0 +1,265 @@
+Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+ CBDT — Color Bitmap Data Table
+
+ Feedback
+
+ Summarize this article for me
+
+The CBDT table is used to embed color bitmap glyph data. It is used together with the CBLC table, which provides embedded bitmap locators. The formats of these two tables are downward compatible extensions of the EBDT and EBLC tables used for embedded monochrome and grayscale bitmaps.
+
+Table structure
+
+The CBDT table begins with a header containing simply the table version number.
+
+CbdtHeader
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+uint16 | 
+majorVersion | 
+Major version of the CBDT table, = 3. | 
+
+ROW 
+uint16 | 
+minorVersion | 
+Minor version of the CBDT table, = 0. | 
+
+Note that the first version of the CBDT table is 3.0.
+
+The rest of the CBDT table is a collection of bitmap data. The data can be presented in three possible formats, indicated by information in the CBLC table. Some of the formats contain metric information plus image data, and other formats contain only the image data. Long word alignment is not required for these subtables; byte alignment is sufficient.
+
+Uncompressed color bitmaps
+
+The value 32 may be used in the bitDepth field of BitmapSize records within the CBLC table to identify color bitmaps with 8-bit blue/green/red/alpha (“BGRA”) channels per pixel, encoded in that order for each pixel. The color channels represent pre-multiplied color and must be encoded colors in the sRGB colorspace, as specified in IEC 61966-2-1:1999/Amd 1:2003. For example, the color “full-green with half translucency” is encoded as \x00\x80\x00\x80 (BGR values are pre-multiplied), and not \x00\xFF\x00\x80.
+
+All bitmap image data formats defined in the EBDT / EBLC tables are valid for use with the CBDT / CBLC tables.
+
+Compressed color bitmaps
+
+Images for each individual glyph may be stored as straight PNG data, as specified in ISO/IEC 15948. Only the following chunks are allowed in such PNG data: IHDR, PLTE, tRNS, sRGB, IDAT, and IEND. If other chunks are present, the behavior is undefined. The image data must be in the sRGB colorspace, regardless of color information that could be present in other chunks in the PNG data. The individual images must have the same size as expected by the table in the bitmap metrics.
+
+Glyph metrics
+
+There are also two different formats for glyph metrics: big glyph metrics and small glyph metrics. Big glyph metrics define metrics information for both horizontal and vertical layouts. This is important in fonts (such as Kanji) where both types of layout may be used. Small glyph metrics define metrics information for one layout direction only. Which direction applies, horizontal or vertical, is determined by the flags field of BitmapSize records within the CBLC table.
+
+BigGlyphMetrics record
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+uint8 | 
+height | 
+Number of rows in the bitmap. | 
+
+ROW 
+uint8 | 
+width | 
+Number of columns in the bitmap. | 
+
+ROW 
+int8 | 
+horiBearingX | 
+Distance in pixels from the horizontal origin to the left edge of the bitmap. | 
+
+ROW 
+int8 | 
+horiBearingY | 
+Distance in pixels from the horizontal origin to the top edge of the bitmap. | 
+
+ROW 
+uint8 | 
+horiAdvance | 
+Horizontal advance width in pixels. | 
+
+ROW 
+int8 | 
+vertBearingX | 
+Distance in pixels from the vertical origin to the left edge of the bitmap. | 
+
+ROW 
+int8 | 
+vertBearingY | 
+Distance in pixels from the vertical origin to the top edge of the bitmap. | 
+
+ROW 
+uint8 | 
+vertAdvance | 
+Vertical advance width in pixels. | 
+
+SmallGlyphMetrics record
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+uint8 | 
+height | 
+Number of rows in the bitmap. | 
+
+ROW 
+uint8 | 
+width | 
+Number of columns in the bitmap. | 
+
+ROW 
+int8 | 
+bearingX | 
+Distance in pixels from the horizontal origin to the left edge of the bitmap (for horizontal text); or distance in pixels from the vertical origin to the top edge of the bitmap (for vertical text). | 
+
+ROW 
+int8 | 
+bearingY | 
+Distance in pixels from the horizontal origin to the top edge of the bitmap (for horizontal text); or distance in pixels from the vertical origin to the left edge of the bitmap (for vertical text). | 
+
+ROW 
+uint8 | 
+advance | 
+Horizontal or vertical advance width in pixels. | 
+
+Glyph bitmap data formats
+
+In addition to nine different formats already defined for glyph bitmap data in the EBDT table, there are three additional formats for use in the CBDT table, described below.
+
+Format 17: small metrics, PNG image data
+
+GlyphBitmapFormat17 table
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+smallGlyphMetrics | 
+glyphMetrics | 
+Metrics information for the glyph | 
+
+ROW 
+uint32 | 
+dataLen | 
+Length of data in bytes | 
+
+ROW 
+uint8 | 
+data[dataLen] | 
+Raw PNG data | 
+
+Format 18: big metrics, PNG image data
+
+GlyphBitmapFormat18 table
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+bigGlyphMetrics | 
+glyphMetrics | 
+Metrics information for the glyph | 
+
+ROW 
+uint32 | 
+dataLen | 
+Length of data in bytes | 
+
+ROW 
+uint8 | 
+data[dataLen] | 
+Raw PNG data | 
+
+Format 19: metrics in CBLC table, PNG image data
+
+GlyphBitmapFormat19 table
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+uint32 | 
+dataLen | 
+Length of data in bytes | 
+
+ROW 
+uint8 | 
+data[dataLen] | 
+Raw PNG data | 
+
+Scaling behavior
+
+Applications using these glyphs may need to scale them to fit the raster size available for display. How this scaling takes place is application dependent. It is recommended that where possible the application downscale using the closest sized bitmap that is larger than the desired end raster size.
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ OpenType specification
+
+ Open a documentation issue
+
+ Provide product feedback
+
+ Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2024-05-31

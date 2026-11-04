@@ -1,0 +1,62 @@
+{
+ "doc": "PROFILE.md 5.1: 'COPC output ordered by `GpsTime`. Points in a written COPC file come out in GPS-time order.' -- in grid.las Intensity = i and GpsTime = i*0.5, so GPS-time order is Intensity order; reading the stored Intensity back is an independent witness of the same reordering. The check that makes this readable as GPS-time order is the copc one: what a `values` list grades is the file's STORED order, and a COPC file stores each octree node's points contiguously, so stored order is GPS-time order end to end only while the whole cloud sits in ONE node. PROFILE.md 5.1 states that -- the ordering is by GpsTime within a node, and a cloud of this size at unit spacing belongs in a single node, which refines but does not reopen 4.3's freedom over octree shape for clouds big enough to need splitting. So the premise is checked rather than assumed: hierarchy_entries == 1, read with the verifier's independent COPC reader. A writer that subdivided the lattice fails on the node count, with a message that says so, instead of on a baffling GpsTime value. Measured on the real 2.5.0 binary: 1 hierarchy entry for both the 1000-point file and the 500-point subset.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.sort\",\"dimension\":\"GpsTime\",\"order\":\"DESC\"},{\"type\":\"writers.copc\",\"filename\":\"out.copc.laz\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "copc",
+   "file": "out.copc.laz",
+   "point_count": {
+    "equals": 1000
+   },
+   "hierarchy_entries": {
+    "equals": 1
+   }
+  },
+  {
+   "kind": "las",
+   "file": "out.copc.laz",
+   "header": {
+    "point_count": 1000
+   },
+   "dims": {
+    "Intensity": {
+     "values": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+     ],
+     "tol": 1e-09
+    }
+   }
+  }
+ ]
+}

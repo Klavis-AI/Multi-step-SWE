@@ -1,0 +1,36 @@
+// DESC: Custom FileOptions extensions set with scalar, repeated and aggregate values
+syntax = "proto2";
+package c2.extensions.custom_file_options;
+
+import "google/protobuf/descriptor.proto";
+
+message FileMeta {
+  optional string owner = 1;
+  optional int32 revision = 2;
+  repeated string reviewers = 3;
+  optional Nested nested = 4;
+  message Nested {
+    optional string team = 1;
+    optional Nested deeper = 2;
+  }
+}
+
+extend google.protobuf.FileOptions {
+  optional string simple_file_opt = 50101;
+  optional int32 numeric_file_opt = 50102;
+  optional FileMeta structured_file_opt = 50103;
+  repeated string repeated_file_opt = 50104;
+}
+
+option (simple_file_opt) = "owned-by-corpus";
+option (numeric_file_opt) = 7;
+option (structured_file_opt) = {
+  owner: "alice"
+  revision: 3
+  reviewers: ["bob", "carol"]
+  nested { team: "infra" deeper { team: "core" } }
+};
+option (repeated_file_opt) = "first";
+option (repeated_file_opt) = "second";
+
+message Marker { optional int32 v = 1; }

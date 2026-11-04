@@ -1,0 +1,68 @@
+# The capture group name maximum rises from 32 to 128 code units;
+# pcre2_set_max_pattern_compiled_length() limits compiled pattern size; and
+# (*TURKISH_CASING), (*CASELESS_RESTRICT) and PCRE2_EXTRA_NEVER_CALLOUT are
+# new.  ChangeLog 10.44 items 3 and 6; ChangeLog 10.45 items 34 and 40;
+# pcre2pattern.3, "NAMED CAPTURE GROUPS" and "SPECIAL START-OF-PATTERN ITEMS".
+
+/(?<qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq>x)y/
+    xy
+ 0: xy
+ 1: x
+
+/(?<rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr>x)y/
+    xy
+ 0: xy
+ 1: x
+
+/(?<sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss>x)y/
+Failed: error 148 at offset 132: subpattern name is too long (maximum 128 code units)
+
+# Turkish casing changes the equivalences of i, I, U+0130 and U+0131.
+/(*TURKISH_CASING)^i$/utf,caseless
+    \x{130}
+ 0: \x{130}
+    I
+No match
+
+/^i$/utf,caseless,turkish_casing
+    \x{130}
+ 0: \x{130}
+    I
+No match
+
+/^i$/utf,caseless
+    \x{130}
+No match
+    I
+ 0: I
+
+/(*TURKISH_CASING)^I$/utf,caseless
+    \x{131}
+ 0: \x{131}
+    i
+No match
+
+# (*CASELESS_RESTRICT) sets the caseless restriction from the pattern.
+/(*CASELESS_RESTRICT)^K$/utf,caseless
+    \x{212a}
+No match
+    k
+ 0: k
+
+# PCRE2_EXTRA_NEVER_CALLOUT makes a callout-bearing pattern fail to compile.
+/quay(?C1)side/never_callout
+Failed: error 203 at offset 6: using callouts is disabled by the application
+
+/quay(?C1)side/
+    quayside
+--->quayside
+  1 ^   ^        s
+ 0: quayside
+
+# A compiled-length limit set by the application.
+/abcdefghij/max_pattern_compiled_length=8
+Failed: error 201 at offset 10: compiled pattern would be longer than the limit set by the application
+
+/abcdefghij/max_pattern_compiled_length=200
+    abcdefghij
+ 0: abcdefghij

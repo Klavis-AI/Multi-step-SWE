@@ -1,0 +1,64 @@
+# groups.txt -- step12
+#
+# name <tab> kind <tab> weight <tab> crate <tab> arg
+#
+#   kind   gate    proof of life + inherited regression. Binary, earns nothing,
+#                  vetoes the whole step. Weight column MUST be 0.
+#          scored  this step's new capability + peripheral breadth. Positive
+#                  integer weight; the scored weights sum to 100.
+#   crate  a crate name -> driver group; arg is the exact number of test cases
+#          @build       -> build group;  arg is a whole cargo invocation
+#
+#   reward = gate x score
+#
+# Gate groups carry no weight on purpose. Pricing inherited work is what let a
+# no-op collect a share of the score; under this model it collects nothing.
+#
+# Why `orchard-flags-limits` is gone (round 5).
+#
+# It was a zebra-chain group holding four tests: the two always-`true` early
+# returns of `Transaction::has_enough_orchard_flags`, and the two `Flags`
+# wire-format tests. Diffing zebra-chain/src/orchard/shielded_data.rs between
+# app-11 and app-12 shows the `Flags` serde is byte-identical, so those two were
+# inherited regression drawing a share of a 22-point weight -- they moved to the
+# weight-0 `inherited-milestones` gate. The other two exercised a predicate
+# whose only failing branch was already asserted in the ZIP-212 group,
+# because building a V5 transaction that carries an Orchard action needs
+# zebra-chain's `proptest-impl` feature, which only zebra-consensus's tests
+# enable. Splitting one three-branch predicate across two groups priced the two
+# branches no stub can get wrong separately from the branch that matters, so
+# they moved into the ZIP-212 group too, and the group was retired rather
+# than left holding nothing a no-op could fail.
+#
+# Its 22 points went to the two behavioural groups that absorbed the work:
+# zip212-orchard-flags 34 -> 52 (it now held all of capability 4 as well as
+# capability 3, in both directions, and one more ZIP-212 acceptance case) and
+# sprout-note-commitment-tree 30 -> 34.
+#
+# Round 7 undid the bundling that round 5 introduced, but not its retirement
+# decision. The 52-point group was split back into two scored groups in the
+# same crate -- `zip212-coinbase-decryptable` (26, capability 3, 4 tests) and
+# `orchard-flags-rule` (26, capability 4, 5 tests) -- because the two
+# capabilities are implemented in different functions and fail independently:
+# a candidate correct on ZIP-212 and wrong on the flags predicate lost all 52
+# points. Binary group scoring means their bundling destroyed partial credit.
+# `too_many_transparent_sigops_variant` moved from that group to
+# `subsidy-error-variants` (5 -> 6 tests), where capability 5 lives.
+# Capabilities 3, 4 and 6 still hold 86 of the 100 scored points and
+# capability 5 still holds 14, exactly as instruction.md says.
+#
+# `workspace-handoff` is new this round: it is the only group that observes the
+# handoff requirement in instruction.md and TEST_INTERFACE.md §9, that
+# /app/specs/, /app/TEST_INTERFACE.md, /app/WORKSPACE_HANDOFF.md and
+# /app/timer.sh survive into step 13's workspace. Weight 0, because keeping a
+# file you were given is not a capability -- deleting it is a veto.
+
+build	gate	0	@build	build -p zebra-chain --tests
+workspace-checks	gate	0	@build	check --workspace --all-targets --all-features
+sprout-note-commitment-tree	scored	34	zebra-chain	7
+zip212-coinbase-decryptable	scored	26	zebra-consensus	4
+orchard-flags-rule	scored	26	zebra-consensus	5
+subsidy-error-variants	scored	14	zebra-consensus	6
+inherited-block-codec	gate	0	zebra-chain	8
+inherited-milestones	gate	0	zebra-chain	22
+workspace-handoff	gate	0	zebra-chain	4

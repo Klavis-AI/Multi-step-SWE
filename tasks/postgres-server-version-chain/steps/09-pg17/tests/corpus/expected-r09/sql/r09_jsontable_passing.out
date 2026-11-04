@@ -1,0 +1,16 @@
+SELECT * FROM JSON_TABLE('[{"a":1},{"a":5}]'::jsonb, '$[*] ? (@.a > $lim)'
+       PASSING 3 AS lim COLUMNS (a int PATH '$.a')) ORDER BY a;
+ a 
+---
+ 5
+(1 row)
+
+SELECT * FROM JSON_TABLE('{"a":"x"}'::jsonb, '$ ? (@.a == $s)'
+       PASSING 'x' AS s COLUMNS (a text PATH '$.a')) ORDER BY a;
+ a 
+---
+ x
+(1 row)
+
+SELECT * FROM JSON_TABLE('{"a":1}'::jsonb, '$ ? (@.a > $nosuch)' COLUMNS (a int PATH '$.a'));
+ERROR:  could not find jsonpath variable "nosuch"

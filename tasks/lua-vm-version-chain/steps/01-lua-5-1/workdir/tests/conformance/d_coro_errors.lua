@@ -1,0 +1,8 @@
+local co = coroutine.create(function() error("oops") end)
+print(coroutine.resume(co))
+print(coroutine.status(co))
+print(coroutine.resume(co))
+print(pcall(coroutine.resume, 1))
+print(pcall(coroutine.status, 1))
+print(select("#", coroutine.running()), type((coroutine.running())))
+print(pcall(coroutine.yield))

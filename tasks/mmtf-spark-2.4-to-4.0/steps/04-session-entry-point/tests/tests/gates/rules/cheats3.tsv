@@ -1,0 +1,178 @@
+# The fourth cheat family: the switches that undo the rung, priced at the whole reward.
+#
+# cheats.tsv carries the nine that every step on this ladder shares. These nine
+# are step 3's, and they are here rather than in that file for one reason: step
+# 2's instruction never mentions a legacy config or an adaptive one, and a
+# prohibition the instruction does not state is a trap rather than a rule
+# (migration_prompt 4.4 compares the two in both directions). Adding them to
+# cheats.tsv would make step 2's comparison false and force its calibration to
+# be taken again.
+#
+# score.py reads BOTH files by name, so a rule written here costs what a rule
+# written there costs. That is the point of the split: same price, different
+# step. See step03/score.py's cheat_rule_ids.
+#
+# Why these are worth the whole reward and not a share of it. The two legacy
+# names this step is about -- spark.sql.legacy.statisticalAggregate and
+# spark.sql.legacy.castComplexTypesToString.enabled -- do not change how the
+# migration is spelled, they change what the engine means. Setting either one
+# restores 2.4 semantics under a 3.2 runtime, which is the migration undone
+# while every version fact still reads green. A tree that does that has not
+# done this step badly; it has done the opposite of it. The adaptive pair is
+# the same sentence about a different default: 3.2 plans adaptively, and a tree
+# that turns that off -- at the switch or at the sub-settings that do the
+# re-planning -- is asking the 3.2 engine to behave like a 3.0 one.
+#
+# The legacy family is matched (spark\.sql\.legacy\..*) rather than the two
+# named properties, so a hatch nobody predicted is caught by the rule that was
+# already written. None of these names appears in the tree the agent is handed,
+# so avoiding them costs an honest change nothing.
+#
+# Three artifact reads, each closing the one before it:
+#
+#   -jar       the name as a string constant in the built artifact. Catches it
+#              in source, wherever it was written: a literal compiled into the
+#              jar is there whether it reached SparkConf, RuntimeConfig or
+#              nothing at all. (ast has no read for this: ast.strlit records a
+#              literal's length and padding, never its value -- so the source
+#              read is the constant pool, and the constant pool is strictly
+#              better, because it sees the string the compiler kept rather than
+#              the one a comment mentions.)
+#   -set       the live session's explicitly-set conf. Catches what -jar cannot:
+#              a config set outside the jar entirely -- spark-defaults.conf, or
+#              the submit line -- where no literal is compiled anywhere.
+#   -fragment  the property's leaf name as a constant. Catches what both miss:
+#              a name split at the family boundary ("spark.sql.legacy." +
+#              "statisticalAggregate") and handed to RuntimeConfig.set, which
+#              puts no full name in the pool and nothing in SparkConf.
+#
+# What the four `-conf` selectors read is a value the engine gave, and the one
+# thing they exclude is `<unset>`. That took two goes to get right and the
+# history is the reason the rules are shaped as they are.
+#
+# GateProbe reports a setting it could not read as `<SomeException>`, and a
+# setting this Spark does not have as `<unset>` -- angle brackets, never a value
+# any Spark conf takes. These four were first written `(?!true$).*`, which reads
+# both of those as a violation. One job in the 140-job census is
+# DemoQueryVsAll-absent, which fails by design on a missing input; its
+# SparkContext is already stopped when the shutdown hook dumps, RuntimeConfig
+# cannot be built on a stopped context, and all fifteen of its watched keys came
+# back `<IllegalStateException>`. Priced here that zeroed the reward of every
+# candidate including the oracle, which is how it was found: gates/rehearse-step03.sh
+# scored the golden tree 0.00.
+#
+# The first fix was to exclude a leading `<` in the value term. Round 2 of the
+# item-5 static review found what that bought a candidate: the exception is not
+# a fact of the census, it is a fact of *when the reading was taken*, and the
+# candidate chooses that. Set a prohibited flag through RuntimeConfig, do the
+# work under it, then stop the context while leaving the session object findable
+# -- exactly DemoQueryVsAll-absent's shape -- and the dump reports
+# `<IllegalStateException>` for every watched key, matching nothing, prohibited
+# by nothing. The prohibition had a switch and the candidate was holding it.
+#
+# So the fix moved into the probe, where it belongs. GateProbe now reads the
+# watched settings at every job start, when the session is by construction
+# alive, keeps every distinct value it ever read, and reports those. A reading
+# that never succeeded is reconstructed from a bare SQLConf with the job's own
+# SparkConf laid over it, and if even that fails the key is reported as a
+# `probe.error` row and gets no `conf` row at all -- common.tsv's probe-clean is
+# `absent` over those. No `conf` row now carries anything but a value or
+# `<unset>`, so the value terms below exclude `<unset>` and nothing else, and a
+# stopped context can no longer hide a setting that was readable while the job
+# ran.
+#
+# `<unset>` stays excluded because it is an answer rather than the absence of
+# one: this Spark has no such setting, so no job of it can have run under one.
+# At 3.2.4 all four of these keys exist and none of them reads `<unset>`; the
+# exclusion is there for the later rungs that carry these rules as `held-`.
+#
+# And what all three miss: a name split *inside* the leaf -- "spark.sql." +
+# "legacy.statistical" + "Aggregate" -- leaves no literal any of them can match.
+# That is what the four `-conf` rules below are for. They ask the engine what
+# the effective value is and do not care how the name was spelled or where it
+# came from; gates/rehearse-step03.sh builds exactly that tree (`assembl`) and
+# requires the three artifact reads to be green on it and the engine read to be
+# red. No artifact read can close that hole, and the run closes it without being
+# told what to look for.
+#
+# Why the four engine reads are priced here rather than standing as rung facts,
+# which is where they were first written. A standing rule voids the *migrated*
+# family and leaves behaviour standing. That is the right price for a
+# precondition -- "this reading was not taken on the engine this step grades" --
+# and the wrong price for a prohibition the instruction describes as a faked
+# step. Round 1 of the item-5 review found the two halves disagreeing: both
+# agent-visible documents promise that reaching for one of these switches is
+# worth nothing at all, requirements and behaviour alike, and the scorer was
+# taking only the requirements. The three *positive* rung facts stayed in
+# rules/rung3.tsv, where a FAIL still voids rather than zeroes; the four
+# negative ones moved here, where the file the scorer reads for prohibitions is
+# the file that states the price. The promise and the arithmetic now come out of
+# the same two files.
+
+no-legacy-conf-jar	absent	bytecode.strconst\tspark\.sql\.legacy\..*\t*	bytecode-legacy-conf.tsv	the built jar carries the name of a spark.sql.legacy.* property; a legacy flag restores the semantics this step exists to move to, so the step is worth nothing rather than worth less
+no-legacy-conf-set	absent	probe.setconf\tspark\.sql\.legacy\..*\t*	probe-legacy-set.tsv	the session the jar ran in had a spark.sql.legacy.* property explicitly set -- in code, in spark-defaults.conf or on the submit line -- which restores the semantics this step exists to move to
+no-legacy-conf-fragment	absent	bytecode.strconst\t.*(statisticalAggregate|castComplexTypesToString).*\t*	bytecode-legacy-fragment.tsv	the built jar carries a fragment of a legacy property name, which is how a config name assembled at run time evades a scan for the whole name
+no-legacy-stat-aggregate-conf	absent	probe.conf\tspark\.sql\.legacy\.statisticalAggregate\t(?!false$)(?!<unset>$).*	probe-stat-legacy.tsv	a replayed job ran with the Spark 3.1 statistical-aggregate semantics switched back off, however the property name was spelled and wherever the property came from
+no-legacy-cast-complex-conf	absent	probe.conf\tspark\.sql\.legacy\.castComplexTypesToString\.enabled\t(?!false$)(?!<unset>$).*	probe-cast-legacy.tsv	a replayed job ran with the 2.4 rendering of a nested array of structs restored, which undoes the other output change 3.1 made, however the property name was spelled
+no-adaptive-off	absent	probe.conf\tspark\.sql\.adaptive\.enabled\t(?!true$)(?!<unset>$).*	probe-adaptive-off.tsv	a replayed job ran with adaptive query execution off; at this runtime that is not the default, so something in the tree or the run turned it off
+no-adaptive-replan-off	absent	probe.conf\tspark\.sql\.adaptive\.coalescePartitions\.enabled\t(?!true$)(?!<unset>$).*	probe-coalesce-off.tsv	a replayed job ran with adaptive execution nominally on but its partition-coalescing sub-setting off, which is how the switch is left reading true while the optimiser is stopped from acting on it
+no-adaptive-off-set	absent	probe.setconf\tspark\.sql\.adaptive\.enabled\t(?!true$).*	probe-adaptive-off-set.tsv	adaptive query execution was explicitly switched off for a replayed job -- in code, in spark-defaults.conf or on the submit line -- wherever the engine then ended up reading it
+no-adaptive-replan-off-set	absent	probe.setconf\tspark\.sql\.adaptive\.coalescePartitions\.enabled\t(?!true$).*	probe-coalesce-off-set.tsv	adaptive execution's partition-coalescing sub-setting was explicitly switched off for a replayed job, which is how the switch is left reading true while the optimiser is stopped from acting on it
+#
+# --- round 3's two Blockers, in this file because both buy the whole step ---
+#
+# no-describe-reflect is the gone-half's floor. m2-no-describe-src reads a call
+# named `describe` and m2-no-describe-jar reads a resolved reference to
+# Dataset.describe, and neither is written when the method is looked up by name
+# at run time: the call is `getMethod` and the reference is to java.lang.Class.
+# `describe` and `summary` print the same five-statistic table, so the
+# recordings cannot separate them either -- that is what the step is *for*.
+# cheats.tsv's no-reflective-lookup and no-reflective-dispatch close the
+# mechanism; this closes the cheap spelling of it, the way
+# no-opaque-encoder-reflect does for "kryo". Measured on both jars this step
+# spans, handed and golden: the constant "describe" is in neither, because the
+# handed tree calls the method rather than naming it.
+#
+# The two no-dropped-probe rules are the other Blocker. Every conf and setconf
+# prohibition in this file is `absent` over the concatenation of 123 per-job
+# probe files, and a job that writes no probe file at all satisfies all of them
+# by having said nothing. m02.tsv's replay-probed is the count, and it is
+# deliberately slack -- atleast:100 of 123, so that a class which legitimately
+# exits earlier does not void the reading -- which leaves room to drop the one
+# or two jobs where a legacy flag would actually pay. Those two jobs are named
+# here: AnalyzeWaterInteractions4, whose single-row stddev is the SPARK-13860
+# output move, and HarnessDriver-g2s, whose nested array-of-structs cast is the
+# other one. They are 1 of 247 scored inputs each, so losing them costs 0.001
+# of the replay and would otherwise be the cheapest thing on this step to lose.
+# A tree on which either does not reach a SparkContext has not done the step,
+# whether that is a cheat or a break, and the price is the same.
+#
+# The last two are the R5 warn about starving adaptive execution without
+# touching either watched key. The effective-value road cannot see a key that
+# is not in GateProbe's WATCH list, but the explicitly-set road dumps every
+# spark.sql.* entry SparkConf holds, whatever it is called, so the sub-settings
+# and the optimiser's own exclusion list are both readable there without the
+# probe having to know their names in advance. The sub-setting rule reads
+# `(?!true$).*` on the value rather than `false`, because advisoryPartitionSizeInBytes
+# and coalescePartitions.minPartitionNum starve the same optimiser with a
+# number: what is refused is hand-setting one of these at all, and `true`
+# is exempted only so that saying out loud what the image already does is
+# not a cheat. Measured over the c04 reference: the 123 probe files carry
+# one setconf key between them, spark.sql.warehouse.dir, so no honest job
+# hand-sets any of these.
+#
+# The last rule is the other half of that road. GateProbe writes
+# `error conf.<key>` when a setting has no determinable value, and
+# common.tsv's probe-clean is `absent` over every error row -- but as a
+# standing rule it voids the migrated family and leaves the behavior
+# family's 0.34 standing. Every conf prohibition above is `absent`, so a
+# tree that can make the read fail on exactly the keys that would have
+# convicted it buys the same silence the dropped probe files buy, at the
+# cheaper price. Priced here, on those keys only: an error anywhere else
+# is an instrument that did not answer, which is a void and not a cheat.
+no-describe-reflect	absent	bytecode.strconst\tdescribe\t*	bytecode-describe-strconst.tsv	the artifact carries the constant "describe"; the method this step exists to replace was named as a string and called by reflection, which prints the same table while leaving neither a call nor a reference for the two rules that read them
+no-dropped-probe-awi4	atleast:1	probe.probe\tapp\.label\tAnalyzeWaterInteractions4	probe-label-dropped.tsv	the replay has no probe reading for AnalyzeWaterInteractions4, the job whose single-row stddev is this step's output change; every conf prohibition here is absent over what the jobs reported, so a job that reported nothing satisfies them all
+no-dropped-probe-g2s	atleast:1	probe.probe\tapp\.label\tHarnessDriver-g2s	probe-label-dropped.tsv	the replay has no probe reading for HarnessDriver-g2s, the job whose nested array-of-structs cast is this step's other output change; every conf prohibition here is absent over what the jobs reported, so a job that reported nothing satisfies them all
+no-adaptive-sub-off-set	absent	probe.setconf\tspark\.sql\.adaptive\..*\t(?!true$).*	probe-coalesce-off-set.tsv	a replayed job hand-set one of adaptive execution's sub-settings to something other than true -- switched off, or given an advisory size or a minimum partition count that leaves the optimiser nothing to re-plan -- while spark.sql.adaptive.enabled goes on reading true
+no-optimizer-exclusions-set	absent	probe.setconf\tspark\.sql\.optimizer\.excludedRules\t*	probe-optimizer-excluded-set.tsv	a replayed job excluded optimiser rules by name; that is how adaptive execution is left switched on and given nothing to do, without any adaptive.* key being touched
+no-silenced-conf-read	absent	probe.error\tconf\.spark\.sql\.(legacy|adaptive|optimizer)\..*\t*	probe-conf-read-silenced.tsv	the probe could not determine a value for one of the settings this step's prohibitions read, and reported its own failure instead; those prohibitions are absent selectors, so a reading that did not happen satisfies every one of them

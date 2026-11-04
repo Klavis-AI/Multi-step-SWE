@@ -1,0 +1,87 @@
+{
+  "doc": "stages/writers.fbi.rst: 'Support for all point attributes in LAS 1.2 format so data can be converted between LAS 1.2 and Fast Binary formats without any loss of point attribute information.' -- ReturnNumber and PointSourceId are LAS 1.2 point attributes too. In grid.las ReturnNumber is (i % 3) + 1 and PointSourceId is X + 1, so a lossy round trip would show up as fewer than three distinct return numbers or fewer than ten source ids.",
+  "files": {
+    "in.las": {
+      "fixture": "grid.las"
+    },
+    "w.json": {
+      "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.fbi\",\"filename\":\"mid.fbi\"}]}"
+    },
+    "r.json": {
+      "text": "{\"pipeline\":[{\"type\":\"readers.fbi\",\"filename\":\"mid.fbi\"},{\"type\":\"writers.las\",\"filename\":\"back.las\"}]}"
+    }
+  },
+  "run": [
+    {
+      "argv": [
+        "pipeline",
+        "w.json"
+      ]
+    },
+    {
+      "argv": [
+        "pipeline",
+        "r.json"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "kind": "exit",
+      "run": 0,
+      "equals": 0
+    },
+    {
+      "kind": "exit",
+      "run": 1,
+      "equals": 0
+    },
+    {
+      "kind": "las",
+      "file": "back.las",
+      "header": {
+        "point_count": 1000
+      },
+      "dims": {
+        "ReturnNumber": {
+          "min": {
+            "equals": 1
+          },
+          "max": {
+            "equals": 3
+          },
+          "unique": [
+            1,
+            2,
+            3
+          ],
+          "count_equal": {
+            "1": 334,
+            "2": 333,
+            "3": 333
+          }
+        },
+        "PointSourceId": {
+          "min": {
+            "equals": 1
+          },
+          "max": {
+            "equals": 10
+          },
+          "unique": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        }
+      }
+    }
+  ]
+}

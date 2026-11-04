@@ -1,0 +1,14 @@
+{
+  "doc": "stages/readers.ptx.rst: 'the point cloud will contain missing points with XYZ values of \"0 0 0\". When this option is enabled, we will skip over any missing input points. [Default: true]' -- the 2x2 grid declares four points but one row is the missing marker 0 0 0, so the default run yields three and none of them is at the origin.",
+  "files": {
+    "t.ptx": {"text": "2\n2\n0 0 0\n1 0 0\n0 1 0\n0 0 1\n1 0 0 0\n0 1 0 0\n0 0 1 0\n0 0 0 1\n1 2 3 0.5\n4 5 6 0.25\n7 8 9 0.75\n0 0 0 0.1\n"},
+    "p.json": {"text": "{\"pipeline\":[{\"type\":\"readers.ptx\",\"filename\":\"t.ptx\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"}
+  },
+  "run": [{"argv": ["pipeline", "p.json"]}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "las", "file": "out.las", "header": {"point_count": 3},
+     "dims": {"X": {"min": {"equals": 1.0}, "max": {"equals": 7.0}, "sum": {"approx": 12.0, "tol": 1e-6}},
+              "Z": {"min": {"equals": 3.0}, "max": {"equals": 9.0}}}}
+  ]
+}

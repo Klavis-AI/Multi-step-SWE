@@ -1,0 +1,68 @@
+{
+ "doc": "stages/filters.separatescanline.rst: 'groupby: The number of lines to be grouped by. [Default : 1]' -- with groupby 2 the three scan lines (a flagged point is the last point of its line) become two views of 8 and 4 points, carrying Intensity {0..7} and {8,9,10,11}. Order inside a view is not asserted.",
+ "files": {
+  "in.txt": {
+   "text": "X,Y,Z,Intensity,EdgeOfFlightLine\n0,0,0,0,0\n1,0,0,1,0\n2,0,0,2,0\n3,0,0,3,1\n4,0,0,4,0\n5,0,0,5,0\n6,0,0,6,0\n7,0,0,7,1\n8,0,0,8,0\n9,0,0,9,0\n10,0,0,10,0\n11,0,0,11,1\n"
+  },
+  "p.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"in.txt\"}, {\"type\": \"filters.separatescanline\", \"groupby\": 2}, {\"type\": \"writers.las\", \"filename\": \"grp_#.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "grp_1.las",
+   "header": {
+    "point_count": 8
+   },
+   "dims": {
+    "Intensity": {
+     "unique": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ]
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "grp_2.las",
+   "header": {
+    "point_count": 4
+   },
+   "dims": {
+    "Intensity": {
+     "unique": [
+      8,
+      9,
+      10,
+      11
+     ]
+    }
+   }
+  },
+  {
+   "kind": "file_absent",
+   "file": "grp_3.las"
+  }
+ ]
+}

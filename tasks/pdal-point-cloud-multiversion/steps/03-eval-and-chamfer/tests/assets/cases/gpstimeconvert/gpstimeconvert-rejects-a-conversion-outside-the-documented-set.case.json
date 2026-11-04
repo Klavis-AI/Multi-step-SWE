@@ -1,0 +1,64 @@
+{
+ "doc": "stages/filters.gpstimeconvert.rst: 'conversion  The time conversion. Must be one of the following: \"gst2gt\", \"gst2gws\", \"gt2gst\", \"gt2gws\", \"gws2gst\", or \"gws2gt\". [Required]'",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "bad.json": {
+   "text": "{\n \"pipeline\": [\n  \"in.las\",\n  {\n   \"type\": \"filters.gpstimeconvert\",\n   \"conversion\": \"gt2utc\"\n  },\n  \"bad.las\"\n ]\n}"
+  },
+  "good.json": {
+   "text": "{\n \"pipeline\": [\n  \"in.las\",\n  {\n   \"type\": \"filters.gpstimeconvert\",\n   \"conversion\": \"gt2gst\"\n  },\n  \"good.las\"\n ]\n}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "good.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "filters\\.gpstimeconvert"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad.las"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "good.las",
+   "header": {
+    "point_count": 1000
+   },
+   "dims": {
+    "GpsTime": {
+     "max": {
+      "approx": -999999500.5,
+      "tol": 0.001
+     }
+    }
+   }
+  }
+ ]
+}

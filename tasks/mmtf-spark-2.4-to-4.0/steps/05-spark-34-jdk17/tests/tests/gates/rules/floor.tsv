@@ -1,0 +1,32 @@
+# The floor: what "the scan saw a tree" has to mean on this ladder.
+#
+# Two of common.tsv's standing rules are deliberately loose, because they are
+# shared by every step from 2.4 to 4.0 and a threshold that is right for one
+# rung is wrong for the next. These restate them for this codebase. They live
+# in their own file rather than in a step's, because every step on the ladder
+# wants the same two and a step that restated them would be a step that could
+# quietly restate them differently.
+#
+# `include floor.tsv` after `include common.tsv`: an override replaces a rule
+# in place and is an error if there is nothing to replace.
+
+# The standing floor is "the scan saw a tree" -- 200 of 230 sources, loose
+# enough that every step on the ladder can share it. At this step it has to be
+# the exact count, because none of m1..m6 is answered by deleting a source file
+# and a floor of 200 leaves thirty of them deletable for free: a candidate who
+# could not make ProteinSequenceEncoder compile at 3.0 could delete it, lose the
+# recordings that call it, and still clear the precondition. 230 is what the
+# tree ships with, and a candidate who legitimately adds a file only goes up.
+#
+# controls/ast-229.tsv is one short of the floor rather than obviously empty.
+# A fixture of three rows would keep failing if this threshold were quietly put
+# back to 200, and the point of the counterexample is to notice exactly that.
+override:ast-nonempty	atleast:230	ast.file\t*\t*	ast-229.tsv	the tree is short of the 230 .java sources it shipped with; a source file was deleted rather than migrated
+# The scan is wider at this step than the standing rule assumes: --only carries
+# com/databricks as well as edu/sdsc/mmtf, so m2-no-xml-in-jar can ask about a
+# package the project does not own. An unqualified count of 150 classes would
+# then be satisfied by the 158 databricks classes alone -- the precondition
+# would be met by exactly the thing the step exists to remove. Restated on the
+# project's own prefix, which is what it was always meant to mean.
+override:classes-nonempty	atleast:150	bytecode.class\tedu/sdsc/mmtf/.*\t*	bytecode-thin.tsv	fewer than 150 of the project's own classes were compiled; the build did not run
+

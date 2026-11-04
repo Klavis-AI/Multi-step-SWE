@@ -1,0 +1,4 @@
+SELECT JSON_OBJECTAGG(k: v) FROM (VALUES ('a',1)) t(k,v);
+SELECT JSON_OBJECTAGG(k VALUE v) FROM (VALUES ('a',1)) t(k,v);
+SELECT JSON_OBJECTAGG(k: v RETURNING jsonb) FROM (VALUES ('b',2),('a',1)) t(k,v);
+SELECT JSON_OBJECTAGG(k: v) FROM (VALUES ('a',1)) t(k,v) WHERE false;

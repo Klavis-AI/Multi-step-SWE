@@ -1,0 +1,8 @@
+CREATE TABLE r10vg7(a int, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
+INSERT INTO r10vg7(a) VALUES (2),(5);
+CREATE VIEW r10vg7v AS SELECT a, b FROM r10vg7;
+SELECT a, b FROM r10vg7v ORDER BY a;
+SELECT column_name, is_generated, generation_expression FROM information_schema.columns
+  WHERE table_name = 'r10vg7' ORDER BY ordinal_position;
+DROP VIEW r10vg7v;
+DROP TABLE r10vg7;

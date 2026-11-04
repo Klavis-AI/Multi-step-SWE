@@ -1,0 +1,49 @@
+# arch: x86_64
+# what: -z norelro removes the PT_GNU_RELRO program header while leaving the
+# relro-eligible data, its writable PT_LOAD and the dynamic relocations intact.
+cat > p.c <<'C'
+int v = 7;
+int *const p = &v;          /* forces a .data.rel.ro slot + a RELATIVE reloc */
+int get(void) { return *p; }
+C
+cc_obj p.o p.c -fPIC
+link_ok base.so -shared p.o
+link_ok nore.so -shared -z norelro p.o
+# Baseline: one RELRO header, and it covers the relro-eligible section.
+B=$(segments base.so)
+want "baseline has one PT_GNU_RELRO" "$(grep -cE '^ *GNU_RELRO ' <<<"$B")" "1"
+ro=$(( 16#$(sec_addr base.so .data.rel.ro) ))
+rv=$(awk '$1=="GNU_RELRO"{print $3; exit}' <<<"$B")
+rz=$(awk '$1=="GNU_RELRO"{print $6; exit}' <<<"$B")
+[ "$ro" -ge "$(( rv ))" ] && [ "$ro" -lt "$(( rv + rz ))" ] \
+  || die "baseline GNU_RELRO $rv+$rz does not cover .data.rel.ro at $ro"
+# -z norelro: the header is gone, and only that header is gone.
+N=$(segments nore.so)
+want "-z norelro drops PT_GNU_RELRO" "$(grep -cE '^ *GNU_RELRO ' <<<"$N")" "0"
+want "one fewer program header" \
+  "$(( $(hdr base.so | awk '/Number of program headers/{print $NF}') - 1 ))" \
+  "$(hdr nore.so | awk '/Number of program headers/{print $NF}')"
+# The data itself must survive: same section, same size, still writable.
+want ".data.rel.ro still present" \
+  "$(sections nore.so | grep -cE ' \.data\.rel\.ro ')" "1"
+want ".data.rel.ro size unchanged" \
+  "$(sec_size nore.so .data.rel.ro)" "$(sec_size base.so .data.rel.ro)"
+want ".data.rel.ro still writable" \
+  "$(sections nore.so | awk '{for(i=1;i<=NF;i++) if ($i==".data.rel.ro") {print $(i+6); exit}}')" \
+  "WA"
+# ... and it must still be mapped, by a writable PT_LOAD.
+load_perm() {          # permission flags of every PT_LOAD covering hex addr $2
+  local a=$(( 16#$2 )) t off v p fsz msz rest
+  while read -r t off v p fsz msz rest; do
+    [ "$t" = LOAD ] || continue
+    [ "$a" -ge "$(( v ))" ] && [ "$a" -lt "$(( v + msz ))" ] || continue
+    awk '{s=""; for (i = 1; i < NF; i++) s = s $i; print s}' <<<"$rest"
+  done < <(segments "$1")
+}
+want ".data.rel.ro is in exactly one writable LOAD" \
+  "$(load_perm nore.so "$(sec_addr nore.so .data.rel.ro)")" "RW"
+# The dynamic relocation that made the section relro-eligible is still emitted.
+want "same RELASZ with and without relro" \
+  "$(dynamic nore.so | sed -n 's/.*(RELASZ)[[:space:]]*//p')" \
+  "$(dynamic base.so | sed -n 's/.*(RELASZ)[[:space:]]*//p')"
+asserts_at_least 8

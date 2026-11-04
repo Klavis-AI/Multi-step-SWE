@@ -1,0 +1,216 @@
+# Step 05 -- what the migrated tree must reach, measured on the golden solution
+# and frozen here.
+#
+# baseline/source.txt says where the tree starts -- it is the step-04 GOLDEN,
+# re-measured with the gate that ships HERE, because step 04's SourceScan cannot
+# see retnull, optret, optop, accum, collect, objects, jtime or millis at all.
+# This file says where the tree has to get to. Both are shipped and the scorer
+# reads both, rather than deriving either from the tree it is grading: a
+# threshold computed at grading time from the candidate's own tree is a
+# threshold the candidate sets.
+#
+# Every number here was produced by running that same gate over the golden and
+# is reproducible from the reports the authoring notes point at:
+#
+#   /work/scratch/s05-gold.txt   arqgate.SourceScan over the golden tree
+#   /work/scratch/cp05-gold.txt  constant-pool scan of the golden's main classes
+#
+# None is a round number chosen for its shape, and
+# authoring/verify-baseline-step05.sh re-derives all of them from those two
+# reports and fails on any drift.
+#
+# THE KEYS ARE EXACTLY THE KEYS test.sh READS. Step 04's target.txt carried a
+# dozen figures its scorer never consulted; a frozen number nothing divides by
+# is a number nobody notices going wrong. Measured figures that are context
+# rather than gate input appear below as comments, not as keys.
+
+# --- what step 03 won and must not lose, B-10 -------------------------------
+#
+# THE TWO DIAMOND KEYS ARE DIFFERENT NUMBERS AT THIS STEP, AND THAT IS THE POINT
+# OF HAVING TWO OF THEM. At steps 03 and 04 they were the same 93 read from
+# opposite ends. Here:
+#
+#   target.diamond      74   how many diamonds the tree must still HOLD
+#   target.b10.diamond  93   how many explicit-type-argument sites step 03 MOVED
+#
+# 19 of the 93 diamonds were the SINK CONSTRUCTIONS of the 23 accumulate buckets
+# this step's C-2 converts -- `List<X> xs = new ArrayList<>();` followed by a
+# terminal forEach(xs::add) -- and `collect(Collectors.toList())` constructs
+# nothing for a diamond to sit on. Measured per (file, type) between
+# baseline-step05-source.txt and the golden report; the 19 are, with their
+# multiplicities:
+#
+#   ArquillianDescriptorImpl  ArrayList x3     ExtensionImpl     ArrayList x3
+#   ManagerImpl               ArrayList x2     DeploymentScenario HashSet x2
+#   DeploymentScenario        ArrayList x1     ContainerDefImpl  ArrayList x1
+#   DynamicServiceLoader      LinkedHashSet x1 DeploymentGenerator ArrayList x1
+#   GroupContainerDefImpl     ArrayList x1     GroupDefImpl      ArrayList x1
+#   TestClass                 ArrayList x1     URLResourceProvider HashSet x1
+#   MethodParameterInjectionPoint HashSet x1
+#
+# 74 + 19 = 93, asserted by verify-baseline-step05.sh -- which also asserts the
+# part that arithmetic cannot: that no diamond ARRIVED, and that every one of
+# the 19 that left belonged to a file holding a C-2 sink. `gone + held =
+# moved` alone is invariant under losing a diamond anywhere at all.
+#
+# Re-basing target.diamond on 74 rather than leaving it at 93 is the ninth trap
+# answered: at 93 the golden reads 0.796 on B-10's diamond arrival half for
+# doing THIS step correctly. Re-basing target.b10.diamond too would have been
+# the opposite error -- the departure half asks whether the explicit type
+# arguments came back, it divides by how much work step 03 did, and C-2 does not
+# touch that quantity at all.
+#
+# THE PRICE OF 74, STATED: 4 of the 23 buckets keep a diamond, because C-2's
+# rewrite turns their sink declaration into an early-return guard --
+# `if (clazz == null) { return new ArrayList<>(); }` in Reflections x3 and in
+# ContainerDefImpl#getDependencies. A candidate who spells those
+# `Collections.emptyList()` reads 70/74 = 0.946 on that half, which is
+# 0.70 x 0.25 x 0.11 x 0.4 x 0.054 = 0.0004 of the step's reward. Accepted: any
+# denominator that is one correct tree's reach has a price, and the alternative
+# -- a floor loose enough to admit 70 -- admits 70 diamonds written anywhere.
+target.diamond=74
+#
+# The non-anonymous remainder, explicit - explicitanon, which is what B-10's
+# departure half compares against. The golden measures 36 - 13 = 23: unchanged
+# from step 04's target, so dia_back is 0 on a correct tree. C-2 removes sink
+# CONSTRUCTIONS, which carry diamonds and not explicit type arguments, so this
+# figure is untouched by this step by construction rather than by luck.
+target.explicit.nonanon=23
+#
+# The try-with-resources and java.io.File halves, unchanged from step 04's
+# target because this step does not go near either. Measured on the golden all
+# the same: try.resources=9, try.resourcevars=12, close.manual=0,
+# iofile.new + iofile.decl = 1 + 1 = 2, niofile.ref=13 in 6 files.
+target.try.resources=9
+target.iofile=2
+#
+# B-10's three denominators, which are step 03's POPULATIONS and not this step's
+# figures: how much work step 03 did, so that a tree which undid the whole of
+# one construct reads 0 on that third and one which undid one site pays one
+# site's worth.
+target.b10.diamond=93
+target.b10.close=11
+target.b10.nio=11
+
+# --- what step 04 won and must not lose, B-11 -------------------------------
+#
+# Step 04's own arrival figures, republished under a b11 prefix so that this
+# scorer reads one baseline directory rather than two, and so that nothing here
+# is confused with a step-05 target. They are DENOMINATORS -- how much work step
+# 04 did -- and they are not re-derived by counting the lines of the three set
+# files they go with, because a set file with a line dropped would otherwise
+# move its own denominator with it and read full on a smaller question.
+#
+#   baseline/lambdafiles.txt     20 files that held a convertible anonymous
+#                                functional body before step 04
+#   baseline/samifaces.txt       24 (path, Name) SAM pairs step 04 annotated
+#   baseline/collectmethods.txt  24 <file>#<method> buckets that held a
+#                                collecting enhanced-for before step 04
+#
+# MEASURED ON THIS STEP'S GOLDEN, all three read full -- 20/20, 24/24, 24/24 --
+# which is the empirical form of the co-existence claim B-11's third sub-gate
+# makes: this step's C-2 converts 23 of those 24 buckets from a terminal
+# forEach(sink::add) to collect(Collectors...), and a converted bucket still
+# holds a stream producer and still holds a stream op, so coveredmethods() reads
+# it exactly as full after the conversion as before. Checked against the golden
+# report rather than reasoned about; the verifier image rehearses it on a
+# fixture as well.
+target.b11.lambdafiles=20
+target.b11.sam=24
+target.b11.collectmethods=24
+#
+# What this step asks of the anonymous-body census: nothing. The step-04 golden
+# holds 12 inconvertible anonymous functional bodies and so does this one, so
+# `gate.src.need.anonfn` prints 0 and B-11's lambda sub-gate is what actually
+# holds step 04's 36 conversions in place.
+target.anonfn=12
+
+# --- this step's own populations --------------------------------------------
+#
+# Each is the line count of the frozen set file it goes with, and each is a
+# DENOMINATOR for both halves of its family-C gate -- how many buckets must
+# depart and how many must arrive. Frozen as SETS in those files and as counts
+# here, for the reason step 04 froze samifaces.txt as a set: a count of 23 is
+# reachable by writing 23 collectors in a file of one's own.
+#
+#   baseline/optbuckets.txt   16 <file>#<method> buckets, each a PRIVATE lookup
+#                             helper that returns null when it finds nothing
+#   baseline/sinks.txt        23 <file>#<method> buckets holding a terminal
+#                             forEach(sink::add), each with the collector its
+#                             sink's construction makes faithful
+#   baseline/valuetypes.txt   3 value types with hand-written equals/hashCode
+#   baseline/timesites.txt    4 buckets holding 5 System.currentTimeMillis calls
+#
+# Measured on the golden: 16 buckets departed and 16 arrived (retnull.size
+# 42 -> 25 with retnull.api unchanged at 22 -- exactly the private sites);
+# 23 sinks departed and 23 arrived, all 23 faithful (collect.tolist=12,
+# toset=3, tocollection=8, other=0); objects.size=6, which is the two members of
+# each of the 3 value types; millis.size=0 against jtime records in all 4 time
+# buckets.
+target.optbuckets=16
+target.sinks=23
+target.valuetypes=3
+target.timesites=4
+
+# --- C-5, the must-flip: floors on the published jars' constant pools -------
+#
+# C-5 asks a different instrument a different question of a different artifact:
+# how many of the classes the candidate's own BUILD published name each package
+# in their constant pool. On the tree this step is handed all four counts are 0.
+#
+# Each leg is a FLOOR and not a flag, because one Optional in one class makes
+# the package name appear and a binary read would hand the leg to a tree edited
+# in one place. Each floor sits below what the golden reaches, the same
+# construction as step 04's C-4 level-error floor and for the same reason: a
+# denominator that is one correct tree's exact reach is scoring that tree's
+# spelling.
+#
+#   package                  golden reaches   floor   headroom
+#   java/util/Optional               10         5      x2.00
+#   java/util/stream/Collectors      13         6      x2.17
+#   java/util/Objects                 3         2      x1.50
+#   java/time/                        4         2      x2.00
+#
+# Measured with /work/scratch/cpscan.sh over the golden's compiled src/main
+# classes -- 306 of them from 257 sources, every module of which is published
+# per baseline/artifacts.txt -- in the same image and against the same pinned
+# classpath the scorer compiles with. The scan also reads java/util/stream/=16
+# and java/util/function/=20 in the same pass, which is what says the instrument
+# is reading real constant pools rather than returning a broken grep's zero.
+#
+# java/util/Objects is the tight one: its whole population is 3 value types, so
+# x1.50 is all the headroom the tree has to give. It is the leg an automated
+# migrator reaches -- the static-analysis catalogues all carry equals/hashCode
+# rewrites -- and the floor of 2 is set so that such a tree collects this leg
+# whole and one quarter of C-5, which is what authoring/calibrate-step05.sh
+# measures against rule 5's ~30% ceiling.
+#
+# java/time/ carries a trailing slash and java/util/Optional does not, and the
+# asymmetry is deliberate rather than an oversight. java.time is a PACKAGE and
+# the leg wants any class under it -- Instant, Duration, LocalDateTime -- so the
+# slash is what makes the match a package match. Optional is a CLASS, and
+# `java/util/Optional/` would match no constant pool anywhere. Leaving the slash
+# off also makes the Optional leg count OptionalInt, OptionalLong and
+# OptionalDouble, which is intended: they are the same Java 8 construct.
+target.c5.optional.floor=5
+target.c5.collectors.floor=6
+target.c5.objects.floor=2
+target.c5.jtime.floor=2
+
+# --- measured on the golden, for the record, read by nothing ----------------
+# These are context for whoever reads a failing report, and they are comments
+# rather than keys because the scorer does not divide by them.
+#
+#   javac.rc=0  javac.errors=0  javac.sources=322  javac.classes=451  at -source 8
+#   anonymousfunctional.size=12   lambda.size=78   methodref.size=9
+#   stream.files=17 (step 04's golden had 14; C-2 adds three)
+#   newgeneric.diamondfiles=40 (step 04's golden had 47)
+#   newgeneric.raw=0   suppress.sites=44   -- both unchanged, and both are read
+#                                             from source.txt, not from here
+#   optop.size=46 with optop.get=0   optret.size=16 in 10 files
+#   retnull.size=25   retnull.api=22   accum.size=1   collect.size=23
+#   objects.size=6    jtime.size=11 in 4 methods   millis.size=0
+#
+# The one surviving accumulate site is
+# testenrichers/cdi/src/test/.../CDIInjectionEnricherTestCase#createDeployment,
+# in src/test and deliberately out of every set file in this step.

@@ -1,0 +1,30 @@
+CREATE TABLE r08jg1(g int, k text, v int);
+INSERT INTO r08jg1 VALUES (1,'a',10),(1,'b',20),(2,'a',30),(2,'c',NULL);
+SELECT g, JSON_ARRAYAGG(v ORDER BY v NULLS LAST ABSENT ON NULL) FROM r08jg1 GROUP BY g ORDER BY g;
+ g | json_arrayagg 
+---+---------------
+ 1 | [10, 20]
+ 2 | [30]
+(2 rows)
+
+SELECT g, JSON_OBJECTAGG(k: v ABSENT ON NULL RETURNING jsonb) FROM r08jg1 GROUP BY g ORDER BY g;
+ g |   json_objectagg   
+---+--------------------
+ 1 | {"a": 10, "b": 20}
+ 2 | {"a": 30}
+(2 rows)
+
+SELECT JSON_ARRAYAGG(JSON_OBJECT('g': g, 'k': k) ORDER BY g, k RETURNING jsonb) FROM r08jg1;
+                                  json_arrayagg                                   
+----------------------------------------------------------------------------------
+ [{"g": 1, "k": "a"}, {"g": 1, "k": "b"}, {"g": 2, "k": "a"}, {"g": 2, "k": "c"}]
+(1 row)
+
+SELECT g, count(*) FILTER (WHERE v IS NOT NULL), JSON_ARRAYAGG(k ORDER BY k) FROM r08jg1 GROUP BY g ORDER BY g;
+ g | count | json_arrayagg 
+---+-------+---------------
+ 1 |     2 | ["a", "b"]
+ 2 |     1 | ["a", "c"]
+(2 rows)
+
+DROP TABLE r08jg1;

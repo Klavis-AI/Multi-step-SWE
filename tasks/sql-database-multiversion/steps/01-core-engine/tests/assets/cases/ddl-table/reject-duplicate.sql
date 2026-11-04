@@ -1,0 +1,5 @@
+CREATE TABLE t1(a);
+INSERT INTO t1 VALUES(1);
+CREATE TABLE t1(b, c);
+SELECT count(*) FROM sqlite_master;
+SELECT a FROM t1;

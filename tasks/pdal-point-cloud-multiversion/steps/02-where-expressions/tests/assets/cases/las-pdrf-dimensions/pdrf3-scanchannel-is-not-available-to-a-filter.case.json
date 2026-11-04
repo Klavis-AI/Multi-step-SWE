@@ -1,0 +1,84 @@
+{
+ "doc": "spec/PROFILE.md 2.2, which makes stages/readers.las.rst normative for the PDRF-dependent dimension list: '`readers.las` exposes `ScanChannel` and `ClassFlags` only for PDRF 6-10.  For point data record formats 0-5 those dimensions are absent from the schema.'  stages/readers.las.rst as shipped at 2.2.0 carries no sentence of its own on this -- its one point-format note is about waveform records (formats 4, 5, 9 and 10), which does not bear on the dimension list.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "bad.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"p3.las\"}, {\"type\": \"filters.range\", \"limits\": \"ScanChannel[0:0]\"}, {\"type\": \"writers.las\", \"filename\": \"bad.las\"}]}"
+  },
+  "good.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"p6.las\"}, {\"type\": \"filters.range\", \"limits\": \"ScanChannel[0:0]\"}, {\"type\": \"writers.las\", \"filename\": \"good.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "p3.las",
+    "--writers.las.minor_version=4",
+    "--writers.las.dataformat_id=3"
+   ]
+  },
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "p6.las",
+    "--writers.las.minor_version=4",
+    "--writers.las.dataformat_id=6"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "good.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 2,
+   "regex": "filters\\.range"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad.las"
+  },
+  {
+   "kind": "exit",
+   "run": 3,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "good.las",
+   "header": {
+    "point_count": 1000
+   }
+  }
+ ]
+}

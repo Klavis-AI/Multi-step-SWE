@@ -1,0 +1,42 @@
+# New replacement-string items: $&, $`, $', $_, $<name>, \g<n>, octal escapes
+# and title casing.  ChangeLog 10.45 items 21, 24, 30 and 33; pcre2api.3,
+# "CREATING A NEW STRING WITH SUBSTITUTIONS"; pcre2syntax.3, "REPLACEMENT
+# STRINGS".
+
+/b(c)d/
+    abcde\=replace=<$&>
+ 1: a<bcd>e
+    abcde\=replace=<$`>
+ 1: a<a>e
+    abcde\=replace=<$'>
+ 1: a<e>e
+    abcde\=replace=<$_>
+ 1: a<abcde>e
+
+# JavaScript $<name> and Python \g<n>, where n is a name or a number.
+/(?<mid>c)/
+    abcde\=replace=<$<mid>>
+ 1: ab<c>de
+
+/(?<mid>c)/substitute_extended
+    abcde\=replace=<\g<mid>>
+ 1: ab<c>de
+    abcde\=replace=<\g<1>>
+ 1: ab<c>de
+
+# Title casing: \u immediately before \L, and \l before \U.
+/(\w)(\w+)/substitute_extended
+    heLLo\=replace=\u\L$2
+ 1: Ello
+    heLLo\=replace=\l\U$1$2
+ 1: hELLO
+
+# Octal escapes in the replacement.
+/x/substitute_extended
+    axb\=replace=\045\111
+ 1: a%Ib
+
+# In extended mode \b is backspace and \v is vertical tab.
+/x/substitute_extended
+    axb\=replace=q\bw\vz
+ 1: aq\x08w\x0bzb

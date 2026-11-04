@@ -1,0 +1,12 @@
+SET enable_partition_pruning = on;
+CREATE TABLE q3_ppn(a int, b text) PARTITION BY LIST (a);
+CREATE TABLE q3_ppn_1 PARTITION OF q3_ppn FOR VALUES IN (1,2);
+CREATE TABLE q3_ppn_d PARTITION OF q3_ppn DEFAULT;
+INSERT INTO q3_ppn VALUES (1,'a'),(2,'b'),(7,'c'),(NULL,'d');
+SELECT count(*) FROM q3_ppn WHERE a IS NULL;
+SELECT count(*) FROM q3_ppn WHERE a IS NOT NULL;
+SELECT a, b FROM q3_ppn WHERE a IN (1,7) ORDER BY a;
+SELECT a, b FROM q3_ppn WHERE a <> 1 ORDER BY a;
+SELECT count(*) FROM q3_ppn;
+RESET enable_partition_pruning;
+DROP TABLE q3_ppn;

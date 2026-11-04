@@ -1,0 +1,16 @@
+CREATE TABLE r10nn7_p(a int NOT NULL, b int);
+CREATE TABLE r10nn7_c() INHERITS (r10nn7_p);
+SELECT c.relname, con.conname, con.contype, con.coninhcount, con.conislocal
+  FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid
+  WHERE c.relname LIKE 'r10nn7%' AND con.contype = 'n' ORDER BY c.relname, con.conname;
+ relname  |       conname       | contype | coninhcount | conislocal 
+----------+---------------------+---------+-------------+------------
+ r10nn7_c | r10nn7_p_a_not_null | n       |           1 | f
+ r10nn7_p | r10nn7_p_a_not_null | n       |           0 | t
+(2 rows)
+
+INSERT INTO r10nn7_c VALUES (NULL, 1);
+ERROR:  null value in column "a" of relation "r10nn7_c" violates not-null constraint
+DETAIL:  Failing row contains (null, 1).
+DROP TABLE r10nn7_c;
+DROP TABLE r10nn7_p;

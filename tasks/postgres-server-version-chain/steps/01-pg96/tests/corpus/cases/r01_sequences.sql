@@ -1,0 +1,10 @@
+CREATE SEQUENCE sq START 5 INCREMENT 2;
+SELECT nextval('sq'), nextval('sq'), currval('sq');
+SELECT setval('sq', 100);
+SELECT nextval('sq');
+SELECT last_value FROM sq;
+CREATE TABLE st(i serial, t text);
+INSERT INTO st(t) VALUES ('a'),('b');
+SELECT * FROM st ORDER BY i;
+DROP TABLE st;
+DROP SEQUENCE sq;

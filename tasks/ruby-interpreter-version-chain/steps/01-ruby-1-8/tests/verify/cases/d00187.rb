@@ -1,0 +1,1 @@
+p defined?(Fixnum)

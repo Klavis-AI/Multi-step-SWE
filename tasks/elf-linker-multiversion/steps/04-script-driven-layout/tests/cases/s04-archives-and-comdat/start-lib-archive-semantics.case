@@ -1,0 +1,39 @@
+# arch: x86_64
+# what: plain object files listed between --start-lib and --end-lib are treated
+# as archive members -- only the ones needed to resolve a reference are linked
+# in -- while the same objects listed normally are all linked in.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int used_fn(void);
+int entry(void) { return used_fn(); }
+C
+cat > a.c <<'C'
+int used_fn(void) { return 6; }
+C
+cat > b.c <<'C'
+int never_used_fn(void) { return 9; }
+int never_used_data = 0x1234;
+C
+cc_obj m.o m.c; cc_obj a.o a.c; cc_obj b.o b.c
+seen() { symbols "$1" | awk -v n="$2" '$8 == n { c++ } END { print c + 0 }'; }
+# Listed normally, every object is linked in, so b.o's symbols are present.
+link_ok plain --no-gc-sections rt.o m.o a.o b.o
+want "plain: used_fn linked"        "$(seen plain used_fn)"        "1"
+want "plain: never_used_fn linked"  "$(seen plain never_used_fn)"  "1"
+want "plain: never_used_data linked" "$(seen plain never_used_data)" "1"
+run_expect plain "" 6
+# Wrapped in --start-lib/--end-lib the same two objects become archive members:
+# a.o is pulled in for used_fn, b.o is not pulled in at all.
+link_ok lib --no-gc-sections rt.o m.o --start-lib a.o b.o --end-lib
+want "lib: used_fn linked"           "$(seen lib used_fn)"           "1"
+want "lib: never_used_fn not linked" "$(seen lib never_used_fn)"     "0"
+want "lib: never_used_data not linked" "$(seen lib never_used_data)" "0"
+want "lib: used_fn is defined" \
+  "$(symbols lib | awk '$8=="used_fn"{print ($7=="UND")?"UND":"def"}')" "def"
+run_expect lib "" 6
+# --end-lib restores the previous mode: an object after it is linked in whole.
+link_ok mix --no-gc-sections rt.o m.o --start-lib a.o --end-lib b.o
+want "mix: never_used_fn linked after --end-lib" "$(seen mix never_used_fn)" "1"
+run_expect mix "" 6
+asserts_at_least 8

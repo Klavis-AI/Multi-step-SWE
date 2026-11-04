@@ -1,0 +1,11 @@
+CREATE TABLE du(i int primary key, t text, n int);
+INSERT INTO du SELECT g, 'r'||g, g*10 FROM generate_series(1,5) g;
+UPDATE du SET t='x' WHERE i=2;
+UPDATE du SET n=n+1 WHERE i<3;
+UPDATE du SET (t,n)=('y',99) WHERE i=3;
+SELECT * FROM du ORDER BY i;
+UPDATE du SET n=0 WHERE i=99;
+DELETE FROM du WHERE i=5 RETURNING i,t;
+DELETE FROM du WHERE i>90;
+SELECT count(*) FROM du;
+DROP TABLE du;

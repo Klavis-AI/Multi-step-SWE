@@ -1,0 +1,10 @@
+SET enable_incremental_sort = off;
+SHOW enable_incremental_sort;
+RESET enable_incremental_sort;
+SHOW enable_incremental_sort;
+SET logical_decoding_work_mem = '32MB';
+SHOW logical_decoding_work_mem;
+RESET logical_decoding_work_mem;
+SET maintenance_io_concurrency = 5;
+SHOW maintenance_io_concurrency;
+RESET ALL;

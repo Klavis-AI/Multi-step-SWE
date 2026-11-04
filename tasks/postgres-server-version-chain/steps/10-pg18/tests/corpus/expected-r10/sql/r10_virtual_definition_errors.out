@@ -1,0 +1,29 @@
+CREATE TABLE r10vg9(a int, b int GENERATED ALWAYS AS (random()) VIRTUAL);
+ERROR:  generation expression is not immutable
+CREATE TABLE r10vga(a int, b int GENERATED ALWAYS AS (b + 1) VIRTUAL);
+ERROR:  cannot use generated column "b" in column generation expression
+LINE 1: ...TE TABLE r10vga(a int, b int GENERATED ALWAYS AS (b + 1) VIR...
+                                                             ^
+DETAIL:  A generated column cannot reference another generated column.
+CREATE TABLE r10vgb(a int, b int GENERATED ALWAYS AS (a * 2) VIRTUAL DEFAULT 5);
+ERROR:  both default and generation expression specified for column "b" of table "r10vgb"
+LINE 1: ...(a int, b int GENERATED ALWAYS AS (a * 2) VIRTUAL DEFAULT 5)...
+                                                             ^
+CREATE TABLE r10vgc(a int, b int GENERATED ALWAYS AS (a * 2) VIRTUAL STORED);
+ERROR:  syntax error at or near "STORED"
+LINE 1: ...gc(a int, b int GENERATED ALWAYS AS (a * 2) VIRTUAL STORED);
+                                                               ^
+SELECT count(*) FROM pg_class WHERE relname IN ('r10vg9','r10vga','r10vgb','r10vgc');
+ count 
+-------
+     0
+(1 row)
+
+DROP TABLE IF EXISTS r10vg9;
+NOTICE:  table "r10vg9" does not exist, skipping
+DROP TABLE IF EXISTS r10vga;
+NOTICE:  table "r10vga" does not exist, skipping
+DROP TABLE IF EXISTS r10vgb;
+NOTICE:  table "r10vgb" does not exist, skipping
+DROP TABLE IF EXISTS r10vgc;
+NOTICE:  table "r10vgc" does not exist, skipping

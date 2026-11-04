@@ -1,0 +1,40 @@
+# arch: x86_64
+# --nmagic turns off page alignment of the load segments and the RELRO header;
+# -n is the same switch.
+rt_obj rt.o
+cat > m.c <<'C'
+int g = 5;
+int entry(void) { return g + 20; }
+C
+cc_obj m.o m.c
+
+link_ok plain rt.o m.o --no-gc-sections
+paged=$(segments plain | awk '$1 == "LOAD" { print $NF }')
+[ -n "$paged" ] || die "no LOAD segments in the ordinary link"
+seen=0
+for a in $paged; do
+  seen=1
+  [ "$a" = "0x1000" ] || die "ordinary link has a LOAD aligned $a, expected 0x1000"
+done
+want "ordinary link has load segments" "$seen" "1"
+
+link_ok nm --nmagic rt.o m.o --no-gc-sections
+aligns=$(segments nm | awk '$1 == "LOAD" { print $NF }')
+[ -n "$aligns" ] || die "--nmagic produced no LOAD segments"
+for a in $aligns; do
+  v=$(python3 -c "import sys; print(int(sys.argv[1], 16))" "$a")
+  [ "$v" -lt 4096 ] || die "--nmagic left a LOAD aligned $a"
+done
+has_segment nm GNU_RELRO && die "--nmagic should not emit PT_GNU_RELRO"
+
+# Sections and symbols are otherwise intact.
+has_section nm .text || die "--nmagic output has no .text"
+[ -n "$(sym_value nm entry)" ] || die "--nmagic output has no entry symbol"
+
+# -n is the short spelling of the same thing.
+link_ok short -n rt.o m.o --no-gc-sections
+cmp -s nm short || die "-n and --nmagic produced different output"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 1

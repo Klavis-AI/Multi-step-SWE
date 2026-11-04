@@ -1,0 +1,1825 @@
+/****************************************************************************\
+*                                                                            *
+*  ISE (Iris Server Engine) Project                                          *
+*  http://github.com/haoxingeng/ise                                          *
+*                                                                            *
+*  Copyright 2013 HaoXinGeng (haoxingeng@gmail.com)                          *
+*  All rights reserved.                                                      *
+*                                                                            *
+*  Licensed under the Apache License, Version 2.0 (the "License");           *
+*  you may not use this file except in compliance with the License.          *
+*  You may obtain a copy of the License at                                   *
+*                                                                            *
+*      http://www.apache.org/licenses/LICENSE-2.0                            *
+*                                                                            *
+*  Unless required by applicable law or agreed to in writing, software       *
+*  distributed under the License is distributed on an "AS IS" BASIS,         *
+*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  *
+*  See the License for the specific language governing permissions and       *
+*  limitations under the License.                                            *
+*                                                                            *
+\****************************************************************************/
+
+///////////////////////////////////////////////////////////////////////////////
+// 文件名称: ise_server_tcp.cpp
+// 功能描述: TCP服务器的实现
+///////////////////////////////////////////////////////////////////////////////
+
+// 配置层: 宏不跨模块, 这一层永远是文本包含。
+#include "ise/main/ise_options.h"
+#include "ise/main/ise_global_defs.h"
+#include "ise/main/ise_stldefs.h"
+#include "ise/main/ise_assert.h"
+
+// 这些平台声明以前是随项目头文件一起进来的。
+#include <sys/epoll.h>
+#include <stdarg.h>
+#include <cstdarg>
+#include <unistd.h>
+#include <signal.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <sys/timeb.h>
+#include <fstream>
+#include <string>
+#include <cstdlib>
+#include <stdint.h>
+#include <semaphore.h>
+#include <sys/file.h>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <type_traits>
+#include <algorithm>
+#include <compare>
+#include <format>
+#include <ranges>
+#include <span>
+#include <coroutine>
+#include <exception>
+#include <iterator>
+#include <pthread.h>
+#include <system_error>
+#include <thread>
+#include <ctype.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <fnmatch.h>
+#include <sys/time.h>
+#include <sys/syscall.h>
+#include <cstdio>
+#include <filesystem>
+#include <optional>
+#include <string_view>
+#include <fcntl.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <net/if_arp.h>
+#include <net/if.h>
+#include <netinet/tcp.h>
+#include <any>
+#include <cstddef>
+#include <functional>
+#include <memory>
+#include <utility>
+#include <concepts>
+#include <vector>
+#include <list>
+#include <set>
+#include <map>
+#include <deque>
+
+import ise.server;
+import ise.errmsgs;
+import ise.application;
+
+using namespace ise;
+
+namespace ise
+{
+
+///////////////////////////////////////////////////////////////////////////////
+// 预定义分包器
+
+void bytePacketSplitter(const char */*data*/, int bytes, int& retrieveBytes)
+{
+    retrieveBytes = (bytes > 0 ? 1 : 0);
+}
+
+void linePacketSplitter(const char *data, int bytes, int& retrieveBytes)
+{
+    auto isLineBreak = [](char ch) { return ch == '\r' || ch == '\n'; };
+
+    // 分包器收到的是别人缓冲区里的一段, 一直如此; 现在这件事写在类型上, 而
+    // "走到哪里为止"也就不再是循环变量和 bytes 之间的一个约定。
+    std::span<const char> packet(data, bytes > 0 ? static_cast<size_t>(bytes) : 0);
+    auto found = std::ranges::find_if(packet, isLineBreak);
+
+    retrieveBytes = 0;
+    if (found == packet.end()) return;
+
+    retrieveBytes = static_cast<int>(found - packet.begin()) + 1;
+
+    // CRLF 和 LFCR 算一个行结束符, CRCR 和 LFLF 不算。
+    auto next = found + 1;
+    if (next != packet.end() && isLineBreak(*next) && *next != *found)
+        ++retrieveBytes;
+}
+
+//-----------------------------------------------------------------------------
+
+void nullTerminatedPacketSplitter(const char *data, int bytes, int& retrieveBytes)
+{
+    const char DELIMITER = '\0';
+
+    std::span<const char> packet(data, bytes > 0 ? static_cast<size_t>(bytes) : 0);
+    auto found = std::ranges::find(packet, DELIMITER);
+
+    retrieveBytes = (found == packet.end() ? 0 : static_cast<int>(found - packet.begin()) + 1);
+}
+
+//-----------------------------------------------------------------------------
+
+void anyPacketSplitter(const char */*data*/, int bytes, int& retrieveBytes)
+{
+    retrieveBytes = (bytes > 0 ? bytes : 0);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class IoBuffer
+
+IoBuffer::IoBuffer() :
+    buffer_(INITIAL_SIZE),
+    readerIndex_(0),
+    writerIndex_(0)
+{
+    // nothing
+}
+
+IoBuffer::~IoBuffer()
+{
+    // nothing
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 向缓存追加写入数据
+//-----------------------------------------------------------------------------
+void IoBuffer::append(const string& str)
+{
+    append(str.c_str(), (int)str.length());
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 向缓存追加写入数据
+//-----------------------------------------------------------------------------
+void IoBuffer::append(const void *data, int bytes)
+{
+    if (data && bytes > 0)
+    {
+        if (getWritableBytes() < bytes)
+            makeSpace(bytes);
+
+        ISE_ASSERT(getWritableBytes() >= bytes);
+
+        memmove(getWriterPtr(), data, bytes);
+        writerIndex_ += bytes;
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 向缓存追加 bytes 个字节并填充为'\0'
+//-----------------------------------------------------------------------------
+void IoBuffer::append(int bytes)
+{
+    if (bytes > 0)
+    {
+        string str;
+        str.resize(bytes, 0);
+        append(str);
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 从缓存读取 bytes 个字节数据
+//-----------------------------------------------------------------------------
+void IoBuffer::retrieve(int bytes)
+{
+    if (bytes > 0)
+    {
+        ISE_ASSERT(bytes <= getReadableBytes());
+        readerIndex_ += bytes;
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 从缓存读取全部可读数据并存入 str 中
+//-----------------------------------------------------------------------------
+void IoBuffer::retrieveAll(string& str)
+{
+    if (getReadableBytes() > 0)
+        str.assign(peek(), getReadableBytes());
+    else
+        str.clear();
+
+    retrieveAll();
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 从缓存读取全部可读数据
+//-----------------------------------------------------------------------------
+void IoBuffer::retrieveAll()
+{
+    readerIndex_ = 0;
+    writerIndex_ = 0;
+}
+
+//-----------------------------------------------------------------------------
+
+void IoBuffer::swap(IoBuffer& rhs)
+{
+    buffer_.swap(rhs.buffer_);
+    std::swap(readerIndex_, rhs.readerIndex_);
+    std::swap(writerIndex_, rhs.writerIndex_);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 扩展缓存空间以便可再写进 moreBytes 个字节
+//-----------------------------------------------------------------------------
+void IoBuffer::makeSpace(int moreBytes)
+{
+    if (getWritableBytes() + getUselessBytes() < moreBytes)
+    {
+        buffer_.resize(writerIndex_ + moreBytes);
+    }
+    else
+    {
+        // 将全部可读数据移至缓存开始处
+        int readableBytes = getReadableBytes();
+        char *buffer = getBufferPtr();
+        memmove(buffer, buffer + readerIndex_, readableBytes);
+        readerIndex_ = 0;
+        writerIndex_ = readerIndex_ + readableBytes;
+
+        ISE_ASSERT(readableBytes == getReadableBytes());
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class TcpEventLoop
+
+TcpEventLoop::TcpEventLoop()
+{
+    // nothing
+}
+
+TcpEventLoop::~TcpEventLoop()
+{
+    tcpConnMap_.clear();
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 将指定连接注册到此 eventLoop 中
+//-----------------------------------------------------------------------------
+void TcpEventLoop::addConnection(TcpConnection *connection)
+{
+    TcpInspectInfo::instance().addConnCount.increment();
+
+    TcpConnectionPtr connPtr(connection);
+    tcpConnMap_[connection->getConnectionName()] = connPtr;
+
+    registerConnection(connection);
+    // 会话协程在这里开始, 并且到此为止: 它自己持有自己的帧, 也自己持有
+    // connPtr, 所以它挂起多久, 这条连接就活多久。框架不留一个指向它的指针,
+    // 两边就没有环。
+    delegateToLoop([connPtr]() { iseApp().iseBusiness().onTcpConnection(connPtr); });
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 将指定连接从此 eventLoop 中注销
+//-----------------------------------------------------------------------------
+void TcpEventLoop::removeConnection(TcpConnection *connection)
+{
+    TcpInspectInfo::instance().removeConnCount.increment();
+
+    unregisterConnection(connection);
+
+    // 此处 shared_ptr 计数递减，有可能会销毁 TcpConnection 对象
+    tcpConnMap_.erase(connection->getConnectionName());
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 清除全部连接
+// 备注:
+//   conn->shutdown(true, true) 使 IOCP 返回错误，从而释放 IOCP 持有的 shared_ptr。
+//   之后 TcpConnection::errorOccurred() 被调用，进而调用 onTcpDisconnected() 和
+//   TcpConnection::setEventLoop(NULL)。
+//-----------------------------------------------------------------------------
+void TcpEventLoop::clearConnections()
+{
+    assertInLoopThread();
+
+    for (auto& connEntry : tcpConnMap_)
+    {
+        (void)connEntry;
+        TcpConnectionPtr conn = tcpConnMap_.begin()->second;
+        conn->shutdown(true, true);
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 执行事件循环
+// 注意:
+//   * 只有全部连接被销毁后才可以退出循环，不然未销毁连接将对程序退出过程造成
+//     麻烦。在 Linux 下典型的错误信息是:
+//     'pure virtual method called terminate called without an active exception'.
+//-----------------------------------------------------------------------------
+void TcpEventLoop::runLoop(Thread *thread)
+{
+    bool isTerminated = false;
+    while (!isTerminated || !tcpConnMap_.empty())
+    {
+        try
+        {
+	        if (thread->isTerminated())
+	        {
+                clearConnections();
+                isTerminated = true;
+                wakeupLoop();
+	        }
+
+            doLoopWork(thread);
+            checkTimeout();
+            executeDelegatedFunctors();
+            executeFinalizer();
+        }
+        catch (Exception& e)
+        {
+            logger().writeException(e);
+        }
+        catch (...)
+        {}
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 检查每个TCP连接的超时
+//-----------------------------------------------------------------------------
+void TcpEventLoop::checkTimeout()
+{
+    const UINT CHECK_INTERVAL = 1000;  // ms
+
+    UINT64 curTicks = getCurTicks();
+    if (getTickDiff(lastCheckTimeoutTicks_, curTicks) >= (UINT64)CHECK_INTERVAL)
+    {
+        lastCheckTimeoutTicks_ = curTicks;
+
+        for (auto& [connName, connPtr] : tcpConnMap_)
+        {
+            (void)connName;
+            connPtr->checkTimeout(curTicks);
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class TcpEventLoopList
+
+TcpEventLoopList::TcpEventLoopList(int loopCount) :
+    EventLoopList(loopCount)
+{
+    // nothing
+}
+
+TcpEventLoopList::~TcpEventLoopList()
+{
+    // nothing
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 将 connection 挂接到 EventLoop 上
+// 参数:
+//   index - EventLoop 的序号 (0-based)，为 -1 表示自动选择。
+// 备注:
+//   挂接成功则交出所有权，失败则所有权仍在调用者手上。
+//-----------------------------------------------------------------------------
+bool TcpEventLoopList::registerToEventLoop(BaseTcpConnection *connection, int eventLoopIndex)
+{
+    TcpEventLoop *eventLoop = nullptr;
+
+    if (eventLoopIndex >= 0 && eventLoopIndex < getCount())
+    {
+        AutoLocker locker(mutex_);
+        eventLoop = getItem(eventLoopIndex);
+    }
+    else
+    {
+        static int s_index = 0;
+        AutoLocker locker(mutex_);
+        // round-robin
+        eventLoop = getItem(s_index);
+        s_index = (s_index >= getCount() - 1 ? 0 : s_index + 1);
+    }
+
+    bool result = (eventLoop != nullptr);
+    if (result)
+    {
+        // 连接对象在此处交给事件循环，由 TcpEventLoop::addConnection() 接手；
+        // 在途中它只被委托出去的函数对象引用着。调用者见到 true 后才松手。
+        TcpConnection *conn = static_cast<TcpConnection*>(connection);
+
+        // 将 conn->setEventLoop(eventLoop) 委托给事件循环线程
+        eventLoop->delegateToLoop([conn, eventLoop]() { conn->setEventLoop(eventLoop); });
+    }
+
+    return result;
+}
+
+//-----------------------------------------------------------------------------
+
+EventLoop* TcpEventLoopList::createEventLoop()
+{
+#ifdef ISE_WINDOWS
+    return new WinTcpEventLoop();
+#endif
+#ifdef ISE_LINUX
+    return new LinuxTcpEventLoop();
+#endif
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class TcpConnection
+
+TcpConnection::TcpConnection()
+{
+    init();
+    TcpInspectInfo::instance().tcpConnCreateCount.increment();
+}
+
+TcpConnection::TcpConnection(TcpServer *tcpServer, SOCKET socketHandle) :
+    BaseTcpConnection(socketHandle)
+{
+    init();
+
+    tcpServer_ = tcpServer;
+    tcpServer_->incConnCount();
+    TcpInspectInfo::instance().tcpConnCreateCount.increment();
+}
+
+TcpConnection::~TcpConnection()
+{
+    //logger().writeFmt("destroy conn: %s", getConnectionName().c_str());  // debug
+
+    setEventLoop(nullptr);
+
+    if (tcpServer_)
+        tcpServer_->decConnCount();
+    TcpInspectInfo::instance().tcpConnDestroyCount.increment();
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnection::init()
+{
+    tcpServer_ = nullptr;
+    eventLoop_ = nullptr;
+    isErrorOccurred_ = false;
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 提交一个发送任务 (线程安全)
+// 参数:
+//   timeout - 超时值 (毫秒)
+//-----------------------------------------------------------------------------
+void TcpConnection::submitSendTask(std::span<const std::byte> data,
+    const Context& context, int timeout)
+{
+    if (data.empty()) return;
+
+    if (eventLoop_ == nullptr)
+        iseThrowException(SEM_EVENT_LOOP_NOT_SPECIFIED);
+
+    if (getEventLoop()->isInLoopThread())
+        postSendTask(data, context, timeout);
+    else
+    {
+        // 跨线程的那一支必须自己留一份副本: span 只借内存, 而调用者的缓冲区
+        // 不会等到事件循环把它发出去。这件事从前也是这样做的, 现在参数类型
+        // 把"这里借, 那里存"说了出来。
+        string copy(reinterpret_cast<const char*>(data.data()), data.size());
+        getEventLoop()->delegateToLoop(
+            [this, copy, context, timeout]() { postSendTask(copy, context, timeout); });
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 提交一个接收任务 (线程安全)
+// 参数:
+//   timeout - 超时值 (毫秒)
+//-----------------------------------------------------------------------------
+void TcpConnection::submitRecvTask(const PacketSplitter& packetSplitter,
+    const Context& context, int timeout)
+{
+    if (!packetSplitter) return;
+
+    if (eventLoop_ == nullptr)
+        iseThrowException(SEM_EVENT_LOOP_NOT_SPECIFIED);
+
+    if (getEventLoop()->isInLoopThread())
+        postRecvTask(packetSplitter, context, timeout);
+    else
+    {
+        getEventLoop()->delegateToLoop(
+            [this, packetSplitter, context, timeout]()
+            { postRecvTask(packetSplitter, context, timeout); });
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 造出一个发送挂起点 (线程安全)
+// 参数:
+//   timeout - 超时值 (毫秒)
+// 备注:
+//   函数本身什么也不投。任务是在 co_await 真正挂起的那一刻投出去的, 因为
+//   要投进去的东西之一正是"接着往下跑"。
+//-----------------------------------------------------------------------------
+TcpConnection::SendAwaiter TcpConnection::send(std::span<const std::byte> data,
+    int timeout)
+{
+    return SendAwaiter(*this, data, timeout);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 造出一个接收挂起点 (线程安全)
+// 参数:
+//   timeout - 超时值 (毫秒)
+//-----------------------------------------------------------------------------
+TcpConnection::RecvAwaiter TcpConnection::recv(const PacketSplitter& packetSplitter,
+    int timeout)
+{
+    return RecvAwaiter(*this, packetSplitter, timeout);
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnection::SendAwaiter::await_suspend(std::coroutine_handle<> handle)
+{
+    connection_.submitSendTask(data_,
+        Context(CoroutineCompletion(handle, &completed_, nullptr)), timeout_);
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnection::RecvAwaiter::await_suspend(std::coroutine_handle<> handle)
+{
+    connection_.submitRecvTask(packetSplitter_,
+        Context(CoroutineCompletion(handle, &completed_, &packet_)), timeout_);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 一个任务完成了, 把挂在它上面的协程恢复起来
+// 备注:
+//   Context 里没有 CoroutineCompletion 的任务, 是没有协程在等的任务 —— 框架
+//   内部投的那些。这种任务完成时没有人要通知。
+//-----------------------------------------------------------------------------
+void TcpConnection::completeTask(const Context& context,
+    std::span<const std::byte> packet)
+{
+    const CoroutineCompletion *completion =
+        std::any_cast<CoroutineCompletion>(&context);
+    if (completion == nullptr) return;
+
+    if (completion->completed != nullptr) *completion->completed = true;
+    if (completion->packet != nullptr) *completion->packet = packet;
+    completion->handle.resume();
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 一个任务永远不会完成了, 仍然要把挂在它上面的协程恢复起来
+// 备注:
+//   连接断了以后没有人再会送来完成通知。一个挂起点如果就这样不再被唤醒,
+//   协程帧、以及帧里那个 TcpConnectionPtr, 就都留在那里不走了。恢复时
+//   completed 仍是 false、收到的那一段仍是空的, 会话读得懂这个意思。
+//-----------------------------------------------------------------------------
+void TcpConnection::abortTask(const Context& context)
+{
+    const CoroutineCompletion *completion =
+        std::any_cast<CoroutineCompletion>(&context);
+    if (completion == nullptr) return;
+
+    if (completion->packet != nullptr)
+        *completion->packet = std::span<const std::byte>();
+    completion->handle.resume();
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnection::abortPendingTasks()
+{
+    // 先出队再恢复, 两个队列都是: 醒过来的会话下一步做什么, 这里不知道,
+    // 而它做的任何一件事都可能动到这两个队列。
+    while (!sendTaskQueue_.empty())
+    {
+        Context context = sendTaskQueue_.front().context;
+        sendTaskQueue_.pop_front();
+        abortTask(context);
+    }
+
+    while (!recvTaskQueue_.empty())
+    {
+        Context context = recvTaskQueue_.front().context;
+        recvTaskQueue_.pop_front();
+        abortTask(context);
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+const string& TcpConnection::getConnectionName() const
+{
+    if (connectionName_.empty() && isConnected())
+    {
+        static Mutex mutex;
+        static SeqNumberAlloc connIdAlloc_;
+
+        AutoLocker locker(mutex);
+
+        connectionName_ = std::format("{}-{}#{}",
+            getSocket().getLocalAddr().getDisplayStr(),
+            getSocket().getPeerAddr().getDisplayStr(),
+            intToStr((INT64)connIdAlloc_.allocId()));
+    }
+
+    return connectionName_;
+}
+
+//-----------------------------------------------------------------------------
+
+int TcpConnection::getServerIndex() const
+{
+    return tcpServer_ ? std::any_cast<int>(tcpServer_->getContext()) : -1;
+}
+
+//-----------------------------------------------------------------------------
+
+int TcpConnection::getServerPort() const
+{
+    return tcpServer_ ? tcpServer_->getLocalPort() : 0;
+}
+
+//-----------------------------------------------------------------------------
+
+int TcpConnection::getServerConnCount() const
+{
+    return tcpServer_ ? tcpServer_->getConnectionCount() : 0;
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 断开连接
+// 备注:
+//   如果直接 close socket，Linux下 EPoll 将不会产生通知，从而无法捕获错误，
+//   而 shutdown 则没有问题。在 Windows 下，无论是 close 还是 shutdown，
+//   只要连接上存在接收或发送动作，IOCP 都可以捕获错误。
+//-----------------------------------------------------------------------------
+void TcpConnection::doDisconnect()
+{
+    shutdown(true, false);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 连接发生了错误
+// 备注:
+//   连接在发生错误后已没有利用价值，应当销毁，但不应立马销毁，因为稍后执行的
+//   委托给事件循环的仿函数中可能存在对此连接的回调。所以，应该以 addFinalizer()
+//   的方式，再次将销毁对象的任务委托给事件循环，在每次循环的末尾执行。
+//-----------------------------------------------------------------------------
+void TcpConnection::errorOccurred()
+{
+    if (isErrorOccurred_) return;
+    isErrorOccurred_ = true;
+
+    TcpInspectInfo::instance().errorOccurredCount.increment();
+
+    shutdown(true, true);
+
+    ISE_ASSERT(eventLoop_ != nullptr);
+
+    // thisPtr 保证在调用 setEventLoop(NULL) 期间不会销毁 TcpConnection 对象
+    TcpConnectionPtr thisPtr = shared_from_this();
+
+    // 还挂在这条连接上的会话, 到此为止。thisPtr 已经拿在手里, 所以即便最后
+    // 一个会话在这里收场并放掉它那一份引用, 这个函数也跑得完。
+    abortPendingTasks();
+
+    getEventLoop()->executeInLoop(
+        [thisPtr]() { iseApp().iseBusiness().onTcpDisconnected(thisPtr); });
+
+    // setEventLoop(NULL) 可使 shared_ptr<TcpConnection> 减少引用计数，进而销毁对象
+    getEventLoop()->addFinalizer(
+        [thisPtr]() { thisPtr->setEventLoop(nullptr); });
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 检查接收和发送任务是否超时
+//-----------------------------------------------------------------------------
+void TcpConnection::checkTimeout(UINT curTicks)
+{
+    if (!sendTaskQueue_.empty())
+    {
+        SendTask& task = sendTaskQueue_.front();
+
+        if (task.startTicks == 0)
+            task.startTicks = curTicks;
+        else
+        {
+            if (task.timeout > 0 &&
+                (int)getTickDiff(task.startTicks, curTicks) > task.timeout)
+            {
+                shutdown(true, true);
+            }
+        }
+    }
+
+    if (!recvTaskQueue_.empty())
+    {
+        RecvTask& task = recvTaskQueue_.front();
+
+        if (task.startTicks == 0)
+            task.startTicks = curTicks;
+        else
+        {
+            if (task.timeout > 0 &&
+                (int)getTickDiff(task.startTicks, curTicks) > task.timeout)
+            {
+                shutdown(true, true);
+            }
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnection::postSendTask(const string& data, const Context& context, int timeout)
+{
+    postSendTask(asBytes(data.c_str(), (int)data.size()), context, timeout);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 设置此连接从属于哪个 eventLoop
+//-----------------------------------------------------------------------------
+void TcpConnection::setEventLoop(TcpEventLoop *eventLoop)
+{
+    if (eventLoop != eventLoop_)
+    {
+        if (eventLoop_)
+        {
+            TcpEventLoop *temp = eventLoop_;
+            eventLoop_ = nullptr;
+            temp->removeConnection(this);
+            eventLoopChanged();
+        }
+
+        if (eventLoop)
+        {
+            eventLoop->assertInLoopThread();
+            eventLoop_ = eventLoop;
+            eventLoop->addConnection(this);
+            eventLoopChanged();
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class TcpClient
+
+BaseTcpConnection* TcpClient::createConnection()
+{
+#ifdef ISE_WINDOWS
+    return new WinTcpConnection();
+#endif
+#ifdef ISE_LINUX
+    return new LinuxTcpConnection();
+#endif
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 将 connection 挂接到 EventLoop 上
+// 参数:
+//   index - EventLoop 的序号 (0-based)，为 -1 表示自动选择
+// 备注:
+//   挂接成功后，TcpClient 将释放对 TcpConnection 的控制权。
+//-----------------------------------------------------------------------------
+bool TcpClient::registerToEventLoop(int index)
+{
+    bool result = false;
+
+    if (connection_)
+    {
+        TcpEventLoopList& eventLoopList = iseApp().mainServer().getMainTcpServer().getTcpClientEventLoopList();
+        result = eventLoopList.registerToEventLoop(connection_.get(), index);
+        if (result)
+            connection_.release();   // 挂接成功，所有权已在事件循环手上
+    }
+
+    return result;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class TcpServer
+
+TcpServer::TcpServer(int eventLoopCount) :
+    eventLoopList_(eventLoopCount)
+{
+    // nothing
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpServer::open()
+{
+    BaseTcpServer::open();
+    eventLoopList_.start();
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpServer::close()
+{
+    eventLoopList_.stop();
+    BaseTcpServer::close();
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 创建连接对象
+//-----------------------------------------------------------------------------
+BaseTcpConnection* TcpServer::createConnection(SOCKET socketHandle)
+{
+#ifdef ISE_WINDOWS
+    return new WinTcpConnection(this, socketHandle);
+#endif
+#ifdef ISE_LINUX
+    return new LinuxTcpConnection(this, socketHandle);
+#endif
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 收到连接
+// 注意:
+//   1. 此回调在TCP服务器监听线程(TcpListenerThread)中执行。
+//   2. 对 connection->setEventLoop() 的调用在事件循环线程中执行。
+//   3. 为避免程序退出时能尽快清除剩余连接，此时不允许有新连接连入。
+//-----------------------------------------------------------------------------
+void TcpServer::acceptConnection(BaseTcpConnection *connection)
+{
+    // 所有权在此处交接: 先装进句柄，再决定交给谁。
+    TcpConnectionHandle handle(connection);
+
+    // 程序退出中不再挂接新连接；挂接失败也一样 —— 两种情形下句柄出作用域
+    // 即销毁连接对象。
+    if (!iseApp().isTerminated() && eventLoopList_.registerToEventLoop(handle.get(), -1))
+        handle.release();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class TcpConnector
+
+TcpConnector::TcpConnector() :
+    taskList_(false, true),
+    thread_(nullptr)
+{
+    // nothing
+}
+
+TcpConnector::~TcpConnector()
+{
+    stop();
+    clear();
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::connect(const InetAddress& peerAddr,
+    const CompleteCallback& completeCallback, const Context& context)
+{
+    AutoLocker locker(mutex_);
+
+    std::unique_ptr<TaskItem> item(new TaskItem());
+    item->peerAddr = peerAddr;
+    item->completeCallback = completeCallback;
+    item->state = ASYNC_CONNECT_STATE::ACS_NONE;
+    item->context = context;
+
+    // 任务的所有权在此处交给任务列表
+    taskList_.add(item.release());
+    start();
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::clear()
+{
+    AutoLocker locker(mutex_);
+    taskList_.clear();
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::start()
+{
+    if (thread_ == nullptr)
+    {
+        // 线程自行销毁(见 threadFinalProc)，run() 成功后所有权交给它自己；
+        // thread_ 只是观察它，afterExecute() 中置空。
+        std::unique_ptr<WorkerThread> thread(new WorkerThread(*this));
+        thread->setAutoDelete(true);
+        thread_ = thread.get();
+        thread->run();
+        thread.release();
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::stop()
+{
+    if (thread_ != nullptr)
+    {
+        thread_->terminate();
+        thread_->waitFor();
+        thread_ = nullptr;
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::work(WorkerThread& thread)
+{
+    while (!thread.isTerminated() && !taskList_.isEmpty())
+    {
+        tryConnect();
+
+        int fromIndex = 0;
+        FdList fds, connectedFds, failedFds;
+
+        getPendingFdsFromTaskList(fromIndex, fds);
+        checkAsyncConnectState(fds, connectedFds, failedFds);
+
+        if (fromIndex >= taskList_.getCount())
+            fromIndex = 0;
+
+        for (int i = 0; i < (int)connectedFds.size(); ++i)
+        {
+            TaskItem *task = findTask(connectedFds[i]);
+            if (task != nullptr)
+            {
+                task->state = ASYNC_CONNECT_STATE::ACS_CONNECTED;
+                task->tcpClient.getConnection().setContext(task->context);
+            }
+        }
+
+        for (int i = 0; i < (int)failedFds.size(); ++i)
+        {
+            TaskItem *task = findTask(failedFds[i]);
+            if (task != nullptr)
+            {
+                task->state = ASYNC_CONNECT_STATE::ACS_FAILED;
+                task->tcpClient.disconnect();
+            }
+        }
+
+        invokeCompleteCallback();
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::tryConnect()
+{
+    AutoLocker locker(mutex_);
+
+    for (int i = 0; i < taskList_.getCount(); ++i)
+    {
+        TaskItem *task = taskList_[i];
+        if (task->state == ASYNC_CONNECT_STATE::ACS_NONE)
+        {
+            task->state = (ASYNC_CONNECT_STATE)task->tcpClient.asyncConnect(
+                ipToString(task->peerAddr.ip), task->peerAddr.port, 0);
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::getPendingFdsFromTaskList(int& fromIndex, FdList& fds)
+{
+    AutoLocker locker(mutex_);
+
+    fds.clear();
+    for (int i = fromIndex; i < taskList_.getCount(); ++i)
+    {
+        TaskItem *task = taskList_[i];
+        if (task->state == ASYNC_CONNECT_STATE::ACS_CONNECTING)
+        {
+            fds.push_back(task->tcpClient.getConnection().getSocket().getHandle());
+            if (fds.size() >= FD_SETSIZE)
+            {
+                fromIndex = i + 1;
+                break;
+            }
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::checkAsyncConnectState(const FdList& fds,
+    FdList& connectedFds, FdList& failedFds)
+{
+    const int WAIT_TIME = 1;  // ms
+
+    fd_set rset, wset;
+    struct timeval tv;
+
+    connectedFds.clear();
+    failedFds.clear();
+
+    // init wset & rset
+    FD_ZERO(&rset);
+    for (int i = 0; i < (int)fds.size(); ++i)
+        FD_SET(fds[i], &rset);
+    wset = rset;
+
+    // find max fd
+    SOCKET maxFd = 0;
+    for (int i = 0; i < (int)fds.size(); ++i)
+    {
+        if (maxFd < fds[i])
+            maxFd = fds[i];
+    }
+
+    tv.tv_sec = 0;
+    tv.tv_usec = WAIT_TIME * 1000;
+
+    int r = select(maxFd + 1, &rset, &wset, nullptr, &tv);
+    if (r > 0)
+    {
+        for (int i = 0; i < (int)fds.size(); ++i)
+        {
+            ASYNC_CONNECT_STATE state = ASYNC_CONNECT_STATE::ACS_CONNECTING;
+            SOCKET fd = fds[i];
+            if (FD_ISSET(fd, &rset) || FD_ISSET(fd, &wset))
+            {
+                socklen_t errLen = sizeof(int);
+                int errorCode = 0;
+                if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (char*)&errorCode, &errLen) < 0 || errorCode)
+                    state = ASYNC_CONNECT_STATE::ACS_FAILED;
+                else
+                    state = ASYNC_CONNECT_STATE::ACS_CONNECTED;
+            }
+
+            if (state == ASYNC_CONNECT_STATE::ACS_CONNECTED)
+                connectedFds.push_back(fd);
+            else if (state == ASYNC_CONNECT_STATE::ACS_FAILED)
+                failedFds.push_back(fd);
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+TcpConnector::TaskItem* TcpConnector::findTask(SOCKET fd)
+{
+    auto indices = std::views::iota(0, taskList_.getCount());
+    auto found = std::ranges::find_if(indices, [&](int i)
+        { return taskList_[i]->tcpClient.getConnection().getSocket().getHandle() == fd; });
+
+    return found == indices.end() ? nullptr : taskList_[*found];
+}
+
+//-----------------------------------------------------------------------------
+
+void TcpConnector::invokeCompleteCallback()
+{
+    TaskList completeList(false, true);
+
+    {
+        AutoLocker locker(mutex_);
+
+        for (int i = 0; i < taskList_.getCount(); ++i)
+        {
+            TaskItem *task = taskList_[i];
+            if (task->state == ASYNC_CONNECT_STATE::ACS_CONNECTED || task->state == ASYNC_CONNECT_STATE::ACS_FAILED)
+                completeList.add(taskList_.extract(i));
+        }
+    }
+
+    for (int i = 0; i < completeList.getCount(); ++i)
+    {
+        TaskItem *task = completeList[i];
+        if (task->completeCallback)
+        {
+            bool success = (task->state == ASYNC_CONNECT_STATE::ACS_CONNECTED);
+
+            task->completeCallback(success,
+                success ? &task->tcpClient.getConnection() : nullptr,
+                task->peerAddr, task->context);
+
+            if (success)
+                task->tcpClient.registerToEventLoop();
+        }
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#ifdef ISE_WINDOWS
+
+///////////////////////////////////////////////////////////////////////////////
+// class WinTcpConnection
+
+WinTcpConnection::WinTcpConnection()
+{
+    init();
+}
+
+WinTcpConnection::WinTcpConnection(TcpServer *tcpServer, SOCKET socketHandle) :
+    TcpConnection(tcpServer, socketHandle)
+{
+    init();
+}
+
+//-----------------------------------------------------------------------------
+
+void WinTcpConnection::init()
+{
+    isSending_ = false;
+    isRecving_ = false;
+    bytesSent_ = 0;
+    bytesRecved_ = 0;
+}
+
+//-----------------------------------------------------------------------------
+
+void WinTcpConnection::eventLoopChanged()
+{
+    if (getEventLoop() != NULL)
+    {
+        getEventLoop()->assertInLoopThread();
+        tryRecv();
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 提交一个发送任务
+//-----------------------------------------------------------------------------
+void WinTcpConnection::postSendTask(const void *buffer, int size,
+    const Context& context, int timeout)
+{
+    sendBuffer_.append(buffer, size);
+
+    SendTask task;
+    task.bytes = size;
+    task.context = context;
+    task.timeout = timeout;
+
+    sendTaskQueue_.push_back(task);
+
+    trySend();
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 提交一个接收任务
+//-----------------------------------------------------------------------------
+void WinTcpConnection::postRecvTask(const PacketSplitter& packetSplitter,
+    const Context& context, int timeout)
+{
+    RecvTask task;
+    task.packetSplitter = packetSplitter;
+    task.context = context;
+    task.timeout = timeout;
+
+    recvTaskQueue_.push_back(task);
+
+    tryRecv();
+}
+
+//-----------------------------------------------------------------------------
+
+void WinTcpConnection::trySend()
+{
+    if (isSending_) return;
+
+    int readableBytes = sendBuffer_.getReadableBytes();
+    if (readableBytes > 0)
+    {
+        const int MAX_SEND_SIZE = 1024*32;
+
+        const char *buffer = sendBuffer_.peek();
+        int sendSize = ise::min(readableBytes, MAX_SEND_SIZE);
+
+        isSending_ = true;
+        getEventLoop()->getIocpObject()->send(
+            getSocket().getHandle(),
+            (PVOID)buffer, sendSize, 0,
+            boost::bind(&WinTcpConnection::onIocpCallback, shared_from_this(), _1),
+            this, EMPTY_CONTEXT);
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void WinTcpConnection::tryRecv()
+{
+    if (isRecving_) return;
+
+    const int MAX_BUFFER_SIZE = iseApp().iseOptions().getTcpMaxRecvBufferSize();
+    const int MAX_RECV_SIZE = 1024*16;
+
+    if (recvTaskQueue_.empty() && recvBuffer_.getReadableBytes() >= MAX_BUFFER_SIZE)
+        return;
+
+    isRecving_ = true;
+    recvBuffer_.append(MAX_RECV_SIZE);
+    const char *buffer = recvBuffer_.peek() + bytesRecved_;
+
+    getEventLoop()->getIocpObject()->recv(
+        getSocket().getHandle(),
+        (PVOID)buffer, MAX_RECV_SIZE, 0,
+        boost::bind(&WinTcpConnection::onIocpCallback, shared_from_this(), _1),
+        this, EMPTY_CONTEXT);
+}
+
+//-----------------------------------------------------------------------------
+
+void WinTcpConnection::onIocpCallback(const TcpConnectionPtr& thisObj, const IocpTaskData& taskData)
+{
+    WinTcpConnection *thisPtr = static_cast<WinTcpConnection*>(thisObj.get());
+    if (thisPtr->isErrorOccurred_) return;
+
+    if (taskData.getErrorCode() == 0)
+    {
+        switch (taskData.getTaskType())
+        {
+        case ITT_SEND:
+            thisPtr->onSendCallback(taskData);
+            break;
+        case ITT_RECV:
+            thisPtr->onRecvCallback(taskData);
+            break;
+        }
+    }
+    else
+    {
+        thisPtr->errorOccurred();
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+void WinTcpConnection::onSendCallback(const IocpTaskData& taskData)
+{
+    ISE_ASSERT(taskData.getErrorCode() == 0);
+
+    if (taskData.getBytesTrans() < taskData.getDataSize())
+    {
+        getEventLoop()->getIocpObject()->send(
+            (SOCKET)taskData.getFileHandle(),
+            taskData.getEntireDataBuf(),
+            taskData.getEntireDataSize(),
+            taskData.getDataBuf() - taskData.getEntireDataBuf() + taskData.getBytesTrans(),
+            taskData.getCallback(), taskData.getCaller(), taskData.getContext());
+    }
+    else
+    {
+        isSending_ = false;
+        sendBuffer_.retrieve(taskData.getEntireDataSize());
+    }
+
+    bytesSent_ += taskData.getBytesTrans();
+
+    while (!sendTaskQueue_.empty())
+    {
+        SendTask& task = sendTaskQueue_.front();
+        if (bytesSent_ >= task.bytes)
+        {
+            bytesSent_ -= task.bytes;
+            iseApp().iseBusiness().onTcpSendComplete(shared_from_this(), task.context);
+            sendTaskQueue_.pop_front();
+        }
+        else
+            break;
+    }
+
+    if (!sendTaskQueue_.empty())
+        trySend();
+}
+
+//-----------------------------------------------------------------------------
+
+void WinTcpConnection::onRecvCallback(const IocpTaskData& taskData)
+{
+    ISE_ASSERT(taskData.getErrorCode() == 0);
+
+    if (taskData.getBytesTrans() < taskData.getDataSize())
+    {
+        getEventLoop()->getIocpObject()->recv(
+            (SOCKET)taskData.getFileHandle(),
+            taskData.getEntireDataBuf(),
+            taskData.getEntireDataSize(),
+            taskData.getDataBuf() - taskData.getEntireDataBuf() + taskData.getBytesTrans(),
+            taskData.getCallback(), taskData.getCaller(), taskData.getContext());
+    }
+    else
+    {
+        isRecving_ = false;
+    }
+
+    bytesRecved_ += taskData.getBytesTrans();
+
+    while (!recvTaskQueue_.empty())
+    {
+        RecvTask& task = recvTaskQueue_.front();
+        const char *buffer = recvBuffer_.peek();
+        bool packetRecved = false;
+
+        if (bytesRecved_ > 0)
+        {
+            int packetSize = 0;
+            task.packetSplitter(buffer, bytesRecved_, packetSize);
+            if (packetSize > 0)
+            {
+                bytesRecved_ -= packetSize;
+                iseApp().iseBusiness().onTcpRecvComplete(shared_from_this(),
+                    (void*)buffer, packetSize, task.context);
+                recvTaskQueue_.pop_front();
+                recvBuffer_.retrieve(packetSize);
+                packetRecved = true;
+            }
+        }
+
+        if (!packetRecved)
+            break;
+    }
+
+    tryRecv();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class WinTcpEventLoop
+
+//-----------------------------------------------------------------------------
+// 描述: 将新连接注册到事件循环中
+//-----------------------------------------------------------------------------
+void WinTcpEventLoop::registerConnection(TcpConnection *connection)
+{
+    iocpObject_->associateHandle(connection->getSocket().getHandle());
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 从事件循环中注销连接
+//-----------------------------------------------------------------------------
+void WinTcpEventLoop::unregisterConnection(TcpConnection *connection)
+{
+    // nothing
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#endif  /* ifdef ISE_WINDOWS */
+
+///////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////
+
+#ifdef ISE_LINUX
+
+///////////////////////////////////////////////////////////////////////////////
+// class LinuxTcpConnection
+
+LinuxTcpConnection::LinuxTcpConnection()
+{
+    init();
+}
+
+LinuxTcpConnection::LinuxTcpConnection(TcpServer *tcpServer, SOCKET socketHandle) :
+    TcpConnection(tcpServer, socketHandle)
+{
+    init();
+}
+
+//-----------------------------------------------------------------------------
+
+void LinuxTcpConnection::init()
+{
+    bytesSent_ = 0;
+    enableSend_ = false;
+    enableRecv_ = false;
+}
+
+//-----------------------------------------------------------------------------
+
+void LinuxTcpConnection::eventLoopChanged()
+{
+    if (getEventLoop() != nullptr)
+    {
+        getEventLoop()->assertInLoopThread();
+        setRecvEnabled(true);
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 提交一个发送任务
+//-----------------------------------------------------------------------------
+void LinuxTcpConnection::postSendTask(std::span<const std::byte> data,
+    const Context& context, int timeout)
+{
+    const int size = static_cast<int>(data.size());
+    sendBuffer_.append(data.data(), size);
+
+    SendTask task;
+    task.bytes = size;
+    task.context = context;
+    task.timeout = timeout;
+
+    sendTaskQueue_.push_back(task);
+
+    if (!enableSend_)
+        setSendEnabled(true);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 提交一个接收任务
+//-----------------------------------------------------------------------------
+void LinuxTcpConnection::postRecvTask(const PacketSplitter& packetSplitter,
+    const Context& context, int timeout)
+{
+    RecvTask task;
+    task.packetSplitter = packetSplitter;
+    task.context = context;
+    task.timeout = timeout;
+
+    recvTaskQueue_.push_back(task);
+
+    if (!enableRecv_)
+        setRecvEnabled(true);
+
+    // 注意: 此处必须调用 tryRetrievePacket()，否则会造成接收中止。但是，直接
+    // 调用 tryRetrievePacket() 又会造成循环调用，所以必须用 delegateToLoop()，
+    // 且必须使用 shared_from_this()，否则在某些情况下会导致程序崩溃。
+    TcpConnectionPtr thisPtr = shared_from_this();
+    getEventLoop()->delegateToLoop(
+        [thisPtr]() { LinuxTcpConnection::afterPostRecvTask(thisPtr); });
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 设置“是否监视可发送事件”
+//-----------------------------------------------------------------------------
+void LinuxTcpConnection::setSendEnabled(bool enabled)
+{
+    ISE_ASSERT(eventLoop_ != nullptr);
+
+    enableSend_ = enabled;
+    getEventLoop()->updateConnection(this, enableSend_, enableRecv_);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 设置“是否监视可接收事件”
+//-----------------------------------------------------------------------------
+void LinuxTcpConnection::setRecvEnabled(bool enabled)
+{
+    ISE_ASSERT(eventLoop_ != nullptr);
+
+    enableRecv_ = enabled;
+    getEventLoop()->updateConnection(this, enableSend_, enableRecv_);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 当“可发送”事件到来时，尝试发送数据
+//-----------------------------------------------------------------------------
+void LinuxTcpConnection::trySend()
+{
+    int readableBytes = sendBuffer_.getReadableBytes();
+    if (readableBytes <= 0)
+    {
+        setSendEnabled(false);
+        return;
+    }
+
+    const char *buffer = sendBuffer_.peek();
+    int bytesSent = sendBuffer(asBytes(buffer, readableBytes), false);
+    if (bytesSent < 0)
+    {
+        errorOccurred();
+        return;
+    }
+
+    if (bytesSent > 0)
+    {
+        sendBuffer_.retrieve(bytesSent);
+        bytesSent_ += bytesSent;
+
+        while (!sendTaskQueue_.empty())
+        {
+            // 拷一份再出队再恢复: 醒过来的会话第一件事往往就是再投一个发送
+            // 任务, 而那会动到这个队列。从前这里持有的是队列里那一项的引用。
+            const SendTask task = sendTaskQueue_.front();
+            if (bytesSent_ < task.bytes)
+                break;
+
+            bytesSent_ -= task.bytes;
+            sendTaskQueue_.pop_front();
+            completeTask(task.context, std::span<const std::byte>());
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 当“可接收”事件到来时，尝试接收数据
+//-----------------------------------------------------------------------------
+void LinuxTcpConnection::tryRecv()
+{
+    const int MAX_BUFFER_SIZE = iseApp().iseOptions().getTcpMaxRecvBufferSize();
+    if (recvTaskQueue_.empty() && recvBuffer_.getReadableBytes() >= MAX_BUFFER_SIZE)
+    {
+        setRecvEnabled(false);
+        return;
+    }
+
+    const int BUFFER_SIZE = 1024*16;
+    char dataBuf[BUFFER_SIZE];
+
+    int bytesRecved = recvBuffer(asWritableBytes(dataBuf, BUFFER_SIZE), false);
+    if (bytesRecved < 0)
+    {
+        errorOccurred();
+        return;
+    }
+
+    if (bytesRecved > 0)
+        recvBuffer_.append(dataBuf, bytesRecved);
+
+    while (!recvTaskQueue_.empty())
+    {
+        bool packetRecved = tryRetrievePacket();
+        if (!packetRecved)
+            break;
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 尝试从缓存中取出一个完整数据包
+//-----------------------------------------------------------------------------
+bool LinuxTcpConnection::tryRetrievePacket()
+{
+    if (recvTaskQueue_.empty()) return false;
+
+    bool result = false;
+    RecvTask& task = recvTaskQueue_.front();
+    const char *buffer = recvBuffer_.peek();
+    int readableBytes = recvBuffer_.getReadableBytes();
+
+    if (readableBytes > 0)
+    {
+        int packetSize = 0;
+        task.packetSplitter(buffer, readableBytes, packetSize);
+        if (packetSize > 0)
+        {
+            const Context context = task.context;
+            recvTaskQueue_.pop_front();
+            // 恢复在 retrieve() 之前: 交给会话的那一段字节借的就是接收缓存里
+            // 这一块, 和从前交给 onTcpRecvComplete() 的是同一块, 有效期也一样。
+            completeTask(context, asBytes(buffer, packetSize));
+            recvBuffer_.retrieve(packetSize);
+            result = true;
+        }
+    }
+
+    return result;
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 在 postRecvTask() 中调用此函数
+//-----------------------------------------------------------------------------
+void LinuxTcpConnection::afterPostRecvTask(const TcpConnectionPtr& thisObj)
+{
+    LinuxTcpConnection *thisPtr = static_cast<LinuxTcpConnection*>(thisObj.get());
+    if (!thisPtr->isErrorOccurred_)
+        thisPtr->tryRetrievePacket();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// class LinuxTcpEventLoop
+
+LinuxTcpEventLoop::LinuxTcpEventLoop()
+{
+    epollObject_->setNotifyEventCallback(
+        [this](BaseTcpConnection *connection, EpollObject::EVENT_TYPE eventType)
+        { onEpollNotifyEvent(connection, eventType); });
+}
+
+LinuxTcpEventLoop::~LinuxTcpEventLoop()
+{
+    // nothing
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 更新此 eventLoop 中的指定连接的设置
+//-----------------------------------------------------------------------------
+void LinuxTcpEventLoop::updateConnection(TcpConnection *connection, bool enableSend, bool enableRecv)
+{
+    epollObject_->updateConnection(connection, enableSend, enableRecv);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 将新连接注册到事件循环中
+//-----------------------------------------------------------------------------
+void LinuxTcpEventLoop::registerConnection(TcpConnection *connection)
+{
+    epollObject_->addConnection(connection, false, false);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 从事件循环中注销连接
+//-----------------------------------------------------------------------------
+void LinuxTcpEventLoop::unregisterConnection(TcpConnection *connection)
+{
+    epollObject_->removeConnection(connection);
+}
+
+//-----------------------------------------------------------------------------
+// 描述: EPoll 事件回调
+//-----------------------------------------------------------------------------
+void LinuxTcpEventLoop::onEpollNotifyEvent(BaseTcpConnection *connection,
+    EpollObject::EVENT_TYPE eventType)
+{
+    LinuxTcpConnection *conn = static_cast<LinuxTcpConnection*>(connection);
+
+    if (eventType == EpollObject::EVENT_TYPE::ET_ALLOW_SEND)
+        conn->trySend();
+    else if (eventType == EpollObject::EVENT_TYPE::ET_ALLOW_RECV)
+        conn->tryRecv();
+    else if (eventType == EpollObject::EVENT_TYPE::ET_ERROR)
+        conn->errorOccurred();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+#endif  /* ifdef ISE_LINUX */
+
+///////////////////////////////////////////////////////////////////////////////
+// class MainTcpServer
+
+MainTcpServer::MainTcpServer() :
+    isActive_(false)
+{
+    createTcpServerList();
+}
+
+MainTcpServer::~MainTcpServer()
+{
+    close();
+    destroyTcpServerList();
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 开启服务器
+//-----------------------------------------------------------------------------
+void MainTcpServer::open()
+{
+    if (!isActive_)
+    {
+        try
+        {
+            doOpen();
+            isActive_ = true;
+        }
+        catch (...)
+        {
+            doClose();
+            throw;
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 关闭服务器
+//-----------------------------------------------------------------------------
+void MainTcpServer::close()
+{
+    if (isActive_)
+    {
+        doClose();
+        isActive_ = false;
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+TcpServer& MainTcpServer::getTcpServer(int index)
+{
+    ISE_ASSERT(index >= 0 && index < (int)tcpServerList_.size());
+    return *tcpServerList_[index];
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 延迟创建 tcpClientEventLoopList_
+//-----------------------------------------------------------------------------
+TcpEventLoopList& MainTcpServer::getTcpClientEventLoopList()
+{
+    static Mutex s_mutex;
+    AutoLocker locker(s_mutex);
+
+    if (!tcpClientEventLoopList_)
+    {
+        int eventLoopCount = iseApp().iseOptions().getTcpClientEventLoopCount();
+        tcpClientEventLoopList_.reset(new TcpEventLoopList(eventLoopCount));
+        if (isActive_)
+            tcpClientEventLoopList_->start();
+    }
+
+    return *tcpClientEventLoopList_;
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 在全局范围内，根据事件循环线程ID查找对应的事件循环，找不到返回NULL
+//-----------------------------------------------------------------------------
+EventLoop* MainTcpServer::findEventLoop(THREAD_ID loopThreadId)
+{
+    EventLoop *result = nullptr;
+
+    for (int svrIdx = 0; svrIdx < (int)tcpServerList_.size(); ++svrIdx)
+    {
+        TcpEventLoopList& eventLoopList = tcpServerList_[svrIdx]->eventLoopList_;
+        EventLoop *eventLoop = eventLoopList.findEventLoop(loopThreadId);
+        if (eventLoop != nullptr)
+        {
+            result = eventLoop;
+            break;
+        }
+    }
+
+    if (!result)
+        result = tcpClientEventLoopList_->findEventLoop(loopThreadId);
+
+    return result;
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 创建TCP服务器
+//-----------------------------------------------------------------------------
+void MainTcpServer::createTcpServerList()
+{
+    int serverCount = iseApp().iseOptions().getTcpServerCount();
+    ISE_ASSERT(serverCount >= 0);
+
+    tcpServerList_.resize(serverCount);
+    for (int i = 0; i < serverCount; i++)
+    {
+        std::unique_ptr<TcpServer> tcpServer(
+            new TcpServer(iseApp().iseOptions().getTcpServerEventLoopCount(i)));
+        tcpServer->setContext(i);
+        tcpServer->setLocalPort(static_cast<WORD>(iseApp().iseOptions().getTcpServerPort(i)));
+
+        tcpServerList_[i] = std::move(tcpServer);
+    }
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 销毁TCP服务器
+//-----------------------------------------------------------------------------
+void MainTcpServer::destroyTcpServerList()
+{
+    tcpServerList_.clear();
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 开启服务器
+//-----------------------------------------------------------------------------
+void MainTcpServer::doOpen()
+{
+    for (int i = 0; i < (int)tcpServerList_.size(); i++)
+        tcpServerList_[i]->open();
+
+    if (tcpClientEventLoopList_)
+        tcpClientEventLoopList_->start();
+}
+
+//-----------------------------------------------------------------------------
+// 描述: 关闭服务器
+//-----------------------------------------------------------------------------
+void MainTcpServer::doClose()
+{
+    if (tcpClientEventLoopList_)
+        tcpClientEventLoopList_->stop();
+
+    for (int i = 0; i < (int)tcpServerList_.size(); i++)
+        tcpServerList_[i]->close();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+} // namespace ise

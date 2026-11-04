@@ -1,0 +1,188 @@
+{
+ "error": null,
+ "step": 2,
+ "tags": [
+  "federation",
+  "membership",
+  "ban"
+ ],
+ "transcript": [
+  {
+   "binary": null,
+   "body": {},
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 bans a remote user",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/rooms/{roomId}/ban",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/ban",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "membership": "ban",
+    "reason": "spam"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 membership after the ban",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/state/m.room.member/@bnb:<HS2>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "members": {
+     "leave:<ROOM1>": [
+      "@bnb:<HS2>|ban"
+     ]
+    },
+    "sections": {
+     "invite": [],
+     "join": [],
+     "knock": [],
+     "leave": [
+      "<ROOM1>"
+     ]
+    }
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs2 /sync puts the banned user's room in leave",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/sync",
+   "path": "hs2 /_matrix/client/v3/sync?timeout=0&since=<BATCH>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": [
+    "@bna:<HS1>|join|bna D",
+    "@bnb:<HS2>|ban|None",
+    "@bnc:<HS2>|join|bnc D"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the ban is in hs1's members listing",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/members",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": [
+    "@bna:<HS1>|join|bna D",
+    "@bnb:<HS2>|ban|None",
+    "@bnc:<HS2>|join|bnc D"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs2 replicated the ban",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "hs2 /_matrix/client/v3/rooms/<ROOM1>/members",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "joined_rooms": []
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs2 drops the room for the banned user",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/joined_rooms",
+   "path": "hs2 /_matrix/client/v3/joined_rooms",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {},
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 unbans the remote user",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/rooms/{roomId}/unban",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/unban",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "room_id": "<ROOM1>"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the unbanned remote user may join again",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/join/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/join/<ROOM1>?server_name=<HS1>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": [
+    "@bna:<HS1>|join|bna D",
+    "@bnb:<HS2>|join|bnb D",
+    "@bnc:<HS2>|join|bnc D"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 sees the join after the unban",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/members",
+   "status": 200,
+   "status_exact": true
+  }
+ ]
+}

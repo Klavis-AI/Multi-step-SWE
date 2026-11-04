@@ -1,0 +1,74 @@
+# Step 07 -- C-3's frozen population: every (package, <file>#<method>) pair
+# holding a javax reference that MUST NOT MOVE.
+#
+# The package is part of the key and not a comment on it. One method can
+# reference two javax packages -- InitialContext plus a JMX type, say -- and if
+# the bucket alone were the key, moving one of the two would leave the bucket
+# still occupied and the hold would read full. 43 pairs over 112 references.
+#
+#   javax.enterprise  32 refs, 16 pairs   CDI 1.0, against Weld 1.1
+#   javax.management  40 refs, 10 pairs   JMX -- still javax in Java 25
+#   javax.naming      24 refs, 11 pairs   JNDI -- still javax in Java 25
+#   javax.servlet      9 refs,  3 pairs   Servlet 2.5/3.0, against the 2011 jars
+#   javax.xml          4 refs,  1 pair    JAXP -- still javax in Java 25
+#   javax.inject       3 refs,  2 pairs   Weld 1.1's; see nsmove.txt
+#
+# TWO OF THOSE SIX ARE NOT A DEFERRAL AT ALL. javax.management and javax.naming
+# and javax.xml are JDK packages: they were never part of Java EE, Jakarta
+# never took them, and they are spelled javax in Java 25 exactly as they are
+# here. A candidate who "finishes the namespace migration" by rewriting them
+# produces a tree that does not compile, and this file is the instrument that
+# says so before the compile does.
+#
+# This is why C-3 is SCALED BY C-2 rather than scored on its own. All 43 pairs
+# hold on the input tree, which has migrated nothing; an unscaled C-3 would pay
+# that tree 0.32 of family C for standing still, and the floor arithmetic at the
+# foot of test.sh is where that shows up as a number.
+#
+# Derived:
+#
+#   sed -n 's/^ns\[[0-9]*\]=//p' baseline-step07-source.txt \
+#     | awk '{ p = substr($2, 5) } p != "javax.annotation" && p != "javax.ejb"'
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricher.java#getInstanceByType
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricher.java#injectClass
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricher.java#injectNonContextualInstance
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricher.java#lookupBeanManager
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricher.java#resolve
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/MethodParameterInjectionPoint.java#-
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/MethodParameterInjectionPoint.java#<init>
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/MethodParameterInjectionPoint.java#getAnnotated
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/MethodParameterInjectionPoint.java#getBean
+javax.enterprise testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/MethodParameterInjectionPoint.java#getDeclaringCallable
+javax.enterprise testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java#createDeployment
+javax.enterprise testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java#setup
+javax.enterprise testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java#shouldInjectMethodArgumentsEvent
+javax.enterprise testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java#shouldInjectMethodArgumentsInstance
+javax.enterprise testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java#testEvent
+javax.enterprise testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java#testInstance
+javax.inject testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java#-
+javax.inject testenrichers/osgi/src/main/java/org/jboss/arquillian/testenricher/osgi/OSGiTestEnricher.java#enrich
+javax.management protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXMethodExecutor.java#findOrCreateMBeanServer
+javax.management protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXMethodExecutor.java#getMBeanProxy
+javax.management protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXMethodExecutor.java#invoke
+javax.management protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXTestRunner.java#registerMBean
+javax.management protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXTestRunner.java#unregisterMBean
+javax.management protocols/jmx/src/test/java/org/jboss/arquillian/jmx/JMXTestRunnerTestCase.java#getMBeanProxy
+javax.management protocols/jmx/src/test/java/org/jboss/arquillian/jmx/JMXTestRunnerTestCase.java#getMBeanServer
+javax.management protocols/jmx/src/test/java/org/jboss/arquillian/jmx/JMXTestRunnerTestCase.java#testJMXTestRunner
+javax.management testenrichers/osgi/src/main/java/org/jboss/arquillian/testenricher/osgi/OSGiTestEnricher.java#findOrCreateMBeanServer
+javax.management testenrichers/osgi/src/main/java/org/jboss/arquillian/testenricher/osgi/OSGiTestEnricher.java#getBundleContextFromHolder
+javax.naming impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/ArquillianResourceTestEnricher.java#-
+javax.naming impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/InitialContextProvider.java#-
+javax.naming impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherURLTestCase.java#-
+javax.naming impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherURLTestCase.java#shouldBeAbleToInjectBaseContext
+javax.naming impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherURLTestCase.java#shouldBeAbleToInjectServlet
+javax.naming spi/src/main/java/org/jboss/arquillian/spi/client/protocol/metadata/RMIContext.java#getInitialContext
+javax.naming testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricher.java#lookupBeanManager
+javax.naming testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/EJBInjectionEnricher.java#createContext
+javax.naming testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/EJBInjectionEnricher.java#lookupEJB
+javax.naming testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricher.java#getContainerContext
+javax.naming testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricher.java#lookup
+javax.servlet protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/ServletTestRunner.java#-
+javax.servlet protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/ServletTestRunner.java#doGet
+javax.servlet protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/ServletTestRunner.java#writeObject
+javax.xml impl-base/src/test/java/org/jboss/arquillian/impl/configuration/api/AssertXPath.java#assertXPath

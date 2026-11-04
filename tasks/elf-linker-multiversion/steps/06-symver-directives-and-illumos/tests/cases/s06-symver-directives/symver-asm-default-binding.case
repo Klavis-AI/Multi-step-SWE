@@ -1,0 +1,40 @@
+# arch: x86_64
+# .symver written as asm() inside C: an unversioned reference from another
+# object must bind to the `@@` default version, and the executable must record
+# that version in .gnu.version_r against the library's soname.
+rt_obj rt.o
+cat > c.c <<'C'
+__asm__(".symver old_impl, compute@COMPAT_1");
+__asm__(".symver new_impl, compute@@COMPAT_2");
+int old_impl(int x) { return x + 1; }
+int new_impl(int x) { return x * 2; }
+C
+cc_obj c.o c.c -fPIC
+cat > vs.txt <<'V'
+COMPAT_1 { global: compute; local: *; };
+COMPAT_2 { global: compute; local: *; } COMPAT_1;
+V
+link_ok libcompute.so -shared -soname libcompute.so --version-script=vs.txt c.o
+ds=$(dynsyms libcompute.so)
+want_has "COMPAT_1 alias exported" "$ds" ' compute@COMPAT_1$'
+want_has "COMPAT_2 default exported" "$ds" ' compute@@COMPAT_2$'
+want "old_impl kept out of .dynsym" "$(printf '%s' "$ds" | grep -cE ' (old|new)_impl')" "0"
+
+cat > u.c <<'C'
+int compute(int x);
+int entry(void) { return compute(20); }
+C
+cc_obj u.o u.c
+link_ok app rt.o u.o libcompute.so
+
+eds=$(dynsyms app)
+want_has "reference bound to the default version" "$eds" 'UND compute@COMPAT_2$'
+want_not "did not bind to the old version" "$eds" 'compute@COMPAT_1'
+vn=$(vernum app)
+want_has "version_r names the library" "$vn" 'File: libcompute\.so'
+want_has "version_r requires COMPAT_2" "$vn" 'Name: COMPAT_2'
+want_not "version_r must not require COMPAT_1" "$vn" 'Name: COMPAT_1'
+want_has ".gnu.version_r section present" "$(sections app)" "\.gnu\.version_r +VERNEED"
+want "one version need entry" "$(printf '%s' "$vn" | grep -c 'Cnt: 1')" "1"
+
+asserts_at_least 10

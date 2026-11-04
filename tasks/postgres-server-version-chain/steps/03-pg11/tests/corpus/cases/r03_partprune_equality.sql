@@ -1,0 +1,12 @@
+SET enable_partition_pruning = on;
+CREATE TABLE q3_ppe(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q3_ppe_1 PARTITION OF q3_ppe FOR VALUES FROM (1) TO (100);
+CREATE TABLE q3_ppe_2 PARTITION OF q3_ppe FOR VALUES FROM (100) TO (200);
+CREATE TABLE q3_ppe_3 PARTITION OF q3_ppe FOR VALUES FROM (200) TO (300);
+INSERT INTO q3_ppe SELECT g, 'v' || g FROM generate_series(1,299) g;
+SELECT count(*), min(a), max(a) FROM q3_ppe WHERE a = 150;
+SELECT count(*), min(a), max(a) FROM q3_ppe WHERE a < 100;
+SELECT count(*), min(a), max(a) FROM q3_ppe WHERE a >= 100 AND a < 200;
+SELECT count(*) FROM q3_ppe WHERE a > 1000;
+RESET enable_partition_pruning;
+DROP TABLE q3_ppe;

@@ -1,0 +1,64 @@
+# Step 03 -- what the migrated tree must reach, measured on the golden solution
+# with arqgate.SourceScan and frozen here.
+#
+# The BASELINE (baseline/source.txt) says where the tree starts; this file says
+# where it has to get to. Both are shipped, and the scorer reads both rather
+# than deriving either from the tree it is grading -- a threshold computed at
+# grading time from the candidate's own tree is a threshold the candidate sets.
+#
+# Every number here was produced by running the same gate over the golden tree
+# at -source 1.7 (authoring/evidence/step03-golden-source.txt). None is a round
+# number chosen for its shape.
+
+# --- generics ---------------------------------------------------------------
+# 143 explicit sites at the baseline, 27 of them on anonymous classes, which
+# leaves 116 that the diamond could reach. 23 of those 116 do not compile as
+# `<>` at -source 1.7: Java 7 infers from the assignment target only, and
+# `new HashMap<>()` passed straight to a `Map<String,String>` parameter infers
+# `HashMap<Object,Object>`. So 93 is the whole reachable population, not a
+# sample of it, and the 23 are listed in evidence/step03-diamond-reverted.txt.
+target.diamond=93
+target.diamondfiles=47
+target.explicit.nonanon=23
+
+# --- resources --------------------------------------------------------------
+# 11 manually closed resources at the baseline, in 9 try statements; two of the
+# 9 close two resources each, which is where the 12 resource variables come
+# from.
+target.try.resources=9
+target.try.resourcevars=12
+target.close.manual=0
+
+# --- files ------------------------------------------------------------------
+# 13 java.io.File sites at the baseline (8 allocations, 5 declarations). 11 move
+# to java.nio.file; the 2 that stay are pinned and are listed below.
+target.iofile=2
+target.niofile.ref=13
+target.niofile.files=6
+
+# --- the two java.io sites that must NOT move -------------------------------
+# Not an exemption granted for convenience: a measured behaviour difference.
+# `Files.newOutputStream` on a directory throws java.nio.file.FileSystemException
+# where `new FileOutputStream` throws java.io.FileNotFoundException with the
+# message "<path> (Is a directory)", and the frozen transcripts record the type
+# and the message.
+#
+# These two lines are the `iofile[...]` lines of the golden tree's own
+# SourceScan report (evidence/step03-golden-source.txt), copied rather than
+# retyped. Round 1 of the static review found the earlier hand-typed pair named
+# two files that do not exist at those paths -- unread by test.sh, and wrong. A
+# path in expectation data that no gate produces is a path nobody checks.
+#
+# The scorer does not grade these two by name -- naming them would be telling
+# the candidate the answer. It grades the four transcripts they protect, which
+# is the same requirement stated as behaviour. See baseline/nioids.txt.
+pinned.iofile=impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/tool/ArchiveDeploymentToolingExporter.java:61 java.io.File as=decl
+pinned.iofile=impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/tool/ArchiveDeploymentToolingExporter.java:66 java.io.FileOutputStream as=new
+
+# --- one more pinned java.io use, which the iofile COUNT does not see --------
+# `File.createTempFile` rejects a prefix under three characters and one
+# containing a separator; `Files.createTempFile` does not, and pack/name-too-short
+# and pack/name-with-separator record the rejection. The call is a static member
+# select on java.io.File, so it is neither an allocation nor a declaration and
+# does not appear in target.iofile=2. It is pinned by the transcripts alone.
+pinned.iocall=protocols/jmx-osgi/src/main/java/org/jboss/arquillian/packager/osgi/OSGiDeploymentPackager.java:79 java.io.File.createTempFile

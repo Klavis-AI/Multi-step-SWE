@@ -1,0 +1,64 @@
+# arch: x86_64
+# SORT(...) is the short spelling of SORT_BY_NAME(...): it sorts the matched
+# input sections by name, and the sort is stable across the whole match rather
+# than only inside one input object.
+rt_obj rt.o
+cat > one.c <<'C'
+__attribute__((section(".pre.zulu"),  used, retain)) const int z = 0x11111111;
+__attribute__((section(".pre.mike"),  used, retain)) const int m = 0x33333333;
+C
+cat > two.c <<'C'
+#include "rt.h"
+__attribute__((section(".pre.alpha"), used, retain)) const int a = 0x22222222;
+__attribute__((section(".pre.bravo"), used, retain)) const int b = 0x44444444;
+int g = 7;
+int entry(void) { print("aliased\n"); return g; }
+C
+cc_obj one.o one.c
+cc_obj two.o two.c
+cat > t.ld <<'L'
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .pre  : { *(SORT(.pre.*)) }
+  .data : { *(.data .data.*) }
+}
+L
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+words() { local o s; o=$(sec_off "$1" "$2"); s=$(sec_size "$1" "$2")
+          [ -n "$o" ] && [ -n "$s" ] || die "$1 has no section $2"
+          dd if="$1" of=w.bin bs=1 skip=$((16#$o)) count=$((16#$s)) status=none
+          od -An -tx4 -v w.bin | tr -s ' \n' ' '; }
+
+# Control first: the same script with a plain matcher links at every tag, so a
+# failure in the arm below is the SORT keyword and not the rest of the script.
+sed 's/SORT(\(.*\))/\1/' t.ld > c.ld
+link_ok ctl -T c.ld --no-gc-sections rt.o one.o two.o
+# Without SORT the order is the one spec/10 s.5 rule 2 gives: within a single
+# pattern, input sections arrive in input-file order, so one.o's two
+# contributions precede two.o's two. Input-file order reaches inside a single
+# object as well -- spec/04 s.1.1 defines it as that object's
+# section-header-table order -- and sort-by-name.case in this group grades that
+# directly. This control does not need to: asserting the multiset and the
+# cross-object split is enough to make the SORT() arm below attributable to the
+# keyword. The full ordering claim belongs to SORT(), and is graded there.
+ctlw=$(words ctl .pre)
+want "unsorted .pre still holds all four contributions" \
+     "$(printf '%s\n' $ctlw | sort | tr '\n' ' ')" \
+     "11111111 22222222 33333333 44444444 "
+want "and one.o's contributions precede two.o's" \
+     "$(printf '%s\n' $ctlw | sed -n '1,2p' | sort | tr '\n' ' ')" \
+     "11111111 33333333 "
+
+link_ok out -T t.ld --no-gc-sections rt.o one.o two.o
+# alpha, bravo, mike, zulu -- interleaving the two objects, which a per-object
+# sort would not produce.
+want "SORT orders by name across all inputs" "$(words out .pre)" \
+     " 22222222 44444444 33333333 11111111 "
+run_expect out "aliased" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

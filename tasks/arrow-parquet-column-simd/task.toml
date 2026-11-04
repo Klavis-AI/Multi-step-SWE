@@ -1,0 +1,96 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. Each step's reward is
+# binary and correctness-gated: 1 only when the tree is bit-exact and its
+# geometric-mean speedup is above this step's oracle baseline, 0 otherwise.
+multi_step_reward_strategy = "mean"
+
+# What survives from one step to the next and what the checks receive. The
+# exclude list removes the agent's prebuilt /app/build and its ccache; a path
+# component matches at ANY depth, and neither name occurs under the shipped
+# Arrow tree.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build", "ccache"] },
+]
+
+[task]
+name = "harbor/arrow-parquet-column-simd"
+version = "1.0.0"
+description = "Optimize the Apache Arrow C++ Parquet column-read and hash-join kernels one at a time: bit-packing decode, byte-stream-split, the Parquet split-block bloom filter, the row-format compare/hash/probe kernels and the swiss-join row gather. Five cumulative steps, each measured by per-function speedup gated on bit-exact output."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "parquet", "arrow", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "cpp", "simd", "apache-arrow"]
+
+[environment]
+build_timeout_sec = 5400.0
+cpus = 4
+memory_mb = 16384
+storage_mb = 40960
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# The test image reconstructs the ladder's L0 tree from the pinned upstream
+# commit, strips every ladder stage, builds Arrow from source, builds the
+# per-function harness against that build, and keeps both. At check time it
+# rebuilds at the SAME source and build paths with the candidate's tree in
+# place, so a primed ccache turns the candidate build into an incremental one.
+# cpus must stay >= 2 because measurement pins to cores 0 and 1.
+[verifier.environment]
+build_timeout_sec = 7200.0
+cpus = 4
+memory_mb = 16384
+storage_mb = 61440
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-bpacking"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "02-byte-stream-split"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "03-bloom-filters"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "04-row-kernels"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "05-swiss-row-gather"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

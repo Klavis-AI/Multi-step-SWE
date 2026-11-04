@@ -1,0 +1,46 @@
+# PCRE2_MATCH_INVALID_UTF forces PCRE2_UTF on, and an invalid code unit
+# sequence in the subject acts as a barrier that no match can cross.
+/x./I,match_invalid_utf
+Capture group count = 0
+Options: match_invalid_utf utf
+First code unit = 'x'
+Subject length lower bound = 2
+    xa\x80b\=g
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+
+/./utf,match_invalid_utf
+    a\x80b\=g
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+
+/\p{Any}/utf,match_invalid_utf
+    a\x80b\=g
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+
+/[^q]/utf,match_invalid_utf
+    a\x80b\=g
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+
+# A lookbehind fails if it must step back over an invalid sequence.
+/(?<=z)y/utf,match_invalid_utf
+    zy
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+    z\x80y
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+
+# Fragment boundaries behave as subject ends for \b and \B ...
+/\bpq\b/utf,match_invalid_utf
+    \x80pq\xff
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+
+/\Bpq/utf,match_invalid_utf
+    \x80pq\xff
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+
+# ... but they are not line boundaries.
+/^pq/utf,match_invalid_utf
+    \x80pq
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching
+
+/pq$/utf,match_invalid_utf
+    pq\xff
+Failed: error -66: PCRE2_MATCH_INVALID_UTF is not supported for DFA matching

@@ -1,0 +1,30 @@
+# Step 07 -- C-4's frozen population: the <file>#<method> buckets holding a
+# `collection.toArray(new T[...])` call, and how many each holds.
+#
+# 8 calls in 5 buckets. Java 11 added `Collection.toArray(IntFunction)`, whose
+# spelling is `toArray(T[]::new)`; the pre-11 spelling allocates the array at
+# the call site and the JDK either fills it or throws it away, and the
+# constructor reference lets the collection size it once.
+#
+# THE ARRIVAL HALF IS A MODE AND NOT A NAME, and that distinction cost this
+# file a day. javac names a constructor reference `<init>`, not `new`, so the
+# obvious `"new".contentEquals(getName())` test in SourceScan matched nothing:
+# it reported 0 constructor references on a golden holding 8 of them -- and 0
+# is also the answer the unmigrated tree gives, so the instrument agreed with
+# the tree for the wrong reason. `getMode() == ReferenceMode.NEW` is the
+# parser's own record of which side of `::` it read. NOTES 12.12.
+#
+# The raw-type trap this leg carries is in the penalty rather than here.
+# `c.toArray(Class[]::new)` compiles, is a raw array type, and `newgeneric.raw`
+# does not see it -- a member reference is not a `new` expression. `toarray.raw`
+# is the only channel that does, and the golden reads 0 on it: every one of the
+# 8 writes its type argument out.
+#
+# Derived:
+#
+#   sed -n 's/^toarray\[[0-9]*\]=//p' baseline-step07-source.txt | ... bucket
+impl-base/src/main/java/org/jboss/arquillian/impl/DeployableTestBuilder.java#build sites=2
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ContainerRegistry.java#create sites=1
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/v_2_5/ServletProtocolDeploymentPackager.java#handleArchive sites=2
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/v_3/ServletProtocolDeploymentPackager.java#handleArchive sites=2
+spi/src/main/java/org/jboss/arquillian/spi/TestClass.java#getMethods sites=1

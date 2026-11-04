@@ -1,0 +1,23 @@
+# arch: x86_64
+# --wild-experimental-sframe must be accepted in every spelling the profile
+# requires, and must synthesise nothing when no input supplies SFrame data.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("plain\n"); return 6; }
+C
+cc_obj m.o m.c
+want_not "the inputs carry no .sframe" "$(sections m.o)" '\.sframe'
+
+link_ok two --wild-experimental-sframe --no-gc-sections rt.o m.o
+want_not "nothing is synthesised from nothing" "$(sections two)" '\.sframe'
+want_has "the link is otherwise ordinary" "$(hdr two)" 'Type: +EXEC \(Executable file\)'
+run_expect two "plain" 6
+
+# One dash or two, per the compatibility profile's option-spelling rule.
+link_ok one -wild-experimental-sframe --no-gc-sections rt.o m.o
+cmp -s two one || die "-wild-experimental-sframe and --wild-experimental-sframe differ"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 3

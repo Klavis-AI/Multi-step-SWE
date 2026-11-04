@@ -1,0 +1,44 @@
+# arch: x86_64
+# R_X86_64_32S sign-extends: a 32-bit signed immediate must load the symbol's
+# full 64-bit address, addend included.
+rt_obj rt.o
+cat > r.s <<'S'
+        .text
+        .globl  imm32s
+imm32s: movq    $target + 16, %rax
+        ret
+        .globl  imm32s_base
+imm32s_base:
+        movq    $target, %rax
+        ret
+        .data
+        .globl  target
+target: .quad   0
+        .quad   0
+        .quad   0xfeedface
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj r.o r.s
+want_has "input has R_X86_64_32S" "$(relocs r.o)" "R_X86_64_32S +[0-9a-f]+ +target \+ 10"
+cat > m.c <<'C'
+#include "rt.h"
+extern unsigned long target;
+unsigned long imm32s(void); unsigned long imm32s_base(void);
+int entry(void) {
+  int ok = 0;
+  if (imm32s_base() == (unsigned long)&target) ok |= 1;
+  if (imm32s() == (unsigned long)&target + 16) ok |= 2;
+  if (*(unsigned long *)imm32s() == 0xfeedfaceUL) ok |= 4;
+  putdec(ok); print("\n");
+  return ok;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o r.o m.o
+run_expect out "7" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

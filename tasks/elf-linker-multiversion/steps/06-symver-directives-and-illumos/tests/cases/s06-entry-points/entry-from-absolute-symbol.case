@@ -1,0 +1,42 @@
+# arch: x86_64
+# An SHN_ABS symbol is a legal entry point: its absolute value goes into
+# e_entry verbatim, for an executable and for a shared object.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("abs\n"); return 5; }
+C
+cc_obj m.o m.c
+cat > abs.s <<'S'
+        .globl abs_entry
+        .set abs_entry, 0x401234
+S
+as_obj abs.o abs.s
+want_has "abs_entry really is SHN_ABS" "$(symbols abs.o)" 'GLOBAL DEFAULT +ABS abs_entry'
+
+link_ok out -e abs_entry --no-gc-sections rt.o m.o abs.o
+want "e_entry is the absolute value" \
+     "$(( $(hdr out | awk '/Entry point/{print $NF}') ))" "$(( 0x401234 ))"
+want "e_type" "$(hdr out | awk '/^ *Type:/{print $2}')" "EXEC"
+want "abs_entry stayed absolute" "$(sym_value out abs_entry)" "0000000000401234"
+want_has "abs_entry still SHN_ABS in the output" "$(symbols out)" 'GLOBAL DEFAULT +ABS abs_entry'
+
+# The normal entry point still works from the same inputs, so this is not a
+# case of e_entry being written unconditionally.
+link_ok norm --no-gc-sections rt.o m.o abs.o
+want "default entry is _start" \
+     "$(( $(hdr norm | awk '/Entry point/{print $NF}') ))" \
+     "$(( 16#$(sym_value norm _start) ))"
+run_expect norm "abs" 5
+
+# And an absolute entry point on a shared object as well.
+cat > s.c <<'C'
+int api(int x) { return x + 1; }
+C
+cc_obj s.o s.c -fPIC
+link_ok libabs.so -shared -e abs_entry --no-gc-sections s.o abs.o
+want "shared e_type" "$(hdr libabs.so | awk '/^ *Type:/{print $2}')" "DYN"
+want "shared e_entry is the absolute value" \
+     "$(( $(hdr libabs.so | awk '/Entry point/{print $NF}') ))" "$(( 0x401234 ))"
+
+asserts_at_least 8

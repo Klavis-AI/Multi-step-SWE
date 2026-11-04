@@ -1,0 +1,59 @@
+{
+ "doc": "stages/writers.ply.rst: 'storage_mode: Type of ply file to write. Valid values are 'ascii', 'little endian', 'big endian'. [Default: \"ascii\"]' -- 'default' is not a valid value and is refused when given in pipeline JSON; 'little endian' is accepted and writes a 'format binary_little_endian 1.0' header.",
+ "files": {
+  "in.las": {
+   "fixture": "dups.las"
+  },
+  "bad.json": {
+   "text": "{\"pipeline\": [\"in.las\", {\"type\": \"writers.ply\", \"filename\": \"bad.ply\", \"storage_mode\": \"default\"}]}"
+  },
+  "ok.json": {
+   "text": "{\"pipeline\": [\"in.las\", {\"type\": \"writers.ply\", \"filename\": \"ok.ply\", \"storage_mode\": \"little endian\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "ok.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "writers\\.ply"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad.ply"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "file_text_regex",
+   "file": "ok.ply",
+   "regex": "^ply\\nformat binary_little_endian 1\\.0\\n"
+  },
+  {
+   "kind": "file_text_regex",
+   "file": "ok.ply",
+   "regex": "element vertex 60\\n"
+  }
+ ]
+}

@@ -1,0 +1,20 @@
+SELECT x.n, x.v, x.d FROM xmltable('/r/row' PASSING
+  XMLPARSE(DOCUMENT '<r><row><v>a</v></row><row></row></r>')
+  COLUMNS n FOR ORDINALITY, v text PATH 'v', d text PATH 'missing' DEFAULT 'dflt') AS x
+  ORDER BY x.n;
+ n | v |  d   
+---+---+------
+ 1 | a | dflt
+ 2 |   | dflt
+(2 rows)
+
+SELECT x.v FROM xmltable('/r/row' PASSING XMLPARSE(DOCUMENT '<r><row><v>7</v></row></r>')
+  COLUMNS v int PATH 'v' NOT NULL) AS x;
+ v 
+---
+ 7
+(1 row)
+
+SELECT x.v FROM xmltable('/r/row' PASSING XMLPARSE(DOCUMENT '<r><row/></r>')
+  COLUMNS v int PATH 'v' NOT NULL) AS x;
+ERROR:  null is not allowed in column "v"

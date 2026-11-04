@@ -1,0 +1,55 @@
+# The verifier's own crate. It is built outside /app, links the candidate's
+# transport crate as a path dependency, and carries the scored test targets.
+#
+# `@@CRATE_DIR@@` is substituted by the driver after it has located the
+# candidate's `quiche` package -- /app/quiche if the workspace layout exists at
+# this milestone, /app otherwise. Nothing else in this file is templated.
+#
+# There is deliberately no Cargo.lock. The candidate's manifest is the
+# candidate's, and a lock authored against the reference manifest would turn
+# any legitimate difference into a harness build failure that reads as a
+# candidate fault. Resolution happens offline against the registry cache baked
+# into the image, which is deterministic for a fixed cache.
+
+[package]
+name = "verifier"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[workspace]
+
+# Only the three targets declared below are compiled. Cargo would otherwise
+# auto-discover every `tests/*.rs`, so a stray file next to them joins the
+# build, costs budget, and can break the whole harness without ever being
+# run by a `point_if`.
+autotests = false
+
+[dependencies]
+# The crate under test. Everything a T3 group touches goes through this, and
+# only through its public API.
+quiche = { path = "@@CRATE_DIR@@" }
+# The second implementation: QUIC packet protection written from the RFCs, with
+# no dependency on the candidate. A T2 group reads the candidate's packets with
+# this, so "the candidate's Initial does not decrypt" is evidence rather than a
+# tautology.
+quiche-verifier-support = { path = "support" }
+
+[lib]
+name = "verifier"
+path = "src/lib.rs"
+
+# Three targets, so that a failure localises to a family rather than to "the
+# tests". The driver runs one #[test] at a time with `--exact`.
+[[test]]
+name = "cap"
+path = "tests/cap.rs"
+
+[[test]]
+name = "reg"
+path = "tests/reg.rs"
+
+[[test]]
+name = "gate"
+path = "tests/gate.rs"

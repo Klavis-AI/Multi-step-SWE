@@ -1,0 +1,56 @@
+# arch: x86_64
+# A linker script may define a symbol at its *top level* -- `NAME = expr;`
+# outside any output-section description -- from the same expression grammar
+# --defsym accepts. Both positions are graded: before the SECTIONS block and
+# after it. Only this top-level form is in scope at this milestone; assignment
+# inside an output-section body to anything other than `.` is a later one.
+#
+# gsym is referenced from the C module on purpose. A script expression that
+# names a symbol does not keep that symbol alive at this milestone, so a
+# gc-sections link would discard it and `sum` would silently evaluate to 0 --
+# the case would then be measuring garbage collection, not assignment.
+rt_obj rt.o
+cat > d.s <<'S'
+        .data
+        .p2align 3
+        .globl gsym
+gsym:   .quad 1515870810
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d.o d.s
+cat > m.c <<'C'
+#include "rt.h"
+extern char probe[];
+extern long gsym;
+int entry(void) { putdec((long)probe); print("\n"); putdec(gsym); print("\n"); return 0; }
+C
+cc_obj m.o m.c
+cat > s.ld <<'L'
+probe = 0x1234;
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+}
+aft = 0x4242;
+neg = -1;
+sum = gsym + 4 - 2;
+L
+link_ok out -T s.ld rt.o m.o d.o
+v=$(sym_value out probe)
+[ -n "$v" ] || die "probe absent from the output symbol table: $(symbols out)"
+want "an assignment before SECTIONS defines the symbol" "$(( 16#$v ))" "$(( 0x1234 ))"
+want_has "a constant-valued assignment is SHN_ABS" "$(symbols out)" 'GLOBAL DEFAULT +ABS probe'
+v=$(sym_value out aft)
+[ -n "$v" ] || die "aft absent from the output symbol table: $(symbols out)"
+want "an assignment after SECTIONS defines the symbol" "$(( 16#$v ))" "$(( 0x4242 ))"
+want "unary minus wraps to 64 bits" "$(sym_value out neg)" "ffffffffffffffff"
+g=$(sym_value out gsym); s=$(sym_value out sum)
+[ -n "$g" ] && [ -n "$s" ] || die "gsym='$g' sum='$s' -- one of them is missing"
+# The section a symbol-relative assignment lands in is not graded: it is SHN_ABS
+# at some references and the target's own section index at others.
+want "SYMBOL + 4 - 2 is two past the target" "$(( 16#$s - 16#$g ))" "2"
+# 0x1234 == 4660: the relocation against the reference used the assigned value.
+run_expect out "4660
+1515870810" 0
+
+asserts_at_least 5

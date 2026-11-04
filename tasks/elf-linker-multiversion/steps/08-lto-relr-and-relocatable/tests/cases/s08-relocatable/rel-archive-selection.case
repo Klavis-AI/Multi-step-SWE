@@ -1,0 +1,38 @@
+# arch: x86_64
+# Archive semantics still apply under -r: only the member that resolves an
+# undefined symbol joins the partial output.
+cat > m1.c <<'C'
+int m1(int x) { return x + 1; }
+C
+cat > m2.c <<'C'
+int m2(int x) { return x + 2; }
+C
+cat > u.c <<'C'
+int m1(int);
+int usem(int x) { return m1(x); }
+C
+cc_obj m1.o m1.c
+cc_obj m2.o m2.c
+cc_obj u.o u.c
+mkar libm.a m1.o m2.o
+link_ok part -r u.o libm.a
+
+sym=$(symbols part)
+want_has "referenced member pulled in" "$sym" 'FUNC +GLOBAL +DEFAULT +[0-9]+ m1'
+want_has "caller present"              "$sym" 'FUNC +GLOBAL +DEFAULT +[0-9]+ usem'
+want_not "unreferenced member left out" "$sym" ' m2$'
+want_has "partial output is ET_REL"    "$(hdr part)" 'Type: +REL \(Relocatable file\)'
+
+# The partial object still completes a working program.
+rt_obj rt.o
+cat > e.c <<'C'
+int usem(int);
+int entry(void) { return usem(40); }
+C
+cc_obj e.o e.c
+link_ok exe rt.o part e.o --no-gc-sections
+run_expect exe "" 41
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 4

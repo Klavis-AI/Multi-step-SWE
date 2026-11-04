@@ -1,0 +1,859 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<HTML
+><HEAD
+><TITLE
+>Release 9.6.23</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.79"><LINK
+REV="MADE"
+HREF="mailto:pgsql-docs@postgresql.org"><LINK
+REL="HOME"
+TITLE="PostgreSQL 9.6.24 Documentation"
+HREF="index.html"><LINK
+REL="UP"
+TITLE="Release Notes"
+HREF="release.html"><LINK
+REL="PREVIOUS"
+TITLE="Release 9.6.24"
+HREF="release-9-6-24.html"><LINK
+REL="NEXT"
+TITLE="Release 9.6.22"
+HREF="release-9-6-22.html"><LINK
+REL="STYLESHEET"
+TYPE="text/css"
+HREF="stylesheet.css"><META
+HTTP-EQUIV="Content-Type"
+CONTENT="text/html; charset=ISO-8859-1"><META
+NAME="creation"
+CONTENT="2021-11-08T22:28:11"></HEAD
+><BODY
+CLASS="SECT1"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+SUMMARY="Header navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="4"
+ALIGN="center"
+VALIGN="bottom"
+><A
+HREF="index.html"
+>PostgreSQL 9.6.24 Documentation</A
+></TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="top"
+><A
+TITLE="Release 9.6.24"
+HREF="release-9-6-24.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="60%"
+ALIGN="center"
+VALIGN="bottom"
+>Appendix E. Release Notes</TD
+><TD
+WIDTH="20%"
+ALIGN="right"
+VALIGN="top"
+><A
+TITLE="Release 9.6.22"
+HREF="release-9-6-22.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="RELEASE-9-6-23"
+>E.2. Release 9.6.23</A
+></H1
+><DIV
+CLASS="FORMALPARA"
+><P
+><B
+>Release date: </B
+>2021-08-12</P
+></DIV
+><P
+>   This release contains a variety of fixes from 9.6.22.
+   For information about new features in the 9.6 major release, see
+   <A
+HREF="release-9-6.html"
+>Section E.25</A
+>.
+  </P
+><P
+>   The <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+> community will stop
+   releasing updates for the 9.6.X release series in November 2021.
+   Users are encouraged to update to a newer release branch soon.
+  </P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN132073"
+>E.2.1. Migration to Version 9.6.23</A
+></H2
+><P
+>    A dump/restore is not required for those running 9.6.X.
+   </P
+><P
+>    However, if you are upgrading from a version earlier than 9.6.21,
+    see <A
+HREF="release-9-6-21.html"
+>Section E.4</A
+>.
+   </P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN132078"
+>E.2.2. Changes</A
+></H2
+><P
+></P
+><UL
+><LI
+><P
+>      Disallow SSL renegotiation more completely (Michael Paquier)
+     </P
+><P
+>      SSL renegotiation has been disabled for some time, but the server
+      would still cooperate with a client-initiated renegotiation request.
+      A maliciously crafted renegotiation request could result in a server
+      crash (see OpenSSL issue CVE-2021-3449).  Disable the feature
+      altogether on OpenSSL versions that permit doing so, which are
+      1.1.0h and newer.
+     </P
+></LI
+><LI
+><P
+>      Reject <TT
+CLASS="LITERAL"
+>SELECT ... GROUP BY GROUPING SETS (()) FOR
+      UPDATE</TT
+> (Tom Lane)
+     </P
+><P
+>      This should be disallowed, just as <TT
+CLASS="LITERAL"
+>FOR UPDATE</TT
+>
+      with a plain <TT
+CLASS="LITERAL"
+>GROUP BY</TT
+> is disallowed, but the test
+      for that failed to handle empty grouping sets correctly.
+      The end result would be a null-pointer dereference in the executor.
+     </P
+></LI
+><LI
+><P
+>      Reject cases where a query in <TT
+CLASS="LITERAL"
+>WITH</TT
+>
+      rewrites to just <TT
+CLASS="COMMAND"
+>NOTIFY</TT
+> (Tom Lane)
+     </P
+><P
+>      Such cases previously crashed.
+     </P
+></LI
+><LI
+><P
+>      In <TT
+CLASS="TYPE"
+>numeric</TT
+> multiplication, round the result rather than
+      failing if it would have more than 16383 digits after the decimal
+      point (Dean Rasheed)
+     </P
+></LI
+><LI
+><P
+>      Fix corner-case errors and loss of precision when
+      raising <TT
+CLASS="TYPE"
+>numeric</TT
+> values to very large powers
+      (Dean Rasheed)
+     </P
+></LI
+><LI
+><P
+>      Fix division-by-zero failure in <CODE
+CLASS="FUNCTION"
+>to_char()</CODE
+>
+      with <TT
+CLASS="LITERAL"
+>EEEE</TT
+> format and a <TT
+CLASS="TYPE"
+>numeric</TT
+> input
+      value less than 10^(-1001) (Dean Rasheed)
+     </P
+></LI
+><LI
+><P
+>      Fix <CODE
+CLASS="FUNCTION"
+>pg_size_pretty(bigint)</CODE
+> to round negative
+      values consistently with the way it rounds positive ones (and
+      consistently with the <TT
+CLASS="TYPE"
+>numeric</TT
+> version) (Dean Rasheed,
+      David Rowley)
+     </P
+></LI
+><LI
+><P
+>      Make <TT
+CLASS="LITERAL"
+>pg_filenode_relation(0, 0)</TT
+> return NULL
+      rather than failing (Justin Pryzby)
+     </P
+></LI
+><LI
+><P
+>      Make <TT
+CLASS="COMMAND"
+>ALTER EXTENSION</TT
+> lock the extension when
+      adding or removing a member object (Tom Lane)
+     </P
+><P
+>      The previous coding allowed <TT
+CLASS="COMMAND"
+>ALTER EXTENSION
+      ADD/DROP</TT
+> to occur concurrently with <TT
+CLASS="COMMAND"
+>DROP
+      EXTENSION</TT
+>, leading to a crash or corrupt catalog entries.
+     </P
+></LI
+><LI
+><P
+>      Avoid alias conflicts in queries generated
+      for <TT
+CLASS="COMMAND"
+>REFRESH MATERIALIZED VIEW CONCURRENTLY</TT
+>
+      (Tom Lane, Bharath Rupireddy)
+     </P
+><P
+>      This command failed on materialized views containing columns with
+      certain names, notably <TT
+CLASS="STRUCTFIELD"
+>mv</TT
+>
+      and <TT
+CLASS="STRUCTFIELD"
+>newdata</TT
+>.
+     </P
+></LI
+><LI
+><P
+>      Fix <TT
+CLASS="COMMAND"
+>PREPARE TRANSACTION</TT
+> to check correctly
+      for conflicting session-lifespan and transaction-lifespan locks
+      (Tom Lane)
+     </P
+><P
+>      A transaction cannot be prepared if it has both session-lifespan and
+      transaction-lifespan locks on the same advisory-lock ID value.  This
+      restriction was not fully checked, which could lead to a PANIC
+      during <TT
+CLASS="COMMAND"
+>PREPARE TRANSACTION</TT
+>.
+     </P
+></LI
+><LI
+><P
+>      Fix misbehavior of <TT
+CLASS="COMMAND"
+>DROP OWNED BY</TT
+> when the target
+      role is listed more than once in an RLS policy (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Skip unnecessary error tests when removing a role from an RLS policy
+      during <TT
+CLASS="COMMAND"
+>DROP OWNED BY</TT
+> (Tom Lane)
+     </P
+><P
+>      Notably, this fixes some cases where it was necessary to be a
+      superuser to use <TT
+CLASS="COMMAND"
+>DROP OWNED BY</TT
+>.
+     </P
+></LI
+><LI
+><P
+>      Allow index state flags to be updated transactionally
+      (Michael Paquier, Andrey Lepikhov)
+     </P
+><P
+>      This avoids failures when dealing with index predicates that aren't
+      really immutable.  While that's not considered a supported case, the
+      original reason for using a non-transactional update here is long
+      gone, so we may as well change it.
+     </P
+></LI
+><LI
+><P
+>      Avoid corrupting the plan cache entry when <TT
+CLASS="COMMAND"
+>CREATE
+      DOMAIN</TT
+> or <TT
+CLASS="COMMAND"
+>ALTER DOMAIN</TT
+> appears
+      in a cached plan (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Make
+      <TT
+CLASS="STRUCTNAME"
+>pg_settings</TT
+>.<TT
+CLASS="STRUCTFIELD"
+>pending_restart</TT
+>
+      show as true when the pertinent entry
+      in <TT
+CLASS="FILENAME"
+>postgresql.conf</TT
+> has been removed
+      (&Aacute;lvaro Herrera)
+     </P
+><P
+>      <TT
+CLASS="STRUCTFIELD"
+>pending_restart</TT
+> correctly showed the case
+      where an entry that cannot be changed without a postmaster restart
+      has been modified, but not where the entry had been removed
+      altogether.
+     </P
+></LI
+><LI
+><P
+>      Fix corner-case failure of a new standby to follow a new primary
+      (Dilip Kumar, Robert Haas)
+     </P
+><P
+>      Under a narrow combination of conditions, the standby could wind up
+      trying to follow the wrong WAL timeline.
+     </P
+></LI
+><LI
+><P
+>      Update minimum recovery point when WAL replay of a transaction abort
+      record causes file truncation (Fujii Masao)
+     </P
+><P
+>      File truncation is irreversible, so it's no longer safe to stop
+      recovery at a point earlier than that record.  The corresponding
+      case for transaction commit was fixed years ago, but this one was
+      overlooked.
+     </P
+></LI
+><LI
+><P
+>      Ensure that a standby server's startup process will respond to a
+      shutdown signal promptly while waiting for WAL to arrive (Fujii
+      Masao, Soumyadeep Chakraborty)
+     </P
+></LI
+><LI
+><P
+>      Add locking to avoid reading incorrect relmapper data in the face of
+      a concurrent write from another process (Heikki Linnakangas)
+     </P
+></LI
+><LI
+><P
+>      Fix error cases and memory leaks in logical decoding of speculative
+      insertions (Dilip Kumar)
+     </P
+></LI
+><LI
+><P
+>      Fix plan cache reference leaks in some error cases in
+      <TT
+CLASS="COMMAND"
+>CREATE TABLE ... AS EXECUTE</TT
+> (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Fix possible race condition when releasing BackgroundWorkerSlots
+      (Tom Lane)
+     </P
+><P
+>      It's likely that this doesn't fix any observable bug on Intel
+      hardware, but machines with weaker memory ordering rules could
+      have problems.
+     </P
+></LI
+><LI
+><P
+>      Fix latent crash in sorting code (Ronan Dunklau)
+     </P
+><P
+>      One code path could attempt to free a null pointer.  The case
+      appears unreachable in the core server's use of sorting, but perhaps
+      it could be triggered by extensions.
+     </P
+></LI
+><LI
+><P
+>      Prevent infinite loops in SP-GiST index insertion (Tom Lane)
+     </P
+><P
+>      In the event that INCLUDE columns take up enough space to prevent a
+      leaf index tuple from ever fitting on a page, the text_ops operator
+      class would get into an infinite loop vainly trying to make the
+      tuple fit.
+      While pre-v11 versions don't have INCLUDE columns, back-patch this
+      anti-looping fix to them anyway, as it seems like a good defense
+      against bugs in operator classes.
+     </P
+></LI
+><LI
+><P
+>      Ensure that SP-GiST index insertion can be terminated by a query
+      cancel request (Tom Lane, &Aacute;lvaro Herrera)
+     </P
+></LI
+><LI
+><P
+>      Fix uninitialized-variable bug that could
+      cause <SPAN
+CLASS="APPLICATION"
+>PL/pgSQL</SPAN
+> to act as though
+      an <TT
+CLASS="LITERAL"
+>INTO</TT
+> clause
+      specified <TT
+CLASS="LITERAL"
+>STRICT</TT
+>, even though it didn't
+      (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Don't abort the process for an out-of-memory failure in libpq's
+      printing functions (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      In <SPAN
+CLASS="APPLICATION"
+>ecpg</SPAN
+>, allow the <TT
+CLASS="TYPE"
+>numeric</TT
+>
+      value <SPAN
+CLASS="SYSTEMITEM"
+>INT_MIN</SPAN
+> (usually -2147483648) to be
+      converted to integer (John Naylor)
+     </P
+></LI
+><LI
+><P
+>      In <SPAN
+CLASS="APPLICATION"
+>psql</SPAN
+> and other client programs, avoid
+      overrunning the ends of strings when dealing with invalidly-encoded
+      data (Tom Lane)
+     </P
+><P
+>      An incorrectly-encoded multibyte character near the end of a string
+      could cause various processing loops to run past the string's
+      terminating NUL, with results ranging from no detectable issue to
+      a program crash, depending on what happens to be in the following
+      memory.  This is reminiscent of CVE-2006-2313, although these
+      particular cases do not appear to have interesting security
+      consequences.
+     </P
+></LI
+><LI
+><P
+>      Avoid <SPAN
+CLASS="QUOTE"
+>"invalid creation date in header"</SPAN
+> warnings
+      observed when running <SPAN
+CLASS="APPLICATION"
+>pg_restore</SPAN
+> on an
+      archive file created in a different time zone (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Make <SPAN
+CLASS="APPLICATION"
+>pg_upgrade</SPAN
+> carry forward the old
+      installation's <TT
+CLASS="LITERAL"
+>oldestXID</TT
+> value (Bertrand Drouvot)
+     </P
+><P
+>      Previously, the new installation's <TT
+CLASS="LITERAL"
+>oldestXID</TT
+> was
+      set to a value old enough to (usually) force immediate
+      anti-wraparound autovacuuming.  That's not desirable from a
+      performance standpoint; what's worse, installations using large
+      values of <TT
+CLASS="VARNAME"
+>autovacuum_freeze_max_age</TT
+> could suffer
+      unwanted forced shutdowns soon after an upgrade.
+     </P
+></LI
+><LI
+><P
+>      Extend <SPAN
+CLASS="APPLICATION"
+>pg_upgrade</SPAN
+> to detect and warn
+      about extensions that should be upgraded (Bruce Momjian)
+     </P
+><P
+>      A script file is now produced containing the <TT
+CLASS="COMMAND"
+>ALTER
+      EXTENSION UPDATE</TT
+> commands needed to bring extensions up to
+      the versions that are considered default in the new installation.
+     </P
+></LI
+><LI
+><P
+>      In <TT
+CLASS="FILENAME"
+>contrib/postgres_fdw</TT
+>, avoid attempting
+      catalog lookups after an error (Tom Lane)
+     </P
+><P
+>      While this usually worked, it's not very safe since the error might
+      have been one that made catalog access nonfunctional.  A side effect
+      of the fix is that messages about data conversion errors will now
+      mention the query's table and column aliases (if used) rather than
+      the true underlying name of a foreign table or column.
+     </P
+></LI
+><LI
+><P
+>      In <TT
+CLASS="FILENAME"
+>contrib/pgcrypto</TT
+>, avoid symbol name
+      conflicts with OpenSSL (Tom Lane)
+     </P
+><P
+>      Operations using SHA224 hashing could show failures under valgrind
+      checking.  It appears that this is only a stomp of alignment-padding
+      bytes and so has no real consequences, but let's fix it to be sure.
+     </P
+></LI
+><LI
+><P
+>      Improve the isolation-test infrastructure (Tom Lane, Michael Paquier)
+     </P
+><P
+>      Allow isolation test steps to be annotated to show the expected
+      completion order.  This allows getting stable results from
+      otherwise-racy test cases, without the long delays that we
+      previously used (not entirely successfully) to fend off race
+      conditions.
+      Allow non-quoted identifiers as isolation test session/step names
+      (formerly, all such names had to be double-quoted).
+      Detect and warn about unused steps in isolation tests.
+      Improve display of query results in isolation tests.
+      Remove isolationtester's <SPAN
+CLASS="QUOTE"
+>"dry-run"</SPAN
+> mode.
+      Remove memory leaks in isolationtester itself.
+     </P
+></LI
+><LI
+><P
+>      Reduce overhead of cache-clobber testing (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Fix <SPAN
+CLASS="APPLICATION"
+>PL/Python</SPAN
+>'s regression tests to pass
+      with Python 3.10 (Honza Horak)
+     </P
+></LI
+><LI
+><P
+>      Make <TT
+CLASS="LITERAL"
+>printf("%s", NULL)</TT
+>
+      print <TT
+CLASS="LITERAL"
+>(null)</TT
+> instead of crashing (Tom Lane)
+     </P
+><P
+>      This should improve server robustness in corner cases, and it syncs
+      our <CODE
+CLASS="FUNCTION"
+>printf</CODE
+> implementation with common libraries.
+     </P
+></LI
+><LI
+><P
+>      Fix incorrect log message when point-in-time recovery stops at
+      a <TT
+CLASS="COMMAND"
+>ROLLBACK PREPARED</TT
+> record (Simon Riggs)
+     </P
+></LI
+><LI
+><P
+>      Clarify error messages referring to <SPAN
+CLASS="QUOTE"
+>"non-negative"</SPAN
+>
+      values (Bharath Rupireddy)
+     </P
+></LI
+><LI
+><P
+>      Fix <SPAN
+CLASS="APPLICATION"
+>configure</SPAN
+> to work with OpenLDAP 2.5,
+      which no longer has a separate <TT
+CLASS="FILENAME"
+>libldap_r</TT
+>
+      library (Adrian Ho, Tom Lane)
+     </P
+><P
+>      If there is no <TT
+CLASS="FILENAME"
+>libldap_r</TT
+> library, we now
+      silently assume that <TT
+CLASS="FILENAME"
+>libldap</TT
+> is thread-safe.
+     </P
+></LI
+><LI
+><P
+>      Add new make targets <TT
+CLASS="LITERAL"
+>world-bin</TT
+>
+      and <TT
+CLASS="LITERAL"
+>install-world-bin</TT
+> (Andrew Dunstan)
+     </P
+><P
+>      These are the same as <TT
+CLASS="LITERAL"
+>world</TT
+>
+      and <TT
+CLASS="LITERAL"
+>install-world</TT
+> respectively, except that they
+      do not build or install the documentation.
+     </P
+></LI
+><LI
+><P
+>      Fix make rule for TAP tests (<TT
+CLASS="LITERAL"
+>prove_installcheck</TT
+>)
+      to work in PGXS usage (Andrew Dunstan)
+     </P
+></LI
+><LI
+><P
+>      Avoid assuming that strings returned by GSSAPI libraries are
+      null-terminated (Tom Lane)
+     </P
+><P
+>      The GSSAPI spec provides for a string pointer and length.  It seems
+      that in practice the next byte after the string is usually zero,
+      so that our previous coding didn't actually fail; but we do have
+      a report of AddressSanitizer complaints.
+     </P
+></LI
+><LI
+><P
+>      Enable building with GSSAPI on MSVC (Michael Paquier)
+     </P
+><P
+>      Fix various incompatibilities with modern Kerberos builds.
+     </P
+></LI
+><LI
+><P
+>      In MSVC builds, include <TT
+CLASS="OPTION"
+>--with-pgport</TT
+> in the set of
+      configure options reported by <SPAN
+CLASS="APPLICATION"
+>pg_config</SPAN
+>,
+      if it had been specified (Andrew Dunstan)
+     </P
+></LI
+></UL
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+SUMMARY="Footer navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="release-9-6-24.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="index.html"
+ACCESSKEY="H"
+>Home</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="release-9-6-22.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Release 9.6.24</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Release 9.6.22</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

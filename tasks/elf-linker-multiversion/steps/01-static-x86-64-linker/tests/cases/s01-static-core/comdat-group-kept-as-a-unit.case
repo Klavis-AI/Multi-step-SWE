@@ -1,0 +1,43 @@
+# arch: x86_64
+# A GRP_COMDAT group is kept or discarded as a whole (spec/01 section 8,
+# spec/04 section 4). Two objects carry the same signature `gsig` over two
+# members, .text.gfn and .data.gvar. If the group were resolved member by
+# member, or if the duplicate globals were merely resolved first-wins with both
+# data copies still laid out, .data would be 16 bytes; keeping exactly one
+# group leaves 8. The return value pins the pairing: 12 is (fn,var) both from
+# the first group, 13 or 21 would be a mix.
+# Measured at all nine tags: rc 12, .data size 8.
+rt_obj rt.o
+mkgrp() { # mkgrp <out.o> <fn-value> <var-value>
+cat > g.s <<S
+	.section .text.gfn,"axG",@progbits,gsig,comdat
+	.globl g_fn
+	.type g_fn,@function
+g_fn:
+	movl \$$2, %eax
+	ret
+	.section .data.gvar,"awG",@progbits,gsig,comdat
+	.globl g_var
+	.type g_var,@object
+	.size g_var,8
+g_var:
+	.quad $3
+	.section .note.GNU-stack,"",@progbits
+S
+as_obj "$1" g.s
+}
+mkgrp a.o 1 11
+mkgrp b.o 2 22
+cat > m.c <<'C'
+#include "rt.h"
+extern int g_fn(void);
+extern long g_var;
+int entry(void) { return g_fn() + (int)g_var; }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o a.o b.o
+run_expect out "" 12
+d=$(sec_size out .data)
+[ -n "$d" ] || die "no .data in the output: $(sections out | tr '\n' ' ' | head -c 300)"
+want "one surviving copy of the group's .data member" "$((16#$d))" "8"
+asserts_at_least 1

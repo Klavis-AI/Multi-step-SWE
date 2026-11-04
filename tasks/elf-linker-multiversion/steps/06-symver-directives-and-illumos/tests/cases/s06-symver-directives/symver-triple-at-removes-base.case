@@ -1,0 +1,53 @@
+# arch: x86_64
+# The third `.symver` spelling: `.symver plain, pl@@@VERS_2.0` renames rather
+# than aliases. The object keeps only `pl@@VERS_2.0`, `plain` is gone, and the
+# linker must export the surviving name as the default version of `pl`.
+cat > a.s <<'S'
+        .text
+        .globl plain
+plain:
+        mov     $9, %eax
+        ret
+        .globl other
+other:
+        mov     $4, %eax
+        ret
+        .symver plain, pl@@@VERS_2.0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj a.o a.s
+
+# What the directive did to the input object, before any linking.
+osyms=$(symbols a.o)
+want_has "the object carries the renamed symbol" "$osyms" ' pl@@VERS_2\.0$'
+want_not "the object no longer defines plain"    "$osyms" ' plain$'
+want_has "an unrelated global is untouched"      "$osyms" ' other$'
+
+cat > vs.txt <<'V'
+VERS_2.0 { global: pl; other; local: *; };
+V
+link_ok libp.so -shared -soname libp.so --version-script=vs.txt a.o
+
+ds=$(dynsyms libp.so)
+want_has "pl exported at its default version" "$ds" 'GLOBAL DEFAULT +[0-9]+ pl@@VERS_2\.0$'
+want_not "no unversioned pl"                  "$ds" ' pl$'
+want_not "plain never reaches .dynsym"        "$ds" ' plain'
+want_has "the unrelated global is versioned by the script" "$ds" ' other@@VERS_2\.0$'
+
+# The renamed symbol still points at the code it was defined on.
+val=$(printf '%s' "$ds" | awk '$8 == "pl@@VERS_2.0" { print $2 }')
+[ -n "$val" ] || die "no value for pl@@VERS_2.0 in: $ds"
+ta=$(( 16#$(sec_addr libp.so .text) ))
+ts=$(( 16#$(sec_size libp.so .text) ))
+v=$(( 16#$val ))
+[ "$v" -ge "$ta" ] && [ "$v" -lt "$(( ta + ts ))" ] \
+  || die "pl@@VERS_2.0 = $val is outside .text [$(printf '%x' "$ta") + $(printf '%x' "$ts")]"
+[ "$v" != "$(( 16#$(printf '%s' "$ds" | awk '$8 == "other@@VERS_2.0" { print $2 }') ))" ] \
+  || die "pl and other resolved to the same address"
+
+# One node, and the default version is not hidden.
+vn=$(vernum libp.so)
+want_has "version_d defines VERS_2.0" "$vn" 'Name: VERS_2\.0'
+want "one defined version plus the base" "$(printf '%s' "$vn" | grep -c 'Rev: 1')" "2"
+
+asserts_at_least 9

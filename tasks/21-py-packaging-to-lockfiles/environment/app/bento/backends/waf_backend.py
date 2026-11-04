@@ -1,0 +1,399 @@
+import os
+import sys
+import logging
+
+import os.path as op
+
+import bento
+
+from bento.commands.utils \
+    import \
+        has_compiled_code, has_cython_code
+from bento.backends.core \
+    import \
+        AbstractBackend
+from bento.errors \
+    import \
+        UsageException
+from bento._config \
+     import \
+        SITEDIR
+from bento.utils.utils \
+    import \
+        extract_exception
+
+if "WAFDIR" in os.environ:
+    WAFDIR = os.path.join(os.environ["WAFDIR"], "waflib")
+else:
+    WAFDIR = op.abspath(op.join(op.dirname(bento.__file__), os.pardir, "waflib"))
+    if not op.exists(WAFDIR):
+        WAFDIR = os.path.join(os.getcwd(), "waflib")
+if not os.path.exists(WAFDIR):
+    raise UsageException("""\
+%r not found: required when using waf extras !
+    You can set waf location using the WAFDIR environment variable, such as
+    $WAFDIR contains the 'waflib' directory""" % WAFDIR)
+sys.path.insert(0, os.path.dirname(WAFDIR))
+
+WAF_TOOLDIR = op.join(SITEDIR, "bento", "backends", "waf_tools")
+
+from waflib.Context \
+    import \
+        create_context
+from waflib.Options \
+    import \
+        OptionsContext
+from waflib import Options
+from waflib import Context
+from waflib import Logs
+from waflib import Build
+from waflib import Utils
+import waflib
+
+from bento.core.node_package \
+    import \
+        translate_name
+from bento.commands.options \
+    import \
+        Option
+from bento.commands.command_contexts \
+    import \
+        ConfigureContext, BuildContext
+
+WAF_TOP = os.path.join(WAFDIR, os.pardir)
+
+WAF_CONFIG_LOG = 'config.log'
+
+__USE_NO_OUTPUT_LOGGING = False
+def disable_output():
+    # Make Betty proud...
+    global __USE_NO_OUTPUT_LOGGING
+    __USE_NO_OUTPUT_LOGGING = True
+
+def make_stream_logger(name, stream):
+    # stream should be a file-like object supporting write/read/?
+    logger = logging.getLogger(name)
+    hdlr = logging.StreamHandler(stream)
+    formatter = logging.Formatter('%(message)s')
+    hdlr.setFormatter(formatter)
+    logger.addHandler(hdlr)
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+def _init_log_no_output():
+    # XXX: all this heavily plays with waf internals - only use for unit
+    # testing bento where waf output screws up nose own output/logging magic
+    from six.moves import cStringIO
+    Logs.got_tty = False
+    Logs.get_term_cols = lambda: 80
+    Logs.get_color = lambda cl: ''
+    Logs.colors = Logs.color_dict()
+
+    fake_output = cStringIO()
+    def fake_pprint(col, str, label='', sep='\n'):
+        fake_output.write("%s%s%s %s%s" % (Logs.colors(col), str, Logs.colors.NORMAL, label, sep))
+
+    Logs.pprint = fake_pprint
+
+    log = logging.getLogger('waflib')
+    log.handlers = []
+    log.filters = []
+    hdlr = logging.StreamHandler(cStringIO())
+    hdlr.setFormatter(Logs.formatter())
+    log.addHandler(hdlr)
+    log.addFilter(Logs.log_filter())
+    log.setLevel(logging.DEBUG)
+    Logs.log = log
+
+def _init(run_path, source_path, build_path):
+    if not (os.path.isabs(run_path) and os.path.isabs(source_path) and os.path.isabs(build_path)):
+        raise ValueError("All paths must be absolute !")
+    tooldir = os.path.join(WAFDIR, "Tools")
+
+    sys.path.insert(0, tooldir)
+    cwd = os.getcwd()
+
+    if __USE_NO_OUTPUT_LOGGING is True:
+        _init_log_no_output()
+    else:
+        Logs.init_log()
+
+    class FakeModule(object):
+        pass
+    Context.g_module = FakeModule
+    Context.g_module.root_path = os.path.abspath(__file__)
+    Context.g_module.top = source_path
+    Context.g_module.out = build_path
+
+    Context.top_dir = source_path
+    Context.run_dir = run_path
+    Context.out_dir = build_path
+    Context.waf_dir = WAF_TOP
+    Context.launch_dir = run_path
+
+def register_options(global_context):
+    opt = Option("--use-distutils-flags", help="Use distutils compilation flags",
+                 action="store_true", default=False)
+    global_context.add_option("configure", opt)
+
+    opt = Option("-p", "--progress", help="Use progress bar", action="store_true", dest="progress_bar")
+    global_context.add_option("build", opt)
+
+class ConfigureWafContext(ConfigureContext):
+    def __init__(self, global_context, cmd_argv, options_context, pkg, run_node):
+        super(ConfigureWafContext, self).__init__(global_context, cmd_argv, options_context, pkg, run_node)
+
+        run_path = self.run_node.abspath()
+        source_path = self.top_node.abspath()
+        build_path = self.build_node.abspath()
+        _init(run_path=run_path, source_path=source_path, build_path=build_path)
+
+        opts = OptionsContext()
+        opts.load("compiler_c")
+        opts.load("custom_python", tooldir=[WAF_TOOLDIR])
+        opts.parse_args([])
+        self.waf_options_context = opts
+
+        waf_context = create_context("configure", run_dir=source_path)
+        waf_context.options = Options.options
+        waf_context.init_dirs()
+        waf_context.cachedir = waf_context.bldnode.make_node(Build.CACHE_DIR)
+        waf_context.cachedir.mkdir()
+
+        path = os.path.join(waf_context.bldnode.abspath(), WAF_CONFIG_LOG)
+        waf_context.logger = Logs.make_logger(path, 'cfg')
+        self.waf_context = waf_context
+
+        self._old_path = None
+
+    def configure(self):
+        o, a = self.get_parsed_arguments()
+        if o.use_distutils_flags:
+            Options.options.use_distutils_flags = True
+        else:
+            Options.options.use_distutils_flags = False
+
+        pkg = self.pkg
+        # FIXME: this is wrong (not taking into account sub packages)
+        needs_compiler = has_compiled_code(pkg)
+        needs_cython = has_cython_code(pkg)
+
+        conf = self.waf_context
+        if needs_compiler:
+            conf.load("compiler_c")
+            conf.env["PYTHON"] = [sys.executable]
+            conf.load("custom_python", tooldir=[WAF_TOOLDIR])
+            conf.check_python_version((2,4,2))
+            conf.check_python_headers()
+
+        if needs_cython:
+            # FIXME: how to make sure the tool loaded successfully ?
+            conf.load("cython", tooldir=[WAF_TOOLDIR])
+
+    def pre_recurse(self, local_node):
+        ConfigureContext.pre_recurse(self, local_node)
+        self._old_path = self.waf_context.path
+        # Gymnastic to make a *waf* node from a *bento* node
+        self.waf_context.path = self.waf_context.path.make_node(self.local_node.srcpath())
+
+    def post_recurse(self):
+        self.waf_context.path = self._old_path
+        ConfigureContext.post_recurse(self)
+
+    def finish(self):
+        super(ConfigureWafContext, self).finish()
+        self.waf_context.store()
+
+def ext_name_to_path(name):
+    """Convert extension name to path - the path does not include the
+    file extension
+
+    Example: foo.bar -> foo/bar
+    """
+    return name.replace('.', os.path.sep)
+
+class BentoBuildContext(Build.BuildContext):
+    """Waf build context with additional support to register builder output to
+    bento build context."""
+    def __init__(self, *a, **kw):
+        Build.BuildContext.__init__(self, *a, **kw)
+        # XXX: set into BuildWafContext
+        self.bento_context = None
+
+    def register_outputs(self, category, name, outputs, target_dir=None):
+        outputs_registry = self.bento_context.outputs_registry
+
+        # waf -> bento nodes translations
+        nodes = [self.bento_context.build_node.make_node(n.bldpath()) for n in outputs]
+        from_node = self.bento_context.build_node.find_node(outputs[0].parent.bldpath())
+
+        pkg_dir = os.path.dirname(name.replace('.', os.path.sep))
+        if target_dir is None:
+            target_dir = os.path.join('$sitedir', pkg_dir)
+        outputs_registry.register_outputs(category, name, nodes, from_node, target_dir)
+
+@waflib.TaskGen.feature("bento")
+@waflib.TaskGen.before_method("apply_link")
+def apply_pyext_target_renaming(self):
+    if not self.target:
+        self.target = self.name
+    self.target = self.target.replace(".", os.sep)
+
+@waflib.TaskGen.feature("bento")
+@waflib.TaskGen.before_method("apply_link")
+def apply_pyext_cstlib_fpic(self):
+    if "cstlib" in self.features and self.env["CC_NAME"] == "gcc":
+        if "-fPIC" in self.env.CFLAGS_cshlib:
+                self.env.CFLAGS_cstlib = ["-fPIC"]
+
+@waflib.TaskGen.feature("bento")
+@waflib.TaskGen.after_method("apply_link")
+def apply_register_outputs(self):
+    for x in self.features:
+        if x == "cprogram" and "cxx" in self.features:
+            x = "cxxprogram"
+        if x == "cshlib" and "cxx" in self.features:
+            x = "cxxshlib"
+
+        if x in waflib.Task.classes:
+            if issubclass(waflib.Task.classes[x], waflib.Tools.ccroot.link_task):
+                link = x
+                break
+    else:
+        return
+
+    if "pyext" in self.features and "cshlib" in self.features:
+        category = "extensions"
+    else:
+        category = "compiled_libraries"
+    bento_context = self.bld.bento_context
+    ref_node = bento_context.top_node.make_node(self.path.path_from(self.path.ctx.srcnode))
+    name = translate_name(self.target, ref_node, bento_context.top_node)
+    self.bld.register_outputs(category, name, self.link_task.outputs)
+
+class BuildWafContext(BuildContext):
+    def pre_recurse(self, local_node):
+        super(BuildWafContext, self).pre_recurse(local_node)
+        self._old_path = self.waf_context.path
+        # Gymnastic to make a *waf* node from a *bento* node
+        self.waf_context.path = self.waf_context.path.make_node(self.local_node.srcpath())
+
+    def post_recurse(self):
+        self.waf_context.path = self._old_path
+        super(BuildWafContext, self).post_recurse()
+
+    def __init__(self, global_context, cmd_argv, options_context, pkg, run_node):
+        super(BuildWafContext, self).__init__(global_context, cmd_argv, options_context, pkg, run_node)
+
+        o, a = options_context.parser.parse_args(cmd_argv)
+        if o.jobs:
+            jobs = int(o.jobs)
+        else:
+            jobs = 1
+        if o.verbose:
+            verbose = int(o.verbose)
+            zones = ["runner"]
+        else:
+            verbose = 0
+            zones = []
+        if o.inplace:
+            self.inplace = 1
+        else:
+            self.inplace = 0
+        if o.progress_bar:
+            self.progress_bar = True
+        else:
+            self.progress_bar = False
+
+        Logs.verbose = verbose
+        Logs.init_log()
+        if zones is None:
+            Logs.zones = []
+        else:
+            Logs.zones = zones
+
+        run_path = self.run_node.abspath()
+        source_path = self.top_node.abspath()
+        build_path = self.build_node.abspath()
+        _init(run_path=run_path, source_path=source_path, build_path=build_path)
+
+        create_context("options").parse_args([])
+
+        waf_context = create_context("build")
+        waf_context.restore()
+        if not waf_context.all_envs:
+            waf_context.load_envs()
+        waf_context.jobs = jobs
+        waf_context.timer = Utils.Timer()
+        if self.progress_bar:
+            waf_context.progress_bar = 1
+        waf_context.bento_context = self
+        self.waf_context = waf_context
+
+        def _default_extension_builder(extension, **kw):
+            if not "features" in kw:
+                kw["features"] = "c cshlib pyext bento"
+            if not "source" in kw:
+                kw["source"] = extension.sources[:]
+            if not "name" in kw:
+                kw["name"] = extension.name
+            return self.waf_context(**kw)
+
+        def _default_library_builder(library, **kw):
+            if not "features" in kw:
+                kw["features"] = "c cstlib pyext bento"
+            if not "source" in kw:
+                kw["source"] = library.sources[:]
+            if not "name" in kw:
+                kw["name"] = library.base_name
+            if not "target" in kw:
+                kw["target"] = library.name
+            return self.waf_context(**kw)
+
+        self.builder_registry.register_category("extensions", _default_extension_builder)
+        self.builder_registry.register_category("compiled_libraries", _default_library_builder)
+
+    def compile(self):
+        super(BuildWafContext, self).compile()
+        reg = self.builder_registry
+
+        for category in ("extensions", "compiled_libraries"):
+            for name, extension in self._node_pkg.iter_category(category):
+                builder = reg.builder(category, name)
+                self.pre_recurse(extension.ref_node)
+                try:
+                    extension = extension.extension_from(extension.ref_node)
+                    task_gen = builder(extension)
+                finally:
+                    self.post_recurse()
+
+        if self.progress_bar:
+            sys.stderr.write(Logs.colors.cursor_off)
+        try:
+            self.waf_context.compile()
+        except waflib.Errors.BuildError:
+            e = extract_exception()
+            if len(e.tasks) > 0:
+                task0 = e.tasks[0]
+                raise bento.errors.BuildError("Error while compiling %r"  % task0.inputs[0].abspath())
+            else:
+                raise
+        finally:
+            if self.progress_bar:
+                c = len(self.waf_context.returned_tasks) or 1
+                self.waf_context.to_log(self.waf_context.progress_line(c, c, Logs.colors.BLUE, Logs.colors.NORMAL))
+                print('')
+                sys.stdout.flush()
+                sys.stderr.write(Logs.colors.cursor_on)
+
+    def finish(self):
+        super(BuildWafContext, self).finish()
+        self.waf_context.store()
+
+class WafBackend(AbstractBackend):
+    def register_command_contexts(self, context):
+        context.register_command_context("configure", ConfigureWafContext)
+        context.register_command_context("build", BuildWafContext)
+
+    def register_options_contexts(self, context):
+        register_options(context)

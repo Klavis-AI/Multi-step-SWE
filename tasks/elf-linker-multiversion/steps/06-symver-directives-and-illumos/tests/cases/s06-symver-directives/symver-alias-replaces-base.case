@@ -1,0 +1,37 @@
+# arch: x86_64
+# `.symver impl_fn, api@@LIB_2` exports only the aliased name at the alias's
+# version; the implementation's own name must not reach .dynsym.
+cat > a.s <<'S'
+        .text
+        .globl impl_fn
+impl_fn:
+        mov     $7, %eax
+        ret
+        .symver impl_fn, api@@LIB_2
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj a.o a.s
+cat > vs.txt <<'V'
+LIB_2 { global: api; local: *; };
+V
+link_ok libapi.so -shared -soname libapi.so --version-script=vs.txt a.o
+
+want "e_type" "$(hdr libapi.so | awk '/^ *Type:/{print $2}')" "DYN"
+ds=$(dynsyms libapi.so)
+want_has "api@@LIB_2 exported" "$ds" 'GLOBAL DEFAULT +[0-9]+ api@@LIB_2$'
+want_not "impl_fn not exported" "$ds" ' impl_fn'
+want_not "no unversioned api"   "$ds" ' api$'
+# The null entry plus exactly one export.
+dsz=$(( 16#$(sec_size libapi.so .dynsym) ))
+want ".dynsym holds 2 entries" "$dsz" "48"
+want "api@@LIB_2 == impl_fn" \
+     "$(printf '%s' "$ds" | awk '$8 == "api@@LIB_2" { print $2 }')" \
+     "$(sym_value libapi.so impl_fn)"
+
+vn=$(vernum libapi.so)
+want_has "version_d defines LIB_2" "$vn" 'Name: LIB_2'
+want_has "LIB_2 is not hidden"     "$vn" '[0-9]+ \(LIB_2\)'
+want_not "no stray VER records"    "$vn" 'Name: api'
+want "one version_d version plus base" "$(printf '%s' "$vn" | grep -c 'Rev: 1')" "2"
+
+asserts_at_least 10

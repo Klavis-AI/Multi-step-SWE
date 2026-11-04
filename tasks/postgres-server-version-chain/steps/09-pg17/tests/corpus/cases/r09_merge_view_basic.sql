@@ -1,0 +1,9 @@
+CREATE TABLE r09mv1_b(id int primary key, v int);
+INSERT INTO r09mv1_b VALUES (1,1),(2,2);
+CREATE VIEW r09mv1_v AS SELECT id, v FROM r09mv1_b WHERE v > 0;
+MERGE INTO r09mv1_v t USING (VALUES (1,100),(5,500)) s(id,v) ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT VALUES (s.id, s.v);
+SELECT id, v FROM r09mv1_b ORDER BY id;
+DROP VIEW r09mv1_v;
+DROP TABLE r09mv1_b;

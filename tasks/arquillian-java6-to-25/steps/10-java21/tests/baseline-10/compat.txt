@@ -1,0 +1,43 @@
+# The compatibility surface of step 02: the inherited test classes that are
+# allowed to go on NAMING retired JUnit 4 types, and are therefore exempt from
+# every gate in the C block.
+#
+# Measured, not chosen. arquillian's own reason for existing is that it drives
+# other people's test frameworks, so six of the 55 inherited test classes are
+# ABOUT JUnit 4 rather than merely written in it: they construct JUnit 4
+# Runners, hand them fixture classes, and assert on the org.junit.runner.Result
+# that comes back. Deleting those references would delete the thing they test.
+#
+# Note what this exemption is NOT. It is not "these six stay on JUnit 4". Two
+# of them -- JUnitIntegrationTestCase and JUnitTestRunnerTestCase -- move their
+# own @Test/@Before annotations to Jupiter in the golden solution and keep only
+# the org.junit.runner references they assert against, which is the right
+# migration for a test that drives a JUnit 4 runner from the outside. The
+# exemption is from the reference gate (C-2) alone; the population gate (C-1)
+# is scored over the other 49 and neither rewards nor punishes what these six
+# do with their own annotations.
+#
+# One dotted top-level-or-nested class name per line, in the same form
+# baseline/tests.txt uses for test.class=, so the two can be compared directly.
+# Blank lines and #-comments are ignored by the reader.
+#
+#   DummyTestCase                  the fixture the JMX runner is pointed at; the
+#                                  JMX protocol's own test asserts on what a
+#                                  JUnit 4 runner reports for it
+#   JUnitIntegrationTestCase       drives org.jboss.arquillian.junit.Arquillian,
+#                                  which IS a JUnit 4 org.junit.runner.Runner
+#   ...$ArquillianClass1           the @RunWith(Arquillian.class) fixture class
+#                                  the above drives; the frozen 2011 run never
+#                                  reported a case of its own for it
+#   JUnitTestRunnerTestCase        asserts on JUnit 4 Result/Failure objects
+#                                  produced by the integration runner
+#   TestNGDeploymentAppenderTestCase
+#   TestNGTestRunnerTestCase       the TestNG half of the same story
+#
+# Everything outside this list is must-migrate. 55 - 6 = 49.
+org.jboss.arquillian.jmx.DummyTestCase
+org.jboss.arquillian.junit.JUnitIntegrationTestCase
+org.jboss.arquillian.junit.JUnitIntegrationTestCase$ArquillianClass1
+org.jboss.arquillian.junit.JUnitTestRunnerTestCase
+org.jboss.arquillian.testng.TestNGDeploymentAppenderTestCase
+org.jboss.arquillian.testng.TestNGTestRunnerTestCase

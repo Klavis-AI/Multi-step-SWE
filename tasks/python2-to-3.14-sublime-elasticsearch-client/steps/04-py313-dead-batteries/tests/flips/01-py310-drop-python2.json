@@ -1,0 +1,21 @@
+{
+ "step": "01-py310-drop-python2",
+ "why": "Retires the four free-threading race cases from the inherited family. Each one hammers an unguarded read-modify-write from twelve threads and records the exact count -- 3,612 increments, 3,612 distinct nonces, an even 903-per-connection split. On a GIL-ful build that exact count is not a property of the tree. It is a property of the scheduler: the GIL makes a lost update unlikely, never impossible, and under the load of a full 485-case replay it stops being unlikely. Measured on the shipped verifier image at --cpus 7, at the 12x300 shape the cases then had: the oracle tree scored 485/485 twice and 484/485 once, the miss being pool-dead-count-exact keeping 1,500 of the 3,600 increments that shape made; in isolation the same case returned all 3,600 on 25 consecutive runs, host and container alike. Widening the shape by twelve increments (NOTES section 12.6) changes nothing about that: the race is the construct, not the count. A case that can fail for a reason no instruction on rungs 01..05 mentions, that the agent cannot see (rule 6) and could not act on if it could, is a lottery ticket on every candidate's score, and it makes the oracle irreproducible -- which build-process item 6 does not allow. So it is removed here rather than left to fail, and rung 06 -- the one rung whose instruction is about thread safety, where a correctly locked tree produces the exact count deterministically and an unguarded one does not -- revives all four as its own bar. Nothing is weakened: the cases keep their full force exactly where the requirement that earns them is stated. NOTES-authoring.md section 7.6.",
+ "cases": {
+  "freethread.rr-selector-fair": {
+   "retired": "`self.rr += 1; self.rr %= len(connections)` is two unguarded read-modify-writes. The recorded 903-per-connection split holds under the GIL only because the GIL usually serialises them."
+  },
+  "freethread.pool-dead-count-exact": {
+   "retired": "`dead_count[c] = dead_count.get(c, 0) + 1`. This is the case that was measured losing 2,100 of 3,600 increments under replay load while the recording pinned every one of them."
+  },
+  "freethread.digest-nonce-unique": {
+   "retired": "`self.nonce_count += 1`, read back out of the nc= field on the wire. The recorded 3,612 distinct values is the no-lost-update outcome."
+  },
+  "freethread.urllib3-num-connections": {
+   "retired": "`self.num_connections += 1`. Same shape, same dependence on the GIL happening to serialise the increment."
+  },
+  "requests.internal-callers-stay-silent": {
+   "retired": "Retired here and revived at rung 03, which is the first rung where it discriminates. The case drives an ordinary `requests.get` + `.text` + `.json()` and records the set of deprecation categories the tree raised while doing it. On the pinned tree that set is `[\"DeprecationWarning@tree\"]`: `models.py` line 169 reads `collections.Callable` on every `register_hook` call, and Python has warned on the `collections` ABC aliases since 3.3. Instruction item 6 moves those to `collections.abc`, so the correct answer to *this* rung empties the set -- and scoring that here would price one construct at half the rung. Family 2 at rung 01 is nine gates covering nine independent removals, each worth 0.0778; a single owned case takes two thirds of the family under build/sync.sh's split, so item 6 alone would be worth 0.49 of the step and the other eight items 0.21 between them. Nothing is lost by waiting: item 6 has its own gate (`no-collections-abc-aliases`, which travels forward to every later rung), and the pinned tree cannot be imported by 3.10 at all -- the same `from collections import Mapping` raises ImportError -- so every one of the other 520 cases already fails on the predecessor for this reason. Where the case does discriminate is rung 03, where the tree goes on running and `datetime.utcnow()` starts warning, and rung 04, where marking a deprecated surface must not make ordinary traffic noisy."
+  }
+ }
+}

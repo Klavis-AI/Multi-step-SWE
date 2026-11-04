@@ -1,0 +1,302 @@
+# Copyright 2018-2020 New Vector Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+openapi: 3.1.0
+info:
+  title: Matrix Federation Events API
+  version: 1.0.0
+paths:
+  "/state/{roomId}":
+    get:
+      summary: Get all the state of a given room
+      description: Retrieves a snapshot of a room's state at a given event.
+      operationId: getRoomState
+      security:
+        - signedRequest: []
+      parameters:
+        - in: path
+          name: roomId
+          description: The room ID to get state for.
+          required: true
+          example: "!abc123:matrix.org"
+          schema:
+            type: string
+        - in: query
+          name: event_id
+          description: An event ID in the room to retrieve the state at.
+          required: true
+          example: $helloworld:matrix.org
+          schema:
+            type: string
+      responses:
+        "200":
+          description: |-
+            The fully resolved state for the room, prior to considering any state
+            changes induced by the requested event. Includes the authorization
+            chain for the events.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_chain:
+                    type: array
+                    description: |-
+                      The full set of authorization events that make up the state
+                      of the room, and their authorization events, recursively. Note that
+                      events have a different format depending on the room version -
+                      check the [room version specification](/rooms) for precise event formats.
+                    items:
+                      type: object
+                      title: PDU
+                      description: |-
+                        The [PDUs](/server-server-api/#pdus) contained in the auth chain. The event format
+                        varies depending on the room version - check the [room version specification](/rooms)
+                        for precise event formats.
+                      properties: {}
+                      example:
+                        $ref: examples/minimal_pdu.json
+                  pdus:
+                    type: array
+                    description: |-
+                      The fully resolved state of the room at the given event. Note that
+                      events have a different format depending on the room version -
+                      check the [room version specification](/rooms) for precise event formats.
+                    items:
+                      type: object
+                      title: PDU
+                      description: |-
+                        The [PDUs](/server-server-api/#pdus) for the fully resolved state of the room. The event format
+                        varies depending on the room version - check the [room version specification](/rooms)
+                        for precise event formats.
+                      properties: {}
+                      example:
+                        $ref: examples/minimal_pdu.json
+                required:
+                  - auth_chain
+                  - pdus
+  "/state_ids/{roomId}":
+    get:
+      summary: Get all the state event IDs of a given room
+      description: |-
+        Retrieves a snapshot of a room's state at a given event, in the form of
+        event IDs. This performs the same function as calling `/state/{roomId}`,
+        however this returns just the event IDs rather than the full events.
+      operationId: getRoomStateIds
+      security:
+        - signedRequest: []
+      parameters:
+        - in: path
+          name: roomId
+          description: The room ID to get state for.
+          required: true
+          example: "!abc123:matrix.org"
+          schema:
+            type: string
+        - in: query
+          name: event_id
+          description: An event ID in the room to retrieve the state at.
+          required: true
+          example: $helloworld:matrix.org
+          schema:
+            type: string
+      responses:
+        "200":
+          description: |-
+            The fully resolved state for the room, prior to considering any state
+            changes induced by the requested event. Includes the authorization
+            chain for the events.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_chain_ids:
+                    type: array
+                    description: |-
+                      The full set of authorization events that make up the state
+                      of the room, and their authorization events, recursively.
+                    items:
+                      type: string
+                    example:
+                      - $an_event:example.org
+                  pdu_ids:
+                    type: array
+                    description: The fully resolved state of the room at the given event.
+                    items:
+                      type: string
+                    example:
+                      - $an_event:example.org
+                required:
+                  - auth_chain_ids
+                  - pdu_ids
+        "403":
+          description: |-
+            The requesting host is not in the room, or is excluded from the room via `m.room.server_acl`.
+          content:
+            application/json:
+              schema:
+                $ref: ../client-server/definitions/errors/error.yaml
+              examples:
+                response:
+                  value: {
+                    "errcode": "M_FORBIDDEN",
+                    "error": "You do not have permission to access the state at the requested event."
+                  }
+        "404":
+          description: |-
+            The given `event_id` was not found or the server doesn't know about the state at
+            that event to return anything useful.
+          content:
+            application/json:
+              schema:
+                $ref: ../client-server/definitions/errors/error.yaml
+              examples:
+                response:
+                  value: {
+                    "errcode": "M_NOT_FOUND",
+                    "error": "Could not find event $Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg"
+                  }
+  "/event/{eventId}":
+    get:
+      summary: Get a single event
+      description: Retrieves a single event.
+      operationId: getEvent
+      security:
+        - signedRequest: []
+      parameters:
+        - in: path
+          name: eventId
+          description: The event ID to get.
+          required: true
+          example: $abc123:matrix.org
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A transaction containing a single PDU which is the event requested.
+          content:
+            application/json:
+              schema:
+                $ref: definitions/single_pdu_transaction.yaml
+  "/timestamp_to_event/{roomId}":
+    get:
+      summary: Get the closest event ID to the given timestamp
+      x-addedInMatrixVersion: "1.6"
+      description: |-
+        Get the ID of the event closest to the given timestamp, in the
+        direction specified by the `dir` parameter.
+
+        This is primarily used when handling the corresponding
+        [client-server endpoint](/client-server-api/#get_matrixclientv1roomsroomidtimestamp_to_event)
+        when the server does not have all of the room history, and does not
+        have an event suitably close to the requested timestamp.
+
+        The heuristics for deciding when to ask another homeserver for a closer
+        event if your homeserver doesn't have something close, are left up to
+        the homeserver implementation, although the heuristics will probably be
+        based on whether the closest event is a forward/backward extremity
+        indicating it's next to a gap of events which are potentially closer.
+
+        A good heuristic for which servers to try first is to sort by servers
+        that have been in the room the longest because they're most likely to
+        have anything we ask about.
+
+        After the local homeserver receives the response, it should determine,
+        using the `origin_server_ts` property, whether the returned event is
+        closer to the requested timestamp than the closest event that it could
+        find locally.  If so, it should try to backfill this event via the
+        [`/event/{event_id}`](/server-server-api/#get_matrixfederationv1eventeventid)
+        endpoint so that it is available to for a client to query.
+      operationId: getEventByTimestamp
+      security:
+        - accessToken: []
+      parameters:
+        - in: path
+          name: roomId
+          description: The ID of the room to search
+          required: true
+          example: "!636q39766251:matrix.org"
+          schema:
+            type: string
+        - in: query
+          name: ts
+          description: |-
+            The timestamp to search from, as given in milliseconds
+            since the Unix epoch.
+          required: true
+          example: 1432684800000
+          schema:
+            type: integer
+        - in: query
+          name: dir
+          description: The direction in which to search.  `f` for forwards, `b` for
+            backwards.
+          required: true
+          example: f
+          schema:
+            type: string
+            enum:
+              - f
+              - b
+      responses:
+        "200":
+          description: An event was found matching the search parameters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_id:
+                    type: string
+                    description: The ID of the event found
+                  origin_server_ts:
+                    type: integer
+                    description: The event's timestamp, in milliseconds since the Unix epoch.
+                required:
+                  - event_id
+                  - origin_server_ts
+              examples:
+                response:
+                  value: {
+                    "event_id": "$143273582443PhrSn:example.org",
+                    "origin_server_ts": 1432735824653
+                  }
+        "404":
+          description: No event was found.
+          content:
+            application/json:
+              schema:
+                $ref: ../client-server/definitions/errors/error.yaml
+              examples:
+                response:
+                  value: {
+                    "errcode": "M_NOT_FOUND",
+                    "error": "Unable to find event from 1432684800000 in forward direction"
+                  }
+servers:
+  - url: "{protocol}://{hostname}{basePath}"
+    variables:
+      protocol:
+        enum:
+          - http
+          - https
+        default: https
+      hostname:
+        default: localhost:8448
+      basePath:
+        default: /_matrix/federation/v1
+components:
+  securitySchemes:
+    signedRequest:
+      $ref: definitions/security.yaml#/signedRequest

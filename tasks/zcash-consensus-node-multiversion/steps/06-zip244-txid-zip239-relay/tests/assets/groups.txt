@@ -1,0 +1,49 @@
+# groups.txt -- step 06, ZIP-244 txid / v5 sighash / ZIP-221 HistoryTree.
+#
+# name <tab> kind <tab> weight <tab> crate <tab> arg
+#
+#   kind   gate    proof of life + inherited regression. Binary, earns nothing,
+#                  vetoes the whole step. Weight column MUST be 0.
+#          scored  this step's new capability + peripheral breadth. Positive
+#                  integer weight; the scored weights sum to 100.
+#   crate  a crate name -> driver group; arg is the exact number of test cases
+#          @build       -> build group;  arg is a whole cargo invocation
+#
+#   reward = gate x score
+#
+# Why `inherited-block-codec` is the gate here and the ZIP-143/243 group is not.
+#
+# The ZIP-143/ZIP-243 driver was previously tiered `inherited` and would now be
+# a gate group. It cannot be one. It reads the digest off
+# `Transaction::sighash`, and THIS milestone is what changes that return type
+# from `blake2b_simd::Hash` to `transaction::SigHash(pub [u8; 32])`. Against the
+# predecessor tree app-05 it does not compile:
+#
+#   error[E0609]: no field `0` on type `blake2b_simd::Hash`
+#
+# So it is satisfiable only by this step's new capability. As a gate group it
+# would be an unpriced veto that no no-op could ever pass, and step 06's no-op
+# would report reward 0 with the GATE FAILED -- measuring nothing at all. Its
+# own TEST_INTERFACE.md said as much: "Adapted from step 1's own sighash
+# driver, trimmed to fit this band's API."
+#
+# Observing inherited digests THROUGH the new API is the migration, and a
+# migration is new capability, so the group is `scored` and renamed to say so.
+# `inherited-block-codec` takes over the gate: it is the byte-identical driver
+# steps 05, 07 and 08 ship, already shown to pass on app-04, app-05, app-06,
+# app-07 and app-08, so it holds on both the tree a no-op is handed (app-05)
+# and the tree the Oracle produces (app-06).
+#
+# ZIP-239's MSG_WTX inventory type has no driver here: `InventoryHash` and its
+# wire codec live entirely inside zebra-network's private `protocol` module
+# (`mod protocol;`, not `pub mod`, in zebra-network/src/lib.rs) in this codebase
+# revision, and are therefore unreachable from any test outside the crate.
+# See docsrc/step06/TEST_INTERFACE.md's negative-space section.
+
+build	gate	0	@build	build -p zebra-chain --tests
+workspace-checks	gate	0	@build	check --workspace --all-targets --all-features
+inherited-block-codec	gate	0	zebra-chain	8
+zip244-txid	scored	36	zebra-chain	9
+v5-sighash-zip244	scored	24	zebra-chain	6
+history-tree-contract	scored	22	zebra-chain	8
+sighash-zip143-zip243-migration	scored	18	zebra-chain	8

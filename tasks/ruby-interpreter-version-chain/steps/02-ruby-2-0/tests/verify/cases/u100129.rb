@@ -1,0 +1,17 @@
+@obj = Object.new
+    class << @obj
+      include Enumerable
+      def each
+        yield 1
+        yield 2
+        yield 3
+        yield 1
+        yield 2
+      end
+    end
+    @verbose = $VERBOSE
+    $VERBOSE = nil
+p(@obj.zip(@obj))
+    a = []
+    @obj.zip([:a, :b, :c]) {|x,y| a << [x, y] }
+    p(a)

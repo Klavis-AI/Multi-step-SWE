@@ -1,0 +1,26 @@
+#!/bin/sh
+# PHP on the deployment's clock rather than the host's.
+#
+# Installed as /usr/local/bin/php and /usr/local/bin/php7.4 so that every way
+# of reaching the interpreter gets the same date Apache gives mod_php. The
+# clock is a property of this deployment, not of the web server: the
+# application is also run through its CLI front controller -- to check that it
+# is up, or to debug it -- and those runs read and write the same database.
+#
+# What goes wrong when only Apache is frozen: the settings store expires rows
+# against jf::time(), and `_Sweep()` fires `DELETE FROM jf_options WHERE
+# Expiration<=?` on a one-in-ten draw inside every _Load and every _Save
+# (_japp/model/lib/settings.php:71). The seeded rows are stamped 2026-04-01,
+# which is in the future for the frozen clock and in the past for a host clock
+# that has moved on, so a single CLI request under the host's date deletes 366
+# of the 371 rows. Measured: three `php jframework.php /about` calls took
+# jf_options from 371 rows to 5.
+#
+# `env` sets the variables for the interpreter only; this script itself runs
+# unpreloaded, so a broken libfaketime cannot make `php` unrunnable.
+exec env \
+    LD_PRELOAD=/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1 \
+    FAKETIME="@2026-01-01 00:00:00 x0" \
+    FAKETIME_DONT_FAKE_MONOTONIC=1 \
+    TZ=UTC \
+    /usr/bin/php7.4 "$@"

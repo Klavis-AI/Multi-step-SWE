@@ -1,0 +1,18 @@
+CREATE TABLE q3_ptr(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q3_ptr_1 PARTITION OF q3_ptr FOR VALUES FROM (1) TO (10);
+CREATE TABLE q3_ptr_2 PARTITION OF q3_ptr FOR VALUES FROM (10) TO (20);
+CREATE FUNCTION q3_ptr_f() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE NOTICE 'q3_ptr fired on % for a=%', TG_TABLE_NAME, NEW.a; RETURN NULL; END $$;
+CREATE TRIGGER q3_ptr_t AFTER INSERT ON q3_ptr FOR EACH ROW EXECUTE PROCEDURE q3_ptr_f();
+INSERT INTO q3_ptr VALUES (1,'x'),(11,'y');
+NOTICE:  q3_ptr fired on q3_ptr_1 for a=1
+NOTICE:  q3_ptr fired on q3_ptr_2 for a=11
+SELECT a, b FROM q3_ptr ORDER BY a;
+ a  | b 
+----+---
+  1 | x
+ 11 | y
+(2 rows)
+
+DROP TABLE q3_ptr;
+DROP FUNCTION q3_ptr_f();

@@ -1,0 +1,9 @@
+CREATE TABLE x06_15a(id int, parent int, label text);
+INSERT INTO x06_15a VALUES (1,NULL,'r'),(2,1,'a'),(3,1,'b'),(4,2,'c'),(5,3,'d');
+WITH RECURSIVE t(id,parent,label) AS (
+  SELECT id,parent,label FROM x06_15a WHERE parent IS NULL
+  UNION ALL
+  SELECT g.id,g.parent,g.label FROM x06_15a g JOIN t ON g.parent = t.id
+) SEARCH DEPTH FIRST BY id SET ord
+SELECT id, label, ord FROM t ORDER BY ord;
+DROP TABLE x06_15a;

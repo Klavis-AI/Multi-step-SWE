@@ -1,0 +1,44 @@
+CREATE TABLE jt(id int, parent int, t text);
+INSERT INTO jt VALUES (1,NULL,'root'),(2,1,'a'),(3,1,'b'),(4,2,'c');
+SELECT c.t AS child, p.t AS parent FROM jt c LEFT JOIN jt p ON c.parent=p.id ORDER BY c.id;
+ child | parent 
+-------+--------
+ root  | 
+ a     | root
+ b     | root
+ c     | a
+(4 rows)
+
+SELECT t FROM jt WHERE id IN (SELECT parent FROM jt WHERE parent IS NOT NULL) ORDER BY t;
+  t   
+------
+ a
+ root
+(2 rows)
+
+SELECT t, (SELECT count(*) FROM jt x WHERE x.parent=jt.id) AS kids FROM jt ORDER BY id;
+  t   | kids 
+------+------
+ root |    2
+ a    |    1
+ b    |    0
+ c    |    0
+(4 rows)
+
+SELECT t FROM jt WHERE EXISTS (SELECT 1 FROM jt y WHERE y.parent=jt.id) ORDER BY t;
+  t   
+------
+ a
+ root
+(2 rows)
+
+SELECT * FROM jt a, LATERAL (SELECT count(*) c FROM jt b WHERE b.parent=a.id) s ORDER BY a.id;
+ id | parent |  t   | c 
+----+--------+------+---
+  1 |        | root | 2
+  2 |      1 | a    | 1
+  3 |      1 | b    | 0
+  4 |      2 | c    | 0
+(4 rows)
+
+DROP TABLE jt;

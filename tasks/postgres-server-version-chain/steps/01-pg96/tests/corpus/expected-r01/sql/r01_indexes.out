@@ -1,0 +1,26 @@
+CREATE TABLE ix(a int, b text, c int);
+INSERT INTO ix SELECT g, 't'||g, g%3 FROM generate_series(1,10) g;
+CREATE INDEX ix_a ON ix(a);
+CREATE UNIQUE INDEX ix_b ON ix(b);
+CREATE INDEX ix_expr ON ix(lower(b));
+CREATE INDEX ix_part ON ix(c) WHERE c > 0;
+SELECT indexname FROM pg_indexes WHERE tablename='ix' ORDER BY indexname;
+ indexname 
+-----------
+ ix_a
+ ix_b
+ ix_expr
+ ix_part
+(4 rows)
+
+INSERT INTO ix VALUES (11,'t1',0);
+ERROR:  duplicate key value violates unique constraint "ix_b"
+DETAIL:  Key (b)=(t1) already exists.
+DROP INDEX ix_a;
+SELECT count(*) FROM pg_indexes WHERE tablename='ix';
+ count 
+-------
+     3
+(1 row)
+
+DROP TABLE ix;

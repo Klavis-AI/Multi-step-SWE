@@ -1,0 +1,28 @@
+CREATE TABLE x07_61a(a int, b int);
+CREATE UNIQUE INDEX x07_61i ON x07_61a(a) NULLS NOT DISTINCT;
+CREATE UNIQUE INDEX x07_61j ON x07_61a(b);
+SELECT indexname, indexdef FROM pg_indexes
+  WHERE tablename='x07_61a' ORDER BY indexname;
+ indexname |                                     indexdef                                     
+-----------+----------------------------------------------------------------------------------
+ x07_61i   | CREATE UNIQUE INDEX x07_61i ON public.x07_61a USING btree (a) NULLS NOT DISTINCT
+ x07_61j   | CREATE UNIQUE INDEX x07_61j ON public.x07_61a USING btree (b)
+(2 rows)
+
+SELECT count(*) FROM pg_attribute WHERE attrelid='pg_index'::regclass
+  AND attname='indnullsnotdistinct';
+ count 
+-------
+     1
+(1 row)
+
+SELECT c.relname, i.indnullsnotdistinct FROM pg_index i
+  JOIN pg_class c ON c.oid = i.indexrelid
+  WHERE c.relname IN ('x07_61i','x07_61j') ORDER BY c.relname;
+ relname | indnullsnotdistinct 
+---------+---------------------
+ x07_61i | t
+ x07_61j | f
+(2 rows)
+
+DROP TABLE x07_61a;

@@ -1,0 +1,28 @@
+CREATE TABLE q3_fdn(a int);
+INSERT INTO q3_fdn SELECT generate_series(1,3);
+ALTER TABLE q3_fdn ADD COLUMN b int NOT NULL;
+ERROR:  column "b" contains null values
+ALTER TABLE q3_fdn ADD COLUMN c int NOT NULL DEFAULT NULL;
+ERROR:  column "c" contains null values
+ALTER TABLE q3_fdn ADD COLUMN d int NOT NULL DEFAULT 1;
+SELECT a, d FROM q3_fdn ORDER BY a;
+ a | d 
+---+---
+ 1 | 1
+ 2 | 1
+ 3 | 1
+(3 rows)
+
+ALTER TABLE q3_fdn ALTER COLUMN d DROP DEFAULT;
+SELECT a, d FROM q3_fdn ORDER BY a;
+ a | d 
+---+---
+ 1 | 1
+ 2 | 1
+ 3 | 1
+(3 rows)
+
+INSERT INTO q3_fdn(a) VALUES (9);
+ERROR:  null value in column "d" violates not-null constraint
+DETAIL:  Failing row contains (9, null).
+DROP TABLE q3_fdn;

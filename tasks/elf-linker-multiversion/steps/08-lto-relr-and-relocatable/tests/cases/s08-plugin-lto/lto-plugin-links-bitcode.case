@@ -1,0 +1,34 @@
+# arch: x86_64
+# With --plugin naming the gold-API plugin, LLVM bitcode inputs are compiled by
+# the plugin and linked into a working program; without it the link is refused
+# and the bitcode input is named.
+rt_obj rt.o
+plugin=""
+for p in /usr/lib/llvm-16/lib/LLVMgold.so /usr/lib/bfd-plugins/LLVMgold-16.so \
+         /usr/lib/bfd-plugins/LLVMgold.so; do
+  [ -f "$p" ] && { plugin=$p; break; }
+done
+[ -n "$plugin" ] || die "no LLVMgold.so in this image (llvm-16-linker-tools)"
+
+cat > m.c <<'C'
+int helper(int);
+int entry(void) { return helper(11); }
+C
+cat > h.c <<'C'
+int helper(int x) { return x + 7; }
+C
+cc_obj m.o m.c -flto
+cc_obj h.o h.c -flto
+want_has "inputs really are bitcode" "$(file m.o)" 'LLVM IR bitcode'
+
+link_ok out --plugin "$plugin" rt.o m.o h.o --no-gc-sections
+want_has "plugin output is an ELF executable" "$(hdr out)" 'Type: +EXEC \(Executable file\)'
+want_has "code section materialised" "$(sections out)" '\.text +PROGBITS'
+run_expect out "" 18
+
+link_fails nope rt.o m.o h.o --no-gc-sections
+want_has "bitcode without a plugin names the input" "$LINK_OUT" 'm\.o'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 4

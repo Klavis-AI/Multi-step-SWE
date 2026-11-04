@@ -1,0 +1,23 @@
+CREATE TABLE q2_prm(a int, b int, t text) PARTITION BY RANGE (a, b);
+CREATE TABLE q2_prm_1 PARTITION OF q2_prm FOR VALUES FROM (1, 1) TO (1, 10);
+CREATE TABLE q2_prm_2 PARTITION OF q2_prm FOR VALUES FROM (1, 10) TO (2, 5);
+INSERT INTO q2_prm VALUES (1,1,'a'),(1,9,'b'),(1,10,'c'),(2,4,'d');
+SELECT tableoid::regclass::text AS part, a, b, t FROM q2_prm ORDER BY a, b;
+   part   | a | b  | t 
+----------+---+----+---
+ q2_prm_1 | 1 |  1 | a
+ q2_prm_1 | 1 |  9 | b
+ q2_prm_2 | 1 | 10 | c
+ q2_prm_2 | 2 |  4 | d
+(4 rows)
+
+INSERT INTO q2_prm VALUES (2,5,'e');
+ERROR:  no partition of relation "q2_prm" found for row
+DETAIL:  Partition key of the failing row contains (a, b) = (2, 5).
+SELECT pg_get_partkeydef('q2_prm'::regclass);
+ pg_get_partkeydef 
+-------------------
+ RANGE (a, b)
+(1 row)
+
+DROP TABLE q2_prm;

@@ -1,0 +1,6 @@
+CREATE TABLE r10ro6(id int primary key, v int);
+INSERT INTO r10ro6 VALUES (1,10);
+UPDATE r10ro6 SET v = 30 WHERE id = 1 RETURNING new.v - old.v AS delta, old.v > new.v AS shrank;
+UPDATE r10ro6 SET v = 5 WHERE id = 1 RETURNING coalesce(old.v,0) + coalesce(new.v,0) AS total;
+UPDATE r10ro6 SET v = v WHERE id = 1 RETURNING old.v IS NOT DISTINCT FROM new.v AS same;
+DROP TABLE r10ro6;

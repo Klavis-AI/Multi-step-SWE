@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright (C) 2008 The Android Open Source Project
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<configuration>
+  <!-- The console, on stderr as before. The one part of the old pattern that
+       has no equivalent is log4j's %x: NDC is a log4j concept, logback has
+       MDC instead, and nothing in this application ever pushed an NDC, so the
+       field was always empty. Everything else is field for field.
+
+       The date pattern is quoted because logback reads a comma inside %d{}
+       as the separator before the timezone option, so the unquoted form
+       asks for a zone called SSS and the configuration fails to start. -->
+  <appender name="stderr" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder>
+      <charset>UTF-8</charset>
+      <pattern>[%d{&quot;yyyy-MM-dd HH:mm:ss,SSS&quot;}] %-5level %logger : %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="DEBUG">
+    <appender-ref ref="stderr"/>
+  </root>
+
+  <logger name="com.google.gerrit" level="INFO"/>
+
+  <!-- Silence non-critical messages from MINA SSHD. -->
+  <logger name="org.apache.sshd.common" level="WARN"/>
+  <logger name="org.apache.sshd.server" level="INFO"/>
+  <logger name="org.apache.sshd.common.keyprovider.FileKeyPairProvider" level="INFO"/>
+
+  <!-- Silence non-critical messages from ehcache. -->
+  <logger name="net.sf.ehcache" level="WARN"/>
+
+  <!-- Silence non-critical messages from Velocity, which reaches logback
+       through commons-logging and keeps the logger name it always had. -->
+  <logger name="velocity" level="WARN"/>
+</configuration>

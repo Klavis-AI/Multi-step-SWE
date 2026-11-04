@@ -1,0 +1,243 @@
+# Step 5's requirements: the 3.4.4 / 2.13 fence, a toolchain that is really
+# Java 17, and every csv read that asks the engine to infer pinning date
+# inference off at the site, so that the move does not change the types those
+# readers produce.
+#
+# Fourteen rules in three families over three different kinds of evidence, and
+# the split is not cosmetic: m1 is what the build resolves, m2 is what the
+# *toolchain* produced -- a class-file version in the jar and an argument on
+# the forked test JVM -- and m3 is what the sources say at the site that says
+# it. A candidate can satisfy any one of them without the others, and each is
+# a different piece of this rung's work.
+#
+# m1 is the fence, and at this step it is one read rather than two: the
+# resolved pom, which is what the build chose. The other half -- the sessions
+# the replayed jobs actually met -- was `m1-session-344` and
+# `m1-session-344-uniform` and is no longer graded here. spark-core is
+# `provided`, so the engine the replay runs on comes from the verifier image
+# and not from the candidate's pom, and both rules are therefore green on the
+# handed tree as well (NOTES 6.3.11). A requirement no candidate can fail is
+# not a requirement: graded in an all-or-nothing family it added two rows
+# nobody could lose and no discrimination at all. They moved to
+# rules/rung5.tsv as standing rules, the way step 3 moved its engine facts to
+# rules/rung3.tsv, and that file's header says what they are still for -- they
+# are a precondition on the run, and a run that fails one of them is not the
+# run this step grades. m1 is four rules and is still worth 0.12, still
+# all-or-nothing over the four.
+#
+# m2 is the JDK axis, and it is a family here rather than one rule inside m1
+# because at this rung it is three separate claims over three artifacts:
+#
+#   the pom says 17     `pom jdklevel` is source/target/release after Maven's
+#                       own precedence, so the rule reads the setting and not
+#                       the spelling: a project that sets only
+#                       `maven.compiler.release` satisfies it, and so does one
+#                       that sets source and target in the plugin. It is
+#                       `atleast:1` over the three keys rather than a
+#                       uniformity rule, because `release` legitimately
+#                       overrides a source/target pair left behind and a
+#                       uniformity rule would fail a correct pom for it. What
+#                       the pom cannot settle is what was actually produced,
+#                       which is the next rule's job.
+#   the jar says 61     `bytecode class` is the class-file major version of
+#                       every class in the artifact the verifier's own build
+#                       produced, scoped to this project's own packages.
+#                       Java 17 is major 61 and Java 8 is 52. This is the
+#                       un-fakeable half of the claim: javac writes the major
+#                       version from the level it compiled at, no source edit
+#                       can forge it, and the pair (`atleast:1` for 61,
+#                       `absent` for anything else) says both that 17 was
+#                       reached and that no corner of the tree was left behind
+#                       at the old level.
+#
+#                       The division of labour between this rule and the pom
+#                       one is measured, not assumed (NOTES 6.5.3). Five trees
+#                       were built and scanned. The handed tree compiles to 201
+#                       classes at major 52 under JDK 8 *and* under JDK 17 --
+#                       the pom sets the level, not the machine. The moved tree
+#                       gives 201 at 61. Deleting the two compiler properties
+#                       does *not* let javac 17 pick its own default:
+#                       maven-compiler-plugin 3.11.0 defaults to `target 1.8`
+#                       (`Compiling 180 source files with javac [debug
+#                       deprecation target 1.8]`), so that tree is 52 with no
+#                       `jdklevel` row at all, and both rules go red together.
+#                       The tree that splits them is the one with the
+#                       properties at 17 and a plugin `<configuration>` of
+#                       `<release>8</release>`: `pom jdklevel` reports all
+#                       three rows -- `release 8 plugin`, `source 17 property`,
+#                       `target 17 property`, because the scanner leaves
+#                       release-beats-source/target to the rule -- so
+#                       `m2-jdk-level-17` is *green* on it, while the build
+#                       says `javac [debug release 8]` and the jar is 52, so
+#                       this pair is red. The pom rule is deliberately left
+#                       with that hole rather than closed with a fourth,
+#                       uniformity rule: a uniformity rule would also fail the
+#                       correct pom that adds `release 17` over a `source 1.8`
+#                       it did not clean up. The artifact is the arbiter, which
+#                       is the reason it is read at all.
+#   the test JVM is     On JDK 17 `StorageUtils` reaches into
+#   opened              `sun.nio.ch.DirectBuffer` while the session starts, and
+#                       under JPMS that is an IllegalAccessError before a
+#                       single test body runs: 256 errors against 0. Four arms
+#                       measured at r09 -- control, Spark's own sixteen
+#                       `JavaModuleOptions`, those sixteen plus the tree's own
+#                       edit, and the single `java.base/sun.nio.ch` open -- all
+#                       four report 47 classes / 142 tests / 2 failures /
+#                       0 errors, the same two failures in the same exempt
+#                       class (NOTES 6.5.2). So the rule asks for the one open
+#                       `StorageUtils` needs and stays silent about the other
+#                       fifteen, and it is `atleast:1` over the argument rather
+#                       than an equality on the line, so pasting the full
+#                       launcher list also passes.
+#
+#                       Both spellings reach the fork and both are accepted:
+#                       `pom testjvmarg` is the union of surefire's `<argLine>`
+#                       configuration and the `argLine` property, and the
+#                       selector matches the argument whether it is written as
+#                       one `--add-opens=java.base/...` token or as
+#                       `--add-opens java.base/...` split in two. The cost of
+#                       accepting the split spelling is that the bare value on
+#                       its own also passes, which is an argLine no JVM will
+#                       start on -- and a JVM that does not start takes the
+#                       `tests` half of the behaviour family with it, so the
+#                       hole is closed where it matters rather than by a
+#                       second rule that would fail the honest spelling.
+#
+# m3 is the step's source work, and it is one clause -- carried by a pair of
+# rules, for the reason below -- plus the four rules that keep it honest.
+# `ast read` is emitted at the `read()` call and carries the
+# format, whether the chain declared a schema, and the options -- per site,
+# which is what the clause is about. Measured on the handed tree: 17 read
+# rows, all under src/main, 7 csv / 4 parquet / 3 orc / 3 json, `schema=no` on
+# every one of them.
+#
+#   the clause          six of the seven csv sites pass `inferSchema=true`,
+#                       and 3.4 changed what inference does with a date-shaped
+#                       column: `CSVOptions.preferDate` is new and defaults
+#                       true, so a `yyyy-MM-dd` column infers DateType where
+#                       3.3.4 gave TimestampType (NOTES 6.5.1, measured as the
+#                       one option this tree can be asked about in the whole
+#                       3.3.4-to-3.4.4 CSVOptions/JSONOptions diff). A runtime
+#                       move is not licensed to change the types the code's
+#                       own readers produce, so the requirement is not that
+#                       the site says something about dates: it is that the
+#                       site pins date inference *off*, `preferDate=false`,
+#                       which is the value that keeps `depositionDate` at the
+#                       TimestampType it had before the move. Measured on both
+#                       rung images, through the `CustomReportService` report
+#                       the census now reads: at 3.3.4 `depositionDate` infers
+#                       timestamp by default and timestamp under
+#                       `preferDate=false`; at 3.4.4 it infers date by default
+#                       and timestamp under `preferDate=false`. Only one of
+#                       the two values holds the answer still, so there is a
+#                       side to grade and this is it. The corpus grades it
+#                       too: `HarnessDriver-csvdates` prints the inferred type
+#                       of every field those readers produce, so a tree that
+#                       leaves the reads silent -- or writes `true` -- prints
+#                       `date` where the recording says `timestamp` and loses
+#                       the job as well as the family.
+#   two rules, because  `-stated` is the `absent` half: no inferring csv read
+#   neither half holds  under src/main may go unpinned. On its own it is
+#   on its own          vacated by a candidate who answers the requirement by
+#                       hand-declaring a `StructType`, because a read that
+#                       declares a schema no longer matches `schema=no` and
+#                       the rule stops selecting it -- an `absent` rule that
+#                       selects nothing is green. `-pinned` is the `atleast:6`
+#                       half over the reads that do pin, so declaring and
+#                       pinning nothing now costs the family; and on *its* own
+#                       it is satisfied by six correct reads standing beside a
+#                       seventh silent one. Six pinned and none silent is the
+#                       requirement, and it takes both rules to say it.
+#   what the pair does  `-pinned` is a floor over a count and not a bind on
+#   *not* say           which six reads are counted. `ast read` records
+#                       `schema=yes` for any `.schema(` call whatever its
+#                       argument, so nothing in this file distinguishes one of
+#                       the handed six from a read planted beside them: a tree
+#                       that declares all six originals *and* plants six that
+#                       ask and pin clears both halves. That is open, it is
+#                       not repaired here, and it is recorded in NOTES 6.5.9.
+#                       What still runs the handed paths is the replay.
+#                       The seventh csv site (DatasetFileConverter:100) passes
+#                       no options and asks the engine for nothing, so it falls
+#                       outside the clause by the rule's own shape rather than
+#                       by a file-name carve-out. A site that declares a schema
+#                       is outside it for the same reason: a declared schema is
+#                       not an inference and has no date question to answer.
+#   `-sites-kept`       an `absent` rule is green over zero rows, so a tree
+#                       with no csv reads left in it would pass the clause. The
+#                       count is the handed tree's own -- 7 -- and it is a
+#                       count of *sites*, so a candidate who consolidates two
+#                       reads into one helper loses it even though nothing is
+#                       wrong with the tree. That is stated in instruction.md
+#                       as "this step is not a refactor: leave the read sites
+#                       where they are", which is the honest way to ask for a
+#                       count.
+#   the `?` and `-`     `ast read` writes `?` when the format argument is not a
+#   formats             literal and `-` when the chain never named one, which
+#                       is how a candidate would move the format into a
+#                       variable and take a csv site out of the clause's reach.
+#                       `load` is listed with them: a bare `.load(path)` reads
+#                       parquet by default and says so nowhere. All seventeen
+#                       sites on the handed tree name a literal format, so the
+#                       rule costs the candidate nothing they did not choose.
+#   the `?=?` option    `.options(Map)` is recorded as the single option `?=?`
+#                       -- the keys are not literals and the scanner will not
+#                       pretend otherwise. On a csv site still carrying no
+#                       schema, that is the clause's statement hidden in a map.
+#                       json is named alongside csv because the same dodge
+#                       reads the same way there and the rule costs nothing:
+#                       no site in this tree uses the map form.
+#   the jar carries it  a source edit that never compiled is not an edit to the
+#                       artifact that runs. `preferDate` appears as a string
+#                       constant nowhere in the reference jar before the step
+#                       (measured), so the rule is red on the tree the
+#                       candidate is handed and can only be turned green by
+#                       work that reached the compiler. It is the cheap
+#                       version of that check and not the whole of it: it sees
+#                       the constant, not the value, so `preferDate=true`
+#                       satisfies it too. What reads the value off the built
+#                       artifact is the replay -- `HarnessDriver-csvdates`
+#                       calls the jar's own readers and prints what they
+#                       infer -- and this rule's job is only to fail fast, in
+#                       the requirement report, when nothing compiled at all.
+#
+# What this file no longer asks for, and why, because it is the one thing here
+# that is a retraction rather than a design. Until NOTES 6.5.2 this family
+# opened with a json clause: three sites (G2SDataset:131, MyVariantDataset:112,
+# SwissModelDataset:165) read json a web service returns, and a json read
+# without a schema is a schema inferred from whatever arrived that day. It is a
+# true observation about the code and it is incompatible with this step's own
+# behaviour family. Two of those three programs decide what to print by asking
+# the frame that came back what it contains -- `dataset.columns().length == 0`
+# in G2SDataset, `!columns().contains("hits")` in MyVariantDataset -- and on
+# the empty input the census records, an inferred schema is empty and a
+# declared one is not. The recordings say so directly:
+# `build/c09/HarnessDriver-g2s.out` is an empty schemaless frame rendered as
+# `++ / || / ++ / ++` followed by `G2SDataset: no matches found`, and
+# `HarnessDriver-myvariant.norm` carries `MyVariantDataset: no matches found`.
+# Declaring a schema at those sites changes both outputs. The oracle would then
+# have to fail the replay to pass the requirement, which is not a requirement,
+# it is a contradiction -- so the clause is gone and the JDK axis, which is
+# this rung's real second piece of work, took the weight it was holding.
+#
+# Every selector's arity is the schema's (gates/schema.tsv): `ast read` is
+# path,line,format,schema,options; `pom resolved` is ga,version,scope; `pom
+# scalasuffix` is suffix,count; `pom jdklevel` is key,value,origin; `pom
+# testjvmarg` is arg; `probe probe` is key,value; `bytecode class` is
+# name,major; `bytecode strconst` is value,count. rules.py refuses a selector
+# of the wrong length, so a fact that grows a field turns these red rather than
+# quietly narrowing them.
+m1-spark-344	atleast:1	pom.resolved\torg\.apache\.spark:spark-core_2\.13\t3\.4\.4\t.+	pom-spark344-s212.tsv	the build does not resolve spark-core_2.13 at 3.4.4, so the runtime this step targets was never reached
+m1-spark-344-uniform	absent	pom.resolved\torg\.apache\.spark:.*\t(?!3\.4\.4$).*\t*	pom-spark344-mixed.tsv	an org.apache.spark artifact resolves at a version other than 3.4.4; a build that mixes Spark releases runs whichever one the classpath orders first, and which that is is not a property of the pom
+m1-scala-213	atleast:1	pom.scalasuffix\t2\.13\t.+	pom-spark344-s212.tsv	no dependency carries the _2.13 suffix, so the Scala binary version this step moves to was never adopted
+m1-scala-213-only	absent	pom.scalasuffix\t(?!2\.13$).+\t*	pom-spark344-s212.tsv	a dependency carries a Scala suffix other than 2.13; two binary versions of Scala on one classpath is a link error waiting for the first call that crosses between them
+m2-jdk-level-17	atleast:1	pom.jdklevel\t(source|target|release)\t17\t.+	pom-jdk8.tsv	the pom asks for no Java level of 17: neither maven.compiler.source, target nor release says 17, so a build that produces 17 classes here produces them because of the JDK it happened to run on rather than because this project asks for them
+m2-classes-17	atleast:1	bytecode.class\tedu/sdsc/mmtf/.*\t61	bytecode-class-52.tsv	no class of this repository in the built jar carries class-file major version 61, so whatever the pom says, nothing was compiled for Java 17
+m2-classes-17-uniform	absent	bytecode.class\tedu/sdsc/mmtf/.*\t(?!61$).*	bytecode-class-52.tsv	a class of this repository in the built jar carries a class-file major version other than 61; part of the tree is still being compiled at the level this step moves off
+m2-test-jvm-opens	atleast:1	pom.testjvmarg\t(--add-opens=)?java\.base/sun\.nio\.ch=ALL-UNNAMED	pom-testjvm-bare.tsv	the forked test JVM is not opened onto java.base/sun.nio.ch; on JDK 17 StorageUtils touches sun.nio.ch.DirectBuffer while the session starts, and under JPMS that is an IllegalAccessError before a single test body runs
+m3-csv-dates-stated	absent	ast.read\t(.*/)?src/main/.*\t*\tcsv\tno\t(?!.*preferDate=false).*inferSchema=(true|\?).*	ast-read-csv-infer.tsv	a csv read under src/main asks the engine to infer its schema without pinning date inference off at the site; Spark 3.4's CSVOptions.preferDate defaults true, so this read now hands back a DateType where 3.3.4 handed back a TimestampType, and the runtime move has silently changed the types the code produces. preferDate=true does not answer this: it states the new behaviour rather than keeping the old one
+m3-csv-dates-pinned	atleast:6	ast.read\t(.*/)?src/main/.*\t*\tcsv\tno\t(?=.*inferSchema=(true|\?))(?=.*preferDate=false).*	ast-read-csv-infer.tsv	fewer than six csv reads under src/main both ask the engine to infer a schema and pin date inference off with preferDate=false; the handed tree has six inferring csv reads and pins none of them, so a tree that made this move has six that both ask and pin, and every read that still asks has to come back with the types it came back with before the move. This is the positive half of the pair: m3-csv-dates-stated alone is vacated by a candidate who answers the requirement by hand-declaring a StructType instead, because a read with a declared schema no longer matches schema=no and an absent rule that selects nothing is green, and this rule alone is satisfied by six pinned reads standing beside a seventh silent one. It is a floor over the count of reads that both ask and pin and not a bind on which six reads they are: the scanner records schema=yes for any .schema( call whatever the argument, so six declared originals beside six planted ask-and-pin reads would also clear it. That identity gap is open and recorded in NOTES 6.5.9
+m3-csv-sites-kept	atleast:7	ast.read\t(.*/)?src/main/.*\t*\tcsv\t*\t*	ast-read-csv-infer.tsv	fewer than seven csv reads are left under src/main; the tree is handed seven, and a read that was deleted rather than stated passes the clause above for free
+m3-read-stated-at-the-site	absent	ast.read\t(.*/)?src/main/.*\t*\t(\?|-|load)\t*\t*	ast-read-opaque.tsv	a read under src/main does not name its format at the call site -- it is computed, absent, or left to .load()'s parquet default -- so what that site reads cannot be read off the site, and neither can whether it was asked to infer
+m3-read-options-visible	absent	ast.read\t(.*/)?src/main/.*\t*\t(csv|json)\tno\t.*\?=\?.*	ast-read-optmap.tsv	a csv or json read that declares no schema passes its options as a map rather than as .option(k, v) calls, so what it asked the engine for is not visible at the site that asked
+m3-prefer-date-jar	atleast:1	bytecode.strconst\tpreferDate\t*	bytecode-no-preferdate.tsv	the built jar carries no preferDate string constant, so whatever the sources now say about date inference did not reach the artifact that runs. It is the fail-fast half of the jar-level evidence and not the whole of it: it sees that the constant is there and not which value was pinned, and the replay job HarnessDriver-csvdates is what reads the value back off the built readers

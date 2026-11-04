@@ -1,0 +1,36 @@
+# arch: x86_64
+# -e on a -shared link must set e_entry on the shared object (it is not
+# hard-wired to zero just because the output is ET_DYN).
+cat > s.c <<'C'
+int api(int x) { return x + 1; }
+C
+cc_obj s.o s.c -fPIC
+cat > e.s <<'S'
+        .text
+        .globl so_entry
+so_entry:
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj e.o e.s
+
+link_ok noentry.so -shared --no-gc-sections s.o e.o
+want "no -e means no entry" "$(hdr noentry.so | awk '/Entry point/{print $NF}')" "0x0"
+
+link_ok libe.so -shared -e so_entry --no-gc-sections s.o e.o
+want "e_type" "$(hdr libe.so | awk '/^ *Type:/{print $2}')" "DYN"
+ep=$(hdr libe.so | awk '/Entry point/{print $NF}')
+[ "$(( ep ))" -ne 0 ] || die "shared object entry point still zero with -e"
+want "entry is so_entry" "$(( ep ))" "$(( 16#$(sym_value libe.so so_entry) ))"
+
+# It is still a proper shared object, not an executable in disguise.
+want_not "no PT_INTERP" "$(segments libe.so)" 'INTERP'
+want_has "PT_DYNAMIC present" "$(segments libe.so)" '^ *DYNAMIC'
+want_has "api still exported" "$(dynsyms libe.so)" 'GLOBAL DEFAULT +[0-9]+ api$'
+
+# The entry must track the symbol, not the first byte of .text.
+link_ok libf.so -shared -e api --no-gc-sections s.o e.o
+want "entry follows -e" "$(( $(hdr libf.so | awk '/Entry point/{print $NF}') ))" \
+                        "$(( 16#$(sym_value libf.so api) ))"
+
+asserts_at_least 7

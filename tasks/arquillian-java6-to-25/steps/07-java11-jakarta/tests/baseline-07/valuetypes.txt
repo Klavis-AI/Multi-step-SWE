@@ -1,0 +1,44 @@
+# Step 05 -- C-3's frozen population: the three value types whose hand-rolled
+# equals/hashCode pair becomes java.util.Objects.
+#
+# Measured on the step-04 golden, not chosen: these are the ONLY three classes
+# in src/main that declare both `boolean equals(Object)` and `int hashCode()`,
+# and no class in src/main declares one without the other. All three hold
+# character-identical bodies apart from the cast type:
+#
+#      public int hashCode()
+#      {
+#         final int prime = 31;
+#         int result = 1;
+#         result = prime * result + ((name == null) ? 0 : name.hashCode());
+#         return result;
+#      }
+#
+# WHY THIS LEG IS THREE METHODS AND NOT 188 SITES. The obvious Objects
+# migration in this tree is Validate.notNull(obj, msg) -> Objects.requireNonNull
+# -- 65 calls in src/main. It is not available. All four Validate classes throw
+# IllegalArgumentException and requireNonNull throws NullPointerException; 86 of
+# the probe's 935 recordings contain `...ex.0.type=java.lang.IllegalArgument\
+# Exception`, one of them as direct as `write(target, null).ex.0.type=`. That
+# migration changes 86 recorded transcripts, which is family A, which is 30% of
+# the step. A behaviour-preserving migration does not get to do it. See NOTES
+# 10.2.1.
+#
+# WHAT IS LEFT IS THE ONE LEG FAMILY A INDEPENDENTLY VERIFIES. Objects.hash(name)
+# is Arrays.hashCode(new Object[]{name}), which is
+# `result = 1; result = 31 * result + (e == null ? 0 : e.hashCode())` -- the
+# same integer as the hand-rolled body for every input including null, bit-
+# identical and not merely equivalent. DomainFixture.java:711 records
+# `r.kv("hash", Integer.valueOf(t.hashCode()))` and :738 records
+# `nullName.hash`, so a candidate who writes this correctly is confirmed by
+# family A and one who "modernises" it into something else loses transcripts.
+#
+# equals() becomes `getClass() == obj.getClass() && Objects.equals(name,
+# other.name)`. The getClass() guard STAYS: it is behaviour (a subclass
+# instance must not equal its base), not boilerplate, and dropping it for
+# `instanceof` changes what the type does.
+#
+# Format: <path> <simple name>
+spi/src/main/java/org/jboss/arquillian/spi/client/protocol/ProtocolDescription.java ProtocolDescription
+spi/src/main/java/org/jboss/arquillian/spi/client/test/DeploymentTargetDescription.java DeploymentTargetDescription
+spi/src/main/java/org/jboss/arquillian/spi/client/test/TargetDescription.java TargetDescription

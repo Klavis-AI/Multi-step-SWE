@@ -1,0 +1,25 @@
+# PEP 691 is the JSON form of the same simple API, and `instruction.md` names
+# `pep-0691.rst` as normative for what the index client reads. The scenario
+# sets `json_only`, so `mkindex.py` writes each project page as `index.json`
+# and no `index.html`, and the harness serves that file to a client whose
+# `Accept` header carries `application/vnd.pypi.simple.v1+json`. A client that
+# never asks for the JSON media type is served the directory itself, finds no
+# distribution in it, and fails to resolve `epsilon` -- so the assertion below
+# is reached only by an implementation that reads the JSON listing. The
+# resolution it must produce is an ordinary one: the transitive requirement is
+# followed and both projects are installed.
+id = "index-json-listing"
+step = 1
+group = "index-metadata"
+python = "3.12"
+mode = "venv"
+argv = ["pip", "install", "--index-url", "{INDEX}", "--no-cache", "epsilon"]
+observe = ["status", "freeze"]
+
+[index]
+json_only = true
+
+[index.packages.epsilon.versions."1.0.0"]
+requires = ["zeta>=1.0"]
+
+[index.packages.zeta.versions."1.2.0"]

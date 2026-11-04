@@ -1,0 +1,125 @@
+{
+ "group": "gdb",
+ "cases": [
+  {
+   "id": "deep_gcc4_O0_static#brk_bt",
+   "group": "gdb",
+   "fixture": "deep_gcc4_O0_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34101\nbreak level_three\ncontinue\nbt\ninfo registers rip\nprintf \"ARG=%d\\n\", d\nfinish\nkill\n",
+   "port": 34101,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/deep.c, line 18.\nBreakpoint 1, level_three (d=3, tag=\"core-tag\") at src/deep.c:18\n18\tstatic int level_three(int d, const char *tag) { return level_four(d + 1, tag) + 2; }\n#0  level_three (d=3, tag=\"core-tag\") at src/deep.c:18\n#1  level_two (d=2, tag=\"core-tag\") at src/deep.c:19\n#2  level_one (d=1, tag=\"core-tag\") at src/deep.c:20\n#3  main (argc=1, argv=) at src/deep.c:27\nrip            0x40180b            <level_three+15>\nARG=3\nProgram received signal SIGSEGV, Segmentation fault.\nlevel_five (d=5, tag=\"core-tag\") at src/deep.c:12\n12\t        return *p;",
+   "oracle": "gdbserver 127.0.0.1:34101 /dw/out/fx/deep_gcc4_O0_static + gdb -batch -x brk_bt.gdb"
+  },
+  {
+   "id": "deep_gcc4_O0_static#step_mem",
+   "group": "gdb",
+   "fixture": "deep_gcc4_O0_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34102\nbreak level_four\ncontinue\nnext\nstep\ninfo registers rax rbx rcx\nx/8xb $pc\ninfo frame\nkill\n",
+   "port": 34102,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/deep.c, line 17.\nBreakpoint 1, level_four (d=4, tag=\"core-tag\") at src/deep.c:17\n17\tstatic int level_four(int d, const char *tag) { return level_five(d + 1, tag) + 1; }\nProgram received signal SIGSEGV, Segmentation fault.\nlevel_five (d=5, tag=\"core-tag\") at src/deep.c:12\n12\t        return *p;\nProgram terminated with signal SIGSEGV, Segmentation fault.\nThe program no longer exists.",
+   "oracle": "gdbserver 127.0.0.1:34102 /dw/out/fx/deep_gcc4_O0_static + gdb -batch -x step_mem.gdb"
+  },
+  {
+   "id": "basic_gcc4_O0_static#brk_bt",
+   "group": "gdb",
+   "fixture": "basic_gcc4_O0_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34103\nbreak classify\ncontinue\nbt\ninfo registers rip\nprintf \"ARG=%d\\n\", v\nfinish\nkill\n",
+   "port": 34103,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/basic.c, line 25.\nBreakpoint 1, classify (v=6) at src/basic.c:25\n25\t    switch (v & 7) {\n#0  classify (v=6) at src/basic.c:25\n#1  recurse (depth=6, acc=0) at src/basic.c:42\n#2  main (argc=1, argv=) at src/basic.c:60\nrip            0x40174f            <classify+11>\nARG=6\nrecurse (depth=6, acc=0) at src/basic.c:42\n42\t    return recurse(depth - 1, acc + classify(depth));\nValue returned is $1 = 14",
+   "oracle": "gdbserver 127.0.0.1:34103 /dw/out/fx/basic_gcc4_O0_static + gdb -batch -x brk_bt.gdb"
+  },
+  {
+   "id": "basic_gcc4_O0_static#step_mem",
+   "group": "gdb",
+   "fixture": "basic_gcc4_O0_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34104\nbreak recurse\ncontinue\nnext\nstep\ninfo registers rax rbx rcx\nx/8xb $pc\ninfo frame\nkill\n",
+   "port": 34104,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/basic.c, line 39.\nBreakpoint 1, recurse (depth=6, acc=0) at src/basic.c:39\n39\t    if (depth <= 0) {\n42\t    return recurse(depth - 1, acc + classify(depth));\nclassify (v=6) at src/basic.c:25\n25\t    switch (v & 7) {\nrax            0x6                 6\nrbx <STACK> <VAL>\nrcx            0x4a5b40            4873024\n0x40174f <classify+11>:\t0x8b\t0x45\t0xfc\t0x83\t0xe0\t0x07\t0x83\t0xf8\nStack level 0, frame at <STACK>:\n rip = 0x40174f in classify (src/basic.c:25); saved rip = 0x4017d8\n called by frame at <STACK>\n source language c.\n Arglist at <STACK>, args: v=6\n Locals at <STACK>, Previous frame's sp is <STACK>\n Saved registers:\n  rbp at <STACK>, rip at <STACK>",
+   "oracle": "gdbserver 127.0.0.1:34104 /dw/out/fx/basic_gcc4_O0_static + gdb -batch -x step_mem.gdb"
+  },
+  {
+   "id": "many_gcc4_O1_static#brk_bt",
+   "group": "gdb",
+   "fixture": "many_gcc4_O1_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34105\nbreak dispatch\ncontinue\nbt\ninfo registers rip\nprintf \"ARG=%d\\n\", which\nfinish\nkill\n",
+   "port": 34105,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/many.c, line 28.\nBreakpoint 1, dispatch (which=which@entry=0, x=x@entry=1) at src/many.c:28\n28\t{\n#0  dispatch (which=which@entry=0, x=x@entry=1) at src/many.c:28\n#1  main (argc=1, argv=<optimized out>) at src/many.c:37\nrip            0x401874            <dispatch>\nARG=0\nmain (argc=1, argv=<optimized out>) at src/many.c:37\n37\t        t += dispatch(i, argc + i);\nValue returned is $1 = 3",
+   "oracle": "gdbserver 127.0.0.1:34105 /dw/out/fx/many_gcc4_O1_static + gdb -batch -x brk_bt.gdb"
+  },
+  {
+   "id": "inline_gcc4_O2_static#step_mem",
+   "group": "gdb",
+   "fixture": "inline_gcc4_O2_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34106\nbreak hot_entry\ncontinue\nnext\nstep\ninfo registers rax rbx rcx\nx/8xb $pc\ninfo frame\nkill\n",
+   "port": 34106,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: hot_entry. (2 locations)\nBreakpoint 1.2, hot_entry (x=1) at src/inline.c:30\n30\t    if (__builtin_expect(x > 100000, 0)) {\n33\t    return forced_step(x) + middle_step(x * 2);\nforced_step (x=<optimized out>) at src/inline.c:11\n11\t    return leaf_step(x) + leaf_step(x + 1);\nrax            0x3                 3\nrbx <STACK> <VAL>\nrcx            0xb                 11\n0x401779 <second_entry+25>:\t0x89\t0xc8\t0x83\t0xf0\t0x5a\t0x8d\t0x44\t0x48\nStack level 0, frame at <STACK>:\n rip = 0x401779 in forced_step (src/inline.c:11); saved rip = 0x4015a9\n inlined into frame 1\n source language c.\n Arglist at unknown address.\n Locals at unknown address, Previous frame's sp in rsp",
+   "oracle": "gdbserver 127.0.0.1:34106 /dw/out/fx/inline_gcc4_O2_static + gdb -batch -x step_mem.gdb"
+  },
+  {
+   "id": "basic_gcc5_O2_static#brk_bt",
+   "group": "gdb",
+   "fixture": "basic_gcc5_O2_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34107\nbreak mixer\ncontinue\nbt\ninfo registers rip\nprintf \"ARG=%d\\n\", a\nfinish\nkill\n",
+   "port": 34107,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: mixer. (2 locations)\nBreakpoint 1.1, mixer (a=<optimized out>, b=<optimized out>, c=<optimized out>, d=<optimized out>) at src/basic.c:51\n51\t    g_bss_long = b;\n#0  mixer (a=<optimized out>, b=<optimized out>, c=<optimized out>, d=<optimized out>) at src/basic.c:51\n#1  main (argc=1, argv=) at src/basic.c:61\nrip            0x40157e            <main+14>\nARG=",
+   "oracle": "gdbserver 127.0.0.1:34107 /dw/out/fx/basic_gcc5_O2_static + gdb -batch -x brk_bt.gdb"
+  },
+  {
+   "id": "deep_gcc4_O2_static#brk_bt",
+   "group": "gdb",
+   "fixture": "deep_gcc4_O2_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34109\nbreak main\ncontinue\nbt\ninfo registers rip\nprintf \"ARG=%d\\n\", argc\nfinish\nkill\n",
+   "port": 34109,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/deep.c, line 25.\nBreakpoint 1, main (argc=1, argv=) at src/deep.c:25\n25\t    printf(\"deep start\\n\");\n#0  main (argc=1, argv=) at src/deep.c:25\nrip            0x401610            <main>\nARG=1",
+   "oracle": "gdbserver 127.0.0.1:34109 /dw/out/fx/deep_gcc4_O2_static + gdb -batch -x brk_bt.gdb"
+  },
+  {
+   "id": "sig_gcc4_O0_static#step_mem",
+   "group": "gdb",
+   "fixture": "sig_gcc4_O0_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34110\nbreak handler_inner\ncontinue\nnext\nstep\ninfo registers rax rbx rcx\nx/8xb $pc\ninfo frame\nkill\n",
+   "port": 34110,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/sig.c, line 8.\nProgram received signal SIGUSR1, User defined signal 1.\n__pthread_kill_implementation.constprop.0 ()\nSingle stepping until exit from function __pthread_kill_implementation.constprop.0,\nwhich has no line number information.\nhandler (sig=0) at src/sig.c:13\n13\t{\n14\t    printf(\"in handler %d\\n\", sig);\nrax            0x0                 0\nrbx <VAL> <VAL>\nrcx            0x41051c            4261148\n0x4017ac <handler+11>:\t0x8b\t0x45\t0xfc\t0x89\t0xc6\t0xbf\t0x10\t0x70\nStack level 0, frame at <STACK>:\n rip = 0x4017ac in handler (src/sig.c:14); saved rip = 0x404300\n called by frame at <STACK>\n source language c.\n Arglist at <STACK>, args: sig=10\n Locals at <STACK>, Previous frame's sp is <STACK>\n Saved registers:\n  rbp at <STACK>, rip at <STACK>",
+   "oracle": "gdbserver 127.0.0.1:34110 /dw/out/fx/sig_gcc4_O0_static + gdb -batch -x step_mem.gdb"
+  },
+  {
+   "id": "sig_gcc5_O1_static#brk_bt",
+   "group": "gdb",
+   "fixture": "sig_gcc5_O1_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34111\nbreak main\ncontinue\nbt\ninfo registers rip\nfinish\nkill\n",
+   "port": 34111,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/sig.c, line 29.\nBreakpoint 1, main () at src/sig.c:29\n29\t{\n#0  main () at src/sig.c:29\nrip            0x4017d4            <main>",
+   "oracle": "gdbserver 127.0.0.1:34111 /dw/out/fx/sig_gcc5_O1_static + gdb -batch -x brk_bt.gdb"
+  }
+ ]
+}

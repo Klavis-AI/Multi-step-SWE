@@ -1,0 +1,37 @@
+# arch: x86_64
+# Placing .text relocates everything in it: the symbols move by exactly the
+# distance the section moved, and the code still resolves its own calls.
+rt_obj rt.o
+cat > s.c <<'C'
+int leaf(int x) { return x * 3; }
+int middle(int x) { return leaf(x) + 1; }
+int entry(void) { return middle(13) + 2; }
+C
+cc_obj s.o s.c
+link_ok def rt.o s.o --no-gc-sections
+link_ok moved -Ttext=0x500000 rt.o s.o --no-gc-sections
+
+da_hex=$(sec_addr def .text); ma_hex=$(sec_addr moved .text)
+[ -n "$da_hex" ] && [ -n "$ma_hex" ] \
+  || die "one of the links produced no .text (def '$da_hex', moved '$ma_hex')"
+da=$((16#$da_hex))
+ma=$((16#$ma_hex))
+want "-Ttext placed .text" "$ma" "$((0x500000))"
+[ "$da" -ne "$ma" ] || die "the default link already placed .text at 0x500000"
+delta=$((ma - da))
+for s in leaf middle entry; do
+  dv=$(sym_value def "$s"); mv=$(sym_value moved "$s")
+  [ -n "$dv" ] && [ -n "$mv" ] || die "symbol $s is missing from one of the links"
+  want "$s moved with its section" "$((16#$mv - 16#$dv))" "$delta"
+done
+
+# The moved link is a complete program, not just a relabelled one.
+ms_hex=$(sec_size moved .text); ds_hex=$(sec_size def .text)
+[ -n "$ms_hex" ] && [ -n "$ds_hex" ] || die "one of the links reports no .text size"
+want "the text section kept its size" "$ms_hex" "$ds_hex"
+run_expect def "" 42
+run_expect moved "" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 5

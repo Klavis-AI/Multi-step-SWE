@@ -1,0 +1,74 @@
+# arch: x86_64
+# With two versioned libraries, each Verneed record must name its own file and
+# carry only that file's versions -- and a third, UNVERSIONED dependency that
+# is genuinely referenced must get a DT_NEEDED and no Verneed record at all,
+# so DT_VERNEEDNUM counts versioned dependencies and not dependencies
+# (spec/09-symbol-versioning.md S5, S7).
+rt_obj rt.o
+cat > a.s <<'S'
+        .text
+        .globl afn_1
+afn_1:  movl $1, %eax; ret
+        .globl afn_2
+afn_2:  movl $2, %eax; ret
+        .symver afn_1, afn@A_ONE
+        .symver afn_2, afn@@A_TWO
+        .section .note.GNU-stack,"",@progbits
+S
+cat > b.s <<'S'
+        .text
+        .globl bfn_1
+bfn_1:  movl $3, %eax; ret
+        .symver bfn_1, bfn@@B_ONE
+        .section .note.GNU-stack,"",@progbits
+S
+cat > c.s <<'S'
+        .text
+        .globl cfn
+cfn:    movl $9, %eax; ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj a.o a.s -fPIC; as_obj b.o b.s -fPIC; as_obj c.o c.s -fPIC
+cat > a.map <<'M'
+A_ONE { global: afn; local: *; };
+A_TWO { global: afn; } A_ONE;
+M
+cat > b.map <<'M'
+B_ONE { global: bfn; local: *; };
+M
+ld -shared -soname libaa.so.1 --version-script=a.map -o libaa.so a.o 2> ld.err \
+  || die "fixture ld libaa failed: $(tail -2 ld.err)"
+ld -shared -soname libbb.so.2 --version-script=b.map -o libbb.so b.o 2> ld.err \
+  || die "fixture ld libbb failed: $(tail -2 ld.err)"
+# libcc.so.3 carries no version definitions at all.
+ld -shared -soname libcc.so.3 -o libcc.so c.o 2> ld.err \
+  || die "fixture ld libcc failed: $(tail -2 ld.err)"
+cat > m.c <<'C'
+__asm__(".symver afn_old, afn@A_ONE");
+int afn_old(void); int bfn(void); int cfn(void);
+int entry(void) { return afn_old() + bfn() + cfn(); }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o libaa.so libbb.so libcc.so -dynamic-linker /lib64/ld-linux-x86-64.so.2
+vernum out > ver.txt; dynamic out > dyn.txt
+want "DT_VERNEEDNUM" "$(awk '/\(VERNEEDNUM\)/{print $NF}' dyn.txt)" "2"
+# All three libraries are referenced, so all three are NEEDED, but only the two
+# versioned ones may appear in .gnu.version_r.
+want "three DT_NEEDED entries" "$(grep -c '(NEEDED)' dyn.txt)" "3"
+grep -q 'libcc\.so\.3' dyn.txt || die "the unversioned dependency got no DT_NEEDED: $(cat dyn.txt)"
+! grep -q 'libcc\.so\.3' ver.txt \
+  || die "the unversioned dependency got a version_r record: $(cat ver.txt)"
+grep -qE 'File: libaa\.so\.1 +Cnt: 1' ver.txt || die "libaa.so.1 Verneed wrong: $(cat ver.txt)"
+grep -qE 'File: libbb\.so\.2 +Cnt: 1' ver.txt || die "libbb.so.2 Verneed wrong: $(cat ver.txt)"
+# A_ONE must be listed under libaa.so.1 and B_ONE under libbb.so.2.
+awk '/File: libaa\.so\.1/ { f = "aa"; next } /File: libbb\.so\.2/ { f = "bb"; next }
+     /Name: / { for (i = 1; i <= NF; i++) if ($i == "Name:") print f, $(i+1) }' ver.txt > pairs.txt
+grep -qx 'aa A_ONE' pairs.txt || die "A_ONE not attributed to libaa.so.1: $(cat pairs.txt)"
+grep -qx 'bb B_ONE' pairs.txt || die "B_ONE not attributed to libbb.so.2: $(cat pairs.txt)"
+! grep -q 'A_TWO' pairs.txt || die "unreferenced version A_TWO was requested: $(cat pairs.txt)"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

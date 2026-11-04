@@ -1,0 +1,37 @@
+# arch: x86_64
+# A malformed or unrecognised --build-id value is a diagnosed error, not a
+# silent fallback (spec/06 §8: "An odd-length or non-hex value MUST be a
+# diagnosed error, as MUST an unrecognised style name").
+#
+# Measured on the reference over every checkpoint: at this milestone all three
+# forms exit non-zero, name the rejected value on stderr and leave no output
+# file; the previous milestone accepted all three silently, exited 0 and wrote
+# an executable. This is the negative half of note-build-id.case -- that case
+# proves a good value is honoured, this one proves a bad one is refused rather
+# than rounded off to some default.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { return 0; }
+C
+cc_obj m.o m.c
+# Control first: a well-formed value of the same shape is accepted and really
+# does produce a note. Without this, a linker that rejected every --build-id
+# would satisfy the three rejections below for the wrong reason.
+link_ok good --build-id=0x0f1e2d3c4b5a69788796a5b4c3d2e1f0 rt.o m.o
+want_has "control: a well-formed hex value is accepted" \
+  "$(notes good)" 'Build ID: 0f1e2d3c4b5a69788796a5b4c3d2e1f0'
+reject() { # reject <label> <value> <token the diagnostic must contain>
+  rm -f bad
+  link_fails bad --build-id="$2" rt.o m.o
+  want_has "$1: the diagnostic names the rejected value" "$LINK_OUT" "$3"
+  [ -s bad ] && die "$1: a rejected --build-id still left an output file behind"
+  return 0
+}
+# Odd number of hex digits -- not a whole number of bytes.
+reject "odd-length hex"  '0xabc'         '0xabc'
+# Right length, digits outside [0-9a-f].
+reject "non-hex digits"  '0xzzzz'        '0xzzzz'
+# A style name the linker does not implement.
+reject "unknown style"   'nonsensestyle' 'nonsensestyle'
+asserts_at_least 4

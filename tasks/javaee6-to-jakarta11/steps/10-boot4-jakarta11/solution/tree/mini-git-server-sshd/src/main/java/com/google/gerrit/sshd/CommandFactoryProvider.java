@@ -1,0 +1,203 @@
+// Copyright (C) 2009 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package com.google.gerrit.sshd;
+
+import com.google.gerrit.sshd.SshScope.Context;
+
+import org.apache.sshd.server.Environment;
+import org.apache.sshd.server.ExitCallback;
+import org.apache.sshd.server.channel.ChannelSession;
+import org.apache.sshd.server.command.Command;
+import org.apache.sshd.server.command.CommandFactory;
+import org.apache.sshd.server.session.ServerSession;
+import org.apache.sshd.server.session.ServerSessionAware;
+import org.springframework.beans.factory.ObjectFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Creates a CommandFactory over the commands registered in this context.
+ */
+class CommandFactoryProvider implements ObjectFactory<CommandFactory> {
+  private final DispatchCommandProvider dispatcher;
+  private final SshLog log;
+
+  CommandFactoryProvider(@Qualifier("rootDispatcher") final DispatchCommandProvider d,
+      final SshLog l) {
+    dispatcher = d;
+    log = l;
+  }
+
+  @Override
+  public CommandFactory getObject() {
+    return (channel, requestCommand) -> new Trampoline(requestCommand);
+  }
+
+  private class Trampoline implements Command, ServerSessionAware {
+    private final String commandLine;
+    private final String[] argv;
+    private InputStream in;
+    private OutputStream out;
+    private OutputStream err;
+    private ExitCallback exit;
+    private Context ctx;
+    private DispatchCommand cmd;
+    private boolean logged;
+
+    Trampoline(final String cmdLine) {
+      commandLine = cmdLine;
+      argv = split(cmdLine);
+    }
+
+    public void setInputStream(final InputStream in) {
+      this.in = in;
+    }
+
+    public void setOutputStream(final OutputStream out) {
+      this.out = out;
+    }
+
+    public void setErrorStream(final OutputStream err) {
+      this.err = err;
+    }
+
+    public void setExitCallback(final ExitCallback callback) {
+      this.exit = callback;
+    }
+
+    public void setSession(final ServerSession session) {
+      final SshSession s = session.getAttribute(SshSession.KEY);
+      this.ctx = new Context(s, commandLine);
+    }
+
+    public void start(final ChannelSession channel, final Environment env)
+        throws IOException {
+      synchronized (this) {
+        final Context old = SshScope.set(ctx);
+        try {
+          cmd = dispatcher.createInjected();
+          cmd.setArguments(argv);
+          cmd.setInputStream(in);
+          cmd.setOutputStream(out);
+          cmd.setErrorStream(err);
+          // One method instead of two: the shorter onExit overloads are
+          // defaults now and all of them funnel into this one, so intercepting
+          // it alone catches every exit the command can report.
+          cmd.setExitCallback((rc, exitMessage, closeImmediately) -> {
+            exit.onExit(translateExit(rc), exitMessage, closeImmediately);
+            log(rc);
+          });
+          cmd.start(channel, env);
+        } finally {
+          SshScope.set(old);
+        }
+      }
+    }
+
+    private int translateExit(final int rc) {
+      switch (rc) {
+        case BaseCommand.STATUS_NOT_ADMIN:
+          return 1;
+
+        case BaseCommand.STATUS_CANCEL:
+          return 15 /* SIGKILL */;
+
+        case BaseCommand.STATUS_NOT_FOUND:
+          return 127 /* POSIX not found */;
+
+        default:
+          return rc;
+      }
+    }
+
+    private void log(final int rc) {
+      synchronized (this) {
+        if (!logged) {
+          log.onExecute(rc);
+          logged = true;
+        }
+      }
+    }
+
+    @Override
+    public void destroy(final ChannelSession channel) throws Exception {
+      synchronized (this) {
+        if (cmd != null) {
+          final Context old = SshScope.set(ctx);
+          try {
+            cmd.destroy(channel);
+            log(BaseCommand.STATUS_CANCEL);
+          } finally {
+            ctx = null;
+            cmd = null;
+            SshScope.set(old);
+          }
+        }
+      }
+    }
+  }
+
+  /** Split a command line into a string array. */
+  static String[] split(String commandLine) {
+    final List<String> list = new ArrayList<>();
+    boolean inquote = false;
+    boolean inDblQuote = false;
+    StringBuilder r = new StringBuilder();
+    for (int ip = 0; ip < commandLine.length();) {
+      final char b = commandLine.charAt(ip++);
+      switch (b) {
+        case '\t':
+        case ' ':
+          if (inquote || inDblQuote)
+            r.append(b);
+          else if (r.length() > 0) {
+            list.add(r.toString());
+            r = new StringBuilder();
+          }
+          continue;
+        case '\"':
+          if (inquote)
+            r.append(b);
+          else
+            inDblQuote = !inDblQuote;
+          continue;
+        case '\'':
+          if (inDblQuote)
+            r.append(b);
+          else
+            inquote = !inquote;
+          continue;
+        case '\\':
+          if (inquote || ip == commandLine.length())
+            r.append(b); // literal within a quote
+          else
+            r.append(commandLine.charAt(ip++));
+          continue;
+        default:
+          r.append(b);
+          continue;
+      }
+    }
+    if (r.length() > 0) {
+      list.add(r.toString());
+    }
+    return list.toArray(new String[list.size()]);
+  }
+}

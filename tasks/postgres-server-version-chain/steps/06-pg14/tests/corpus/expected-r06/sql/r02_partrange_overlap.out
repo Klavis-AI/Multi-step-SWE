@@ -1,0 +1,23 @@
+CREATE TABLE q2_pro(a int) PARTITION BY RANGE (a);
+CREATE TABLE q2_pro_1 PARTITION OF q2_pro FOR VALUES FROM (1) TO (10);
+CREATE TABLE q2_pro_2 PARTITION OF q2_pro FOR VALUES FROM (5) TO (15);
+ERROR:  partition "q2_pro_2" would overlap partition "q2_pro_1"
+LINE 1: ...BLE q2_pro_2 PARTITION OF q2_pro FOR VALUES FROM (5) TO (15)...
+                                                             ^
+CREATE TABLE q2_pro_3 PARTITION OF q2_pro FOR VALUES FROM (10) TO (5);
+ERROR:  empty range bound specified for partition "q2_pro_3"
+LINE 1: ...BLE q2_pro_3 PARTITION OF q2_pro FOR VALUES FROM (10) TO (5)...
+                                                             ^
+DETAIL:  Specified lower bound (10) is greater than or equal to upper bound (5).
+CREATE TABLE q2_pro_4 PARTITION OF q2_pro FOR VALUES IN (1);
+ERROR:  invalid bound specification for a range partition
+LINE 1: CREATE TABLE q2_pro_4 PARTITION OF q2_pro FOR VALUES IN (1);
+                                                             ^
+SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+  WHERE i.inhparent = 'q2_pro'::regclass ORDER BY 1;
+ relname  
+----------
+ q2_pro_1
+(1 row)
+
+DROP TABLE q2_pro;

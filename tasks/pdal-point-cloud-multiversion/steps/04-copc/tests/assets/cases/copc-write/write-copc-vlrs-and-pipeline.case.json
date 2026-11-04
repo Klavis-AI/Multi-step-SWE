@@ -1,0 +1,26 @@
+{
+  "doc": "stages/writers.copc.rst, 'VLRs' section: 'VLRs can be created by providing a JSON node called `vlrs` with objects as shown ... One of `data`, `filename` or `metadata` must be specified. Data must be specified as base64 encoded strings.' The page's own example VLR (user_id hobu, record_id 42, data dGhpcyBpcyBzb21lIHRleHQ=) is written and read back. VLR/EVLR block placement is an implementation choice not stated by the page and is not asserted; the payload 'this is some text' (the base64-decoded value) is asserted by content search. The same case covers the `pipeline` option ('Emit a JSON-representation of the pipeline as a VLR'); the pipeline JSON content is asserted without pinning the block or the user_id/record_id, which are not stated in the shipped corpus.",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "vlrs.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"vlrs.copc.laz\",\"vlrs\":[{\"description\":\"A description under 32 bytes\",\"record_id\":42,\"user_id\":\"hobu\",\"data\":\"dGhpcyBpcyBzb21lIHRleHQ=\"}]}]"},
+    "pipeline.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"pipeline.copc.laz\",\"pipeline\":true}]"}
+  },
+  "run": [
+    {"argv": ["pipeline", "vlrs.json"]},
+    {"argv": ["pipeline", "pipeline.json"]}
+  ],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "exit", "run": 1, "equals": 0},
+    {"kind": "las", "file": "vlrs.copc.laz",
+     "header": {"point_count": {"equals": 1000},
+                "vlr_ids": {"contains": "copc/1"}}},
+    {"kind": "file_text_regex", "file": "vlrs.copc.laz", "regex": "this is some text"},
+    {"kind": "copc", "file": "vlrs.copc.laz", "point_count": {"equals": 1000}},
+    {"kind": "las", "file": "pipeline.copc.laz",
+     "header": {"point_count": {"equals": 1000},
+                "vlr_ids": {"contains": "copc/1"}}},
+    {"kind": "file_text_regex", "file": "pipeline.copc.laz", "regex": "writers\\.copc"},
+    {"kind": "copc", "file": "pipeline.copc.laz", "point_count": {"equals": 1000}}
+  ]
+}

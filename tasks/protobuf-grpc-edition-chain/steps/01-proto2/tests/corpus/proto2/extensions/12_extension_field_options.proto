@@ -1,0 +1,33 @@
+// DESC: Field options on extensions, including retention and targets
+syntax = "proto2";
+package c2.extensions.extension_field_options;
+
+import "google/protobuf/descriptor.proto";
+
+message Host { extensions 100 to 200; }
+
+// Extensions may themselves carry field options, including retention and
+// target restrictions that only apply to option extensions.
+extend google.protobuf.FieldOptions {
+  optional string source_retained = 50501 [retention = RETENTION_SOURCE];
+  optional string runtime_retained = 50502 [retention = RETENTION_RUNTIME];
+  optional string field_targeted = 50503 [targets = TARGET_TYPE_FIELD];
+  optional string multi_targeted = 50504 [
+    targets = TARGET_TYPE_FIELD,
+    targets = TARGET_TYPE_EXTENSION_RANGE,
+    targets = TARGET_TYPE_MESSAGE
+  ];
+}
+
+extend Host {
+  optional int64 js_ext = 100 [jstype = JS_STRING];
+  optional string deprecated_ext = 101 [deprecated = true];
+  optional string redacted_ext = 102 [debug_redact = true];
+  optional Host lazy_ext = 103 [lazy = true];
+  repeated int32 packed_ext = 104 [packed = true];
+  optional string defaulted_ext = 105 [default = "dflt"];
+}
+
+message Uses {
+  optional int32 a = 1 [(source_retained) = "s", (runtime_retained) = "r", (field_targeted) = "f"];
+}

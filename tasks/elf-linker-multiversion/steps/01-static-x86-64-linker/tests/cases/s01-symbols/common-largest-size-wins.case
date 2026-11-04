@@ -1,0 +1,65 @@
+# arch: x86_64
+# spec/02 4 rule 2: when only commons of a name exist, the one with the largest
+# st_size is selected, and rule 3 carries that st_size into the output symbol
+# table unchanged. `common-shared-between-objects` cannot reach this rule --
+# both of its commons are 4 bytes, so every selection gives the same answer.
+# Here they are 4 and 64 bytes.
+#
+# Two things are deliberately NOT asserted, both measured on the nine reference
+# tags and both recorded in spec/02 4:
+#
+#  * the reverse link order. 0.2.0-0.4.0 take the size of the *last* common
+#    seen rather than the largest, so putting the 64-byte one first yields 4
+#    there and 64 from 0.5.0 on. In the order used below every tag yields 64
+#    and a linker implementing either reading passes; asserting the other order
+#    would grade a release-history accident.
+#  * that 64 bytes are actually reserved. At 0.2.0 the symbol is written with
+#    st_size 64 at offset 4 of a .bss that is only 64 bytes long, i.e. the
+#    allocation runs 4 bytes past the section -- a reference defect at this
+#    step's own Oracle, so containment must not be graded here.
+rt_obj rt.o
+cat > c1.c <<'C'
+int tent;
+C
+cat > c2.c <<'C'
+struct big { int a[16]; };
+struct big tent;
+C
+cat > m.c <<'C'
+#include "rt.h"
+struct big { int a[16]; };
+extern struct big tent;
+int entry(void) {
+  if (tent.a[0] != 0) { print("not zeroed\n"); return 1; }
+  tent.a[0] = 42;
+  putdec(tent.a[0]); print("\n");
+  return 0;
+}
+C
+cc_obj c1.o c1.c -fcommon
+cc_obj c2.o c2.c -fcommon
+cc_obj m.o m.c
+
+si1=$(symbols c1.o); si2=$(symbols c2.o)
+want "the small common really is 4 bytes"  "$(awk '$8=="tent"{print $3; exit}' <<<"$si1")" "4"
+want "the large common really is 64 bytes" "$(awk '$8=="tent"{print $3; exit}' <<<"$si2")" "64"
+want_has "the small common really is SHN_COMMON"  "$si1" "OBJECT +GLOBAL +DEFAULT +COM +tent"
+want_has "the large common really is SHN_COMMON"  "$si2" "OBJECT +GLOBAL +DEFAULT +COM +tent"
+
+link_ok out rt.o m.o c1.o c2.o
+want "exactly one tent in .symtab" \
+     "$(symbols out | awk '$8=="tent"' | grep -c .)" "1"
+want "the larger common's size is the one that survives" \
+     "$(symbols out | awk '$8=="tent"{print $3}')" "64"
+want_not "SHN_COMMON does not appear in the output" "$(symbols out)" " COM +tent"
+want_has ".bss is NOBITS" "$(sections out)" "\.bss +NOBITS"
+tv=$(sym_value out tent)
+[ -n "$tv" ] || die "tent was not allocated (absent from the output symbol table)"
+bs=$(( 16#$(sec_addr out .bss) )); be=$(( bs + 16#$(sec_size out .bss) ))
+[ $(( 16#$tv )) -ge "$bs" ] && [ $(( 16#$tv )) -lt "$be" ] || die "tent at 0x$tv is outside .bss"
+run_expect out "42" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. Measured identical at every tag where
+# this case passes.
+asserts_at_least 8

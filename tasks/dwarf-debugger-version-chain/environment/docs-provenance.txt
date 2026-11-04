@@ -1,0 +1,80 @@
+How environment/docs/ was produced: the build stage below fetches each
+document from its official source, checks it against the pinned sha256,
+and makes the text conversions. Its output is stored in docs/ and copied
+into the image directly. Re-run these steps to refresh a document.
+
+# Reference documentation for the agent (the agent phase has no network).
+# Fetched at build time from the official sources, pinned by sha256; only
+# /opt/docs leaves this stage. The gdb and man-pages tarballs are unpacked here
+# for their documentation files alone, and no tool or source reaches the image.
+FROM debian:trixie-slim AS docs
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl groff-base info poppler-utils xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    fetch() { curl -fsSL --retry 3 --max-time 600 -o "$2" "$1"; echo "$3  $2" | sha256sum -c -; }; \
+    D=/opt/docs; mkdir -p /tmp/dl; cd /tmp/dl; \
+    mkdir -p $D/llvm-19 $D/binutils-2.44 $D/itanium-cxx-abi $D/gdb-16.3 \
+             $D/man-pages-6.9.1 $D/gabi $D/x86-64-psabi-1.0 $D/aarch64-abi-2024Q3; \
+    fetch https://releases.llvm.org/19.1.0/docs/CommandGuide/llvm-symbolizer.html \
+          $D/llvm-19/llvm-symbolizer.html \
+          d601192abc020313ea57c0d7f202d3dfa633eb367822e0afcacf513e3f460308; \
+    fetch https://sourceware.org/binutils/docs-2.44/binutils/readelf.html \
+          $D/binutils-2.44/readelf.html \
+          35072e8dfb06057cfb2064cf2e9c734a6bebbf166d26972480a7c82f4769f2d6; \
+    fetch https://raw.githubusercontent.com/itanium-cxx-abi/cxx-abi/2837827a025f43d1fcfc37ec053d1314cfd1bba3/abi.html \
+          $D/itanium-cxx-abi/abi.html \
+          f342de5630d98f208f165cb3231554f4850d1b7af3397c219aa642a340b684bf; \
+    for p in \
+        contents:860a69166779d1c2264867df76c750e21af9f9f185fd451659be64e794da18b0 \
+        ch4.intro:6362d902360f49d929e3d65bb7320392adf7adf0106e9c3d1f74649f416e72eb \
+        ch4.eheader:7b2d4920ce3dd63ab754427d52fe2eaea7f693080b2151979ac0af89a7c9c088 \
+        ch4.sheader:0f7178d014050c3f022fbe9e269cac2bcb2e77217dc9d1fb00f6d886a2e69891 \
+        ch4.strtab:30f63c05bf71d37490b757e93d7977da2f96d54c50f795f324b7757cc07ea171 \
+        ch4.symtab:9f0c4eee93088a6d5d19b8e1d162c5f834a99209324e5b3c2ff19965ede71ed3 \
+        ch4.reloc:1400b40eb00c022869f81509acf2da20e49a6c0211c9712f4cf88a3a23221ffe \
+        ch5.intro:9e0daef001866ee8a0d694dded65dbed98ab7aab402f5920509a09c622107019 \
+        ch5.pheader:656798000adc23608001017f3c126303734a441eb6b400474125ba66cfc223b9 \
+        ch5.prog_loading:6d475520eca04874854493d08d231cc66527cebc69dce6ad3a252dc733e7fb5d \
+        ch5.dynamic:7e9e7587b90069398ae5830bbef0e40646a229531705cec86b69bee74e0e0602 \
+        revision:90eb8bb2a5f4ac3676937a22831412e99073bc7b278421d0fe3521a86d10adf0; do \
+      fetch "https://www.sco.com/developers/gabi/latest/${p%%:*}.html" \
+            "$D/gabi/${p%%:*}.html" "${p#*:}"; \
+    done; \
+    fetch https://raw.githubusercontent.com/wiki/hjl-tools/x86-psABI/x86-64-psABI-1.0.pdf \
+          $D/x86-64-psabi-1.0/x86-64-psABI-1.0.pdf \
+          f5c0e21542fc379090252e18ff3d083d2a5f51da8cca62b0fec41cc330a74641; \
+    for p in \
+        aadwarf64:9770cb9bba449d9119cf5f5d8bd171aeb58ad72dc2883747ceec324310d2df15 \
+        aaelf64:2c1a6d51c80250bc8fc469829afcd317e34d74fc9f78f8bc8f6e77b525a0e415 \
+        aapcs64:555d498877d600176f2b3fcb1b7377f230e336e1f65fa079e2e6e9e4de9daa57; do \
+      fetch "https://github.com/ARM-software/abi-aa/releases/download/2024Q3/${p%%:*}.pdf" \
+            "$D/aarch64-abi-2024Q3/${p%%:*}.pdf" "${p#*:}"; \
+    done; \
+    for f in $D/x86-64-psabi-1.0/*.pdf $D/aarch64-abi-2024Q3/*.pdf; do \
+      pdftotext -layout "$f" "${f%.pdf}.txt"; test -s "${f%.pdf}.txt"; \
+    done; \
+    fetch https://ftp.gnu.org/gnu/gdb/gdb-16.3.tar.xz gdb.tar.xz \
+          bcfcd095528a987917acf9fff3f1672181694926cc18d609c99d0042c00224c5; \
+    tar -xJf gdb.tar.xz --strip-components=3 gdb-16.3/gdb/doc; \
+    info --subnodes -f ./gdb.info -n 'Remote Protocol' -o $D/gdb-16.3/remote-protocol.txt; \
+    info --subnodes -f ./gdb.info -n 'Target Descriptions' -o $D/gdb-16.3/target-descriptions.txt; \
+    cp gdbserver.1 $D/gdb-16.3/gdbserver.1; \
+    groff -t -man -Tutf8 -P-cbou gdbserver.1 > $D/gdb-16.3/gdbserver.1.txt; \
+    grep -q '^E.5 General Query Packets' $D/gdb-16.3/remote-protocol.txt; \
+    grep -q '^G.5 Standard Target Features' $D/gdb-16.3/target-descriptions.txt; \
+    fetch https://mirrors.edge.kernel.org/pub/linux/docs/man-pages/man-pages-6.9.1.tar.xz mp.tar.xz \
+          e23cbac29f110ba571f0da8523e79d373691466ed7f2a31301721817d34530bd; \
+    tar -xJf mp.tar.xz; \
+    for m in man2/ptrace.2 man2/wait.2 man2/fork.2 man2/execve.2 man3/exec.3 \
+             man2/personality.2 man5/core.5 man5/elf.5; do \
+      b=$(basename $m); cp man-pages-6.9.1/man/$m $D/man-pages-6.9.1/$b; \
+      groff -t -man -Tutf8 -P-cbou $D/man-pages-6.9.1/$b > $D/man-pages-6.9.1/$b.txt; \
+      test -s $D/man-pages-6.9.1/$b.txt; \
+    done; \
+    cd /; rm -rf /tmp/dl; \
+    find $D -type f -empty | { ! grep .; }; \
+    (cd $D && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > /tmp/SHA256SUMS) && mv /tmp/SHA256SUMS $D/SHA256SUMS; \
+    du -sh $D

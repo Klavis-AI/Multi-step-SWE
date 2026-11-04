@@ -1,0 +1,58 @@
+{
+ "doc": "PROFILE.md §7.2: '**How a fractional `step` selects is not on the page, so it is stated here.** With `offset` (default 0) and `limit`, point `i` of the input is kept exactly when `i == offset + round(k * step)` for some whole `k`, and the count is `round((min(limit, n) - offset) / step)` for an `n`-point view'.  stages/filters.decimation.rst, Options, lists `offset` ('Point index to start sampling. [Default: 0]') and `limit` ('Point index to stop sampling.') but gives no rule for how they combine with a fractional `step`, which is why §7.2 states it.  This is the only case in the step that sets either option, so it is what makes them graded rather than merely listed.  `grid.las` is the 1000-point 10x10x10 lattice in X-major order, so point `i` sits at X = i//100, Y = (i%100)//10, Z = i%10.  With `offset` 10, `limit` 60 and `step` 2.5 the count is round((60 - 10) / 2.5) = 20 and the kept indexes are 10 + round(k*2.5) for k = 0..19 -- 13, 15, 18, 20, ... 58, rounding halves away from zero -- so every kept point has X 0, Y runs 1 through 5 four times over (sum 60) and Z takes only 0, 3, 5 and 8, five times each (sum 80).  Those three reductions together pin the exact index set: a reader that truncated `step` to 2, ignored `offset`, or read `limit` as a count rather than an index would miss them.  Executed: 2.7.1 gives exactly this; 2.6.0 refuses the pipeline outright (`Found '.5' after valid integral value of '2'`) because `step` is an integer option there.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.decimation\", \"step\": 2.5, \"offset\": 10, \"limit\": 60}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": {
+     "equals": 20
+    }
+   },
+   "dims": {
+    "X": {
+     "min": 0,
+     "max": 0,
+     "sum": 0
+    },
+    "Y": {
+     "min": 1,
+     "max": 5,
+     "sum": 60
+    },
+    "Z": {
+     "min": 0,
+     "max": 8,
+     "sum": 80,
+     "unique": [
+      0,
+      3,
+      5,
+      8
+     ]
+    }
+   }
+  }
+ ]
+}

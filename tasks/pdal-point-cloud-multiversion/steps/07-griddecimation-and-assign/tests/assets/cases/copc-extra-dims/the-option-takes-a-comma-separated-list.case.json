@@ -1,0 +1,57 @@
+{
+ "doc": "stages/writers.copc.rst, Options: extra_dims 'Extra dimensions to be written as part of each point beyond those specified by the LAS point format.  The format of the option is ``<dimension_name>=<type> [, ...]``.  Any valid PDAL :ref:`type <types>` can be specified.'  The option takes a comma-separated list, so two names in one string both have to be honoured.  The extra-dimension NAMES are asserted through the `las` check's `header` block, which is where the driver implements `extra_dimension_names`; the `copc` check kind does not read that key, so stating it there would never have run.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"value\": [\"MyDim=7\", \"Other=Z*2\"]}, {\"type\": \"writers.copc\", \"filename\": \"out.copc.laz\", \"extra_dims\": \"MyDim=float64,Other=float64\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "copc",
+   "file": "out.copc.laz",
+   "point_count": {
+    "equals": 1000
+   }
+  },
+  {
+   "kind": "las",
+   "file": "out.copc.laz",
+   "header": {
+    "extra_dimension_names": {
+     "equals": [
+      "MyDim",
+      "Other"
+     ]
+    }
+   },
+   "dims": {
+    "MyDim": {
+     "min": 7,
+     "max": 7,
+     "sum": 7000
+    },
+    "Other": {
+     "min": 0,
+     "max": 18,
+     "sum": 9000
+    }
+   }
+  }
+ ]
+}

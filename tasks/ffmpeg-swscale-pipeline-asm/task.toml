@@ -1,0 +1,111 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. Each step's reward is
+# `correctness x mean_f( ln(max(1, speedup_f)) )`, where `speedup_f` is the
+# GEOMETRIC MEAN of that step's PER-FUNCTION speedups -- FFmpeg's own checkasm
+# benchmark, cycles per call of the portable C implementation over cycles per
+# call of the implementation the library installed, for each of the step's
+# scored functions. So the trial reward is the mean of the six steps' logs,
+# i.e. the log of the geometric mean over the six step-level geometric means --
+# not a per-function geometric mean over the whole task, which the uneven step
+# sizes (12 to 634 functions) would make a different number. Correctness is
+# binary and multiplies; a regression is floored at ln(1) = 0.
+multi_step_reward_strategy = "mean"
+
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build", ".git"] },
+]
+
+[task]
+name = "harbor/ffmpeg-swscale-pipeline-asm"
+version = "1.0.0"
+description = "Optimize the FFmpeg libswscale scale-and-convert pipeline one stage at a time, in dataflow order. Six cumulative steps, each rewarded by the geometric mean of its per-function speedups against the portable C reference, gated on the project's own differential suite over the same functions."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "ffmpeg", "video", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c", "simd", "assembly", "video"]
+
+[environment]
+# One out-of-tree build of ~260 objects plus the checkasm binary.
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# Each verifier run measures the base in-container, grafts the candidate's
+# libswscale/x86/ onto its own copy of the base, rebuilds only that directory
+# plus the relink, then runs the checkasm differential suite and benchmark
+# several times and the end-to-end driver over ten format pairs. On a quiet
+# four-CPU container that is six to eight minutes. The timeout is generous
+# because checkasm's benchmark is CPU-bound and scales badly with host
+# contention: on a machine carrying ten concurrent builds the same run took
+# twelve minutes on one invocation, and a timeout that fires there would score
+# a correct tree as a failure. cpus must stay >= 2: the benchmark pins two
+# cores and the end-to-end timings are a ratio.
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-input-conversion"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "02-pack-rgb"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "03-fused-ops"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "04-horizontal-scale"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "05-vertical-output"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[[steps]]
+name = "06-yuv-to-rgb"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 7200.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

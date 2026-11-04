@@ -1,0 +1,31 @@
+# arch: x86_64
+# what: -z defs makes an undefined symbol fatal when building a shared object,
+# -z undefs puts it back to permitted, and the last of the two on the command
+# line decides.
+cat > sh.c <<'C'
+int helper(void);
+int pub(void) { return helper() + 1; }
+C
+cc_obj sh.o sh.c -fPIC
+# A shared object may leave references undefined by default.
+link_ok plain.so -shared sh.o
+dynsyms plain.so > ds.txt
+want "helper stays undefined in .dynsym" "$(awk '$8 == "helper" && $7 == "UND"' ds.txt | wc -l)" "1"
+want "pub is exported"                   "$(awk '$8 == "pub"' ds.txt | wc -l)"                   "1"
+want "e_type" "$(hdr plain.so | awk '/^ *Type:/{print $2}')" "DYN"
+# -z defs turns that into a diagnosed error.
+link_fails defs.so -shared -z defs sh.o
+want_has "names the symbol" "$LINK_OUT" "helper"
+# Naming the referencing object as well is explicitly optional (spec/02 s8:
+# "good practice and is never penalised"), so it is not asserted here.
+# -z undefs is the explicit opposite and still produces the same library.
+link_ok undefs.so -shared -z undefs sh.o
+dynsyms undefs.so > du.txt
+want "still undefined with -z undefs" "$(awk '$8 == "helper" && $7 == "UND"' du.txt | wc -l)" "1"
+# Last one on the command line wins, in both orders.
+link_ok last-undefs.so -shared -z defs -z undefs sh.o
+want "defs then undefs links" "$(hdr last-undefs.so | awk '/^ *Type:/{print $2}')" "DYN"
+link_fails last-defs.so -shared -z undefs -z defs sh.o
+want_has "undefs then defs rejects" "$LINK_OUT" "helper"
+# 7 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 7

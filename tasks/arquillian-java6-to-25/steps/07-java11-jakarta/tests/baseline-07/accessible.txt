@@ -1,0 +1,62 @@
+# Step 06 -- C-3's frozen population, as <file>#<method> buckets.
+#
+# Two lists, and as with newinstance.txt the second is what makes the leg
+# honest rather than merely countable.
+#
+#   guard    the 12 `AccessibleObject.isAccessible()` calls. Every one is in
+#            src/main, every one is the same four lines:
+#
+#                if (!x.isAccessible())
+#                {
+#                   x.setAccessible(true);
+#                }
+#
+#            Java 9 deprecated the method because it answers a different
+#            question from the one every one of these callers is asking it: it
+#            reports the `accessible` FLAG, not whether access would succeed.
+#            The guard is therefore not merely redundant, it is wrong -- and
+#            `setAccessible(true)` on an already-accessible object is a no-op,
+#            so deleting the guard is the whole migration.
+#
+#   setacc   the 14 `setAccessible` calls. The 12 the guards wrap, plus
+#            MapObject#populate and ToolingDeploymentFormatter#
+#            getInternalFieldValue, which never had a guard. C-3 asks that all
+#            14 are still there afterwards. `isaccessible == 0` alone is
+#            satisfied by deleting the reflection; `isaccessible == 0 AND
+#            setaccessible == 14` is not.
+#
+# `canAccess(obj)` is counted by the gate and scored by nothing. It is the
+# Java-9 replacement in the abstract, but none of these twelve sites has the
+# receiver instance it needs, and requiring it would require inventing one.
+#
+# Derived from baseline-step06-source.txt's accessible[...] records by the same
+# bucket() pipeline as newinstance.txt, filtered on call=isAccessible and
+# call=setAccessible. Cross-checked by javac: -Xlint:deprecation at
+# --release 10 reports exactly 12 `isAccessible()` deprecations, at these 12
+# lines (NOTES 11.6.4).
+guard impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java#createInstance
+guard impl-base/src/main/java/org/jboss/arquillian/impl/core/EventPointImpl.java#set
+guard impl-base/src/main/java/org/jboss/arquillian/impl/core/InjectionPointImpl.java#set
+guard impl-base/src/main/java/org/jboss/arquillian/impl/core/Reflections.java#createInstance
+guard impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/ArquillianResourceTestEnricher.java#enrich
+guard impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java#getFieldsWithAnnotation
+guard spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java#createInstance
+guard testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java#getFieldsWithAnnotation
+guard testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java#getFieldsWithAnnotation
+guard testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java#getMethodsWithAnnotation
+guard testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java#getFieldsWithAnnotation
+guard testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java#getMethodsWithAnnotation
+setacc impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java#createInstance
+setacc impl-base/src/main/java/org/jboss/arquillian/impl/MapObject.java#populate
+setacc impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/tool/ToolingDeploymentFormatter.java#getInternalFieldValue
+setacc impl-base/src/main/java/org/jboss/arquillian/impl/core/EventPointImpl.java#set
+setacc impl-base/src/main/java/org/jboss/arquillian/impl/core/InjectionPointImpl.java#set
+setacc impl-base/src/main/java/org/jboss/arquillian/impl/core/Reflections.java#createInstance
+setacc impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/ArquillianResourceTestEnricher.java#enrich
+setacc impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java#getFieldsWithAnnotation
+setacc spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java#createInstance
+setacc testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java#getFieldsWithAnnotation
+setacc testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java#getFieldsWithAnnotation
+setacc testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java#getMethodsWithAnnotation
+setacc testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java#getFieldsWithAnnotation
+setacc testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java#getMethodsWithAnnotation

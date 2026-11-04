@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- $Revision$ -->
+ <sect1 xml:id="language.oop5.cloning" xmlns="http://docbook.org/ns/docbook">
+  <title>Object Cloning</title>
+  
+  <simpara>
+   Creating a copy of an object with fully replicated properties is not
+   always the wanted behavior. A good example of the need for copy
+   constructors is if you have an object which represents a GTK window and the
+   object holds the resource of this GTK window, when you create a duplicate
+   you might want to create a new window with the same properties and have the
+   new object hold the resource of the new window. Another example is if your
+   object holds a reference to another object which it uses and when you
+   replicate the parent object you want to create a new instance of this other
+   object so that the replica has its own separate copy.
+  </simpara>
+
+  <para>
+   An object copy is created by using the <literal>clone</literal> keyword
+   (which calls the object's <link linkend="object.clone">__clone()</link>
+   method if possible).
+  </para>
+
+  <informalexample>
+   <programlisting>
+<![CDATA[
+$copy_of_object = clone $object;
+]]>
+   </programlisting>
+  </informalexample>
+
+  <para>
+   When an object is cloned, PHP will perform a shallow copy of all of the
+   object's properties. Any properties that are references to other variables
+   will remain references.
+  </para>
+
+  <methodsynopsis xml:id="object.clone">
+   <type>void</type><methodname>__clone</methodname>
+   <void/>
+  </methodsynopsis>
+
+  <simpara>
+   Once the cloning is complete, if a <link linkend="object.clone">__clone()</link> method is defined, then
+   the newly created object's <link linkend="object.clone">__clone()</link> method will be called, to allow any
+   necessary properties to be changed.
+  </simpara>
+
+  <example>
+   <title>Cloning an object</title>
+   <programlisting role="php">
+<![CDATA[
+<?php
+class SubObject
+{
+    static $instances = 0;
+    public $instance;
+
+    public function __construct() {
+        $this->instance = ++self::$instances;
+    }
+
+    public function __clone() {
+        $this->instance = ++self::$instances;
+    }
+}
+
+class MyCloneable
+{
+    public $object1;
+    public $object2;
+
+    function __clone()
+    {
+        // Force a copy of this->object, otherwise
+        // it will point to same object.
+        $this->object1 = clone $this->object1;
+    }
+}
+
+$obj = new MyCloneable();
+
+$obj->object1 = new SubObject();
+$obj->object2 = new SubObject();
+
+$obj2 = clone $obj;
+
+
+print "Original Object:\n";
+print_r($obj);
+
+print "Cloned Object:\n";
+print_r($obj2);
+
+?> 
+]]>
+   </programlisting>
+   &example.outputs;
+   <screen role="php">
+<![CDATA[
+Original Object:
+MyCloneable Object
+(
+    [object1] => SubObject Object
+        (
+            [instance] => 1
+        )
+
+    [object2] => SubObject Object
+        (
+            [instance] => 2
+        )
+
+)
+Cloned Object:
+MyCloneable Object
+(
+    [object1] => SubObject Object
+        (
+            [instance] => 3
+        )
+
+    [object2] => SubObject Object
+        (
+            [instance] => 2
+        )
+
+)
+]]>
+
+   </screen>
+
+  </example>
+
+  <para>
+   It is possible to access a member of a freshly cloned
+   object in a single expression:
+  </para>
+  <example>
+   <title>Access member of freshly cloned object</title>
+   <programlisting role="php">
+<![CDATA[
+<?php
+$dateTime = new DateTime();
+echo (clone $dateTime)->format('Y');
+?>
+]]>
+   </programlisting>
+   &example.outputs.similar;
+   <screen>
+<![CDATA[
+2016
+]]>
+   </screen>
+  </example>
+
+  <sect2 xml:id="language.oop5.cloning.with-properties">
+   <title>Cloning with property overrides</title>
+
+   <simpara>
+    As of PHP 8.5.0, <literal>clone</literal> is also available as a function,
+    whose second parameter <parameter>withProperties</parameter> takes an array
+    mapping property names to the values the copy receives. Only the listed
+    properties are overridden, every other property keeps the value it was
+    copied with.
+   </simpara>
+
+   <simpara>
+    The overrides are applied after
+    <link linkend="object.clone">__clone()</link> has run, and they honour the
+    visibility of all properties.
+    <link linkend="language.oop5.properties.readonly-properties">Readonly</link>
+    properties can be updated on the copy even if they were already set on the
+    original object, which makes the function suited to methods returning a
+    modified copy.
+   </simpara>
+
+   <example>
+    <title>Cloning an object with property overrides</title>
+    <programlisting role="php">
+<![CDATA[
+<?php
+class Point {
+    public function __construct(
+        public readonly int $x,
+        public readonly int $y,
+    ) {}
+
+    public function withX(int $x): static
+    {
+        return clone($this, ['x' => $x]);
+    }
+}
+
+$p = new Point(1, 2);
+$q = $p->withX(10);
+
+echo $q->x, ' ', $q->y;
+?>
+]]>
+    </programlisting>
+    &example.outputs;
+    <screen>
+<![CDATA[
+10 2
+]]>
+    </screen>
+   </example>
+  </sect2>
+
+ </sect1>
+ 
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:t
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+indent-tabs-mode:nil
+sgml-parent-document:nil
+sgml-default-dtd-file:"~/.phpdoc/manual.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:nil
+sgml-local-ecat-files:nil
+End:
+vim600: syn=xml fen fdm=syntax fdl=2 si
+vim: et tw=78 syn=sgml
+vi: ts=1 sw=1
+-->

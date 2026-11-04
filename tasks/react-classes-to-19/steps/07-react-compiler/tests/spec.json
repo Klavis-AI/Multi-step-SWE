@@ -1,0 +1,2113 @@
+{
+  "step": "07",
+  "requireLockfile": true,
+  "devConsole": true,
+  "entryCost": true,
+  "comment": [
+    "Step 7 - the React Compiler.",
+    "",
+    "The line's entry for this step is \"React Compiler enabled: rules-of-React",
+    "compliance across every component, manual memoization removed unless",
+    "justified\".  Three things, and they are one thing: the compiler only",
+    "compiles a component it can prove obeys the rules, it only replaces",
+    "memoization it is allowed to own, and switching it on without doing either",
+    "produces a build that looks compiled and is half compiled.",
+    "",
+    "Measured before the spec was written (build/verifier/specs/step07-survey.md):",
+    "the arriving tree has 94 hand-written memoization sites across 52 of its 76",
+    "files, and 28 rules-of-React violations, all of them one rule - a ref read",
+    "or written during render, which is how this codebase holds its echarts",
+    "instances.  With the plugin switched on and the source untouched, the",
+    "compiler emits output into 38 of the build's 62 chunks; with the source",
+    "fixed, 51.  That gap is the step.",
+    "",
+    "So the shape here is the opposite of step 6's.  Step 6 was a dependency bump",
+    "with one construct and the spec was built to deny that it was more.  This",
+    "step's construct is 122 sites across the whole application, and the risk is",
+    "the other one: a tree that adds a devDependency and a plugin entry ships a",
+    "build with the compiler's fingerprint all over it while every component that",
+    "breaks the rules is silently skipped.  The family key is therefore not \"the",
+    "compiler ran\" - a plugin-only tree passes that, and should, because it did -",
+    "but \"the compliance work substantially happened\".",
+    "",
+    "27 of the 56 gate points are the step's own work and are read on any tree.",
+    "29 are the two things the compiler must not cost and the nineteen invariants",
+    "the six steps behind this one built, and they are credited only once the key",
+    "is met."
+  ],
+  "guard": [
+    {
+      "id": "site-is-live",
+      "why": "The tree still builds, serves and behaves like the application, so that what the gates measure is a migration of it rather than its absence.",
+      "kind": "json-flag",
+      "file": "/logs/verifier/behavior.json",
+      "field": "passed",
+      "min": 10,
+      "unmet": "the built site did not reproduce the application, so there is no migrated application to credit: the tree did not build, did not serve, or reproduced almost none of the behavior it must preserve"
+    },
+    {
+      "id": "built-from-source",
+      "why": "The site that is served is built from this repository's own source, so that the behavior the one family reproduces and the code the other family reads are the same program.",
+      "kind": "built-from-source",
+      "minModules": 1,
+      "unmet": "the site that was served is not built from this tree: what the build compiled and what the tree contains are different code, so the behavior it reproduced is no evidence about the tree the gates read"
+    }
+  ],
+  "checks": [
+    {
+      "id": "react-compiler-declared",
+      "why": "The React Compiler is a declared dependency of this project. It is a build-time package - babel-plugin-react-compiler - and a tree that reaches it any other way is a tree whose build cannot be reproduced from its own manifest: the next person to install this repository gets a build without it and does not find out until something re-renders. Read out of package.json rather than out of the installed tree, because what is being asked is that the project declares what compiles it.",
+      "kind": "dep-declared",
+      "package": "babel-plugin-react-compiler",
+      "weight": 3
+    },
+    {
+      "id": "compiler-compiled-the-build",
+      "why": "The compiler ran on the javascript the site serves. Read out of the build rather than out of the configuration that asks for it: a compiled function allocates a memo cache and initialises each slot by comparing it against Symbol.for(\"react.memo_cache_sentinel\"), which is the runtime contract between the compiler's output and react/compiler-runtime, and what is read is that cache-slot comparison, once for every slot the compiler allocated. The comparison is a construct rather than a name: it survives minification, because the symbol is the argument to Symbol.for and renaming the identifiers around it leaves the shape intact. That makes this a reading of the artifact and not of the intention, and it is indifferent to which route enabled the compiler. Counting the name on its own would not do, in either direction: React's own DOM package names the same symbol where it defines it, and a definition is an assignment rather than a slot being initialised, while a chunk that merely spells the string out - once, or a hundred times over in one literal - is not compiled output and is not paid as though it were. Measured over the chunks the built page reaches, so a compiled chunk nothing loads is not credited: the arriving tree reports none, a tree with the compiler switched on and its source untouched reports 326, and the reference solution reports 444.",
+      "kind": "json-flag",
+      "file": "/logs/verifier/artifacts.json",
+      "field": "js.compilerMemoizedSites",
+      "min": 100,
+      "weight": 8,
+      "guard": [
+        {
+          "id": "no-module-opts-out",
+          "kind": "ast-max",
+          "gate": "compiler-opt-out",
+          "max": 0,
+          "unmet": "a module in this tree carries one of the compiler's own source directives, so part of the tree has written itself out of the compiler the build switched on, and what the compiler did with the rest of it is not the claim this check pays for"
+        }
+      ]
+    },
+    {
+      "id": "manual-memoization-gone",
+      "why": "The hand-written memoization is gone. useMemo, useCallback and memo are the three things the compiler exists to do, and a tree that keeps them keeps a second, hand-maintained copy of the compiler's job: every dependency array is a claim about what a value depends on that nothing checks, and the compiler will not remove a wrong one, it will preserve it. The tree arrives with ninety-four of them across fifty-two files. Graded against that arrival rather than scored as a wall, because the line's own wording is \"removed unless justified\" and a justified survivor should cost a candidate a fraction of one check rather than the check: four kept is about five per cent of this weight. Nothing in this repository is a justified survivor - the echarts instances are held in refs, not in memoized values, so no library outside React depends on the identity of anything memoized here - but the shape of the check is the line's, not this repository's.",
+      "kind": "ast-max",
+      "gate": "manual-memo",
+      "max": 0,
+      "baseline": 94,
+      "weight": 8
+    },
+    {
+      "id": "rules-of-react-clean",
+      "why": "Every component obeys the rules of React, which is what makes it compilable: the compiler bails out of a component it cannot prove safe, silently, and a bailed-out component is one the step did not reach. Fifteen rules are read here - every rule the hook plugin's current recommended set carries except the two about dependency arrays and state-setting effects, which the step after this one owns. Fourteen of the fifteen report nothing on the arriving tree, so they are a requirement without being work: a candidate who introduces one is caught and a candidate who does not is asked for nothing. The fifteenth is the step's actual subject - reading and writing a ref during render, which is how this codebase holds its chart instances, twenty-eight times. Graded against those twenty-eight. A suppression comment is counted as a finding here, because the configuration this is read with ignores inline directives and so a suppressed site reports nothing: a tree that comments the rule out moves the count sideways rather than down.",
+      "kind": "lint-rules",
+      "rules": [
+        "react-hooks/config",
+        "react-hooks/error-boundaries",
+        "react-hooks/gating",
+        "react-hooks/globals",
+        "react-hooks/immutability",
+        "react-hooks/incompatible-library",
+        "react-hooks/preserve-manual-memoization",
+        "react-hooks/purity",
+        "react-hooks/refs",
+        "react-hooks/rules-of-hooks",
+        "react-hooks/set-state-in-render",
+        "react-hooks/static-components",
+        "react-hooks/unsupported-syntax",
+        "react-hooks/use-memo",
+        "react-hooks/void-use-memo"
+      ],
+      "max": 0,
+      "baseline": 28,
+      "weight": 8
+    },
+    {
+      "id": "hook-findings-no-worse",
+      "why": "And the two rules this step does not own are not left worse than they were found. Dependency arrays and state-setting effects are the step after this one's subject; ninety-seven findings arrive between them and ninety-seven is the ceiling, not a target - the reference solution happens to land at eighty-five because deleting a dependency array deletes the chance to get it wrong, and requiring a candidate to match a by-product would be scoring an accident. What this refuses is the other direction: rewriting an effect's dependencies to make a compiler diagnostic go away, and paying for it out of a family that is scored next step. Suppression comments are deliberately not added to this count - they are already charged in full against the fifteen rules beside it, and charging one comment twice would make a single line cost more than the violation it hides.",
+      "kind": "lint-rules",
+      "rules": [
+        "react-hooks/exhaustive-deps",
+        "react-hooks/set-state-in-effect"
+      ],
+      "max": 97,
+      "includeSuppressions": false,
+      "weight": 2,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "entry-budget",
+      "why": "What a visitor waits for before anything renders is still under 140 KB gzipped, measured the way the two steps before this one measured it. The compiler is not free here: it adds react/compiler-runtime and a memo-cache prologue to every component it compiles, and the entry closure holds a lot of them. Measured, on the host, with the same instrument: the arriving tree costs 133,024 bytes, the same tree with the compiler switched on costs 134,108, and the reference solution costs 134,332 - 1,308 bytes for the whole of the compiler's runtime, against 5,668 bytes of room. So the budget does not move, and this is the step that proves the compiler did not need it to. A wall rather than a slope, for the reason the step before this one settled: the guard beside it reads the same 140,000 out of the settled total, and a tree over the budget at the cut is over it settled.",
+      "kind": "json-flag",
+      "file": "/logs/verifier/entrycost.json",
+      "field": "jsGzipBeforeScreen",
+      "max": 140000,
+      "weight": 4,
+      "guard": [
+        {
+          "id": "assets-self-contained",
+          "kind": "assets-self-contained",
+          "unmet": "the page the site serves reaches for an asset it does not ship, so what the browser downloaded is not what this tree builds"
+        },
+        {
+          "id": "the-page-stopped-fetching",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "jsGzipTotal",
+          "max": 140000,
+          "unmet": "the page went on fetching javascript well past its first screen: what a visitor waits for was moved past the measurement rather than made smaller, so the number the budget is scored on is not what this tree costs"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "strict-console-clean",
+      "why": "And the development console is still silent under StrictMode's double invocation, at the count the step before this one set. This is the check the compiler is most likely to move, and in both directions: a compiled component's effects run against a memo cache that StrictMode's second invocation resets, so a component whose render was quietly impure - the thing the rules-of-React work is about - will say so here rather than nowhere. A tree that switched the compiler on and left its refs being written during render is a tree this reading can fail even though it builds.",
+      "kind": "json-flag",
+      "file": "/logs/verifier/strict.json",
+      "field": "errors",
+      "max": 0,
+      "weight": 4,
+      "guard": [
+        {
+          "id": "dev-run-complete",
+          "kind": "json-flag",
+          "file": "/logs/verifier/strict.json",
+          "field": "addresses",
+          "min": 17,
+          "unmet": "the development run did not visit all seventeen addresses, so a count of zero would be a count of nothing"
+        },
+        {
+          "id": "dev-run-rendered",
+          "kind": "json-flag",
+          "file": "/logs/verifier/strict.json",
+          "field": "rendered",
+          "min": 17,
+          "unmet": "the development build did not render at every address it was opened at, so a console that said nothing said nothing about a working application"
+        },
+        {
+          "id": "dev-run-screens",
+          "kind": "json-flag",
+          "file": "/logs/verifier/strict.json",
+          "field": "intact",
+          "min": 17,
+          "unmet": "the development build rendered something other than the screen its address is for, so what the console did not say was not said about these screens"
+        },
+        {
+          "id": "dev-run-reached-api",
+          "kind": "json-flag",
+          "file": "/logs/verifier/strict.json",
+          "field": "apiPaths",
+          "min": 5,
+          "unmet": "the development run reached almost none of the application's own endpoints, so the code paths that fetch were never entered and the console count covers a fraction of the application"
+        },
+        {
+          "id": "dev-build-is-development",
+          "kind": "json-flag",
+          "file": "/logs/verifier/strict.json",
+          "field": "devReact",
+          "equals": true,
+          "unmet": "the build the development run served carries none of React's development text, so it is a production build and React's development checks never ran in it"
+        },
+        {
+          "id": "strict-mode-on",
+          "kind": "ast-min",
+          "gate": "strict-mode-root",
+          "min": 1,
+          "scope": "reachable",
+          "unmet": "the root the application renders through is not wrapped in StrictMode, so the double-invocation the count is about never happened"
+        },
+        {
+          "id": "every-root-render-wrapped",
+          "kind": "ast-max",
+          "gate": "root-render-unwrapped",
+          "max": 0,
+          "scope": "reachable",
+          "unmet": "a root is rendered without StrictMode around it, so part of the application was exercised with the checks switched off"
+        },
+        {
+          "id": "console-not-replaced",
+          "kind": "ast-max",
+          "gate": "console-suppressions",
+          "max": 0,
+          "scope": "reachable",
+          "unmet": "the code the build compiles replaces or silences the console, so a count of zero is a count of what was allowed through"
+        },
+        {
+          "id": "console-not-dropped-by-the-build",
+          "kind": "ast-max",
+          "gate": "build-console-dropped",
+          "max": 0,
+          "unmet": "the build this tree configures strips or rewrites console calls before they run, so a development run that reports nothing is reporting what the build left in rather than what the application said"
+        },
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "react-dom-19",
+      "why": "The renderer is still the one that matches the runtime. Nothing in this step touches it, and a tree with react 19 beside a react-dom 18 does not mount at all - the check is here rather than assumed because what does not mount is scored by the behavior family, and this family has to be able to say why.",
+      "kind": "dep-version",
+      "package": "react-dom",
+      "major": 19,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "prop-types-imports-gone",
+      "why": "And no module still imports the validation package the step before this one took out.",
+      "kind": "ast-max",
+      "gate": "pkg-prop-types",
+      "max": 0,
+      "baseline": 3,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "prop-types-uninstalled",
+      "why": "And it is still not a dependency.",
+      "kind": "dep-absent",
+      "package": "prop-types",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "deferred-seller-list",
+      "why": "The deferred read the step before this one added is still there and still read. react-redux 9 delivers store updates through useSyncExternalStore rather than through its own subscription, which is a change to when a selector's result reaches a render; a candidate who found the concurrent work confusing under new bindings and deleted it would have undone the previous step to make this one quiet.",
+      "kind": "ast-min",
+      "gate": "deferred-value-used",
+      "min": 1,
+      "scope": "reachable",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "range-changes-are-transitions",
+      "why": "And the range changes are still started as transitions, in the three places they were.",
+      "kind": "ast-min",
+      "gate": "transition-start",
+      "min": 3,
+      "scope": "reachable",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "chart-bodies-lazy",
+      "why": "The chart bodies are still behind React's lazy, in at least the twelve places the split takes. This is the invariant the compiler most tempts a candidate to give up: a compiled tree re-renders less, which makes the reason for a boundary less visible, and the boundary is what keeps the chart libraries out of the entry.",
+      "kind": "ast-min",
+      "gate": "react-lazy",
+      "min": 12,
+      "scope": "reachable",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "suspense-boundary-present",
+      "why": "And there is still a boundary for them to suspend at.",
+      "kind": "ast-min",
+      "gate": "suspense",
+      "min": 1,
+      "scope": "reachable",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "code-split-grew",
+      "why": "And the build still emits the chunks that split produced.",
+      "kind": "min-chunks",
+      "min": 42,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "create-root-kept",
+      "why": "The application is still mounted through createRoot. React 19 removed the legacy renderer entry points outright, so a tree that went back to them would not build - but the check is here rather than assumed, because what does not build is scored by the behavior family and this family has to be able to say why.",
+      "kind": "ast-min",
+      "gate": "create-root",
+      "min": 1,
+      "scope": "reachable",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "strict-mode-kept",
+      "why": "And it is still mounted under StrictMode. The compiler's memo cache is reset by the second invocation on purpose, so a tree that removed StrictMode to quieten a compiled component removed the one thing that reports the impurity the compiler assumed was absent.",
+      "kind": "ast-min",
+      "gate": "strict-mode-root",
+      "min": 1,
+      "scope": "reachable",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "legacy-render-stays-gone",
+      "why": "And the render call it replaced has not come back.",
+      "kind": "ast-max",
+      "gate": "legacy-render",
+      "max": 0,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "react-icons-v2-stays-gone",
+      "why": "No module has gone back to reaching an icon through react-icons 2's per-icon path.",
+      "kind": "ast-max",
+      "gate": "react-icons-deep-import",
+      "max": 0,
+      "baseline": 56,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-icons-major-kept",
+          "kind": "dep-version",
+          "package": "react-icons",
+          "minMajor": 5,
+          "unmet": "the icon package was moved back to a major whose per-icon paths are the ordinary way to import from it, so a count of zero says nothing"
+        },
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "classes-stay-gone",
+      "why": "No component goes back to being a class. The compiler does not compile classes, so a class is also a component this step could not have reached.",
+      "kind": "ast-max",
+      "gate": "class-components",
+      "max": 0,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "route-fetching-absent",
+      "why": "No route fetches for itself.",
+      "kind": "ast-max",
+      "gate": "route-loader",
+      "max": 0,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "data-layer-owns-fetching",
+      "why": "And no component fetches around the data layer.",
+      "kind": "ast-max",
+      "gate": "raw-fetch",
+      "max": 0,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "data-layer-kept",
+      "why": "The data layer is still the query hooks, in the thirty-odd places that read it.",
+      "kind": "ast-min",
+      "gate": "rtk-query-hooks",
+      "min": 30,
+      "scope": "reachable",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "data-router-kept",
+      "why": "And the router is still the data router.",
+      "kind": "ast-min",
+      "gate": "router-data-api",
+      "min": 1,
+      "scope": "reachable",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "vite-declared",
+      "why": "The build tool this step inherits is not replaced along the way: the project's declared build tool is still Vite. The byte budget is a claim about what this build emits, and a tree that answered it by changing bundlers answered a different question.",
+      "kind": "dep-declared",
+      "package": "vite",
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    },
+    {
+      "id": "parses",
+      "why": "And every module of the tree parses. A tree that stopped parsing is one the other gates read nothing from, and reading nothing is not the same as reading zero.",
+      "kind": "parse-errors",
+      "max": 0,
+      "baseline": 1,
+      "weight": 1,
+      "guard": [
+        {
+          "id": "react-19-installed",
+          "kind": "dep-version",
+          "package": "react",
+          "major": 19,
+          "unmet": "the React that is installed is not version 19, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "bindings-support-19",
+          "kind": "dep-version",
+          "package": "react-redux",
+          "major": 9,
+          "minMinor": 2,
+          "unmet": "the store bindings that are installed are from a release that does not support React 19, so the tree is running a package outside its own declared support rather than having moved to one that supports the runtime"
+        },
+        {
+          "id": "the-validation-layer-is-gone",
+          "kind": "ast-max",
+          "gate": "prop-types",
+          "max": 0,
+          "unmet": "components in this tree still declare propTypes objects, so the runtime upgrade the step before this one made has been undone, and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "the-screen-was-reached",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "screenSeen",
+          "equals": true,
+          "unmet": "the entry-cost measurement never saw the application's own no-such-route screen, so there is no instant to have measured the wait up to"
+        },
+        {
+          "id": "entry-cost-measured",
+          "kind": "json-flag",
+          "file": "/logs/verifier/entrycost.json",
+          "field": "complete",
+          "equals": true,
+          "unmet": "the entry-cost measurement did not finish: the browser was still being handed javascript when the measurement ended, so the number it recorded is a floor rather than the wait"
+        },
+        {
+          "id": "chart-panels-left-the-entry",
+          "kind": "ast-max",
+          "gate": "entry-echarts",
+          "max": 1,
+          "unmet": "most of the chart panels are still reached from the entry module through static imports, so the split this tree inherited has been undone"
+        },
+        {
+          "id": "the-compiler-compiled-the-tree",
+          "kind": "json-flag",
+          "file": "/logs/verifier/artifacts.json",
+          "field": "js.compilerMemoizedSites",
+          "min": 100,
+          "unmet": "the javascript this tree ships carries almost none of the compiler's output, so the compiler did not run on the build that is served and nothing this step is about has happened: the work the tree arrived with is not credited a second time for a build that was left alone"
+        },
+        {
+          "id": "rules-of-react-substantially-clean",
+          "kind": "lint-rules",
+          "rules": [
+            "react-hooks/config",
+            "react-hooks/error-boundaries",
+            "react-hooks/gating",
+            "react-hooks/globals",
+            "react-hooks/immutability",
+            "react-hooks/incompatible-library",
+            "react-hooks/preserve-manual-memoization",
+            "react-hooks/purity",
+            "react-hooks/refs",
+            "react-hooks/rules-of-hooks",
+            "react-hooks/set-state-in-render",
+            "react-hooks/static-components",
+            "react-hooks/unsupported-syntax",
+            "react-hooks/use-memo",
+            "react-hooks/void-use-memo"
+          ],
+          "max": 7,
+          "unmet": "more than a quarter of the rules-of-React violations this tree arrived with are still in it, so the compliance work this step is about has barely started and the compiler is still refusing the components that break the rules: the six steps behind this one are not paid out to a tree that switched a plugin on and stopped"
+        }
+      ]
+    }
+  ]
+}

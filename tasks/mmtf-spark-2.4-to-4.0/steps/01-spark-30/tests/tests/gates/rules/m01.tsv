@@ -1,0 +1,114 @@
+# Step 1 (01-spark-30): the six things being at Spark 3.0.3 means here.
+#
+# Included by step01.tsv, where each of m1..m6 carries a weight, and held
+# by every step above it, where the same rules become standing ones: a
+# later candidate is handed a tree that passes all six and only has to not
+# undo them. See rules.py on `hold`.
+#
+# Six requirements, weighted in the step's weights.tsv, each scoring only if
+# every one of its rules passes. The standing rules of common.tsv are not
+# scored items: the untouched tree passes all ten, so a FAIL there means the
+# reading is void rather than that the candidate is wrong.
+#
+# What each requirement is a claim about, and where the claim comes from:
+#
+#   M1  the build is for Scala 2.12 and Spark 3.0.3            the step's target
+#   M2  com.databricks:spark-xml is gone, from the build and   it has no 2.12
+#       from the artifact the build produces                   build at 0.4.1
+#   M3  the three things Spark 3.0 takes away have been        the bare r02
+#       dealt with, read off the artifact and the pom          build's errors
+#   M4  every plugin the build runs has its version from the   "pinned build"
+#       project's own pom.xml
+#   M5  the build resolves nothing that can move under it      "pinned build"
+#   M6  two clean builds produce the same bytes                "reproducible"
+#
+# M3 is the requirement that makes this a step rather than a version bump, and
+# it is why the Scala 2.12 fence is not a step of its own (NOTES 5.13, 6.1.13).
+# Scala 2.12 costs this tree nothing: its only Scala imports are 45
+# `scala.Tuple2` and one `scala.Tuple4`, identical in 2.11 and 2.12, and the
+# recorded behaviour is byte-identical across that fence. Spark 3.0 costs it
+# three compile errors in two files plus a dependency that stops arriving, and
+# none of the three can be answered by editing pom.xml. They are read here from
+# the constant pools of the classes the build produced, which is the only place
+# that can tell "the source no longer says it" from "the compiler no longer
+# resolved it to that".
+#
+# M3 also carries a *positive* rule. The two absences it asks for are both
+# satisfiable by deleting the code that referenced the removed API, and a
+# requirement that only ever looks for an absence pays for deletion. So the
+# replacement has to be present as well: ProteinSequenceEncoder must still
+# reach Word2VecModel's public loader, which is what the removed nested reader
+# is replaced by. `load|read` rather than `load` because Spark publishes two
+# spellings of the same thing -- Word2VecModel.load(path) and
+# Word2VecModel.read().load(path) -- and a rule that accepted only the first
+# would fail a candidate for choosing the other one, which is a rule measuring
+# spelling rather than migration. controls/bytecode-w2v-gone.tsv is the
+# deletion, written down: it keeps transform() and Word2Vec.fit() and has
+# neither spelling, so a typo in either alternative shows up as a selftest that
+# stops failing.
+#
+# Deliberately absent: a rule on the running job's reported Scala or Spark
+# version. The probe reads scala.util.Properties and SparkSession.version off
+# the *runtime* classpath, and the runtime is $SPARK_HOME -- the verifier
+# image's own Spark 3.0.3/2.12 install, identical whatever the candidate wrote.
+# Both facts are therefore constants here, and a rule on a constant is a rule
+# that cannot fail on a real tree however green its selftest looks (trap 6).
+# This step's claims are about what the build resolves and produces, so they are
+# read from the resolved graph and from the artifact.
+
+# --- M1  the build is for Scala 2.12 and Spark 3.0.3 -----------------
+m1-scala-212-only	absent	pom.scalasuffix\t(?!2\.12$).+\t*	pom-scala211.tsv	the resolved graph carries artifacts built for a Scala version other than 2.12
+m1-scala-212	atleast:1	pom.scalasuffix\t2\.12\t.+	pom-scala211.tsv	nothing in the resolved graph is built for Scala 2.12
+m1-spark-303	atleast:1	pom.resolved\torg\.apache\.spark:spark-core_2\.12\t3\.0\.3\t.+	pom-spark240.tsv	spark-core for Scala 2.12 at 3.0.3 is not in the resolved graph
+m1-spark-uniform	absent	pom.resolved\torg\.apache\.spark:.*\t(?!3\.0\.3$).*\t*	pom-spark240.tsv	a Spark artifact resolves to a version other than 3.0.3
+
+# --- M2  com.databricks:spark-xml is gone --------------------------
+m2-no-xml-declared	absent	pom.dep\tcom\.databricks:.*\t*\t*	pom-databricks.tsv	the project still declares a com.databricks dependency
+m2-no-xml-resolved	absent	pom.resolved\tcom\.databricks:.*\t*\t*	pom-databricks.tsv	a com.databricks artifact is still in the resolved graph
+m2-no-xml-in-jar	absent	bytecode.in\tcom/databricks/.*\t*	bytecode-databricks.tsv	the built artifact still carries com.databricks classes
+
+# --- M3  what Spark 3.0 takes away ----------------------------------
+# org.spark_project.* was Spark's shaded Guava through 2.4 and is renamed in
+# 3.0; the reference is written into StructureToBioassembly's constant pool by
+# the compiler, so it is read back out of there and not out of the source.
+m3-no-shaded-guava	absent	bytecode.ref\t*\torg/spark_project/.*\t*\t*	bytecode-spark2api.tsv	the built artifact still references Spark's shaded Guava (org.spark_project), which Spark 3 does not publish under that name
+# The rename is to org.sparkproject -- the same shade, one underscore shorter
+# -- and 3.0.3 really does publish org/sparkproject/guava/primitives, inside
+# spark-network-common, on the classpath this step compiles and runs against.
+# So retargeting the two imports there compiles, runs, keeps the recorded
+# behaviour, and would clear M3: a prohibition the handoff states in as many
+# words (WORKSPACE_HANDOFF 203-210) with nothing reading it. It is a second
+# rule rather than an alternation inside the one above so that each prefix has
+# its own counterexample and each is separately proved able to fail (trap 6);
+# the counterexample is the rehearsal's `shim` tree, which is the golden
+# solution with this one edit and nothing else.
+m3-no-spark3-shade	absent	bytecode.ref\t*\torg/sparkproject/.*\t*\t*	bytecode-spark3shade.tsv	the built artifact references Spark 3's own shaded prefix (org.sparkproject); the conversion moved from one Spark internal to another rather than into this project's code or a library it declares
+m3-no-w2v-reader	absent	bytecode.ref\t*\t.*Word2VecModelReader\t*\t*	bytecode-spark2api.tsv	the built artifact still references Word2VecModel.Word2VecModelReader, which is not accessible in Spark 3
+m3-w2v-public-load	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/ml/ProteinSequenceEncoder\torg/apache/spark/ml/feature/Word2VecModel\t(load|read)\t.*	bytecode-w2v-gone.tsv	ProteinSequenceEncoder no longer loads a Word2Vec model at all: the removed reader was deleted rather than replaced by the public loader
+
+# --- M4  every plugin the build runs is pinned by the project -------
+m4-plugins-pinned	absent	pom.unpinned\t*\t*	pom-unpinned.tsv	a plugin the build runs takes its version from Maven's super POM, not from pom.xml
+m4-plugins-seen	atleast:5	pom.plugin\t*\t*	pom-unpinned.tsv	fewer than 5 plugins were read from the effective POM; the scan saw no build
+
+# --- M5  nothing the build resolves can move under it ---------------
+m5-no-snapshot-repo	absent	pom.repo\t*\t*\t*\ttrue	pom-unfixed.tsv	a repository the build reads has snapshots enabled
+m5-released-only	absent	pom.resolved\t*\t.*(SNAPSHOT|LATEST|RELEASE).*\t*	pom-unfixed.tsv	a dependency resolves to a snapshot or to a moving version keyword
+m5-output-timestamp	atleast:1	pom.prop\tproject\.build\.outputTimestamp\t.+	pom-unfixed.tsv	the build stamps the wall clock into its archives; no output timestamp is set
+m5-repo-list-read	atleast:1	pom.repo\t*\t*\t*\t*	pom-norepo.tsv	the effective POM listed no repository at all; the snapshot rule above read nothing
+# The three rules above read what Maven *resolved*: a dependency that came
+# down as 1.0-SNAPSHOT, a repository that would serve one. They cannot see a
+# version that can move but has not moved yet -- a range, which resolves to a
+# concrete version today and to a different one tomorrow, and LATEST/RELEASE
+# on a plugin, which never reaches the resolved dependency graph at all. Those
+# are read from the declared side of the effective POM instead, which is where
+# the candidate writes them and where they survive resolution unchanged.
+m5-dep-fixed	absent	pom.dep\t*\t(.*(SNAPSHOT|LATEST|RELEASE).*|[\[(].*)\t*	pom-moving.tsv	a declared dependency takes a version that can move: a snapshot, a moving keyword, or a version range
+m5-depmgmt-fixed	absent	pom.depmgmt\t*\t(.*(SNAPSHOT|LATEST|RELEASE).*|[\[(].*)	pom-moving.tsv	a managed dependency version can move: a snapshot, a moving keyword, or a version range
+m5-plugin-fixed	absent	pom.plugin\t*\t(.*(SNAPSHOT|LATEST|RELEASE).*|[\[(].*)	pom-moving.tsv	a plugin the build runs takes a version that can move: a snapshot, a moving keyword, or a version range
+
+# --- M6  two clean builds produce the same bytes --------------------
+m6-two-green-builds	exactly:2	build.round\t*\t0\t*	build-unstable.tsv	the tree was not built cleanly twice; there is no second opinion to compare
+m6-reproducible	absent	build.repro\t*\t(differs|missing)	build-unstable.tsv	an artifact differed between two clean builds of the same tree
+m6-artifact-built	atleast:1	build.repro\t.*\.jar\tsame	build-unstable.tsv	no jar was produced by both builds; the comparison had nothing to agree about
+m6-no-stray-writes	absent	build.stray\t*	build-unstable.tsv	the build wrote into the source tree outside target/
+m6-build-clean	absent	build.error\t*\t*	build-unstable.tsv	the build could not be observed: Maven failed, or an artifact was unreadable

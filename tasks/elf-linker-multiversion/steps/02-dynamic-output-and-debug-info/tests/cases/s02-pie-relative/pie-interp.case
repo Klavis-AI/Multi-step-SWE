@@ -1,0 +1,42 @@
+# arch: x86_64
+# -dynamic-linker puts a PT_INTERP segment in a dynamic -pie output holding
+# exactly the requested path, NUL-terminated, covering .interp exactly.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+nre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" && die "$1: unexpected /$3/"; return 0; }
+LDSO=/lib64/ld-conformance.so.9
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { return 0; }
+C
+cc_obj m.o m.c -fPIE
+mkdir -p libdir
+cat > dep.c <<'C'
+int dep_value = 4;
+C
+cc_obj dep.o dep.c -fPIC
+link_ok libdir/libdep.so -shared -soname libdep.so.1 dep.o
+link_ok out -pie -dynamic-linker "$LDSO" -Llibdir -ldep rt.o m.o
+SEG=$(segments out)
+wre "PT_INTERP" "$SEG" '^ *INTERP +0x'
+wre "interpreter path" "$SEG" "Requesting program interpreter: $LDSO"
+wre ".interp section" "$(sections out)" '[[:space:]]\.interp[[:space:]]'
+n=$(( ${#LDSO} + 1 ))
+want ".interp size == strlen+1" "$(( 16#$(sec_size out .interp) ))" "$n"
+o=$(sections out | awk '{ for (i=1;i<=NF;i++) if ($i==".interp") { print $(i+3) } }' | sed -n 1p)
+dd if=out of=interp.bin bs=1 skip=$(( 16#$o )) count="$n" status=none
+want "interp bytes" "$(tr -d '\0' < interp.bin)" "$LDSO"
+want "trailing NUL" "$(od -An -tx1 -j $(( n - 1 )) -N 1 interp.bin | tr -d ' \n')" "00"
+want "PT_INTERP vaddr == addr(.interp)" \
+     "$(( $(awk '/^ *INTERP /{print $3}' <<<"$SEG") ))" "$(( 16#$(sec_addr out .interp) ))"
+want "PT_INTERP filesz" "$(( $(awk '/^ *INTERP /{print $5}' <<<"$SEG") ))" "$n"
+want "PT_INTERP memsz == filesz" "$(( $(awk '/^ *INTERP /{print $6}' <<<"$SEG") ))" "$n"
+# A second, different path must be honoured -- the string is not hardcoded.
+link_ok out2 -pie -dynamic-linker /opt/x/ld.so -Llibdir -ldep rt.o m.o
+wre "second interpreter path" "$(segments out2)" 'Requesting program interpreter: /opt/x/ld\.so'
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 10

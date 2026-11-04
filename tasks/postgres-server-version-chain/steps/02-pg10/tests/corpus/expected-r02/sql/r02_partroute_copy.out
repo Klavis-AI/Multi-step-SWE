@@ -1,0 +1,27 @@
+CREATE TABLE q2_rtc(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q2_rtc_1 PARTITION OF q2_rtc FOR VALUES FROM (1) TO (5);
+CREATE TABLE q2_rtc_2 PARTITION OF q2_rtc FOR VALUES FROM (5) TO (9);
+COPY q2_rtc FROM stdin;
+SELECT tableoid::regclass::text AS part, a, b FROM q2_rtc ORDER BY a;
+   part   | a |   b   
+----------+---+-------
+ q2_rtc_1 | 1 | one
+ q2_rtc_2 | 5 | five
+ q2_rtc_2 | 7 | seven
+(3 rows)
+
+COPY q2_rtc FROM stdin;
+ERROR:  no partition of relation "q2_rtc" found for row
+DETAIL:  Partition key of the failing row contains (a) = (99).
+CONTEXT:  COPY q2_rtc, line 1: "99	oops"
+SELECT count(*) FROM q2_rtc;
+ count 
+-------
+     3
+(1 row)
+
+COPY (SELECT a FROM q2_rtc ORDER BY a) TO stdout;
+1
+5
+7
+DROP TABLE q2_rtc;

@@ -1,0 +1,32 @@
+# arch: x86_64
+# -l names are resolved to libNAME.a through the -L search path, searched in
+# the order the -L options were given.
+rt_obj rt.o
+cat > good.c <<'C'
+#include "rt.h"
+int impl(void) { print("first"); return 4; }
+C
+cat > shadow.c <<'C'
+#include "rt.h"
+int impl(void) { print("second"); return 9; }
+C
+cat > m.c <<'C'
+int impl(void);
+int entry(void) { return impl(); }
+C
+cc_obj good.o good.c; cc_obj shadow.o shadow.c; cc_obj m.o m.c
+mkdir -p d1 d2
+mkar d1/libpick.a good.o
+mkar d2/libpick.a shadow.o
+link_ok o1 rt.o m.o -Ld1 -Ld2 -lpick
+run_expect o1 "first" 4
+link_ok o2 rt.o m.o -Ld2 -Ld1 -lpick
+run_expect o2 "second" 9
+want "the -l name really resolves to an archive file" \
+     "$(ls d1/libpick.a d2/libpick.a | tr '\n' ' ')" "d1/libpick.a d2/libpick.a "
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

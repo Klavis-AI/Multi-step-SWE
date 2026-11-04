@@ -1,0 +1,214 @@
+schema_version = "1.4"
+
+# Task reward = the mean of each step's `reward`. There is no min_reward
+# gate, so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Nothing is excluded: the verifier rebuilds the tree
+# from source, and a successful build is part of the gate.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/pcre2-regex-engine-multiversion"
+version = "1.0.0"
+description = "Thirteen milestones of the PCRE2 regular-expression engine, from the 10.20 recursive matcher to the 10.48 Unicode 17 release. Each step reproduces one upstream release's observable behaviour through pcre2test."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["pcre2", "regex", "c", "multi-step", "cumulative"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["pcre2", "regex-engine", "c", "unicode", "multi-step"]
+
+[environment]
+# Agent environment, built from environment/Dockerfile.
+build_timeout_sec = 1200.0
+cpus = 4
+memory_mb = 6144
+storage_mb = 10240
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet. The milestones are documented in /app/pcre2-doc, so nothing
+# in the task requires it.
+network_mode = "public"
+
+[agent]
+# The agent phase runs against an allowlist: only the inference API endpoint
+# the runner adds is reachable at the network layer, so an upstream copy cannot
+# be fetched by any route -- git, release tarball, package registry or docs
+# mirror.
+network_mode = "allowlist"
+
+
+[verifier]
+environment_mode = "separate"
+
+# Sized for a from-scratch three-width PCRE2 build plus a corpus diff, not for
+# the agent. The build is the expensive part: 23-33 s single-threaded at every
+# anchor, comfortably under a minute at cpus = 4.
+[verifier.environment]
+build_timeout_sec = 900.0
+cpus = 4
+memory_mb = 4096
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# SIZING `[steps.verifier].timeout_sec`.
+#
+# Walking steps/<step>/tests/test.sh, the reachable `timeout` budgets are:
+#
+#   PC_BUILD_TIMEOUT            = 900 s   one candidate build, no retry
+#   PC_CASE_TIMEOUT             =  20 s   per pcre2test invocation
+#   invocations per graded case =   2     the run, plus the optional
+#                                         test-2 `-error` appendix
+#   verifier image build + /app artifact round trip
+#                               = 300 s
+#
+# so, per step:
+#
+#   ceiling = 900 + 20 * 2 * <graded cases in that step> + 300
+#
+# The per-group term is the one that scales, so it is computed per step from
+# that step's own cases/*.tsv rather than shared.
+#
+# For scale: a real run builds in well under 60 s and every case completes in
+# under a second, so the ceiling is roughly 40x the observed worst case. The
+# margin is intentional: test.sh always writes a scorecard, so a harness kill
+# would turn into a complete-looking partial result and mark a correct solution
+# down with nothing in the output to say so.
+
+[[steps]]
+name = "01-recursive-engine"
+# pcre2-10.20: The recursive engine
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*44 cases + 300
+timeout_sec = 2960.0
+
+[[steps]]
+name = "02-find-bracket-and-posix-nosub"
+# pcre2-10.22: A cycle broken and a POSIX option stops implying another
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*54 cases + 300
+timeout_sec = 3360.0
+
+[[steps]]
+name = "03-compile-path-restructure"
+# pcre2-10.23: The compile-path restructure
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*45 cases + 300
+timeout_sec = 3000.0
+
+[[steps]]
+name = "04-heap-frame-matcher"
+# pcre2-10.30: The heap-frame engine
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*42 cases + 300
+timeout_sec = 2880.0
+
+[[steps]]
+name = "05-dfa-derecursion"
+# pcre2-10.32: De-recursing the DFA and persisting extra options
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*34 cases + 300
+timeout_sec = 2560.0
+
+[[steps]]
+name = "06-script-runs"
+# pcre2-10.33: Script runs
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*52 cases + 300
+timeout_sec = 3280.0
+
+[[steps]]
+name = "07-invalid-utf-and-nonatomic-lookaround"
+# pcre2-10.34: Invalid UTF and non-atomic lookarounds
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*32 cases + 300
+timeout_sec = 2480.0
+
+[[steps]]
+name = "08-backslash-k-restriction"
+# pcre2-10.39: The atomicity withdrawal and the \K story
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*33 cases + 300
+timeout_sec = 2520.0
+
+[[steps]]
+name = "09-script-properties"
+# pcre2-10.42: Script properties and the silent redefinition
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*29 cases + 300
+timeout_sec = 2360.0
+
+[[steps]]
+name = "10-variable-lookbehind"
+# pcre2-10.43: Variable-length lookbehind and four class redefinitions
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*42 cases + 300
+timeout_sec = 2880.0
+
+[[steps]]
+name = "11-optimize-control-and-extended-classes"
+# pcre2-10.45: Limits, optimisation control, extended classes
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*46 cases + 300
+timeout_sec = 3040.0
+
+[[steps]]
+name = "12-next-match-and-scs-fix"
+# pcre2-10.47: Iteration and a security fix
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*42 cases + 300
+timeout_sec = 2880.0
+
+[[steps]]
+name = "13-unicode-17-and-harness-rewrite"
+# pcre2-10.48: Unicode 17 and the harness rewrite
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# 900 + 20*2*24 cases + 300
+timeout_sec = 2160.0

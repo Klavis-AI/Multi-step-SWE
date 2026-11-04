@@ -1,0 +1,1199 @@
+{
+ "step": "04",
+ "name": "cxx11-concurrency",
+ "weights": {
+  "behaviour": 0.3,
+  "inherited_gates": 0.1,
+  "step_gates": 0.6
+ },
+ "build_dir": "build",
+ "driver_std": "gnu++11",
+ "jobs": 7,
+ "sanitize": true,
+ "budget": {
+  "clean": 120,
+  "sanitize": 600,
+  "configure": 300,
+  "compile": 600,
+  "grade": 1500
+ },
+ "harbor_timeout": 3600,
+ "gates": [
+  {
+   "id": "cmake-top-level",
+   "step": "01",
+   "kind": "files_exist",
+   "desc": "the project is configured from a CMakeLists.txt at the repository root",
+   "paths": [
+    "CMakeLists.txt"
+   ]
+  },
+  {
+   "id": "legacy-build-gone",
+   "step": "01",
+   "kind": "files_absent",
+   "desc": "the hand-written linux build is removed, not left beside the new one",
+   "paths": [
+    "build/linux/CMakeLists.txt",
+    "build/linux/build.sh",
+    "build/linux/Makefile"
+   ]
+  },
+  {
+   "id": "artifacts-produced",
+   "step": "01",
+   "kind": "artifacts",
+   "desc": "the build produces libise.a and the fifteen example programs under exactly the names the step names them",
+   "names": [
+    "4in1_server",
+    "chargen_client",
+    "chargen_server",
+    "daytime_server",
+    "discard_server",
+    "echo_server",
+    "hello_world",
+    "http_server",
+    "max_connection",
+    "server_inspector",
+    "server_module_msgs",
+    "thread_pool",
+    "timer",
+    "udp_client",
+    "udp_server",
+    "libise.a"
+   ]
+  },
+  {
+   "id": "cmake-minimum-328",
+   "step": "01",
+   "kind": "text_present",
+   "desc": "cmake_minimum_required names 3.28 or later",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "min_files": 1,
+   "min": 1,
+   "pattern": "(?i:cmake_minimum_required)\\s*\\(\\s*VERSION\\s+(3\\.(2[89]|[3-9][0-9])|[4-9]\\.)",
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "require": [
+     {
+      "cmd": "cmake_minimum_required",
+      "args": "^VERSION\\x00(3\\.(2[89]|[3-9][0-9])|[4-9][0-9]*\\.)",
+      "min": 1,
+      "why": "no cmake_minimum_required naming 3.28 or later ran"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-no-stale-minimum",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "no cmake_minimum_required below 3.28 anywhere in the project",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "min_files": 1,
+   "pattern": "(?i:cmake_minimum_required)\\s*\\(\\s*VERSION\\s+([0-2]\\.|3\\.([0-9]|1[0-9]|2[0-7])(\\b|\\.))",
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "forbid_arg": [
+     {
+      "cmd": "cmake_minimum_required",
+      "index": 1,
+      "arg": "^([0-2]\\.|3\\.([0-9]|1[0-9]|2[0-7])(\\.|$))",
+      "why": "a minimum below 3.28 was declared"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-retired-commands",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "no directory-scoped or retired command, however it is reached",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "min_files": 1,
+   "pattern": "(?i:\\b(include_directories|link_directories|add_definitions|add_compile_options|add_compile_definitions|add_link_options|link_libraries|exec_program|build_name|remove|subdir_depends|output_required_files|use_mangled_mesa|utility_source|variable_requires|install_files|install_programs|install_targets)\\s*\\()",
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "forbid_cmd": [
+     "include_directories",
+     "link_directories",
+     "add_definitions",
+     "add_compile_options",
+     "add_compile_definitions",
+     "add_link_options",
+     "link_libraries",
+     "exec_program",
+     "build_name",
+     "remove",
+     "subdir_depends",
+     "output_required_files",
+     "use_mangled_mesa",
+     "utility_source",
+     "variable_requires",
+     "install_files",
+     "install_programs",
+     "install_targets"
+    ]
+   }
+  },
+  {
+   "id": "cmake-explicit-sources",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "the source list is written down, not discovered at configure time",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "pattern": "(?i:\\baux_source_directory)\\s*\\(|(?i:\\bfile)\\s*\\(\\s*GLOB",
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "forbid_cmd": [
+     "aux_source_directory"
+    ],
+    "forbid_arg": [
+     {
+      "cmd": "file",
+      "index": 0,
+      "arg": "^GLOB(_RECURSE)?$",
+      "why": "the source list is discovered at configure time"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-target-scoped",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "every link is target-scoped and names a target, not a bare system library",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "pattern": "(?i:target_link_libraries)\\s*\\(\\s*[^\\s)]+\\s+(?!PRIVATE|PUBLIC|INTERFACE)[^\\s)]|(?i:target_link_libraries)\\s*\\([^)]*\\b(pthread|dl|rt)\\b|(^|\\s)-l(pthread|dl|rt)\\b|\\$\\{CMAKE_DL_LIBS\\}",
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "require_arg_at": [
+     {
+      "cmd": "target_link_libraries",
+      "index": 1,
+      "arg": "PRIVATE|PUBLIC|INTERFACE",
+      "why": "the keyword form: PRIVATE, PUBLIC or INTERFACE before any dependency"
+     }
+    ],
+    "forbid_arg": [
+     {
+      "cmd": "target_link_libraries",
+      "arg": "^(-l)?(pthread|dl|rt)$",
+      "why": "a bare system library instead of an imported target"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-no-pinned-toolchain",
+   "step": "01",
+   "kind": "text_absent",
+   "desc": "the project does not pin a compiler or a machine; the image's toolchain file does",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "min_files": 1,
+   "pattern": "(?i:\\bset)\\s*\\(\\s*CMAKE_(C|CXX)_COMPILER\\b|(?i:\\b(set|set_property|set_target_properties|set_directory_properties))\\s*\\([^)]*?\\b((CMAKE_)?(C|CXX)_COMPILER_LAUNCHER|RULE_LAUNCH_(COMPILE|LINK))\\b|-march=native|(?i:\\bset)\\s*\\(\\s*CMAKE_(C|CXX)_FLAGS\\s|(?i:\\b(string|list))\\s*\\(\\s*(?i:(APPEND|PREPEND))\\s+CMAKE_(C|CXX)_FLAGS\\b",
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "forbid_arg": [
+     {
+      "cmd": "set",
+      "index": 0,
+      "arg": "^CMAKE_(C|CXX)_COMPILER$",
+      "why": "the project pins a compiler"
+     },
+     {
+      "arg": "^(CMAKE_)?(C|CXX)_COMPILER_LAUNCHER$",
+      "why": "the project puts a wrapper between CMake and the compiler, and the flags a wrapper passes on are its own business"
+     },
+     {
+      "arg": "^RULE_LAUNCH_(COMPILE|LINK)$",
+      "why": "the project puts a wrapper between CMake and the compiler"
+     },
+     {
+      "cmd": "set",
+      "index": 0,
+      "arg": "^CMAKE_(C|CXX)_FLAGS([_A-Za-z0-9]*)$",
+      "why": "the project assigns the global flags variable"
+     },
+     {
+      "cmd": "string|list",
+      "arg": "^CMAKE_(C|CXX)_FLAGS([_A-Za-z0-9]*)$",
+      "why": "the project edits the global flags variable"
+     },
+     {
+      "arg": "-march=native",
+      "why": "the project pins a machine"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-warning-set",
+   "step": "01",
+   "kind": "text_present",
+   "desc": "the warning set is carried on a target, not pushed into CMAKE_CXX_FLAGS",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "min": 1,
+   "pattern": "(?i:target_compile_options)\\s*\\(",
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "require": [
+     {
+      "cmd": "target_compile_options",
+      "args": "(?<![\\w=-])-Wall(?![\\w=-])",
+      "min": 1,
+      "why": "the warning set is not carried on any target"
+     },
+     {
+      "cmd": "target_compile_options",
+      "args": "(?<![\\w=-])-Werror(?![\\w=-])",
+      "min": 1,
+      "why": "no target makes its warnings errors"
+     }
+    ]
+   }
+  },
+  {
+   "id": "cmake-threads-package",
+   "step": "01",
+   "kind": "text_present",
+   "desc": "threading comes from find_package(Threads REQUIRED)",
+   "include": [
+    "CMakeLists.txt",
+    ".cmake"
+   ],
+   "require_files": [
+    "CMakeLists.txt"
+   ],
+   "min": 1,
+   "pattern": "(?i:find_package)\\s*\\(\\s*Threads\\s+REQUIRED",
+   "span": true,
+   "comment": "#",
+   "trace": {
+    "min_events": 20,
+    "require": [
+     {
+      "cmd": "find_package",
+      "args": "^Threads\\x00(.*\\x00)?REQUIRED(\\x00|$)",
+      "min": 1,
+      "why": "Threads is not required"
+     },
+     {
+      "cmd": "target_link_libraries",
+      "args": "\\bThreads::Threads\\b",
+      "min": 1,
+      "why": "the imported target find_package(Threads) provides is never linked"
+     }
+    ]
+   }
+  },
+  {
+   "id": "compile-db-flags",
+   "step": "01",
+   "kind": "compile_db",
+   "desc": "every translation unit the project compiles is compiled as C++11 with the project's warning set, as errors",
+   "min_entries": 19,
+   "needs_build": true,
+   "require": [
+    "(^|\\s)-std=(gnu|c)\\+\\+11(\\s|$)",
+    "(^|\\s)-Wall(\\s|$)",
+    "(^|\\s)-Wextra(\\s|$)",
+    "(^|\\s)-Woverloaded-virtual(\\s|$)",
+    "(^|\\s)-Werror(\\s|$)"
+   ],
+   "forbid": [
+    "-march=native",
+    "(^|\\s)-w(\\s|$)",
+    "-Wno-",
+    "-fpermissive"
+   ],
+   "forbid_arg": [
+    "@.*",
+    "--config",
+    "--config=.*",
+    "--no-warnings",
+    "-w",
+    "-Wno-.*",
+    "-fpermissive",
+    "-march=native"
+   ],
+   "compiler": "/usr/bin/clang\\+\\+-22",
+   "cover": "^ise/main/.*\\.(cpp|cc|cxx|c\\+\\+|cp|CPP|C|c)$",
+   "cover_include": [
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".c++",
+    ".cp",
+    ".C",
+    ".c"
+   ]
+  },
+  {
+   "id": "compile-db-examples",
+   "step": "01",
+   "kind": "compile_db",
+   "desc": "the examples are built by the same project, under the same warning set",
+   "only": "^examples/",
+   "min_entries": 22,
+   "needs_build": true,
+   "require": [
+    "(^|\\s)-std=(gnu|c)\\+\\+11(\\s|$)",
+    "(^|\\s)-Wall(\\s|$)",
+    "(^|\\s)-Wextra(\\s|$)",
+    "(^|\\s)-Woverloaded-virtual(\\s|$)",
+    "(^|\\s)-Werror(\\s|$)"
+   ],
+   "forbid": [
+    "-march=native",
+    "(^|\\s)-w(\\s|$)",
+    "-Wno-",
+    "-fpermissive"
+   ],
+   "forbid_arg": [
+    "@.*",
+    "--config",
+    "--config=.*",
+    "--no-warnings",
+    "-w",
+    "-Wno-.*",
+    "-fpermissive",
+    "-march=native"
+   ],
+   "compiler": "/usr/bin/clang\\+\\+-22",
+   "cover": "^examples/.*\\.(cpp|cc|cxx|c\\+\\+|cp|CPP|C|c)$",
+   "cover_include": [
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".c++",
+    ".cp",
+    ".C",
+    ".c"
+   ]
+  },
+  {
+   "id": "platform-sources-intact",
+   "step": "01",
+   "kind": "preserved_regions",
+   "desc": "the Windows implementation this environment never compiles survived the migration whole, not as a list of its function names, apart from the object-lifetime statements the ownership milestone rewrote",
+   "include": [
+    "ise/main/ise_iocp.cpp"
+   ],
+   "require_files": [
+    "ise/main/ise_iocp.cpp"
+   ],
+   "reference": "fixtures/platform-regions.json",
+   "min_files": 20,
+   "min_regions": 105,
+   "needs_project": true,
+   "needs_build": true,
+   "min": 8,
+   "pattern": "\\b(CreateIoCompletionPort|GetQueuedCompletionStatus|PostQueuedCompletionStatus|WSARecv|WSASend)\\b",
+   "span": true
+  },
+  {
+   "id": "delete-expressions-gone",
+   "step": "02",
+   "kind": "astq",
+   "desc": "nothing in the project's own sources destroys an object by hand: there is no delete-expression left anywhere the project compiles",
+   "matchers": [
+    {
+     "name": "delete-expressions in the project's own sources",
+     "max": 0,
+     "query": "cxxDeleteExpr(isExpansionInFileMatching(\"^@@SRC@@/\"), unless(hasAncestor(conceptDecl())))"
+    },
+    {
+     "name": "control: delete-expressions outside the tree",
+     "min": 10,
+     "query": "cxxDeleteExpr(unless(isExpansionInFileMatching(\"^@@SRC@@/\")))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "raw-owning-allocation-gone",
+   "step": "02",
+   "kind": "astq",
+   "desc": "every allocation is held by something with a destructor from the moment it exists: no new-expression's result is left in a raw pointer, a raw member or a raw argument -- only handed to an owning handle where it is made, or returned to a caller whose job is to receive it",
+   "matchers": [
+    {
+     "name": "allocations nothing is holding",
+     "max": 0,
+     "query": "cxxNewExpr(isExpansionInFileMatching(\"^@@SRC@@/\"), unless(isInstantiationDependent()), unless(hasParent(expr(anyOf(anyOf(cxxConstructExpr(hasDeclaration(cxxConstructorDecl(ofClass(matchesName(\"::std::(unique_ptr|shared_ptr)$\"))))),cxxMemberCallExpr(callee(cxxMethodDecl(hasName(\"reset\"), ofClass(matchesName(\"::std::(unique_ptr|shared_ptr)$\")))))), implicitCastExpr(hasParent(expr(anyOf(cxxConstructExpr(hasDeclaration(cxxConstructorDecl(ofClass(matchesName(\"::std::(unique_ptr|shared_ptr)$\"))))),cxxMemberCallExpr(callee(cxxMethodDecl(hasName(\"reset\"), ofClass(matchesName(\"::std::(unique_ptr|shared_ptr)$\"))))))))))))), unless(anyOf(hasParent(returnStmt()), hasParent(implicitCastExpr(hasParent(returnStmt()))))))"
+    },
+    {
+     "name": "allocations inside templates, which the matcher above cannot see the consumer of",
+     "max": 4,
+     "query": "cxxNewExpr(isExpansionInFileMatching(\"^@@SRC@@/\"), isInstantiationDependent())"
+    },
+    {
+     "name": "control: new-expressions outside the tree",
+     "min": 10,
+     "query": "cxxNewExpr(unless(isExpansionInFileMatching(\"^@@SRC@@/\")))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "boost-ownership-types-gone",
+   "step": "02",
+   "kind": "symbols",
+   "desc": "ownership is no longer Boost's: nothing links a boost::shared_ptr, weak_ptr, enable_shared_from_this, scoped_ptr, scoped_array, shared_array or intrusive_ptr, nor the reference counting behind them",
+   "forbid": [
+    "\\bboost::shared_ptr<",
+    "\\bboost::weak_ptr<",
+    "\\bboost::enable_shared_from_this<",
+    "\\bboost::detail::sp_counted",
+    "\\bboost::bad_weak_ptr\\b",
+    "\\bboost::scoped_ptr<",
+    "\\bboost::scoped_array<",
+    "\\bboost::shared_array<",
+    "\\bboost::intrusive_ptr<"
+   ],
+   "control": [
+    "\\bise::"
+   ]
+  },
+  {
+   "id": "std-ownership-types-present",
+   "step": "02",
+   "kind": "symbols",
+   "desc": "the ownership the project has is expressed with the standard library's types: the project's own objects are held by std::unique_ptr where ownership is exclusive and std::shared_ptr where it is shared",
+   "require": [
+    "\\bstd::unique_ptr<ise::",
+    "\\bstd::shared_ptr<ise::"
+   ],
+   "min_distinct": [
+    {
+     "pattern": "\\bstd::unique_ptr<(ise::[A-Za-z_][A-Za-z0-9_]*)",
+     "min": 8,
+     "what": "distinct ise:: types held by std::unique_ptr"
+    },
+    {
+     "pattern": "\\bstd::shared_ptr<(ise::[A-Za-z_][A-Za-z0-9_]*)",
+     "min": 1,
+     "what": "distinct ise:: types held by std::shared_ptr"
+    }
+   ],
+   "control": [
+    "\\bise::"
+   ]
+  },
+  {
+   "id": "ownership-clean-under-sanitizers",
+   "step": "02",
+   "kind": "sanitize",
+   "desc": "every program, over the whole recorded suite, reaches exit having released everything it allocated and having touched nothing it no longer owns",
+   "build": "/tmp/isesan/build",
+   "bindir": "/tmp/isesanbin",
+   "logdir": "/tmp/isesan/log",
+   "build_log": "/logs/verifier/step04-build.log",
+   "max_leaked_bytes": 0,
+   "driver_std": "gnu++11",
+   "driver_log": "/logs/verifier/step04-driver-san.log",
+   "skip_kinds": []
+  },
+  {
+   "id": "null-pointer-literal",
+   "step": "03",
+   "kind": "astq",
+   "desc": "the null pointer has one spelling: nothing the project compiles converts a macro or an integer constant to a pointer, and a pointer that is null is written as one",
+   "matchers": [
+    {
+     "name": "a null pointer that is not the null pointer literal",
+     "max": 0,
+     "query": "implicitCastExpr(hasCastKind(\"CK_NullToPointer\"), isExpansionInFileMatching(\"^@@SRC@@/\"), unless(has(cxxNullPtrLiteralExpr())), unless(hasType(pointsTo(recordDecl(matchesName(\"__literal_zero\"))))))"
+    },
+    {
+     "name": "an integer constant cast to a pointer",
+     "max": 0,
+     "query": "explicitCastExpr(isExpansionInFileMatching(\"^@@SRC@@/\"), hasDestinationType(pointerType()), hasSourceExpression(ignoringParenImpCasts(anyOf(integerLiteral(equals(0)), gnuNullExpr()))))"
+    },
+    {
+     "name": "null pointer literals",
+     "min": 60,
+     "role": "require",
+     "query": "cxxNullPtrLiteralExpr(isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: null-pointer conversions outside the tree",
+     "min": 10,
+     "query": "implicitCastExpr(hasCastKind(\"CK_NullToPointer\"), unless(isExpansionInFileMatching(\"^@@SRC@@/\")))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "override-explicit",
+   "step": "03",
+   "kind": "astq",
+   "desc": "every function that overrides a virtual function says so, so that a signature which stops matching the one it overrides is a compile error rather than a second function",
+   "matchers": [
+    {
+     "name": "a function that overrides without saying so",
+     "max": 0,
+     "query": "cxxMethodDecl(isOverride(), unless(isImplicit()), unless(hasAttr(\"attr::Override\")), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "functions that say they override",
+     "min": 300,
+     "role": "require",
+     "query": "cxxMethodDecl(hasAttr(\"attr::Override\"), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: virtual function declarations in the tree",
+     "min": 250,
+     "query": "cxxMethodDecl(isVirtual(), unless(isImplicit()), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "scoped-enumerations",
+   "step": "03",
+   "kind": "astq",
+   "desc": "an enumeration with a name is a type with a scope: its enumerators are reached through it and do not convert to an integer on their own",
+   "matchers": [
+    {
+     "name": "a named enumeration whose enumerators are not scoped to it",
+     "max": 0,
+     "query": "enumDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), unless(matchesName(\"unnamed\")), unless(isScoped()))"
+    },
+    {
+     "name": "scoped enumerations",
+     "min": 10,
+     "role": "require",
+     "query": "enumDecl(isScoped(), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: enumerations in the tree",
+     "min": 20,
+     "query": "enumDecl(isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "callbacks-are-standard",
+   "step": "03",
+   "kind": "astq",
+   "desc": "the project's callbacks are the language's own: a stored callback is the standard callable wrapper, a call site that adapts one is a closure written where it is used, and nothing is assembled by a binder",
+   "matchers": [
+    {
+     "name": "a call to boost::bind",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::boost::bind\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "a declaration whose type is boost::function",
+     "max": 0,
+     "query": "valueDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::boost::function\")))))))"
+    },
+    {
+     "name": "a call to std::bind",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::std::bind\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "declarations whose type is the standard callable wrapper",
+     "min": 8,
+     "role": "require",
+     "query": "valueDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::function\")))))))"
+    },
+    {
+     "name": "closures",
+     "min": 12,
+     "role": "require",
+     "query": "lambdaExpr(isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: calls the tree makes to the standard library",
+     "min": 100,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::std::\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "boost-callables-unlinked",
+   "step": "03",
+   "kind": "symbols",
+   "desc": "nothing the build produces carries Boost's callable machinery: not its callable wrapper, not its binder, and not the invoker and argument-list templates they are built from",
+   "forbid": [
+    "\\bboost::function<",
+    "\\bboost::function[0-9]",
+    "\\bboost::bind\\b",
+    "\\bboost::_bi::",
+    "\\bboost::_mfi::",
+    "\\bboost::detail::function::",
+    "\\bboost::bad_function_call\\b"
+   ],
+   "require": [
+    "\\bstd::(function<|_Function_handler|_Function_base)"
+   ],
+   "control": [
+    "\\bise::"
+   ]
+  },
+  {
+   "id": "range-based-iteration",
+   "step": "03",
+   "kind": "astq",
+   "desc": "a loop that walks a container from one end to the other says so, instead of naming the iterator type, the beginning and the end and leaving the reader to check that it is a walk",
+   "matchers": [
+    {
+     "name": "a hand-written loop over a whole container (a loop that erases through its own iterator is not a walk)",
+     "max": 0,
+     "query": "forStmt(isExpansionInFileMatching(\"^@@SRC@@/\"), hasLoopInit(declStmt(hasSingleDecl(varDecl(hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"iterator\")))))))))), unless(isExpansionInFileMatching(\"^@@SRC@@/ise/main/ise_timer\\.cpp$\")), unless(hasDescendant(cxxMemberCallExpr(callee(cxxMethodDecl(hasName(\"erase\"))), hasAnyArgument(anyOf(declRefExpr(to(varDecl(hasParent(declStmt(hasParent(forStmt())))))), hasDescendant(declRefExpr(to(varDecl(hasParent(declStmt(hasParent(forStmt())))))))))))))"
+    },
+    {
+     "name": "the loop that erases as it goes, left as a loop (for, while or do)",
+     "min": 1,
+     "role": "require",
+     "query": "stmt(anyOf(forStmt(), whileStmt(), doStmt()), isExpansionInFileMatching(\"^@@SRC@@/ise/main/ise_timer\\.cpp$\"), hasDescendant(cxxMemberCallExpr(callee(cxxMethodDecl(hasName(\"erase\"))))))"
+    },
+    {
+     "name": "loops written as a walk",
+     "min": 3,
+     "role": "require",
+     "query": "cxxForRangeStmt(isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: iterator variables outside the tree",
+     "min": 20,
+     "query": "varDecl(unless(isExpansionInFileMatching(\"^@@SRC@@/\")), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"iterator\")))))))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "movable-value-types",
+   "step": "03",
+   "kind": "astq",
+   "desc": "a class that writes its own copy operation has taken its move operations away by doing so, and declares them again: every such class has a move constructor and a move assignment of its own",
+   "matchers": [
+    {
+     "name": "a class that writes a copy operation and cannot be move-constructed",
+     "max": 0,
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), anyOf(hasMethod(cxxConstructorDecl(isCopyConstructor(), unless(isImplicit()))), hasMethod(cxxMethodDecl(isCopyAssignmentOperator(), unless(isImplicit())))), unless(hasMethod(cxxConstructorDecl(isMoveConstructor(), unless(isImplicit()), unless(isDeleted())))))"
+    },
+    {
+     "name": "a class that writes a copy operation and cannot be move-assigned",
+     "max": 0,
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), anyOf(hasMethod(cxxConstructorDecl(isCopyConstructor(), unless(isImplicit()))), hasMethod(cxxMethodDecl(isCopyAssignmentOperator(), unless(isImplicit())))), unless(hasMethod(cxxMethodDecl(isMoveAssignmentOperator(), unless(isImplicit()), unless(isDeleted())))))"
+    },
+    {
+     "name": "move constructors",
+     "min": 6,
+     "role": "require",
+     "query": "cxxConstructorDecl(isMoveConstructor(), unless(isImplicit()), unless(isDeleted()), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: classes that write a copy operation",
+     "min": 8,
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), anyOf(hasMethod(cxxConstructorDecl(isCopyConstructor(), unless(isImplicit()))), hasMethod(cxxMethodDecl(isCopyAssignmentOperator(), unless(isImplicit())))))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "null-spelling-gone",
+   "step": "03",
+   "kind": "text_absent",
+   "desc": "no statement outside the frozen platform branches still writes NULL, and nothing redefines or undefines the macro: the spelling goes with the conversion, or a macro can put it back without any AST query noticing",
+   "include": [
+    ".h",
+    ".cpp"
+   ],
+   "exclude": [
+    "^doc/"
+   ],
+   "min_files": 60,
+   "require_files": [
+    "ise/main/ise_classes.cpp"
+   ],
+   "outside_platform_branches": true,
+   "comment": "//",
+   "pattern": "^(?:\\s*#\\s*(?:define|undef)\\s+NULL\\b|(?!\\s*#\\s*define)[^\\n]*(?<![A-Za-z0-9_])NULL(?![A-Za-z0-9_]))"
+  },
+  {
+   "id": "boost-callables-unspelled",
+   "step": "03",
+   "kind": "text_absent",
+   "desc": "no source outside the frozen platform branches still names boost::function, boost::bind, or the headers they come from -- an alias that makes those names mean std::function passes the type query and the link scan, and changes nothing a reader sees",
+   "include": [
+    ".h",
+    ".cpp"
+   ],
+   "exclude": [
+    "^doc/"
+   ],
+   "min_files": 60,
+   "require_files": [
+    "ise/main/ise_global_defs.h"
+   ],
+   "outside_platform_branches": true,
+   "comment": "//",
+   "pattern": "boost\\s*::\\s*(function|bind)\\b|boost/(function|bind)\\.hpp"
+  },
+  {
+   "id": "shared-state-is-atomic",
+   "step": "04",
+   "kind": "astq",
+   "desc": "state that two threads touch is atomic: nothing relies on volatile to make a read or a write safe to race, and the four ThreadImpl members one thread writes while another reads them -- the three flags and the thread id -- are atomic objects",
+   "matchers": [
+    {
+     "name": "a volatile-qualified declaration",
+     "max": 0,
+     "query": "valueDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(isVolatileQualified()))"
+    },
+    {
+     "name": "ThreadImpl's terminated_ is an atomic object",
+     "min": 1,
+     "role": "require",
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::ThreadImpl$\"), has(fieldDecl(hasName(\"terminated_\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::atomic$\")))))))))"
+    },
+    {
+     "name": "ThreadImpl's isExecuting_ is an atomic object",
+     "min": 1,
+     "role": "require",
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::ThreadImpl$\"), has(fieldDecl(hasName(\"isExecuting_\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::atomic$\")))))))))"
+    },
+    {
+     "name": "ThreadImpl's isSleepInterrupted_ is an atomic object",
+     "min": 1,
+     "role": "require",
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::ThreadImpl$\"), has(fieldDecl(hasName(\"isSleepInterrupted_\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::atomic$\")))))))))"
+    },
+    {
+     "name": "ThreadImpl's threadId_ is an atomic object",
+     "min": 1,
+     "role": "require",
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::ThreadImpl$\"), has(fieldDecl(hasName(\"threadId_\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::atomic$\")))))))))"
+    },
+    {
+     "name": "declarations whose type is the standard atomic",
+     "min": 2,
+     "role": "require",
+     "query": "valueDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::atomic$\")))))))"
+    },
+    {
+     "name": "AtomicInteger stores its value in a standard atomic",
+     "min": 1,
+     "role": "require",
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"AtomicInteger\"), has(fieldDecl(anyOf(hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::atomic\")))))), hasType(templateSpecializationType(hasDeclaration(classTemplateDecl(matchesName(\"::std::atomic\")))))))))"
+    },
+    {
+     "name": "AtomicInteger's operations are the atomic's",
+     "min": 1,
+     "role": "require",
+     "query": "cxxMemberCallExpr(isExpansionInFileMatching(\"^@@SRC@@/\"), hasAncestor(cxxMethodDecl(ofClass(cxxRecordDecl(matchesName(\"::ise::AtomicInteger\"))))), callee(cxxMethodDecl(hasAnyName(\"load\", \"store\", \"exchange\", \"fetch_add\", \"fetch_sub\", \"compare_exchange_strong\", \"compare_exchange_weak\"))))"
+    },
+    {
+     "name": "AtomicInteger reaching for a lock",
+     "max": 0,
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::AtomicInteger\"), has(fieldDecl(hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::(std::(recursive_)?(timed_)?mutex|ise::Mutex)$\")))))))))"
+    },
+    {
+     "name": "AtomicInteger taking a lock",
+     "max": 0,
+     "query": "varDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasAncestor(cxxMethodDecl(ofClass(cxxRecordDecl(matchesName(\"::ise::AtomicInteger\"))))), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::(std::(unique|lock|scoped)_(lock|guard)|ise::AutoLocker)$\")))))))"
+    },
+    {
+     "name": "control: field declarations in the tree",
+     "min": 200,
+     "query": "fieldDecl(isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "atomic-builtins-gone",
+   "step": "04",
+   "kind": "text_absent",
+   "desc": "no source outside the frozen platform branches still reaches for a compiler's atomic builtins: the __sync_* and __atomic_* families are gone from the code as well as from the types",
+   "include": [
+    ".h",
+    ".cpp"
+   ],
+   "exclude": [
+    "^doc/"
+   ],
+   "min_files": 60,
+   "require_files": [
+    "ise/main/ise_classes.h"
+   ],
+   "outside_platform_branches": true,
+   "comment": "//",
+   "pattern": "__sync_\\w+|__atomic_\\w+"
+  },
+  {
+   "id": "posix-threading-gone",
+   "step": "04",
+   "kind": "text_absent",
+   "desc": "no source outside the frozen platform branches still creates, joins, detaches or exits a thread through POSIX, and none still declares, initialises or operates a POSIX mutex, condition variable, thread attribute or once-control",
+   "include": [
+    ".h",
+    ".cpp"
+   ],
+   "exclude": [
+    "^doc/"
+   ],
+   "min_files": 60,
+   "require_files": [
+    "ise/main/ise_thread.cpp"
+   ],
+   "outside_platform_branches": true,
+   "comment": "//",
+   "pattern": "pthread_(?:mutexattr|mutex|condattr|cond|once|create|join|detach|exit|attr)\\w*|PTHREAD_(?:MUTEX|ONCE|COND)_\\w+"
+  },
+  {
+   "id": "standard-synchronisation-types",
+   "step": "04",
+   "kind": "astq",
+   "desc": "mutual exclusion, waiting and one-time initialisation are the standard library's, in the forms this project's own semantics force: a recursive mutex, a condition variable that waits on any lockable, and a once-flag",
+   "matchers": [
+    {
+     "name": "a declaration whose type is the standard recursive mutex",
+     "min": 1,
+     "role": "require",
+     "query": "valueDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::recursive_mutex\")))))))"
+    },
+    {
+     "name": "a declaration whose type is the standard condition variable that waits on any lockable",
+     "min": 1,
+     "role": "require",
+     "query": "valueDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::condition_variable_any\")))))))"
+    },
+    {
+     "name": "a declaration whose type is the standard once-flag",
+     "min": 1,
+     "role": "require",
+     "query": "valueDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::once_flag\")))))))"
+    },
+    {
+     "name": "a call to the standard one-time initialiser",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::std::call_once\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "Mutex is built on the standard recursive mutex",
+     "min": 1,
+     "role": "require",
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::Mutex$\"), has(fieldDecl(hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::recursive_mutex\")))))))))"
+    },
+    {
+     "name": "Condition is built on the standard condition variable",
+     "min": 1,
+     "role": "require",
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::Condition$\"), has(fieldDecl(hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::condition_variable_any\")))))))))"
+    },
+    {
+     "name": "Singleton's instance() is the one-time initialiser",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::std::call_once\"))), isExpansionInFileMatching(\"^@@SRC@@/\"), hasAncestor(cxxMethodDecl(hasName(\"instance\"), ofClass(cxxRecordDecl(matchesName(\"::ise::Singleton\"))))))"
+    },
+    {
+     "name": "a call to a POSIX mutex function",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_mutex_\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "a call to a POSIX condition-variable function",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_cond_\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "a call to the POSIX once-control",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_once\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: calls the tree makes to the standard library",
+     "min": 100,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::std::\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "threads-are-standard",
+   "step": "04",
+   "kind": "astq",
+   "desc": "every thread this environment compiles is a standard thread object: nothing creates or joins one through POSIX, and the thread's own view of itself comes from the standard as well",
+   "matchers": [
+    {
+     "name": "a call to pthread_create",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_create\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "a call to pthread_join",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_join\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "declarations whose type is the standard thread",
+     "min": 1,
+     "role": "require",
+     "query": "valueDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::thread$\")))))))"
+    },
+    {
+     "name": "a call through the standard this-thread interface",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::std::this_thread::\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "the thread implementation holds a standard thread",
+     "min": 1,
+     "role": "require",
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::LinuxThreadImpl$\"), has(fieldDecl(hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::thread$\")))))))))"
+    },
+    {
+     "name": "a thread detached or exited through POSIX",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_(detach|exit)\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "run() puts a thread into the member",
+     "min": 1,
+     "role": "require",
+     "query": "cxxOperatorCallExpr(isExpansionInFileMatching(\"^@@SRC@@/\"), hasOverloadedOperatorName(\"=\"), hasArgument(0, memberExpr()), hasArgument(0, hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::thread$\"))))))), hasAncestor(cxxMethodDecl(hasName(\"run\"), ofClass(cxxRecordDecl(matchesName(\"::ise::LinuxThreadImpl$\"))))))"
+    },
+    {
+     "name": "waitFor() joins the thread object",
+     "min": 1,
+     "role": "require",
+     "query": "cxxMemberCallExpr(isExpansionInFileMatching(\"^@@SRC@@/\"), callee(cxxMethodDecl(hasName(\"join\"), ofClass(cxxRecordDecl(matchesName(\"::std::thread$\"))))), hasAncestor(cxxMethodDecl(hasName(\"waitFor\"), ofClass(cxxRecordDecl(matchesName(\"::ise::LinuxThreadImpl$\"))))))"
+    },
+    {
+     "name": "a thread function still taking a void*",
+     "max": 0,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"threadExecProc\"), hasAnyParameter(hasType(pointsTo(voidType()))))"
+    },
+    {
+     "name": "a second copy of the platform handle, stored",
+     "max": 0,
+     "query": "fieldDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), hasType(hasDeclaration(namedDecl(hasName(\"pthread_t\")))))"
+    },
+    {
+     "name": "control: calls the tree makes to the standard library",
+     "min": 100,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::std::\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "elapsed-time-is-monotonic",
+   "step": "04",
+   "kind": "astq",
+   "desc": "elapsed time is measured on a clock that only goes forward, and a sleep is a duration: getCurTicks reads the monotonic clock, nothing fills in a timespec by hand, and the wall clock still tells the time everywhere it is the time that is wanted",
+   "matchers": [
+    {
+     "name": "the wall clock, read anywhere but to tell the time",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::gettimeofday\"))), isExpansionInFileMatching(\"^@@SRC@@/\"), unless(hasAncestor(cxxMethodDecl(hasName(\"now\"), ofClass(cxxRecordDecl(matchesName(\"::ise::Timestamp$\")))))))"
+    },
+    {
+     "name": "a sleep built from a hand-filled timespec",
+     "max": 0,
+     "query": "callExpr(callee(functionDecl(matchesName(\"::nanosleep\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "getCurTicks reading the monotonic clock",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(cxxMethodDecl(matchesName(\"steady_clock::now\"))), isExpansionInFileMatching(\"^@@SRC@@/\"), hasAncestor(functionDecl(hasName(\"getCurTicks\"))))"
+    },
+    {
+     "name": "a sleep expressed as a duration",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(anyOf(matchesName(\"::std::this_thread::sleep_for\"), matchesName(\"::std::this_thread::sleep_until\")))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "the wall clock, still read where the time is wanted",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::gettimeofday\"))), isExpansionInFileMatching(\"^@@SRC@@/\"), hasAncestor(cxxMethodDecl(hasName(\"now\"), ofClass(cxxRecordDecl(matchesName(\"::ise::Timestamp$\"))))))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  },
+  {
+   "id": "native-residue-kept",
+   "step": "04",
+   "kind": "astq",
+   "desc": "the three things C++11 has no word for are still done the old way and are reached through the standard thread object rather than around it: cancellation, the counting semaphore, and the scheduling parameter",
+   "matchers": [
+    {
+     "name": "the platform handle, asked of the thread object",
+     "min": 1,
+     "role": "require",
+     "query": "cxxMemberCallExpr(callee(cxxMethodDecl(hasName(\"native_handle\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "a POSIX thread call taking the handle it was given",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_(setschedparam|cancel|getschedparam)\"))), hasDescendant(cxxMemberCallExpr(callee(cxxMethodDecl(hasName(\"native_handle\"))))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "cancellation, kept",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_cancel\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "the scheduling parameter, kept",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::pthread_setschedparam\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "the counting semaphore, created",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::sem_init\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "the counting semaphore, waited on",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::sem_(wait|timedwait)\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "the counting semaphore, posted",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::sem_post\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "the counting semaphore, destroyed",
+     "min": 1,
+     "role": "require",
+     "query": "callExpr(callee(functionDecl(matchesName(\"::sem_destroy\"))), isExpansionInFileMatching(\"^@@SRC@@/\"))"
+    },
+    {
+     "name": "Semaphore rebuilt on a lock and a condition variable",
+     "max": 0,
+     "query": "cxxRecordDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), matchesName(\"::ise::Semaphore$\"), has(fieldDecl(hasType(hasUnqualifiedDesugaredType(recordType(hasDeclaration(cxxRecordDecl(matchesName(\"::std::((recursive_)?(timed_)?mutex|condition_variable(_any)?)$\")))))))))"
+    },
+    {
+     "name": "control: function definitions in the tree",
+     "min": 600,
+     "query": "functionDecl(isExpansionInFileMatching(\"^@@SRC@@/\"), isDefinition())"
+    }
+   ]
+  }
+ ]
+}

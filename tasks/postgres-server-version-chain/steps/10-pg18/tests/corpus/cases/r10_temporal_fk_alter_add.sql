@@ -1,0 +1,11 @@
+CREATE TABLE r10tf8_p(id int4range, valid_at daterange, PRIMARY KEY (id, valid_at WITHOUT OVERLAPS));
+INSERT INTO r10tf8_p VALUES (int4range(1,2), daterange('2020-01-01','2021-01-01'));
+CREATE TABLE r10tf8_c(id int, valid_at daterange, pid int4range);
+INSERT INTO r10tf8_c VALUES (1, daterange('2019-01-01','2019-02-01'), int4range(1,2));
+ALTER TABLE r10tf8_c ADD CONSTRAINT r10tf8_fk FOREIGN KEY (pid, PERIOD valid_at) REFERENCES r10tf8_p (id, PERIOD valid_at);
+DELETE FROM r10tf8_c;
+INSERT INTO r10tf8_c VALUES (2, daterange('2020-03-01','2020-04-01'), int4range(1,2));
+ALTER TABLE r10tf8_c ADD CONSTRAINT r10tf8_fk FOREIGN KEY (pid, PERIOD valid_at) REFERENCES r10tf8_p (id, PERIOD valid_at);
+SELECT conname, contype, conperiod FROM pg_constraint WHERE conrelid = 'r10tf8_c'::regclass ORDER BY conname;
+DROP TABLE r10tf8_c;
+DROP TABLE r10tf8_p;

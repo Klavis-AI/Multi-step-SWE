@@ -1,0 +1,75 @@
+{
+ "doc": "stages/filters.hag_dem.rst: 'zero_ground: If true, set HAG of ground-classified points to 0 rather than comparing ``Z`` value to raster DEM. [Default: true]'. The same 25 points classified 2 get HAG 0 by default and HAG 10 with zero_ground=false.",
+ "files": {
+  "dem.asc": {
+   "text": "ncols 5\nnrows 5\nxllcorner -0.5\nyllcorner -0.5\ncellsize 1.0\nNODATA_value -9999\n0 1 2 3 4\n0 1 2 3 4\n0 1 2 3 4\n0 1 2 3 4\n0 1 2 3 4\n"
+  },
+  "in.txt": {
+   "text": "X,Y,Z,Classification\n0,0,10,2\n0,1,10,2\n0,2,10,2\n0,3,10,2\n0,4,10,2\n1,0,11,2\n1,1,11,2\n1,2,11,2\n1,3,11,2\n1,4,11,2\n2,0,12,2\n2,1,12,2\n2,2,12,2\n2,3,12,2\n2,4,12,2\n3,0,13,2\n3,1,13,2\n3,2,13,2\n3,3,13,2\n3,4,13,2\n4,0,14,2\n4,1,14,2\n4,2,14,2\n4,3,14,2\n4,4,14,2\n"
+  },
+  "zg.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"in.txt\"}, {\"type\": \"filters.hag_dem\", \"raster\": \"dem.asc\"}, {\"type\": \"filters.ferry\", \"dimensions\": \"HeightAboveGround=>Z\"}, {\"type\": \"writers.las\", \"filename\": \"zg.las\"}]}"
+  },
+  "nozg.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"in.txt\"}, {\"type\": \"filters.hag_dem\", \"raster\": \"dem.asc\", \"zero_ground\": false}, {\"type\": \"filters.ferry\", \"dimensions\": \"HeightAboveGround=>Z\"}, {\"type\": \"writers.las\", \"filename\": \"nozg.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "zg.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "nozg.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "zg.las",
+   "header": {
+    "point_count": 25
+   },
+   "dims": {
+    "Z": {
+     "sum": 0,
+     "unique": [
+      0
+     ],
+     "tol": 1e-06
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "nozg.las",
+   "header": {
+    "point_count": 25
+   },
+   "dims": {
+    "Z": {
+     "sum": 250,
+     "unique": [
+      10
+     ],
+     "tol": 1e-06
+    }
+   }
+  }
+ ]
+}

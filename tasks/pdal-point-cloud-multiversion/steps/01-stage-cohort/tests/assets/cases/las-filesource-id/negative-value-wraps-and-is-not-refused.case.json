@@ -1,0 +1,54 @@
+{
+ "doc": "instruction.md 1: 'a `writers.las` `filesource_id` greater than 65535 [is refused] (negative values wrap silently as an unsigned 16-bit integer and are not refused)', restated in PROFILE.md 1.1. The option binds an unsigned 16-bit header value, so -1 parses as 65535 rather than being rejected: the translation exits 0, writes its 1000 points, and the header's File Source ID reads back through `pdal info --metadata` as the wrapped value.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "out.las",
+    "--writers.las.filesource_id=-1"
+   ]
+  },
+  {
+   "argv": [
+    "info",
+    "--metadata",
+    "out.las"
+   ],
+   "stdout_to": "meta.json"
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": 1000
+   }
+  },
+  {
+   "kind": "file_json",
+   "file": "meta.json",
+   "path": [
+    "metadata",
+    "filesource_id"
+   ],
+   "equals": 65535
+  }
+ ]
+}

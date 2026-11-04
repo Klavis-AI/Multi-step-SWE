@@ -1,0 +1,33 @@
+# arch: x86_64
+# The synthesised .eh_frame_hdr declares exactly as many table entries as
+# there are FDEs in the .eh_frame it points at.
+rt_obj rt.o
+for n in a b c d; do
+  cat > $n.c <<C
+#include "rt.h"
+int f$n(void) { print("$n"); return 1; }
+C
+  cc_obj $n.o $n.c -fasynchronous-unwind-tables
+done
+cat > m.c <<'C'
+int fa(void); int fb(void); int fc(void); int fd(void);
+int entry(void) { return fa() + fb() + fc() + fd(); }
+C
+cc_obj m.o m.c -fasynchronous-unwind-tables
+link_ok out rt.o a.o b.o c.o d.o m.o --eh-frame-hdr
+[ -n "$(sec_addr out .eh_frame)" ]     || die "no .eh_frame in the output"
+[ -n "$(sec_addr out .eh_frame_hdr)" ] || die "no .eh_frame_hdr in the output"
+fdes=$($OBJDUMP --dwarf=frames out | grep -cE '^[0-9a-f]+ [0-9a-f]+ [0-9a-f]+ FDE ')
+[ "$fdes" -ge 5 ] || die "only $fdes FDEs in .eh_frame, expected at least 5"
+hp=$($READELF --unwind out | sed -n '1,/^\.eh_frame section/p')
+declared=$(printf '%s\n' "$hp" | sed -n 's/.*fde_count: *\([0-9]*\).*/\1/p')
+want "fde_count matches the number of FDEs" "$declared" "$fdes"
+want "eh_frame_hdr version" \
+     "$(printf '%s\n' "$hp" | sed -n 's/.*version: *\([0-9]*\).*/\1/p')" "1"
+run_expect out "abcd" 4
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

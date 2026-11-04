@@ -1,0 +1,1 @@
+SELECT * FROM JSON_TABLE('[{"a":1},{"a":2}]', '$[*]' COLUMNS (a int PATH '$.a')) jt ORDER BY a;

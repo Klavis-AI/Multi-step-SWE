@@ -1,0 +1,58 @@
+# arch: x86_64
+# The .gdb_index CU list has one 16-byte entry per input compilation unit, and
+# the entries tile the merged .debug_info exactly: offsets run consecutively
+# from zero and the lengths sum to the output .debug_info size.
+rt_obj rt.o
+cat > a.c <<'C'
+int afun(int x) { return x * 3; }
+C
+cat > b.c <<'C'
+int bfun(int x) { return x + 11; }
+C
+cat > m.c <<'C'
+#include "rt.h"
+int afun(int), bfun(int);
+int entry(void) { print("cus\n"); return afun(1) + bfun(2) - 11; }
+C
+for f in a b m; do cc_obj $f.o $f.c -g; done
+
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+getsec() { local o s; o=$(sec_off "$1" "$2"); s=$(sec_size "$1" "$2")
+           [ -n "$o" ] && [ -n "$s" ] || die "$1 has no section $2"
+           dd if="$1" of="$3" bs=1 skip=$((16#$o)) count=$((16#$s)) status=none; }
+u32() { od -An -tu4 -j "$2" -N 4 -- "$1" | tr -d ' \n'; }
+u64() { od -An -tu8 -j "$2" -N 8 -- "$1" | tr -d ' \n'; }
+
+link_ok out --gdb-index --no-gc-sections rt.o m.o a.o b.o
+has_section out '\.gdb_index' || die "--gdb-index produced no .gdb_index section"
+getsec out .gdb_index gi.bin
+
+# Everything below reads the version-9 header layout, so pin the version first
+# (spec/18 s.2) -- otherwise a v7 index would be decoded at the wrong offsets.
+want ".gdb_index version" "$(u32 gi.bin 0)" "9"
+
+cu_off=$(u32 gi.bin 4)
+tu_off=$(u32 gi.bin 8)
+span=$((tu_off - cu_off))
+[ "$span" -gt 0 ] && [ $((span % 16)) -eq 0 ] \
+  || die "CU list spans $span bytes, not a positive multiple of 16"
+want "one CU list entry per debug input" "$((span / 16))" "3"
+
+# The entries must tile .debug_info: entry k starts where entry k-1 ended.
+next=0; total=0
+for k in 0 1 2; do
+  o=$(u64 gi.bin $((cu_off + k * 16)))
+  l=$(u64 gi.bin $((cu_off + k * 16 + 8)))
+  want "CU $k starts where CU $((k - 1)) ended" "$o" "$next"
+  [ "$l" -gt 0 ] || die "CU $k has zero length"
+  next=$((o + l)); total=$((total + l))
+done
+want "CU lengths cover .debug_info" "$total" "$((16#$(sec_size out .debug_info)))"
+
+run_expect out "cus" 5
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 6

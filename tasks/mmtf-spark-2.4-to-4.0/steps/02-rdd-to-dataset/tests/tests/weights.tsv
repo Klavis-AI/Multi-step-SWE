@@ -1,0 +1,155 @@
+# Step 2 (02-rdd-to-dataset): what each scored family is worth.
+#
+# Since 2026-10-13 (user decision, product scoring) the two families are
+# multiplied, not added: reward = T1 x T2, where T1 is the migrated family's
+# points over its total weight below and T2 is the behavior family's points
+# over its total weight below (score.py, product_reward). The weights still
+# sum to 1; they now set the proportions inside each factor. Where the prose
+# below speaks of a family's share of the reward, read it as that family's
+# share before this change.
+#
+# Two families, as rule 5 requires, and neither below ~30%:
+#
+#   behavior   0.30   the tree still does what it did      replay + the repo's own tests
+#   migrated   0.70   fifteen named classes take their terminal result through
+#                     the SQL engine, and nothing was handed to that engine as
+#                     an opaque blob to get it there
+#
+# The rung does not move at this step. Step 1 landed on Spark 3.0.3 / Scala
+# 2.12 and step 2 stays there: this is a code move, not a version move, and
+# `environment/` is byte-identical to step 1's. That changes what the behavior
+# family can be graded on, and the change is the only interesting thing in this
+# file.
+#
+# The same sentence has to be true here -- section 8 of migration_prompt.md:
+# the nop reports 0.0 -- and it is a live risk rather than a formality. The nop
+# tree at step 2 is still the untouched 2.4 tree (a nop run does nothing at
+# step 1 either), that tree still builds against the /opt/spark 3.0.3 in the
+# image, and it reproduces most of these 140 recordings. Left ungated, this
+# step's nop would score about 0.28 for changing nothing.
+#
+# Step 1 held that line with `spark_line_moved`, which asks the resolved
+# dependency graph whether the build still says Spark 2.4. Reused here it would
+# zero the nop too, so the reason not to reuse it is not that it fails. The
+# reason is that at step 2 it is `held-m1-spark-303` restated: a claim about
+# step 1's work, which Harbor hands this step's candidate already done. It
+# would grade this step's behavior on a precondition instead of on this step's
+# move, and it would pay in the wrong direction -- step 1's finished solution
+# does none of step 2's work, resolves 3.0.3, and would collect all 0.30 of it.
+#
+# So the gate is this step's own question, read from this step's own facts:
+# `dataset_terminal_reached` in score.py is true when one of the sixteen scoped
+# rows cleared the threshold its own m02.tsv rule sets for it *and* one of the
+# fifteen scoped classes shows the whole move in the built jar -- no `count` or
+# `reduce` on a JavaRDD, an RDD handed to `createDataset`/`createDataFrame`, a
+# result read back off the `Dataset`. The rows are read out of the same
+# gateroot/probe.tsv the m1..m4 rules are read from, the three artifact rules
+# out of the same gate report those requirements are scored from, and the
+# patterns and thresholds are parsed out of m02.tsv rather than kept as a
+# second list in score.py, so `scoped` cannot come to mean two things.
+#
+# The conjunction is round 1's fix and is the whole of it. The probe rows are
+# written by a listener inside the candidate's own driver JVM, so the run half
+# alone is forgeable from a shutdown hook; `-rdd-gone` alone is bought by
+# deleting the count and printing the constant it used to print, because the
+# corpus is fixed and stdout still matches. Neither half is the claim; together
+# they are. What the pair still cannot see is dataflow -- a Dataset built from
+# `sc.parallelize(ONE)` satisfies the artifact half from the constant pool --
+# and NOTES 6.2.7 records that residual rather than hiding it.
+#
+# It is otherwise the weakest condition that separates a tree which made the
+# move from one that did not: one row and one class, each judged the way its
+# own rules judge it, and a candidate who migrated one of the fifteen classes
+# and gave up keeps every point of proportional behavior credit and loses only
+# the requirements that measure the other fourteen. There is no cliff here for
+# anybody who tried.
+#
+# The thresholds are not decoration. Written first as "one scoped job inside
+# one execution", this gate was green on the untouched tree: AuthorSearchDemo,
+# KeywordSearch and KinaseSearch each run two real SQL executions before the
+# step begins, because PdbjMineSearch's constructor reads its query through the
+# engine. Their rules ask for three for that reason, and the gate honours the
+# same three. NOTES 6.2.6 records the measurement that caught it.
+#
+# What that costs, stated rather than hidden: the item-6 floor -- step 1's
+# finished solution scored by this verifier -- reports 0.0 rather than the 0.30
+# it would report if behavior were graded unconditionally. Both satisfy item 6's
+# "<=0.5"; 0.0 was chosen because step 2 is not paid for step 1's work at all
+# (that is what `hold m01.tsv` means) and a behavior family that paid 0.30 for
+# an inherited tree would be paying for it. The rejected alternative -- gating
+# behavior on the migrated family not being void, which would have given the
+# floor 0.30 and the nop 0.0 as well -- is recorded with its reasoning in
+# NOTES 6.2.6.
+#
+# Within `migrated`, a requirement scores all or nothing: every rule carrying
+# its prefix must be PASS. Fourteen of fifteen classes migrated is not fourteen
+# fifteenths of an API move; the reason to split the fifteen into four
+# requirements rather than one is that each group is a *different edit*, so
+# each all-or-nothing verdict is over work a candidate either understood or did
+# not:
+#
+#   m1  read MMTF, maybe filter, count            7 classes / 8 scored rows
+#   m2  count what a flatMapToPair produced       4 classes
+#   m3  reduce a mapped value to a total          1 class
+#   m4  count behind a web-service filter         3 classes
+#
+# m1 is the largest because it is seven classes and the move's canonical shape:
+# build a typed Dataset off the reader's RDD and take the count there. m2 is
+# the same move one stage down a pipeline and is worth less per class because a
+# candidate who did m1 has learned everything m2 needs except where to put it.
+# m3 is one class and is worth 0.12 because it is the only row where the answer
+# is not a count -- `map(t -> numAtoms).reduce(+)` becomes an aggregate over a
+# typed column, and the printed total has to come back the same Java long. m4
+# is three classes and is worth more than m3 because those three already have
+# SQL executions in them before the step begins: getting them right means
+# reading what the probe actually reports rather than copying the shape of the
+# other twelve rules, and getting them wrong is the easiest way to lose points
+# here while believing the work is done.
+#
+# Thirteen rules carry no `m<digit>-` prefix and so are standing rules rather
+# than requirements. Nine are in gates/rules/cheats.tsv -- the opaque encoder
+# and the setLocalProperty call, each read off the sources, out of the jar's
+# references and out of its constant pool, plus the forged-execution-id rule,
+# plus the two that catch a jar reaching for the listener this gate reads its
+# job rows from -- and score.py reads those nine out of that file by name,
+# which is what makes
+# their price the *whole* reward rather than the migrated family's share. The
+# other four are in m02.tsv: the two that keep MmtfReader's RDD contract, the
+# one that says the replay ran with the listener attached at all, and the one
+# that says no submit this verifier made exited non-zero. A tree that bought
+# the job rules with `Encoders.kryo` or with one `setLocalProperty` call does
+# not lose a share, it loses the reading -- which is what a tree that faked the
+# step is worth, and which the instruction says in as many words. The reasoning
+# is in those files beside the rules.
+#
+# Each requirement is now three artifact rules per class plus its runtime
+# row(s): sixty-four scored rules over the four families, up from thirty-four
+# before round 1. The split between the families is unchanged -- what changed
+# is how much each class has to show, not what each family is worth.
+#
+# Within `behavior`, credit is proportional and the unit is rule 7's scored
+# input -- the same 247 at this census as at step 1, because this step is
+# required to change none of them. The recordings are `build/p02/`: the step-1
+# golden tree's own 140 outputs at this rung, replayed with gate.GateProbe
+# attached, which is the configuration this step's verifier runs (NOTES 6.2.4
+# proved the listener changes none of the 140).
+#
+# --- what it costs to score, measured -------------------------------------
+#
+# 40m35s end to end, on 7 vCPU, from this step's first phase header to its
+# reward.json: the oracle run of 2026-09-18 (jobs dir m27-s3-oracle, job
+# 27-spark24-to-4.0__k7shaVo), taken while another agent's jobs shared the
+# box, so it is an upper reading rather than a clean one. Rule 10 aims at
+# ~30 minutes a step and caps at 60. The 140-job replay is the bulk of it:
+# the inherited suite does not open until 36m12s;
+# neither the replay's 140 jobs nor the suite's 142 tests is reducible
+# without asking a smaller question, and rule 10's own instruction is not
+# to shrink a fixture set to fit a clock.
+#
+# family	key	weight	what it is a claim about
+behavior	replay	0.22	the 140 recorded jobs of build/p02 answer the same way, compared after norm.py and projection.tsv
+behavior	tests	0.08	the repository's own 47 test classes / 142 tests still pass, run from a pristine copy
+migrated	m1	0.24	the seven reader-count demos take their count through a typed Dataset, and the five with no other terminal action run no job outside an execution at all
+migrated	m2	0.18	the four mapper-count demos count what flatMapToPair produced through a typed Dataset
+migrated	m3	0.12	MapReduceExample totals its atoms with an engine-side aggregate rather than an RDD reduce
+migrated	m4	0.16	the three web-filtered demos add a third SQL execution -- their own count -- to the two PdbjMineSearch already runs

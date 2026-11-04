@@ -1,0 +1,21 @@
+# `--no-cache` wins over both `--cache-dir` and `UV_CACHE_DIR`: set, the run
+# neither reads from nor writes to a persistent cache, so neither the
+# directory the flag names nor the one the variable names exists afterwards.
+# The install still succeeds and still installs `alpha` -- `--no-cache` takes
+# no value, so an implementation that gave it one would swallow the package
+# name -- and the pair with `global-cache-dir-flag-wins` is the flag itself:
+# same index, same two directories, and a cache directory appears only when
+# `--no-cache` is absent.
+id = "global-no-cache-beats-both"
+step = 1
+group = "install-lifecycle"
+python = "3.12"
+mode = "bare"
+setup_argv = [["venv", "--cache-dir", "setupcache", "--python", "python3.12"]]
+argv = ["pip", "install", "--index-url", "{INDEX}", "--cache-dir", "flagcache", "--no-cache", "alpha"]
+observe = ["setup_status", "status", "glob:.venv/lib/python3.12/site-packages/*.dist-info", "glob:flagcache", "glob:envcache"]
+
+[env]
+UV_CACHE_DIR = "envcache"
+
+[index.packages.alpha.versions."1.0.0"]

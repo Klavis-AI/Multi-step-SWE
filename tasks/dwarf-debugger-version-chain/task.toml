@@ -1,0 +1,93 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. No min_reward gate, so every
+# step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# The cumulative /app workspace is the only thing that reaches the verifier.
+# Grading rebuilds the candidate from its Java sources with `make`, so build
+# output, the provided fixtures and anything binary are excluded: what is
+# graded is the source the candidate wrote.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [
+      "build/**", "bin/**", "tests-public/**", "**/*.class", "**/*.jar",
+      "**/*.o", "**/*.so", "**/*.dwo", "**/*.core", "**/core.*",
+  ] },
+]
+
+[task]
+name = "harbor/dwarf-debugger-version-chain"
+version = "1.0.0"
+description = "Five-step DWARF task: carry one debug-information toolkit written in Java across successive versions of the format, matching the output of the real tools at every milestone."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["dwarf", "elf", "debug-info", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["dwarf", "debug-info", "java", "multi-step"]
+
+[environment]
+build_timeout_sec = 2400.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-dwarf23"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-dwarf4"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-dwarf5"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-debugger"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-aarch64-scale"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

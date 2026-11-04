@@ -1,0 +1,71 @@
+# Step 05 -- C-1's frozen population: the 16 PRIVATE null-returning lookup
+# helpers, as <file>#<method> buckets, and the declared return type of each.
+#
+# Measured, not chosen. Taken from baseline/source.txt's own retnull[...]
+# records on the step-04 golden:
+#
+#   sed -n 's/^retnull\[[0-9]*\]=//p' baseline-step05-source.txt \
+#     | awk '$0 ~ /scope=decl/ && $0 ~ /mods=private/ && $0 ~ /api=no/ {
+#              split($1,a,":"); for (i=2;i<=NF;i++) if (substr($i,1,3)=="in=") m=substr($i,4);
+#              print a[1] "#" m}' | sort -u
+#
+# 42 retnull sites in the tree; 17 of them are in these 16 methods. The other
+# 25 are excluded for reasons that are NOT stylistic:
+#
+#   * 22 sites are api=yes -- public, protected, or declared in an interface.
+#     gates/apisig.sh runs `javap -protected` over every class in every
+#     published jar, so each of those signatures is one of B-6's 1147 frozen
+#     lines, and B-6 counts `extra` as well as `hit`: widening the surface is
+#     charged exactly like narrowing it. Worse, authoring/probe/src COMPILES
+#     against the published jars and calls thirteen of them directly, so an
+#     Optional return type there is not a gate failure, it is a probe that does
+#     not compile -- family A = 0, thirty per cent of the step. See NOTES 10.2.
+#   * 3 sites are scope=anon -- a `return null` inside an anonymous class body,
+#     which the gate attributes to the enclosing declaration and not to a
+#     method of its own. Two are `public Void call()` on Callable bodies in
+#     ContainerDeployController#deploy and #undeploy, where `return null` is
+#     the idiom of Callable<Void> and not a null-returning lookup boundary; the
+#     third is an anonymous DeploymentPackager in src/test.
+#
+# 42 = 22 api=yes (20 public + 2 protected) + 17 private api=no + 3 anon api=no.
+# There is no package-private site among them, and exactly one of the 42 is in
+# src/test. Both facts are read off the records, not assumed.
+#
+# BUCKETS, NOT LINES. The key is <file>#<method> and never <file>:<line>,
+# because a `for` loop that becomes `stream().filter(..).findFirst()` moves the
+# line it returns from. `in=` is the OUTERMOST enclosing method by simple name
+# (SourceScan.enclosingMethod()), which is also the key step 04's
+# collectmethods.txt uses, so the two rungs bucket the same way.
+#
+# 16 methods, 17 sites: ExceptionProxy#buildExceptionFromConstructor holds two
+# (the catch-Throwable arm and the no-matching-constructor arm). Every other
+# method holds exactly one.
+#
+# How C-1 reads this file:
+#   departure    buckets with NO retnull record left
+#   arrival      buckets with an optret record (declared return java.util.Optional)
+#   consumption  SHARE of the buckets holding any optop record whose operation
+#                is not get() -- map/orElse/orElseGet/ifPresent/filter/isPresent.
+#                A share and not a frozen caller list: the 21 call sites the
+#                golden happens to have are the golden's arrangement, not the
+#                requirement. A tree that changes 16 signatures and writes
+#                .get() at every caller has moved the null, not removed it, and
+#                scores the first two terms and not the third.
+#
+# Format: <path>#<method> <declared return type at the baseline>
+impl-base/src/main/java/org/jboss/arquillian/impl/client/container/ContainerRegistryCreator.java#getActivatedConfiguration String
+impl-base/src/main/java/org/jboss/arquillian/impl/client/container/ContainerRegistryCreator.java#readActivatedValue String
+impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/tool/ToolingDeploymentFormatter.java#findResourceLocation String
+impl-base/src/main/java/org/jboss/arquillian/impl/client/protocol/ProtocolRegistryCreator.java#findMatch Protocol<?>
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/EngineDefImpl.java#getTextIfExists String
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/EngineDefImpl.java#getTextIfExistsAsInteger Integer
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ManagerImpl.java#getScopedContext Context
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ContainerRegistry.java#findDefaultContainer Container
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ContainerRegistry.java#findMatchingContainer Container
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ProtocolRegistry.java#findDefaultProtocol ProtocolDefinition
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ProtocolRegistry.java#findSpecificProtocol ProtocolDefinition
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/ArquillianResourceTestEnricher.java#getResourceAnnotation ArquillianResource
+spi/src/main/java/org/jboss/arquillian/spi/ExceptionProxy.java#buildExceptionFromConstructor T
+spi/src/main/java/org/jboss/arquillian/spi/ExceptionProxy.java#buildObjectFromClassConstructors Object
+spi/src/main/java/org/jboss/arquillian/spi/client/deployment/DeploymentScenario.java#findDefaultDeployment DeploymentDescription
+spi/src/main/java/org/jboss/arquillian/spi/client/deployment/DeploymentScenario.java#findMatchingDeployment DeploymentDescription

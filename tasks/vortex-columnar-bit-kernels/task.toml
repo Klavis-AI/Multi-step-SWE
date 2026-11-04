@@ -1,0 +1,141 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. A step's reward is
+# `correctness x mean_f( ln(max(1, speedup_f)) )` over the functions in its
+# scope -- i.e. correctness x ln(geometric mean of the per-function speedups).
+# Correctness is binary and multiplies, so a tree that changes behaviour scores
+# 0 however fast it is; a correct but unimproved tree scores 0 too.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. `target` is the warmed Rust build tree -- excluded
+# because it is build output, and because a stale one keyed on the agent's paths
+# would make the verifier's own rebuild a no-op. The pattern matches a path
+# component at any depth, so it was checked against the real tree: the only
+# directory named `target` anywhere in it is the build output at the root.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", "target"] },
+]
+
+[task]
+name = "harbor/vortex-columnar-bit-kernels"
+version = "1.0.0"
+description = "Optimize the bit-level kernels under the Vortex columnar file format one at a time. Five cumulative steps, each rewarded by measured per-function speedup gated on bit-exact output."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "rust", "columnar"]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "rust", "simd", "columnar"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "rust", "simd", "columnar"]
+
+[environment]
+# The verifier image is built from this task's own Dockerfile and carries the
+# whole base tree plus a warm Rust target directory -- measured at 4.4 GB, four
+# times the size of a compiled-C task's verifier image. Harbor wraps the
+# *verifier* environment's start in this same build timeout, so a cold verifier
+# image build that takes 50-60 minutes on a contended host has to fit inside it.
+# It did not at 3600 s, and the step failed with a bare TimeoutError before the
+# verifier ever ran. Once the image is cached this is not on the critical path;
+# the ceiling is here so a cold build on a loaded machine cannot kill a run.
+build_timeout_sec = 14400.0
+cpus = 4
+memory_mb = 16384
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. The verifier builds the ladder's
+# base tree (the pinned upstream commit with all seven stages removed) and the
+# candidate's tree, runs the project's own suite against the latter, and times
+# every scored function in both.
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# Worst case, walked through test.sh: the verifier image build (clone, base
+# build, base probe, base suite -- all cacheable across steps after the first,
+# but paid in full on the first), then per grading run the candidate's cargo
+# build against a warm shared target directory (up to 900 s on a loaded host),
+# the project's own suite compile and run (up to 900 s), the two probe runs, and
+# the artifact round trip. 5400 s is a ceiling that cannot be reached in
+# practice; a ceiling that CAN be reached turns a harness kill into a
+# complete-looking partial result.
+build_timeout_sec = 14400.0
+cpus = 4
+memory_mb = 16384
+storage_mb = 40960
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# Each step's name carries its number, and its verifier's tests/ directory holds
+# SCOPE.step<NN> and SHA256SUMS.step<NN>: the step number is in the file NAME so
+# BuildKit's (path, size, mtime) context dedup cannot serve a sibling's copy.
+#
+# Five steps, not the seven the seed proposed: `select` and `take` were measured
+# to have no reachable headroom at this envelope (see the seed doc's revised step
+# table and tmp/<task-id>/DECISIONS.md D9) and were dropped before any
+# instruction, workload or verifier was authored for them.
+[[steps]]
+name = "01-count-ones"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier environment's start plus the grading run: a candidate cargo
+# build, the project's own suite compile and run, and the probe. Measured at
+# roughly 30-50 minutes on this contended host.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "02-bool-pack"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier environment's start plus the grading run: a candidate cargo
+# build, the project's own suite compile and run, and the probe. Measured at
+# roughly 30-50 minutes on this contended host.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "03-mask-compress"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier environment's start plus the grading run: a candidate cargo
+# build, the project's own suite compile and run, and the probe. Measured at
+# roughly 30-50 minutes on this contended host.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "04-bool-filter"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier environment's start plus the grading run: a candidate cargo
+# build, the project's own suite compile and run, and the probe. Measured at
+# roughly 30-50 minutes on this contended host.
+timeout_sec = 7200.0
+
+[[steps]]
+name = "05-rank-intersect"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier environment's start plus the grading run: a candidate cargo
+# build, the project's own suite compile and run, and the probe. Measured at
+# roughly 30-50 minutes on this contended host.
+timeout_sec = 7200.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

@@ -1,0 +1,119 @@
+schema_version = "1.4"
+
+# The task reward is the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches the
+# verifier container.  No `exclude`: an exclude pattern makes Harbor transfer the
+# workspace as a gzip through the pod exec stream, which decodes UTF-8 lossily and
+# destroys it.  /app is text-only by construction instead -- the build writes to
+# /out/bin, outside the collected tree -- so the plain-tar path carries it intact.
+artifacts = [
+  { source = "/app", destination = "workspace" },
+]
+
+[task]
+name = "harbor/kubernetes-control-plane-chain"
+version = "1.0.0"
+description = "Nine-step C11 Kubernetes control plane across the 1.25 to 1.33 release chain: API machinery, discovery, watch, RBAC, admission, CRDs, core controllers and the scheduler over etcd, graded against a corpus recorded from each release's own kube-apiserver, kube-controller-manager and kube-scheduler and driven by the release's own kubectl."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["kubernetes", "control-plane", "api-machinery", "c", "multi-step", "conformance"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["kubernetes", "distributed-systems", "api", "c", "multi-step", "etcd"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-baseline-1-25"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-cel-admission-1-26"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-aggregated-discovery-1-27"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-sidecars-jobs-1-28"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-apf-ga-1-29"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-vap-ga-1-30"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-beta-apis-1-31"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-resize-images-1-32"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "09-resize-subresource-1-33"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

@@ -1,0 +1,33 @@
+# arch: aarch64
+# `--sysroot=DIR` (the `=`-joined long-option spelling) roots any `-L` path
+# that begins with `=` at DIR. Without it, an `=`-prefixed search path resolves
+# nowhere and the archive lookup fails; with it, the same command finds and
+# links the archive. This is a positive/negative pair so the option's effect
+# is actually exercised, not just accepted.
+rt_obj rt.o
+mkdir -p root/usr/lib
+cat > helper.s <<'S'
+        .text
+        .globl helper
+helper: mov     w0, #9
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj helper.o helper.s
+mkar root/usr/lib/libhelper.a helper.o
+cat > m.s <<'S'
+        .text
+        .globl entry
+entry:  stp     x29, x30, [sp, #-16]!
+        bl      helper
+        ldp     x29, x30, [sp], #16
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj m.o m.s
+# Negative control: the same `-L=` path with no --sysroot cannot resolve.
+link_fails neg rt.o m.o "-L=/usr/lib" -lhelper
+grep -qi 'helper' <<<"$LINK_OUT" || die "negative control failed for an unrelated reason: $LINK_OUT"
+# Positive: --sysroot=DIR roots the `=`-prefixed -L path and the link succeeds.
+link_ok out rt.o m.o "-L=/usr/lib" -lhelper "--sysroot=$PWD/root"
+run_expect out "" 9

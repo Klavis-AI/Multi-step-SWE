@@ -1,0 +1,29 @@
+# PEP 658 detached metadata: a file's index entry may advertise a `.metadata`
+# sidecar carrying that distribution's core metadata, and `instruction.md`
+# names `pep-0658.rst` as normative for it. `metadata_attribute = "both"`
+# emits the pre-PEP-714 spelling and the PEP 714 one, so a client that reads
+# either is served and the probe is stable across the whole chain; which of the
+# two spellings a client honours is step 03's `detached-metadata-attribute`
+# group, not this one, and `PROFILE.md` § 1 states only the older spelling.
+# `detached_requires` makes the sidecar the only place
+# `gamma` is named, while the wheel's own `METADATA` names `delta`. The
+# fixture is deliberately inconsistent, because a sidecar that agreed with the
+# archive would be unobservable: an implementation that resolves `beta`'s
+# dependencies from the detached metadata installs `gamma`, and one that
+# ignores the advertisement and reads the wheel installs `delta`.
+id = "index-detached-metadata"
+step = 1
+group = "index-metadata"
+python = "3.12"
+mode = "venv"
+argv = ["pip", "install", "--index-url", "{INDEX}", "--no-cache", "beta"]
+observe = ["status", "freeze"]
+
+[index.packages.beta.versions."1.0.0"]
+requires = ["delta"]
+detached_requires = ["gamma"]
+metadata_attribute = "both"
+
+[index.packages.gamma.versions."1.0.0"]
+
+[index.packages.delta.versions."1.0.0"]

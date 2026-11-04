@@ -1,0 +1,158 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`.  No min_reward: every step runs
+# and every verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+artifacts = [
+  # Collect the candidate's workspace so a blind result can be RE-SCORED through a later
+  # verifier instead of re-run.  On GKE this needs the local Harbor patch that reads the
+  # tar stream as binary (harbor/environments/gke.py); see below.
+  # The corpus and the release notes are excluded: they are shipped in, not submitted.
+  { source = "/app", destination = "workspace", exclude = ["./tests", "./tests/*", "tests", "tests/*", "./SPEC", "./SPEC/*", "SPEC", "SPEC/*", "*.o", "*.a", "*.gz"] },
+]
+
+# The collection above needs the local Harbor patch to work at all: unpatched Harbor sends
+# any artifacts entry carrying a non-empty `exclude` down a gzip path whose stream has
+# already been decoded with errors="replace", so gzip's own second magic byte 0x8b is
+# destroyed every time ("Not a gzipped file (b'\x1f\xef')"), and without `exclude` the
+# plain-tar path desynchronises on the first byte >= 0x80 anywhere in the corpus.  The
+# patch makes the transport read the stream as binary.  Nothing in the chain CONSUMES
+# the collection -- the agent's container persists across steps and each step's workdir is
+# extracted over /app with `tar xf`, which adds and overwrites but never deletes -- so it
+# is archival, for re-scoring a blind result through a later verifier instead of re-running
+# it.  What tells a low score apart from a broken workspace is written by the verifier
+# itself, in ASCII, to /logs/verifier/workspace-inventory.txt.
+
+[task]
+name = "harbor/php-interpreter-version-chain"
+version = "1.0.0"
+description = "Carry a from-scratch PHP interpreter written in C through eleven releases of the PHP release train, 5.6 to 8.4, graded with php-src's own .phpt tests at each release tag."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["php", "interpreter", "compilers", "multi-step", "version-upgrade"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["php", "interpreter", "zend", "phpt", "multi-step"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 12288
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+# Graded in a container of its own, built from each step's tests/Dockerfile.  Grading in
+# "shared" mode, inside the agent's own container, cannot be made safe: the agent is root
+# there for two hours, so it can replace python3, make or timeout on disk and every
+# root-run step of the verifier then runs its replacement.  A separate container shares
+# nothing with the agent but the collected /app.
+#
+# On the GKE cluster the separate-verifier round trip moves /app out of the pod as a gzip
+# stream, and unpatched Harbor decodes that stream as text, so gzip's 0x8b becomes U+FFFD
+# (`gzip.BadGzipFile: Not a gzipped file (b'\x1f\xef')`) and every verifier grades a
+# nearly empty tree.  A GKE run of this package therefore needs a Harbor carrying the
+# binary-stream patch described in the artifacts comment above.  Local docker does not
+# take that path.
+environment_mode = "separate"
+
+# The same resources as the agent's environment: cpus = 7 for both roles.  The verifier
+# image (tests/Dockerfile) has no PHP and no fetch tools.
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 12288
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-php-5-6"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-php-7-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-php-7-1"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-php-7-2"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-php-7-3"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-php-7-4"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-php-8-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-php-8-1"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "09-php-8-2"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "10-php-8-3"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "11-php-8-4"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

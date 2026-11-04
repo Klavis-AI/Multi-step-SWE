@@ -1,0 +1,91 @@
+[
+ {
+  "name": "format-v0-default",
+  "setup": "git init -q -b main . &&\nprintf 'x\\n' > f && git add f && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\n",
+  "probes": [
+   "git config core.repositoryformatversion",
+   "git rev-parse --show-object-format",
+   "git rev-parse HEAD >/dev/null && echo ok",
+   "git status --porcelain; echo status-rc=$?"
+  ]
+ },
+ {
+  "name": "format-v1-known-noop",
+  "setup": "git init -q -b main . &&\nprintf 'x\\n' > f && git add f && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\ngit config core.repositoryformatversion 1 && git config extensions.noop true\n",
+  "probes": [
+   "git rev-parse HEAD >/dev/null && echo v1-noop-ok; echo rc=$?",
+   "git config core.repositoryformatversion",
+   "git for-each-ref --format='%(refname)'"
+  ]
+ },
+ {
+  "name": "format-v1-unknown-ext",
+  "setup": "git init -q -b main . &&\nprintf 'x\\n' > f && git add f && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\ngit config core.repositoryformatversion 1 && git config extensions.frobnicate yes\n",
+  "probes": [
+   "git rev-parse HEAD 2>&1; echo rc=$?",
+   "git status 2>&1 | head -3; echo rc=$?"
+  ]
+ },
+ {
+  "name": "format-version-2-refused",
+  "setup": "git init -q -b main . &&\nprintf 'x\\n' > f && git add f && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\ngit config core.repositoryformatversion 2\n",
+  "probes": [
+   "git rev-parse HEAD 2>&1; echo rc=$?",
+   "git log 2>&1 | head -2; echo rc=$?"
+  ]
+ },
+ {
+  "name": "format-v0-preciousobjects",
+  "setup": "git init -q -b main . &&\nprintf 'x\\n' > f && git add f && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\ngit config extensions.preciousObjects true\n",
+  "probes": [
+   "git rev-parse HEAD 2>&1 >/dev/null; echo rc=$?",
+   "git config core.repositoryformatversion",
+   "git rev-parse --is-inside-work-tree"
+  ]
+ },
+ {
+  "name": "format-v0-unknown-ext",
+  "setup": "git init -q -b main . &&\nprintf 'x\\n' > f && git add f && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\ngit config extensions.frobnicate yes\n",
+  "probes": [
+   "git rev-parse HEAD 2>&1 >/dev/null; echo rc=$?",
+   "git status --porcelain 2>&1 >/dev/null; echo rc=$?"
+  ]
+ },
+ {
+  "name": "format-v1-worktreeconfig",
+  "setup": "git init -q -b main . &&\nprintf 'x\\n' > f && git add f && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\ngit config core.repositoryformatversion 1 && git config extensions.worktreeConfig true\n",
+  "probes": [
+   "git rev-parse HEAD >/dev/null && echo wtcfg-ok; echo rc=$?",
+   "git config extensions.worktreeConfig"
+  ]
+ },
+ {
+  "name": "format-gate-matrix",
+  "setup": "\ngit init -q -b main . &&\nprintf 'x\\n' > f && git add f &&\nGIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1\n",
+  "probes": [
+   "rm -rf gnoop0 && git init -q gnoop0 && git -C gnoop0 config core.repositoryformatversion 0 && git -C gnoop0 config extensions.noop true && git -C gnoop0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gnoop1 && git init -q gnoop1 && git -C gnoop1 config core.repositoryformatversion 1 && git -C gnoop1 config extensions.noop true && git -C gnoop1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gpreciousObjects0 && git init -q gpreciousObjects0 && git -C gpreciousObjects0 config core.repositoryformatversion 0 && git -C gpreciousObjects0 config extensions.preciousObjects true && git -C gpreciousObjects0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gpreciousObjects1 && git init -q gpreciousObjects1 && git -C gpreciousObjects1 config core.repositoryformatversion 1 && git -C gpreciousObjects1 config extensions.preciousObjects true && git -C gpreciousObjects1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gpartialClone0 && git init -q gpartialClone0 && git -C gpartialClone0 config core.repositoryformatversion 0 && git -C gpartialClone0 config extensions.partialClone origin && git -C gpartialClone0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gpartialClone1 && git init -q gpartialClone1 && git -C gpartialClone1 config core.repositoryformatversion 1 && git -C gpartialClone1 config extensions.partialClone origin && git -C gpartialClone1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gworktreeConfig0 && git init -q gworktreeConfig0 && git -C gworktreeConfig0 config core.repositoryformatversion 0 && git -C gworktreeConfig0 config extensions.worktreeConfig true && git -C gworktreeConfig0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gworktreeConfig1 && git init -q gworktreeConfig1 && git -C gworktreeConfig1 config core.repositoryformatversion 1 && git -C gworktreeConfig1 config extensions.worktreeConfig true && git -C gworktreeConfig1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gobjectFormat0 && git init -q gobjectFormat0 && git -C gobjectFormat0 config core.repositoryformatversion 0 && git -C gobjectFormat0 config extensions.objectFormat sha256 && git -C gobjectFormat0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gobjectFormat1 && git init -q gobjectFormat1 && git -C gobjectFormat1 config core.repositoryformatversion 1 && git -C gobjectFormat1 config extensions.objectFormat sha256 && git -C gobjectFormat1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gcompatObjectFormat0 && git init -q gcompatObjectFormat0 && git -C gcompatObjectFormat0 config core.repositoryformatversion 0 && git -C gcompatObjectFormat0 config extensions.compatObjectFormat sha256 && git -C gcompatObjectFormat0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gcompatObjectFormat1 && git init -q gcompatObjectFormat1 && git -C gcompatObjectFormat1 config core.repositoryformatversion 1 && git -C gcompatObjectFormat1 config extensions.compatObjectFormat sha256 && git -C gcompatObjectFormat1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf grefStorage0 && git init -q grefStorage0 && git -C grefStorage0 config core.repositoryformatversion 0 && git -C grefStorage0 config extensions.refStorage reftable && git -C grefStorage0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf grefStorage1 && git init -q grefStorage1 && git -C grefStorage1 config core.repositoryformatversion 1 && git -C grefStorage1 config extensions.refStorage reftable && git -C grefStorage1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf grelativeWorktrees0 && git init -q grelativeWorktrees0 && git -C grelativeWorktrees0 config core.repositoryformatversion 0 && git -C grelativeWorktrees0 config extensions.relativeWorktrees true && git -C grelativeWorktrees0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf grelativeWorktrees1 && git init -q grelativeWorktrees1 && git -C grelativeWorktrees1 config core.repositoryformatversion 1 && git -C grelativeWorktrees1 config extensions.relativeWorktrees true && git -C grelativeWorktrees1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gfrobnicate0 && git init -q gfrobnicate0 && git -C gfrobnicate0 config core.repositoryformatversion 0 && git -C gfrobnicate0 config extensions.frobnicate true && git -C gfrobnicate0 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gfrobnicate1 && git init -q gfrobnicate1 && git -C gfrobnicate1 config core.repositoryformatversion 1 && git -C gfrobnicate1 config extensions.frobnicate true && git -C gfrobnicate1 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gnoop-v10 && git init -q gnoop-v10 && git -C gnoop-v10 config core.repositoryformatversion 0 && git -C gnoop-v10 config extensions.noop-v1 true && git -C gnoop-v10 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gnoop-v11 && git init -q gnoop-v11 && git -C gnoop-v11 config core.repositoryformatversion 1 && git -C gnoop-v11 config extensions.noop-v1 true && git -C gnoop-v11 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gv2 && git init -q gv2 && git -C gv2 config core.repositoryformatversion 2 && git -C gv2 rev-parse --is-inside-work-tree 2>&1; echo rc=$?",
+   "rm -rf gv99 && git init -q gv99 && git -C gv99 config core.repositoryformatversion 99 && git -C gv99 status 2>&1 | head -2; echo rc=$?",
+   "rm -rf gtwo && git init -q gtwo && git -C gtwo config extensions.frobnicate true && git -C gtwo config extensions.baznicate true && git -C gtwo config core.repositoryformatversion 1 && git -C gtwo rev-parse --is-inside-work-tree 2>&1 | cat -A; echo rc=$?"
+  ]
+ }
+]

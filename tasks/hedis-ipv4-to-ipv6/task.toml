@@ -1,0 +1,120 @@
+schema_version = "1.4"
+
+# Task reward = the mean of each step's `reward`. No min_reward gate, so every
+# step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/hedis-ipv4-to-ipv6"
+version = "1.0.0"
+description = "Migrate the hedis fork of Redis 3.2-rc from an IPv4-first network stack to an IPv6-only one, in six cumulative steps."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["multi-step", "migration", "c", "ipv6", "redis", "networking"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["multi-step", "migration", "c", "ipv6", "sockets", "rfc"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-toolchain-and-socket-layer"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3000.0
+
+# Step 2 adds two scenarios whose cost is wall-clock rather than CPU: every
+# observation of a Connection Attempt Delay is a connection that is *waiting*,
+# and `d02` spends several of them waiting out a connect deadline on purpose.
+# The verifier budget is raised accordingly; the agent's is unchanged, since the
+# change itself is two files.
+[[steps]]
+name = "02-resolution-and-happy-eyeballs"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+# Step 3 adds two scenarios and no new waiting: `d03` drives servers that are
+# already up and reads what they wrote, and `g05` reads the preprocessed units
+# `gate.build_dir()` already makes once per run. Together they are under a
+# minute, so the step-2 verifier budget carries them.
+[[steps]]
+name = "03-address-text-and-identity"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+# Step 4 adds `d04`, which runs a Sentinel failover and a cluster reshard of its
+# own under the system-call filter, and `g06`, which starts five servers and
+# reads every file in the tree. Both are new wall-clock rather than new CPU, and
+# the failover is the expensive one: `down-after-milliseconds` plus an election.
+# It stays on step 3's hour all the same. An hour is the line's cap, and the
+# waits that could spend it are bounded by the process they are waiting on
+# rather than by the clock -- the cases a failing tree reaches end in seconds,
+# not at the deadline.
+[[steps]]
+name = "04-operate-without-ipv4"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+# Step 5 adds `d05` and `g07`, and neither is a new wait. Every address they
+# hand to `CLUSTER MEET`, `SLAVEOF` and `SENTINEL MONITOR` is one nothing
+# answers at, on purpose, and every observation is read out of the bookkeeping
+# the command changed in the same call -- the two scenarios are a few hundred
+# synchronous commands against servers that are already up, plus one Sentinel
+# that is expected to refuse its configuration file and exit. The step-2
+# verifier budget carries them unchanged.
+[[steps]]
+name = "05-scoped-and-special-addresses"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+# Step 6 adds `d06` and `g08`, and between them they are thirteen seconds:
+# measured 6.2-6.4 s and 6.7-6.9 s per recording pass. Neither is a new wait.
+# `d06`'s two 20,000-request benchmarks are the throughput comparison the
+# instruction asks for and finish in well under a second each on loopback; its
+# one deliberate failure -- a server told to default with no IPv6 address to
+# bind -- exits rather than hangs. `g08`'s packet capture is bounded by the
+# exchange it watches and its file scan is the same walk `g06` already does.
+# The step-2 verifier budget carries them unchanged, with the whole six-scenario
+# verifier measured at roughly five minutes against a one-hour cap.
+[[steps]]
+name = "06-ipv6-by-default"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

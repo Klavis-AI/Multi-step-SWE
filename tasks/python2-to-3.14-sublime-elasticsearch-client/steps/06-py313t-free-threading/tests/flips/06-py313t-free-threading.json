@@ -1,0 +1,26 @@
+{
+  "step": "06-py313t-free-threading",
+  "why": "Step 06 changes no expected answer. It changes the conditions the answers have to hold under: the verifier runs the free-threaded build with PYTHON_GIL=0, so every read-modify-write on shared state that the GIL was silently serialising is now a real data race. These four cases are claimed as this rung's own bar (family 2) rather than flipped -- each one's expectation is the invariant recorded on 3.8.20 and is exactly what a correctly guarded tree still produces. Measured at the shipped 12x301 shape: on the unguarded tree with the GIL off all four fail (dead_count keeps 1649 of 3612 increments, digest auth issues 2474 distinct nonce counts instead of 3612, the round-robin selector raises IndexError, completes 2709 of 3612 selections and leaves its cursor at 1 rather than 3, and the six urllib3 counters -- two schemes' connections and one request count in each of the two copies -- land between 750 and 1477 of 3612); with one lock added around each read-modify-write, on the same tree and the same interpreter, all four pass. See NOTES sections 4.9, 4.10 and 12. Rung 01 retires all four from the inherited family because on a GIL-ful build their exact counts are a property of the scheduler rather than of the tree (see that overlay's `why`); each entry here therefore carries `revive`, which brings the case back at the observation recorded on 3.8.20 -- by reference to the recording, not as a copy of it pasted into this file, so that amending a case cannot leave this rung scoring an answer the suite no longer produces.",
+  "cases": {
+    "freethread.rr-selector-fair": {
+      "owned": true,
+      "revive": true,
+      "reason": "RoundRobinSelector.select is `self.rr += 1; self.rr %= len(connections); return connections[self.rr]`. Two unguarded read-modify-writes back to back: a lost update skews the distribution, and an interleaving between the increment and the modulo indexes the list out of range, so a selector documented never to raise raises IndexError. The case also reads `self.rr` when the hammering is over: after N selections over four connections a single shared cursor that stores the remainder is at (N - 1) % 4, so a locked cursor that indexes with `%` without storing it back is caught even though its distribution is perfect. And the shape is 12 x 301, not 12 x 300: the product is still divisible by four, so a shared cursor still owes an exactly even 903 each, while twelve private cursors -- a thread-local index, an itertools.cycle per thread -- no longer are, and hand out [912, 900, 900, 900]. A replacement that serves an even distribution from somewhere other than that attribute is not this object, and at this shape it cannot serve an even distribution at all."
+    },
+    "freethread.pool-dead-count-exact": {
+      "owned": true,
+      "revive": true,
+      "reason": "ConnectionPool.mark_dead does `dead_count[c] = dead_count.get(c, 0) + 1`. The count is the exponent in `dead_timeout * 2 ** (dead_count - 1)`, so a lost update shortens the timeout a failing node is held out for -- it surfaces as a flaky cluster rather than as a bug."
+    },
+    "freethread.digest-nonce-unique": {
+      "owned": true,
+      "revive": true,
+      "reason": "HTTPDigestAuth.build_digest_header does `self.nonce_count += 1` and puts the result on the wire as nc=%08x. That field exists so a server can refuse a replayed Authorization header, so a lost update here is two live requests sharing an nc -- the replay window the field was added to close."
+    },
+    "freethread.urllib3-num-connections": {
+      "owned": true,
+      "revive": true,
+      "reason": "HTTPConnectionPool._new_conn does `self.num_connections += 1` and _make_request does `self.num_requests += 1`. They are the pool's own accounting of sockets opened and requests issued -- the numbers an operator reads to decide whether the pool is leaking. The case drives them in every place the tree keeps a copy: `lib/urllib3` and the vendored `lib/requests/packages/urllib3`, which is the copy `requests` actually imports, and in each of those both `HTTPConnectionPool._new_conn` and the separate `HTTPSConnectionPool._new_conn` that overrides it with a second copy of the same increment. `_make_request` is inherited rather than overridden, so one pool per copy drives it. Guarding some of the four _new_conn bodies and not the rest leaves the tree racing on the scheme it did not get to, and after step 03 the scheme this plugin uses is https."
+    }
+  }
+}

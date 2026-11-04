@@ -1,0 +1,15 @@
+{
+  "doc": "PROFILE.md §6.2: 'PROJJSON is serialised as a nested JSON **object**, not as a string containing escaped JSON.' The complementary direction: the value at `metadata.srs.json` must not be a string. A tree that still serialises PROJJSON the 2.5.0 way stores the projected CRS as escaped text there and fails. The projection itself is the one `utm17.las` declares, `EPSG:26917` (NAD83 / UTM zone 17N), per stages/readers.las.rst's VLR handling. The invocation is deliberately NOT the `--metadata` one its sibling case runs: this case reads the same member out of `pdal info --all` -- apps/info.rst's '--all  Dump statistics, schema and metadata' -- so the two cases in this group observe the serialisation through two different reports and can fail independently. Only the three paths below are read; `--all` also emits statistics, a schema and a `now` timestamp, none of which is touched.",
+  "files": {"in.las": {"fixture": "utm17.las"}},
+  "run": [{"argv": ["info", "--all", "in.las"], "stdout_to": "all.json"}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "file_json", "file": "all.json",
+     "path": ["metadata", "srs", "json", "name"], "type": "str"},
+    {"kind": "file_json", "file": "all.json",
+     "path": ["metadata", "srs", "json", "coordinate_system"], "type": "dict"},
+    {"kind": "file_json", "file": "all.json",
+     "path": ["metadata", "srs", "json", "coordinate_system", "subtype"],
+     "equals": "Cartesian"}
+  ]
+}

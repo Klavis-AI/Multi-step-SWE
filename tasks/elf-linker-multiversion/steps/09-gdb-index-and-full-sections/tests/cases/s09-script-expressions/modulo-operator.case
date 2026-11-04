@@ -1,0 +1,43 @@
+# arch: x86_64
+# '%' is a script operator with the right precedence relative to + and *, and
+# it applies to a link-time address as well as to literals.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+extern char m_lit[];
+int g = 3;
+int entry(void) { print("modulo\n"); return (int)(long)m_lit; }
+C
+cc_obj m.o m.c
+mkscript() { cat > t.ld <<L
+$1
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .data : { *(.data .data.*) }
+}
+L
+}
+# Control: the same carrier with '/' instead of '%'. 0x1234 / 0x100 is 0x12.
+mkscript 'm_lit = 0x1234 / 0x100;'
+link_ok ctl -T t.ld rt.o m.o
+run_expect ctl "modulo" 18
+
+mkscript 'm_lit  = 0x1234 % 0x100;
+m_prec = 2 + 17 % 5;
+m_mul  = 3 * 17 % 5;
+m_addr = ADDR(.text) % 0x1000;'
+link_ok out -T t.ld rt.o m.o
+want "literal modulo"           "$(( 16#$(sym_value out m_lit) ))"  "$(( 0x34 ))"
+want "modulo binds before plus" "$(( 16#$(sym_value out m_prec) ))" "4"
+want "modulo binds like times"  "$(( 16#$(sym_value out m_mul) ))"  "1"
+# ADDR(.text) % 0x1000 must equal the low bits of the address wild really used.
+want "modulo of a link-time address" \
+     "$(( 16#$(sym_value out m_addr) ))" "$(( (16#$(sec_addr out .text)) % 0x1000 ))"
+run_expect out "modulo" 52
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

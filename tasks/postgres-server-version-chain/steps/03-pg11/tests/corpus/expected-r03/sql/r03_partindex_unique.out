@@ -1,0 +1,18 @@
+CREATE TABLE q3_piu(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q3_piu_1 PARTITION OF q3_piu FOR VALUES FROM (1) TO (10);
+CREATE TABLE q3_piu_2 PARTITION OF q3_piu FOR VALUES FROM (10) TO (20);
+CREATE UNIQUE INDEX q3_piu_u ON q3_piu (a);
+INSERT INTO q3_piu VALUES (1,'x'),(11,'y');
+INSERT INTO q3_piu VALUES (1,'dup');
+ERROR:  duplicate key value violates unique constraint "q3_piu_1_a_idx"
+DETAIL:  Key (a)=(1) already exists.
+INSERT INTO q3_piu VALUES (2,'ok');
+SELECT a, b FROM q3_piu ORDER BY a;
+ a  | b  
+----+----
+  1 | x
+  2 | ok
+ 11 | y
+(3 rows)
+
+DROP TABLE q3_piu;

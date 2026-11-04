@@ -1,0 +1,59 @@
+# arch: loongarch64
+# R_LARCH_B26 (b / bl) across object boundaries must be encoded as the correct
+# 26-bit, word-scaled PC-relative displacement, both for a tail branch and for
+# a call that returns.
+rt_obj rt.o
+cat > leaf.s <<'S'
+        .text
+        .globl leaf
+leaf:   li.w  $a0, 41
+        addi.d $a0, $a0, 1
+        jr $ra
+        .section .note.GNU-stack,"",@progbits
+S
+cat > tail.s <<'S'
+        .text
+        .globl tail
+tail:   b leaf
+        .section .note.GNU-stack,"",@progbits
+S
+cat > call.s <<'S'
+        .text
+        .globl callit
+callit: addi.d $sp, $sp, -16
+        st.d   $ra, $sp, 8
+        bl     tail
+        ld.d   $ra, $sp, 8
+        addi.d $sp, $sp, 16
+        jr $ra
+        .section .note.GNU-stack,"",@progbits
+S
+cat > m.c <<'C'
+#include "rt.h"
+int callit(void);
+int entry(void) { putdec(callit()); return 0; }
+C
+as_obj leaf.o leaf.s; as_obj tail.o tail.s; as_obj call.o call.s; cc_obj m.o m.c
+relocs call.o > call.rel; relocs tail.o > tail.rel
+grep -q 'R_LARCH_B26' call.rel || die "input lacks a B26 against tail: $(cat call.rel)"
+grep -q 'R_LARCH_B26' tail.rel || die "input lacks a B26 against leaf: $(cat tail.rel)"
+link_ok out rt.o call.o m.o tail.o leaf.o
+$OBJDUMP -d --no-show-raw-insn out > dis.txt
+tailaddr=$(sym_value out tail); leafaddr=$(sym_value out leaf)
+[ -n "$tailaddr" ] && [ -n "$leafaddr" ] || die "tail/leaf missing from the symbol table"
+# llvm-objdump prints LoongArch branches as a signed byte displacement plus the
+# resolved symbol name, so check both: the annotation names the right callee,
+# and instruction-address + displacement equals that callee's final address.
+target() { # target <mnemonic> <callee> -> final address of the branch target
+  local a d
+  read -r a d < <(awk -v m="$1" -v s="<$2>" '
+    { for (i = 1; i <= NF; i++) if ($i == m && $(i+2) == s) {
+        a = $1; sub(/:$/, "", a); print a, $(i+1); exit } }' dis.txt)
+  [ -n "$a" ] || return 0
+  printf '%d\n' "$(( 0x$a + d ))"
+}
+want "bl in callit lands on tail" "$(target bl tail)"  "$((0x$tailaddr))"
+want "b in tail lands on leaf"    "$(target b leaf)"   "$((0x$leafaddr))"
+run_expect out "42" 0
+
+asserts_at_least 2

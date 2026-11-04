@@ -1,0 +1,30 @@
+CREATE TABLE x07_21a(a int PRIMARY KEY, b text);
+CREATE PUBLICATION x07_21p FOR TABLE x07_21a WHERE (random() > 0.5);
+ERROR:  invalid publication WHERE expression
+LINE 1: ...EATE PUBLICATION x07_21p FOR TABLE x07_21a WHERE (random() >...
+                                                             ^
+DETAIL:  User-defined or built-in mutable functions are not allowed.
+CREATE PUBLICATION x07_21p FOR TABLE x07_21a WHERE (a > (SELECT 1));
+ERROR:  invalid publication WHERE expression
+LINE 1: ... PUBLICATION x07_21p FOR TABLE x07_21a WHERE (a > (SELECT 1)...
+                                                             ^
+DETAIL:  Only columns, constants, built-in operators, built-in data types, built-in collations, and immutable built-in functions are allowed.
+CREATE PUBLICATION x07_21p FOR TABLE x07_21a WHERE (nosuchcol > 1);
+ERROR:  column "nosuchcol" does not exist
+LINE 1: ...EATE PUBLICATION x07_21p FOR TABLE x07_21a WHERE (nosuchcol ...
+                                                             ^
+CREATE PUBLICATION x07_21p FOR TABLE x07_21a WHERE (a);
+ERROR:  argument of PUBLICATION WHERE must be type boolean, not type integer
+LINE 1: CREATE PUBLICATION x07_21p FOR TABLE x07_21a WHERE (a);
+                                                            ^
+CREATE PUBLICATION x07_21p FOR ALL TABLES WHERE (a > 1);
+ERROR:  syntax error at or near "WHERE"
+LINE 1: CREATE PUBLICATION x07_21p FOR ALL TABLES WHERE (a > 1);
+                                                  ^
+SELECT count(*) FROM pg_publication WHERE pubname='x07_21p';
+ count 
+-------
+     0
+(1 row)
+
+DROP TABLE x07_21a;

@@ -1,0 +1,35 @@
+# Tests in the inherited suite whose outcome depends on the order in which the
+# JVM loaded classes, and which therefore cannot be scored as pass-or-fail.
+#
+# Measured on the pinned tree, 2026-09-16, JDK 8u502, in both arq-agent:m04 and
+# arq-verifier:m04-step01 (identical results):
+#
+#   ./gradlew test                    -> FAILS
+#   ./gradlew test --continue         -> passes
+#   ./gradlew :impl-base:test         -> passes
+#   ./gradlew test (ignoreFailures)   -> passes
+#   mvn -B -o clean install           -> passes (this is the frozen baseline)
+#
+# The mechanism is in the tree, not in the build. AnnotationDeploymentScenario-
+# Generator walks TestClass.getMethods(Deployment.class), which delegates to
+# Class.getMethods(); the JLS leaves that order unspecified, and HotSpot orders
+# a class's methods by the address of the interned Symbol holding each name --
+# so what the JVM loaded earlier decides the answer. The test then asserts on
+# getDeployments().get(0), i.e. on that order. Under Gradle the failure tracks
+# test-worker reuse, which tracks scheduling flags.
+#
+# It is listed here rather than fixed because fixing it means editing either the
+# inherited test or the production code whose behaviour family A pins, and
+# because a candidate cannot be scored on a coin flip. B-7 treats these as
+# allowed failures; B-5 still requires the method to exist, so a candidate that
+# deletes it is caught by the population gate rather than by this one.
+#
+# Lines starting with # are comments; everything else is <class>#<method>.
+org.jboss.arquillian.impl.client.deployment.AnnotationDeploymentScenarioGeneratorTestCase#shouldHandleMultipleDeploymentsAllSet
+# Measured on the oracle tree, 2026-11-04, all81 run: the case failed in the
+# candidate's own full-suite TEST-*.xml, but the verifier's JUnitCore
+# corroboration run passed it in isolation (corroborate.failed=1, and the one
+# failure was the AnnotationDeployment case above). Same class of
+# suite-order/worker-reuse dependence as the entry above; excused rather than
+# charged as a capability gap.
+org.jboss.arquillian.protocol.servlet.ProtocolTestCase#shouldReturnExceptionWhenErrorLoadingClass

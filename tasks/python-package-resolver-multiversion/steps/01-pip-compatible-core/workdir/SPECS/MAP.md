@@ -1,0 +1,79 @@
+# Step -> document map
+
+Single source for `mkworkdir.py`. Two tables below are machine-read: the
+**Document register** (one row per shipped file) and the **Step map** (one row
+per step). Document ids are the file stems under `specs/`; the generator only
+recognises backticked tokens that match a register id, so prose in the same
+cell is safe.
+
+Provenance of every document: `specs/MANIFEST.tsv` (source URL, pinned commit,
+retrieval time, SHA-256, licence). Sources are the reStructuredText originals
+of `https://peps.python.org/pep-NNNN/` (python/peps, commit
+`8766f78fee7b2bd08bce0537fcb2c9b103b10d71`, 2026-09-18) and of the PyPA
+Packaging Specifications pages (pypa/packaging.python.org, commit
+`457e74f03e630c7d4414bb39e8e77d4b61df6ee9`, 2026-09-09) — the "2026-09
+snapshot" the seed pins.
+
+Rule used for the *introduced* column: a document is introduced at the first
+step whose upstream span makes the behaviour it governs observable through the
+`uv` binary, checked against upstream's changelog at the tag and against
+`git grep` of `crates/*/src` at the adjacent tags — not against the seed's
+prose alone. Where that check disagrees with the seed, the row says so.
+
+## Document register
+
+| id | file | governs |
+|---|---|---|
+| `pep-0440` | `specs/pep-0440.rst` | Version identifiers: epoch/release/pre/post/dev/local grammar, normalisation, the total ordering, and the specifier operators (`==`, `!=`, `~=`, `<=`, `>=`, `<`, `>`, `===`, trailing `.*`), plus pre-release handling. |
+| `pep-0508` | `specs/pep-0508.rst` | Dependency specifiers: name, extras, version specifier, URL, and the environment-marker language (variables, version vs string comparison). |
+| `pep-0503` | `specs/pep-0503.rst` | Simple repository API in HTML form: project list, name normalisation, `data-requires-python`, hash fragments. |
+| `pep-0691` | `specs/pep-0691.rst` | Simple repository API in JSON form (`application/vnd.pypi.simple.v1+json`), content negotiation, `files[]` fields. |
+| `pep-0658` | `specs/pep-0658.rst` | `.metadata` files served next to a distribution and the `data-dist-info-metadata` attribute with its hash. |
+| `pep-0427` | `specs/pep-0427.rst` | The wheel format: filename grammar, `.dist-info` contents, `RECORD`, `WHEEL`, `data/` subdirectories, script generation. |
+| `pep-0425` | `specs/pep-0425.rst` | Compatibility tags: the `python-abi-platform` triple and how a tag set is matched. |
+| `pep-0600` | `specs/pep-0600.rst` | `manylinux_x_y` platform tags derived from the glibc version. |
+| `pep-0656` | `specs/pep-0656.rst` | `musllinux_x_y` platform tags derived from the musl version. |
+| `pep-0517` | `specs/pep-0517.rst` | Build-backend hook protocol: `build_wheel`, `build_sdist`, `get_requires_for_build_*`, `prepare_metadata_for_build_wheel`, and the isolated build environment. |
+| `pep-0518` | `specs/pep-0518.rst` | `[build-system]` table in `pyproject.toml`: `requires` and the build environment. |
+| `pep-0660` | `specs/pep-0660.rst` | Editable installs through `build_editable` and the related hooks. |
+| `pep-0621` | `specs/pep-0621.rst` | `[project]` metadata in `pyproject.toml`: `name`, `version`, `requires-python`, `dependencies`, `optional-dependencies`, `dynamic`. |
+| `pep-0631` | `specs/pep-0631.rst` | The dependency-specification form (`dependencies` / `optional-dependencies` as PEP 508 strings) that PEP 621 adopted. |
+| `pep-0592` | `specs/pep-0592.rst` | Yanked releases: the `data-yanked` attribute and when a yanked file may be selected. |
+| `pypa-index` | `specs/pypa-index.rst` | The consolidated PyPA specifications index (toctree of the six section pages below). |
+| `pypa-section-distribution-metadata` | `specs/pypa-section-distribution-metadata.rst` | Index section: distribution metadata specifications. |
+| `pypa-section-installation-metadata` | `specs/pypa-section-installation-metadata.rst` | Index section: installation metadata specifications. |
+| `pypa-section-distribution-formats` | `specs/pypa-section-distribution-formats.rst` | Index section: distribution format specifications. |
+| `pypa-section-package-indices` | `specs/pypa-section-package-indices.rst` | Index section: package index specifications. |
+| `pypa-section-python-description-formats` | `specs/pypa-section-python-description-formats.rst` | Index section: Python description formats. |
+| `pypa-section-reproducible-environments` | `specs/pypa-section-reproducible-environments.rst` | Index section: reproducible environments (lock files). |
+| `pypa-version-specifiers` | `specs/pypa-version-specifiers.rst` | Living edition of PEP 440 with post-PEP amendments; the normative text for versions and specifiers today. |
+| `pypa-dependency-specifiers` | `specs/pypa-dependency-specifiers.rst` | Living edition of PEP 508, including the `extras` and `dependency_groups` marker variables added for lock files. |
+| `pypa-name-normalization` | `specs/pypa-name-normalization.rst` | Package-name validity and normalisation (`re.sub(r"[-_.]+", "-", name).lower()`). |
+| `pypa-simple-repository-api` | `specs/pypa-simple-repository-api.rst` | Living edition of PEP 503/691/658/714/592/700: HTML and JSON index pages, `requires-python`, `core-metadata`, `yanked`, `upload-time`, hashes. |
+| `pypa-file-yanking` | `specs/pypa-file-yanking.rst` | Living edition of PEP 592. |
+| `pypa-core-metadata` | `specs/pypa-core-metadata.rst` | `METADATA` / `PKG-INFO` fields and versions (`Requires-Dist`, `Requires-Python`, `Provides-Extra`, `Classifier`, ...). |
+| `pypa-binary-distribution-format` | `specs/pypa-binary-distribution-format.rst` | Living edition of PEP 427: the wheel archive, filename escaping, `RECORD`, installation procedure, script wrappers. |
+| `pypa-source-distribution-format` | `specs/pypa-source-distribution-format.rst` | The sdist: `{name}-{version}.tar.gz` naming, `PKG-INFO`, and the archive rules. |
+| `pypa-recording-installed-packages` | `specs/pypa-recording-installed-packages.rst` | The installed `.dist-info` directory: `METADATA`, `RECORD`, `INSTALLER`, `direct_url.json`, `REQUESTED`; what uninstall and freeze read. |
+| `pypa-entry-points` | `specs/pypa-entry-points.rst` | `entry_points.txt` and the `console_scripts` / `gui_scripts` groups from which script wrappers are generated. |
+| `pypa-platform-compatibility-tags` | `specs/pypa-platform-compatibility-tags.rst` | Living edition of PEP 425/600/656/730: tag grammar, ABI tags derived from `sys.abiflags`, `manylinux`/`musllinux`/`macosx`/`ios` platform tags. |
+| `pypa-pyproject-toml` | `specs/pypa-pyproject-toml.rst` | Living edition of PEP 621/518: the `[project]` and `[build-system]` tables. |
+| `pypa-direct-url` | `specs/pypa-direct-url.rst` | When an installer records `direct_url.json` (URL, path, VCS, editable requirements). |
+| `pypa-direct-url-data-structure` | `specs/pypa-direct-url-data-structure.rst` | The JSON shape of `direct_url.json`. |
+| `pypa-virtual-environments` | `specs/pypa-virtual-environments.rst` | What a virtual environment is: `pyvenv.cfg`, its `home` key, and how a directory is recognised as one. |
+
+## Step map
+
+Column meanings. **Introduced**: documents a candidate could not have needed
+before this step; each carries its justification. **Turns on**: the inherited
+documents this step's own milestone depends on most (subset of Inherited).
+**Inherited**: everything introduced at earlier steps, repeated in full.
+**Not governed by any shipped specification**: the parts of this step's new
+capability that no PEP or PyPA page defines — uv's own behaviour, which a
+compatibility-profile document must fix.
+
+| Step | Tag | Milestone | Introduced | Turns on | Inherited | Not governed by any shipped specification |
+|---|---|---|---|---|---|---|
+| 01 | `0.1.0` | The pip-compatible core: PEP 440 versions and specifiers, PEP 508 requirements and markers, a PEP 503/691 index client with PEP 658 metadata, a PubGrub resolver over one marker environment, wheel and sdist installation with tag selection, a PEP 517/518 build frontend, `uv pip compile`/`install`/`sync`/`uninstall`/`freeze`, `uv venv`. | `pep-0440` `pep-0508` `pypa-version-specifiers` `pypa-dependency-specifiers` `pypa-name-normalization` (resolution is a total function of these); `pep-0503` `pep-0691` `pep-0658` `pep-0592` `pypa-simple-repository-api` `pypa-file-yanking` (the index client parses HTML and JSON, `data-requires-python`, `.metadata`, yanked files at 0.1.0); `pep-0427` `pep-0425` `pep-0600` `pep-0656` `pypa-binary-distribution-format` `pypa-platform-compatibility-tags` `pypa-recording-installed-packages` `pypa-entry-points` `pypa-core-metadata` (wheel selection by tag order, `RECORD` validation, `.dist-info`, console scripts, `musllinux` tags all present at 0.1.0); `pep-0517` `pep-0518` `pypa-source-distribution-format` (sdists are built through the hooks in an isolated environment); `pep-0660` (deviation from the seed, which lists editables at step 2: the 0.1.0 README states editable installs of local paths are supported, `build_editable` is called in 6 source files at 0.1.0, and editable installs of local paths are observable at this tag); `pep-0621` `pep-0631` `pypa-pyproject-toml` (`uv pip compile pyproject.toml --extra` reads `[project].dependencies`/`optional-dependencies` at 0.1.0); `pypa-direct-url` `pypa-direct-url-data-structure` (`direct_url.json` is written and read for URL requirements at 0.1.0); `pypa-virtual-environments` (`uv venv` writes `pyvenv.cfg`); `pypa-index` `pypa-section-distribution-metadata` `pypa-section-installation-metadata` `pypa-section-distribution-formats` `pypa-section-package-indices` `pypa-section-python-description-formats` `pypa-section-reproducible-environments` (the consolidated index the seed pins). | all of the above | — | The `uv pip compile` output format (pip-tools annotation convention), the no-solution report, the cache layout, the resolver's candidate-preference policy beyond "highest satisfying version", and the requirements.txt dialect (pip's, not a PyPA specification). |
+
+Rows for steps after 01 and documents not shipped here are omitted from this copy; the full map is author-side.

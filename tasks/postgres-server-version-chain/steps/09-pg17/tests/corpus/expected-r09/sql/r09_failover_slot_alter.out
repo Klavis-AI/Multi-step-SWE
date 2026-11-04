@@ -1,0 +1,16 @@
+SELECT pg_sync_replication_slots();
+ERROR:  replication slots can only be synchronized to a standby server
+CREATE SUBSCRIPTION r09_sub_fo_alt CONNECTION 'host=127.0.0.1 port=1 dbname=r09foa' PUBLICATION r09_pub_foa WITH (connect = false, slot_name = NONE);
+WARNING:  subscription was created, but is not connected
+HINT:  To initiate replication, you must manually create the replication slot, enable the subscription, and refresh the subscription.
+ALTER SUBSCRIPTION r09_sub_fo_alt SET (failover = true);
+ERROR:  cannot set option "failover" for a subscription that does not have a slot name
+SELECT subname, subfailover FROM pg_subscription WHERE subname = 'r09_sub_fo_alt';
+    subname     | subfailover 
+----------------+-------------
+ r09_sub_fo_alt | f
+(1 row)
+
+ALTER SUBSCRIPTION r09_sub_fo_alt SET (failover = bogus);
+ERROR:  failover requires a Boolean value
+DROP SUBSCRIPTION IF EXISTS r09_sub_fo_alt;

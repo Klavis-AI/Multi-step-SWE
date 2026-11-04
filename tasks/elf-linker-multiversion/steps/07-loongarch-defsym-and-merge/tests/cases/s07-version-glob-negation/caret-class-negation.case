@@ -1,0 +1,38 @@
+# arch: x86_64
+# `[^...]` is the accepted extension spelling of glob set negation in version
+# scripts (12-version-scripts.md, glob table). Before this milestone the caret
+# was matched as an ordinary member of the set, so the pattern selected exactly
+# the names it is supposed to exclude.
+cat > s.c <<'C'
+int fooa(void) { return 1; }
+int foob(void) { return 2; }
+int fooc(void) { return 3; }
+int food(void) { return 4; }
+int other(void) { return 5; }
+C
+cc_obj s.o s.c -fPIC
+exported() { dynsyms "$1" > ds.txt; awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' '; }
+cat > neg.map <<'V'
+{ global: foo[^ab]; local: *; };
+V
+link_ok neg.so -shared --no-gc-sections --version-script=neg.map s.o
+want "foo[^ab] excludes a and b" "$(exported neg.so)" "fooc food "
+cat > rng.map <<'V'
+{ global: foo[^a-c]; local: *; };
+V
+link_ok rng.so -shared --no-gc-sections --version-script=rng.map s.o
+want "foo[^a-c] negates a range" "$(exported rng.so)" "food "
+# The negated class is not anchored: it works at the head of a pattern and in
+# front of a trailing wildcard too.
+cat > head.map <<'V'
+{ global: [^f]*; local: *; };
+V
+link_ok head.so -shared --no-gc-sections --version-script=head.map s.o
+want "[^f]* keeps only the name not starting with f" "$(exported head.so)" "other "
+cat > tail.map <<'V'
+{ global: *[^d]; local: *; };
+V
+link_ok tail.so -shared --no-gc-sections --version-script=tail.map s.o
+want "*[^d] excludes the name ending in d" "$(exported tail.so)" "fooa foob fooc other "
+
+asserts_at_least 4

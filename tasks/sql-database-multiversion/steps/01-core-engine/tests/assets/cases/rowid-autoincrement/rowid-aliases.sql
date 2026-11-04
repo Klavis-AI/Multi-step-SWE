@@ -1,0 +1,11 @@
+CREATE TABLE t(x INTEGER PRIMARY KEY, y);
+INSERT INTO t VALUES(7, 'a');
+SELECT x, rowid, oid, _rowid_ FROM t;
+UPDATE t SET x = 9 WHERE rowid = 7;
+SELECT x, rowid FROM t;
+CREATE TABLE u(a, b);
+INSERT INTO u(rowid, a, b) VALUES(123, 5, 'hello');
+SELECT rowid, a, b FROM u;
+CREATE TABLE v(rowid TEXT, z);
+INSERT INTO v VALUES('mine', 1);
+SELECT rowid FROM v;

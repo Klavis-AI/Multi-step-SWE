@@ -1,0 +1,49 @@
+# "Starting with release 10.30, recursive subroutine calls are no longer
+# treated as atomic. That is, they can be re-entered to try unused
+# alternatives if there is a matching failure later in the pattern."
+# ChangeLog 10.30 item 1; pcre2pattern.3, "Differences in recursion processing
+# between PCRE2 and Perl".
+
+/^(p|pq)(?1)$/
+    pqpq
+ 0: pqpq
+ 1: pq
+    pp
+ 0: pp
+ 1: p
+    pqp
+ 0: pqp
+ 1: pq
+
+/^(p|pq)(?1)(?1)$/
+    ppqpq
+ 0: ppqpq
+ 1: p
+    ppp
+ 0: ppp
+ 1: p
+
+# A palindrome written with the short branch first only works if the recursion
+# can be re-entered to try its other branch.
+/^([0-9]?|([a-z])(?1)\2)$/
+    abc7cba
+ 0: abc7cba
+ 1: abc7cba
+ 2: a
+    abccba
+ 0: abccba
+ 1: abccba
+ 2: a
+    abc8dba
+No match
+    q
+No match
+
+# "If you want a subroutine call to be atomic, you must explicitly enclose it
+# in an atomic group."
+/^(?>(p|pq))(?>(?1))$/
+    pqpq
+No match
+    pp
+ 0: pp
+ 1: p

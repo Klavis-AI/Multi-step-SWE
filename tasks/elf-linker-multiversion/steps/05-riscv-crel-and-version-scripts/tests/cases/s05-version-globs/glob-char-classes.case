@@ -1,0 +1,55 @@
+# arch: x86_64
+# what: version-script patterns must support glob character classes -- an
+# explicit set, a range, and a negated set -- when deciding which names are
+# global and which are localised.
+cat > s.c <<'C'
+int fooa(void) { return 1; }
+int foob(void) { return 2; }
+int fooc(void) { return 3; }
+int food(void) { return 4; }
+int other(void) { return 5; }
+C
+cc_obj s.o s.c -fPIC
+exported() { dynsyms "$1" > ds.txt; awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' '; }
+cat > set.map <<'V'
+{ global: foo[ac]; local: *; };
+V
+link_ok set.so -shared --version-script=set.map s.o
+want "explicit class foo[ac]" "$(exported set.so)" "fooa fooc "
+cat > range.map <<'V'
+{ global: foo[a-c]; local: *; };
+V
+link_ok range.so -shared --version-script=range.map s.o
+want "range class foo[a-c]" "$(exported range.so)" "fooa foob fooc "
+cat > neg.map <<'V'
+{ global: foo[!ab]; local: *; };
+V
+link_ok neg.so -shared --version-script=neg.map s.o
+want "negated class foo[!ab]" "$(exported neg.so)" "fooc food "
+# The same classes must also work on the local: side.
+cat > loc.map <<'V'
+{ global: *; local: foo[bd]; };
+V
+link_ok loc.so -shared --version-script=loc.map s.o
+want "local class foo[bd]" "$(exported loc.so)" "fooa fooc other "
+# A SECTIONS script and a version script are independent inputs and MUST
+# compose: the script drives layout, the version script still decides scope
+# (spec/10 §13 row 5, "SECTIONS combined with version scripts").
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x500000;
+    .text : { *(.text .text.*) }
+    vpayload : { vmark = .; KEEP(*(.data.vp)) }
+}
+L
+cat > vp.s <<'S'
+        .section .data.vp,"aw",@progbits
+        .byte 0x5a
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj vp.o vp.s
+link_ok both.so -shared -T lay.ld --version-script=range.map s.o vp.o
+want "script layout survives a version script" "$(( 16#$(sec_size both.so vpayload) ))" "1"
+want "version scoping survives a script" "$(exported both.so)" "fooa foob fooc vmark "
+# 6 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 6

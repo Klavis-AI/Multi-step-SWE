@@ -1,0 +1,70 @@
+# arch: aarch64
+# Local exec (TPREL_HI12/LO12) and initial exec (GOTTPREL) must agree on the
+# address of a thread-local, and distinct thread-locals must get distinct
+# slots. The case installs its own thread pointer, so this is a real
+# execution test rather than a structural one.
+rt_obj rt.o
+cat > acc.s <<'S'
+        .section .tdata,"awT",@progbits
+        .globl tv
+        .p2align 3
+tv:     .quad 0
+        .section .tbss,"awT",@nobits
+        .globl tz
+        .p2align 4
+tz:     .zero 32
+        .text
+        .globl set_tp
+set_tp: msr     tpidr_el0, x0
+        ret
+        .globl le_addr
+le_addr:
+        mrs     x0, tpidr_el0
+        add     x0, x0, #:tprel_hi12:tv, lsl #12
+        add     x0, x0, #:tprel_lo12_nc:tv
+        ret
+        .globl ie_addr
+ie_addr:
+        adrp    x0, :gottprel:tv
+        ldr     x0, [x0, #:gottprel_lo12:tv]
+        mrs     x1, tpidr_el0
+        add     x0, x0, x1
+        ret
+        .globl lez_addr
+lez_addr:
+        mrs     x0, tpidr_el0
+        add     x0, x0, #:tprel_hi12:tz, lsl #12
+        add     x0, x0, #:tprel_lo12_nc:tz
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj acc.o acc.s
+relocs acc.o > in.rel
+for r in TLSLE_ADD_TPREL_HI12 TLSLE_ADD_TPREL_LO12_NC TLSIE_ADR_GOTTPREL_PAGE21 TLSIE_LD64_GOTTPREL_LO12_NC; do
+  grep -q "R_AARCH64_$r" in.rel || die "input lacks R_AARCH64_$r: $(cat in.rel)"
+done
+cat > m.c <<'C'
+#include "rt.h"
+void set_tp(void *); long *le_addr(void); long *ie_addr(void); long *lez_addr(void);
+static char pool[4096] __attribute__((aligned(64)));
+int entry(void) {
+    char *tp = &pool[1024];
+    set_tp(tp);
+    long *a = le_addr(), *b = ie_addr(), *z = lez_addr();
+    putdec(a == b); print("\n");
+    putdec((char *)a > tp && (char *)a < tp + 1024); print("\n");
+    putdec(a != z); print("\n");
+    *a = 4242; *z = 77;
+    putdec(*b); print(","); putdec(*z); print("\n");
+    return 0;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o acc.o
+segments out > seg.txt; sections out > sec.txt
+grep -qE '^ +TLS ' seg.txt || die "no PT_TLS segment: $(cat seg.txt)"
+grep -qE '\.tbss +NOBITS' sec.txt || die ".tbss is not NOBITS: $(grep tbss sec.txt)"
+run_expect out "1
+1
+1
+4242,77" 0

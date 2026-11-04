@@ -1,0 +1,105 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. A step's reward is
+# `correctness x mean_f( ln(max(1, speedup_f)) )` over the functions in its
+# scope -- i.e. correctness x ln(geometric mean of the per-function speedups).
+# Correctness is binary and multiplies, so a tree that changes behaviour scores
+# 0 however fast it is; a correct but unimproved tree scores 0 too.
+multi_step_reward_strategy = "mean"
+
+# The cumulative worktree. `build` is dropped: it is a build product of a tree
+# the verifier rebuilds anyway, and it is large. Nothing else is excluded --
+# `exclude` matches a path component at ANY depth, and every step's source tree
+# dir is a name we need (`src`, `coding`, `transform`, `codestream`, `tests`,
+# `vendor` are all real directories inside the OpenJPH tree, so none of them may
+# appear here).
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build", ".git"] },
+]
+
+[task]
+name = "harbor/openjph-htj2k-passes"
+version = "1.0.0"
+description = "Optimize the OpenJPH HTJ2K codec one coding pass at a time: block decoder, block encoder, the two wavelet transforms, the colour transform and the codeblock pack/unpack, each rewarded by measured per-function speedup gated on bit-exact output."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "jpeg2000", "htj2k", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c++", "simd", "codec"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# The verifier reconstructs and builds this step's base tree AND the ladder's
+# floor, builds the candidate, fetches and runs upstream's 109-test suite for
+# both, and then times the scoped functions in both trees.
+# cpus must stay >= 2 because measurement pins to cores 0,1.
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-block-decoder"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-block-encoder"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-reversible-wavelet"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-irreversible-wavelet"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-colour-transform"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-codeblock-pack-unpack"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

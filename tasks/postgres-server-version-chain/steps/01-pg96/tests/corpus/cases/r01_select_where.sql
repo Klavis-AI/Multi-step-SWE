@@ -1,0 +1,9 @@
+CREATE TABLE sw(i int, t text, n numeric);
+INSERT INTO sw VALUES (1,'a',1.5),(2,'b',2.5),(3,NULL,NULL),(4,'d',4.5);
+SELECT * FROM sw WHERE i BETWEEN 2 AND 3 ORDER BY i;
+SELECT * FROM sw WHERE t IS NULL;
+SELECT * FROM sw WHERE t IN ('a','d') ORDER BY i;
+SELECT * FROM sw WHERE i NOT IN (1,2) ORDER BY i;
+SELECT * FROM sw WHERE i NOT IN (1,NULL) ORDER BY i;
+SELECT count(*) FROM sw WHERE t LIKE '%a%';
+DROP TABLE sw;

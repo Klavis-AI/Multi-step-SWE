@@ -1,0 +1,5 @@
+SELECT 'abc'::xid8;
+SELECT '-1'::xid8;
+SELECT ' 42 '::xid8;
+SELECT ''::xid8;
+SELECT '18446744073709551616'::xid8;

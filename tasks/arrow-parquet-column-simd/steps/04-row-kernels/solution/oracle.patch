@@ -1,0 +1,2251 @@
+diff --git a/cpp/src/arrow/CMakeLists.txt b/cpp/src/arrow/CMakeLists.txt
+index 5f64f60..33ee90b 100644
+--- a/cpp/src/arrow/CMakeLists.txt
++++ b/cpp/src/arrow/CMakeLists.txt
+@@ -872,6 +872,11 @@ if(ARROW_COMPUTE)
+   append_runtime_avx2_src(ARROW_COMPUTE_LIB_SRCS compute/kernels/aggregate_basic_avx2.cc)
+   append_runtime_avx512_src(ARROW_COMPUTE_LIB_SRCS
+                             compute/kernels/aggregate_basic_avx512.cc)
++  append_runtime_avx2_src(ARROW_COMPUTE_LIB_SRCS compute/key_hash_internal_avx2.cc)
++  append_runtime_avx2_bmi2_src(ARROW_COMPUTE_LIB_SRCS compute/key_map_internal_avx2.cc)
++  append_runtime_avx2_src(ARROW_COMPUTE_LIB_SRCS compute/row/compare_internal_avx2.cc)
++  append_runtime_avx2_src(ARROW_COMPUTE_LIB_SRCS compute/row/encode_internal_avx2.cc)
++  append_runtime_avx2_bmi2_src(ARROW_COMPUTE_LIB_SRCS compute/util_avx2.cc)
+ 
+   set(ARROW_COMPUTE_SHARED_PRIVATE_LINK_LIBS)
+   set(ARROW_COMPUTE_SHARED_LINK_LIBS)
+diff --git a/cpp/src/arrow/compute/key_hash_internal.cc b/cpp/src/arrow/compute/key_hash_internal.cc
+index be58a89..4608a74 100644
+--- a/cpp/src/arrow/compute/key_hash_internal.cc
++++ b/cpp/src/arrow/compute/key_hash_internal.cc
+@@ -239,6 +239,12 @@ void Hashing32::HashVarLen(int64_t hardware_flags, bool combine_hashes, uint32_t
+                            const uint32_t* offsets, const uint8_t* concatenated_keys,
+                            uint32_t* hashes, uint32_t* hashes_temp_for_combine) {
+   uint32_t num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
++    num_processed = HashVarLen_avx2(combine_hashes, num_rows, offsets, concatenated_keys,
++                                    hashes, hashes_temp_for_combine);
++  }
++#endif
+   if (combine_hashes) {
+     HashVarLenImp<uint32_t, true>(num_rows - num_processed, offsets + num_processed,
+                                   concatenated_keys, hashes + num_processed);
+@@ -252,6 +258,12 @@ void Hashing32::HashVarLen(int64_t hardware_flags, bool combine_hashes, uint32_t
+                            const uint64_t* offsets, const uint8_t* concatenated_keys,
+                            uint32_t* hashes, uint32_t* hashes_temp_for_combine) {
+   uint32_t num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
++    num_processed = HashVarLen_avx2(combine_hashes, num_rows, offsets, concatenated_keys,
++                                    hashes, hashes_temp_for_combine);
++  }
++#endif
+   if (combine_hashes) {
+     HashVarLenImp<uint64_t, true>(num_rows - num_processed, offsets + num_processed,
+                                   concatenated_keys, hashes + num_processed);
+@@ -352,6 +364,12 @@ void Hashing32::HashFixed(int64_t hardware_flags, bool combine_hashes, uint32_t
+   }
+ 
+   uint32_t num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (hardware_flags & arrow::internal::CpuInfo::AVX2) {
++    num_processed = HashFixedLen_avx2(combine_hashes, num_keys, key_length, keys, hashes,
++                                      temp_hashes_for_combine);
++  }
++#endif
+   if (combine_hashes) {
+     HashFixedLenImp<true>(num_keys - num_processed, key_length,
+                           keys + key_length * num_processed, hashes + num_processed);
+diff --git a/L4/cpp/src/arrow/compute/key_hash_internal_avx2.cc b/L4/cpp/src/arrow/compute/key_hash_internal_avx2.cc
+new file mode 100644
+index 0000000..5a4366d
+--- /dev/null
++++ b/cpp/src/arrow/compute/key_hash_internal_avx2.cc
+@@ -0,0 +1,316 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++#include "arrow/compute/key_hash_internal.h"
++#include "arrow/util/bit_util.h"
++#include "arrow/util/simd.h"
++
++namespace arrow {
++namespace compute {
++
++inline __m256i Hashing32::Avalanche_avx2(__m256i hash) {
++  hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 15));
++  hash = _mm256_mullo_epi32(hash, _mm256_set1_epi32(PRIME32_2));
++  hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 13));
++  hash = _mm256_mullo_epi32(hash, _mm256_set1_epi32(PRIME32_3));
++  hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 16));
++  return hash;
++}
++
++inline __m256i Hashing32::CombineHashesImp_avx2(__m256i previous_hash, __m256i hash) {
++  // previous_hash ^= acc + kCombineConst + (previous_hash << 6) +
++  // (previous_hash >> 2);
++  //
++  __m256i x = _mm256_add_epi32(_mm256_slli_epi32(previous_hash, 6),
++                               _mm256_srli_epi32(previous_hash, 2));
++  __m256i y = _mm256_add_epi32(hash, _mm256_set1_epi32(kCombineConst));
++  __m256i new_hash = _mm256_xor_si256(previous_hash, _mm256_add_epi32(x, y));
++  return new_hash;
++}
++
++template <bool T_COMBINE_HASHES>
++void Hashing32::AvalancheAll_avx2(uint32_t num_rows_to_process, uint32_t* hashes,
++                                  const uint32_t* hashes_temp_for_combine) {
++  constexpr int unroll = 8;
++  for (uint32_t i = 0; i < num_rows_to_process / unroll; ++i) {
++    __m256i acc;
++    if (T_COMBINE_HASHES) {
++      acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes_temp_for_combine) +
++                               i);
++    } else {
++      acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + i);
++    }
++    acc = Avalanche_avx2(acc);
++    if (T_COMBINE_HASHES) {
++      __m256i previous_hash =
++          _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + i);
++      acc = CombineHashesImp_avx2(previous_hash, acc);
++    }
++    _mm256_storeu_si256(reinterpret_cast<__m256i*>(hashes) + i, acc);
++  }
++  for (uint32_t i = num_rows_to_process - (num_rows_to_process % unroll);
++       i < num_rows_to_process; ++i) {
++    if (T_COMBINE_HASHES) {
++      hashes[i] = CombineHashesImp(hashes[i], Avalanche(hashes_temp_for_combine[i]));
++    } else {
++      hashes[i] = Avalanche(hashes[i]);
++    }
++  }
++}
++
++inline __m256i Hashing32::Round_avx2(__m256i acc, __m256i input) {
++  acc = _mm256_add_epi32(acc, _mm256_mullo_epi32(input, _mm256_set1_epi32(PRIME32_2)));
++  acc = _mm256_or_si256(_mm256_slli_epi32(acc, 13), _mm256_srli_epi32(acc, 32 - 13));
++  acc = _mm256_mullo_epi32(acc, _mm256_set1_epi32(PRIME32_1));
++  return acc;
++}
++
++inline uint64_t Hashing32::CombineAccumulators_avx2(__m256i acc) {
++  // Each 128-bit lane of input represents a set of 4 accumulators related to
++  // a single hash (we process here two hashes together).
++  //
++  __m256i rotate_const_left = _mm256_setr_epi32(1, 7, 12, 18, 1, 7, 12, 18);
++  __m256i rotate_const_right = _mm256_setr_epi32(32 - 1, 32 - 7, 32 - 12, 32 - 18, 32 - 1,
++                                                 32 - 7, 32 - 12, 32 - 18);
++
++  acc = _mm256_or_si256(_mm256_sllv_epi32(acc, rotate_const_left),
++                        _mm256_srlv_epi32(acc, rotate_const_right));
++  acc = _mm256_add_epi32(acc, _mm256_shuffle_epi32(acc, 0xee));  // 0b11101110
++  acc = _mm256_add_epi32(acc, _mm256_srli_epi64(acc, 32));
++  acc = _mm256_permutevar8x32_epi32(acc, _mm256_setr_epi32(0, 4, 0, 0, 0, 0, 0, 0));
++  uint64_t result = _mm256_extract_epi64(acc, 0);
++  return result;
++}
++
++inline __m256i Hashing32::StripeMask_avx2(int i, int j) {
++  // Return two 16 byte masks, where the first i/j bytes are 0xff and the
++  // remaining ones are 0x00
++  //
++  ARROW_DCHECK(i >= 0 && i <= kStripeSize && j >= 0 && j <= kStripeSize);
++  return _mm256_cmpgt_epi8(
++      _mm256_blend_epi32(_mm256_set1_epi8(i), _mm256_set1_epi8(j), 0xf0),
++      _mm256_setr_epi64x(0x0706050403020100ULL, 0x0f0e0d0c0b0a0908ULL,
++                         0x0706050403020100ULL, 0x0f0e0d0c0b0a0908ULL));
++}
++
++template <bool two_equal_lengths>
++inline __m256i Hashing32::ProcessStripes_avx2(int64_t num_stripes_A,
++                                              int64_t num_stripes_B,
++                                              __m256i mask_last_stripe,
++                                              const uint8_t* keys, int64_t offset_A,
++                                              int64_t offset_B) {
++  ARROW_DCHECK(num_stripes_A > 0 && num_stripes_B > 0);
++
++  __m256i acc = _mm256_setr_epi32(
++      static_cast<uint32_t>((static_cast<uint64_t>(PRIME32_1) + PRIME32_2) & 0xffffffff),
++      PRIME32_2, 0, static_cast<uint32_t>(-static_cast<int32_t>(PRIME32_1)),
++      static_cast<uint32_t>((static_cast<uint64_t>(PRIME32_1) + PRIME32_2) & 0xffffffff),
++      PRIME32_2, 0, static_cast<uint32_t>(-static_cast<int32_t>(PRIME32_1)));
++
++  // Constant for permutexvar8x32 instruction that conditionally swaps two
++  // 128-bit lanes if and only if num_stripes_B > num_stripes_A.
++  //
++  __m256i swap_permute = _mm256_setzero_si256();
++  int64_t offset_shorter, offset_longer;
++  int64_t num_stripes_shorter, num_stripes_longer;
++
++  if (!two_equal_lengths) {
++    int64_t swap_mask = num_stripes_B > num_stripes_A ? ~0LL : 0LL;
++    swap_permute = _mm256_xor_si256(_mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7),
++                                    _mm256_set1_epi32(swap_mask & 4));
++    offset_shorter = (offset_A & swap_mask) | (offset_B & ~swap_mask);
++    offset_longer = (offset_A & ~swap_mask) | (offset_B & swap_mask);
++    num_stripes_shorter = (num_stripes_A & swap_mask) | (num_stripes_B & ~swap_mask);
++    num_stripes_longer = (num_stripes_A & ~swap_mask) | (num_stripes_B & swap_mask);
++  } else {
++    ARROW_DCHECK(num_stripes_A == num_stripes_B);
++    offset_longer = offset_A;
++    offset_shorter = offset_B;
++    num_stripes_longer = num_stripes_A;
++    num_stripes_shorter = num_stripes_A;
++  }
++
++  int64_t istripe = 0;
++  for (; istripe + 1 < num_stripes_shorter; ++istripe) {
++    __m256i stripe = _mm256_inserti128_si256(
++        _mm256_castsi128_si256(_mm_loadu_si128(
++            reinterpret_cast<const __m128i*>(keys + offset_longer) + istripe)),
++        _mm_loadu_si128(reinterpret_cast<const __m128i*>(keys + offset_shorter) +
++                        istripe),
++        1);
++    acc = Round_avx2(acc, stripe);
++  }
++  __m256i stripe = _mm256_inserti128_si256(
++      _mm256_castsi128_si256(_mm_loadu_si128(
++          reinterpret_cast<const __m128i*>(keys + offset_longer) + istripe)),
++      _mm_loadu_si128(reinterpret_cast<const __m128i*>(keys + offset_shorter) + istripe),
++      1);
++  if (!two_equal_lengths) {
++    __m256i acc_copy = acc;
++    for (; istripe + 1 < num_stripes_longer; ++istripe) {
++      acc = Round_avx2(acc, stripe);
++      stripe = _mm256_inserti128_si256(
++          stripe,
++          _mm_loadu_si128(reinterpret_cast<const __m128i*>(keys + offset_longer) +
++                          istripe + 1),
++          0);
++    }
++    acc = _mm256_blend_epi32(acc, acc_copy, 0xf0);
++    mask_last_stripe = _mm256_permutevar8x32_epi32(mask_last_stripe, swap_permute);
++  }
++  stripe = _mm256_and_si256(stripe, mask_last_stripe);
++  acc = Round_avx2(acc, stripe);
++  if (!two_equal_lengths) {
++    acc = _mm256_permutevar8x32_epi32(acc, swap_permute);
++  }
++  return acc;
++}
++
++template <bool T_COMBINE_HASHES>
++uint32_t Hashing32::HashFixedLenImp_avx2(uint32_t num_rows, uint64_t length,
++                                         const uint8_t* keys, uint32_t* hashes,
++                                         uint32_t* hashes_temp_for_combine) {
++  constexpr int unroll = 2;
++
++  // Do not process rows that could read past the end of the buffer using 16
++  // byte loads. Round down number of rows to process to multiple of 2.
++  //
++  uint64_t num_rows_to_skip = bit_util::CeilDiv(kStripeSize, length);
++  uint32_t num_rows_to_process =
++      (num_rows_to_skip > num_rows)
++          ? 0
++          : (num_rows - static_cast<uint32_t>(num_rows_to_skip));
++  num_rows_to_process -= (num_rows_to_process % unroll);
++
++  uint64_t num_stripes = bit_util::CeilDiv(length, kStripeSize);
++  int num_tail_bytes = ((length - 1) & (kStripeSize - 1)) + 1;
++  __m256i mask_last_stripe = StripeMask_avx2(num_tail_bytes, num_tail_bytes);
++
++  for (uint32_t i = 0; i < num_rows_to_process / unroll; ++i) {
++    __m256i acc = ProcessStripes_avx2</*two_equal_lengths=*/true>(
++        num_stripes, num_stripes, mask_last_stripe, keys,
++        static_cast<int64_t>(i) * unroll * length,
++        static_cast<int64_t>(i) * unroll * length + length);
++
++    if (T_COMBINE_HASHES) {
++      reinterpret_cast<uint64_t*>(hashes_temp_for_combine)[i] =
++          CombineAccumulators_avx2(acc);
++    } else {
++      reinterpret_cast<uint64_t*>(hashes)[i] = CombineAccumulators_avx2(acc);
++    }
++  }
++
++  AvalancheAll_avx2<T_COMBINE_HASHES>(num_rows_to_process, hashes,
++                                      hashes_temp_for_combine);
++
++  return num_rows_to_process;
++}
++
++uint32_t Hashing32::HashFixedLen_avx2(bool combine_hashes, uint32_t num_rows,
++                                      uint64_t length, const uint8_t* keys,
++                                      uint32_t* hashes,
++                                      uint32_t* hashes_temp_for_combine) {
++  if (combine_hashes) {
++    return HashFixedLenImp_avx2<true>(num_rows, length, keys, hashes,
++                                      hashes_temp_for_combine);
++  } else {
++    return HashFixedLenImp_avx2<false>(num_rows, length, keys, hashes,
++                                       hashes_temp_for_combine);
++  }
++}
++
++template <typename T, bool T_COMBINE_HASHES>
++uint32_t Hashing32::HashVarLenImp_avx2(uint32_t num_rows, const T* offsets,
++                                       const uint8_t* concatenated_keys, uint32_t* hashes,
++                                       uint32_t* hashes_temp_for_combine) {
++  constexpr int unroll = 2;
++
++  // Do not process rows that could read past the end of the buffer using 16
++  // byte loads. Round down number of rows to process to multiple of 2.
++  //
++  uint32_t num_rows_to_process = num_rows;
++  while (num_rows_to_process > 0 &&
++         offsets[num_rows_to_process] + kStripeSize > offsets[num_rows]) {
++    --num_rows_to_process;
++  }
++  num_rows_to_process -= (num_rows_to_process % unroll);
++
++  for (uint32_t i = 0; i < num_rows_to_process / unroll; ++i) {
++    T offset_A = offsets[unroll * i + 0];
++    T offset_B = offsets[unroll * i + 1];
++    T offset_end = offsets[unroll * i + 2];
++
++    T length = offset_B - offset_A;
++    int is_non_empty = length == 0 ? 0 : 1;
++    int64_t num_stripes_A =
++        static_cast<int64_t>(bit_util::CeilDiv(length, kStripeSize)) + (1 - is_non_empty);
++    int num_tail_bytes_A = ((length - is_non_empty) & (kStripeSize - 1)) + is_non_empty;
++
++    length = offset_end - offset_B;
++    is_non_empty = length == 0 ? 0 : 1;
++    int64_t num_stripes_B =
++        static_cast<int64_t>(bit_util::CeilDiv(length, kStripeSize)) + (1 - is_non_empty);
++    int num_tail_bytes_B = ((length - is_non_empty) & (kStripeSize - 1)) + is_non_empty;
++
++    __m256i mask_last_stripe = StripeMask_avx2(num_tail_bytes_A, num_tail_bytes_B);
++
++    __m256i acc = ProcessStripes_avx2</*two_equal_lengths=*/false>(
++        num_stripes_A, num_stripes_B, mask_last_stripe, concatenated_keys,
++        static_cast<int64_t>(offset_A), static_cast<int64_t>(offset_B));
++
++    if (T_COMBINE_HASHES) {
++      reinterpret_cast<uint64_t*>(hashes_temp_for_combine)[i] =
++          CombineAccumulators_avx2(acc);
++    } else {
++      reinterpret_cast<uint64_t*>(hashes)[i] = CombineAccumulators_avx2(acc);
++    }
++  }
++
++  AvalancheAll_avx2<T_COMBINE_HASHES>(num_rows_to_process, hashes,
++                                      hashes_temp_for_combine);
++
++  return num_rows_to_process;
++}
++
++uint32_t Hashing32::HashVarLen_avx2(bool combine_hashes, uint32_t num_rows,
++                                    const uint32_t* offsets,
++                                    const uint8_t* concatenated_keys, uint32_t* hashes,
++                                    uint32_t* hashes_temp_for_combine) {
++  if (combine_hashes) {
++    return HashVarLenImp_avx2<uint32_t, true>(num_rows, offsets, concatenated_keys,
++                                              hashes, hashes_temp_for_combine);
++  } else {
++    return HashVarLenImp_avx2<uint32_t, false>(num_rows, offsets, concatenated_keys,
++                                               hashes, hashes_temp_for_combine);
++  }
++}
++
++uint32_t Hashing32::HashVarLen_avx2(bool combine_hashes, uint32_t num_rows,
++                                    const uint64_t* offsets,
++                                    const uint8_t* concatenated_keys, uint32_t* hashes,
++                                    uint32_t* hashes_temp_for_combine) {
++  if (combine_hashes) {
++    return HashVarLenImp_avx2<uint64_t, true>(num_rows, offsets, concatenated_keys,
++                                              hashes, hashes_temp_for_combine);
++  } else {
++    return HashVarLenImp_avx2<uint64_t, false>(num_rows, offsets, concatenated_keys,
++                                               hashes, hashes_temp_for_combine);
++  }
++}
++
++}  // namespace compute
++}  // namespace arrow
+diff --git a/cpp/src/arrow/compute/key_map_internal.cc b/cpp/src/arrow/compute/key_map_internal.cc
+index 2e19aa4..353449c 100644
+--- a/cpp/src/arrow/compute/key_map_internal.cc
++++ b/cpp/src/arrow/compute/key_map_internal.cc
+@@ -130,6 +130,12 @@ void SwissTable::extract_group_ids(const int num_keys, const uint16_t* optional_
+   int num_processed = 0;
+   // Optimistically use simplified lookup involving only a start block to find
+   // a single group id candidate for every input.
++#if defined(ARROW_HAVE_RUNTIME_AVX2) && defined(ARROW_HAVE_RUNTIME_BMI2)
++  if ((hardware_flags_ & CpuInfo::AVX2) && CpuInfo::GetInstance()->HasEfficientBmi2() &&
++      !optional_selection) {
++    num_processed = extract_group_ids_avx2(num_keys, hashes, local_slots, out_group_ids);
++  }
++#endif
+   int num_groupid_bits = num_groupid_bits_from_log_blocks(log_blocks_);
+   switch (num_groupid_bits) {
+     case 8:
+@@ -295,6 +301,17 @@ void SwissTable::early_filter(const int num_keys, const uint32_t* hashes,
+   // Optimistically use simplified lookup involving only a start block to find
+   // a single group id candidate for every input.
+   int num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2) && defined(ARROW_HAVE_RUNTIME_BMI2)
++  if ((hardware_flags_ & CpuInfo::AVX2) && CpuInfo::GetInstance()->HasEfficientBmi2()) {
++    if (log_blocks_ <= 4) {
++      num_processed = early_filter_imp_avx2_x32(num_keys, hashes, out_match_bitvector,
++                                                out_local_slots);
++    }
++    num_processed += early_filter_imp_avx2_x8(
++        num_keys - num_processed, hashes + num_processed,
++        out_match_bitvector + num_processed / 8, out_local_slots + num_processed);
++  }
++#endif
+   early_filter_imp(num_keys - num_processed, hashes + num_processed,
+                    out_match_bitvector + num_processed / 8,
+                    out_local_slots + num_processed);
+diff --git a/L4/cpp/src/arrow/compute/key_map_internal_avx2.cc b/L4/cpp/src/arrow/compute/key_map_internal_avx2.cc
+new file mode 100644
+index 0000000..353d5a5
+--- /dev/null
++++ b/cpp/src/arrow/compute/key_map_internal_avx2.cc
+@@ -0,0 +1,438 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++#include "arrow/compute/key_map_internal.h"
++#include "arrow/util/logging.h"
++#include "arrow/util/simd.h"
++
++namespace arrow {
++namespace compute {
++
++// This is more or less translation of equivalent scalar code, adjusted for a
++// different instruction set (e.g. missing leading zero count instruction).
++//
++// Returns the number of hashes actually processed, which may be less than
++// requested due to alignment required by SIMD.
++//
++int SwissTable::early_filter_imp_avx2_x8(const int num_hashes, const uint32_t* hashes,
++                                         uint8_t* out_match_bitvector,
++                                         uint8_t* out_local_slots) const {
++  // Number of inputs processed together in a loop
++  constexpr int unroll = 8;
++
++  const int num_group_id_bits = num_groupid_bits_from_log_blocks(log_blocks_);
++  const int num_block_bytes = num_block_bytes_from_num_groupid_bits(num_group_id_bits);
++  const __m256i* vhash_ptr = reinterpret_cast<const __m256i*>(hashes);
++  const __m256i vstamp_mask = _mm256_set1_epi32((1 << bits_stamp_) - 1);
++
++  for (int i = 0; i < num_hashes / unroll; ++i) {
++    constexpr uint64_t kEachByteIs8 = 0x0808080808080808ULL;
++    constexpr uint64_t kByteSequenceOfPowersOf2 = 0x8040201008040201ULL;
++
++    // Calculate block index and hash stamp for a byte in a block
++    //
++    __m256i vhash = _mm256_loadu_si256(vhash_ptr + i);
++    __m256i vblock_id = _mm256_srli_epi32(vhash, bits_shift_for_block_and_stamp_);
++    __m256i vstamp = _mm256_and_si256(vblock_id, vstamp_mask);
++    vblock_id = _mm256_srli_epi32(vblock_id, bits_shift_for_block_);
++
++    // We now split inputs and process 4 at a time,
++    // in order to process 64-bit blocks
++    //
++    __m256i vblock_offset =
++        _mm256_mullo_epi32(vblock_id, _mm256_set1_epi32(num_block_bytes));
++    __m256i voffset_A = _mm256_and_si256(vblock_offset, _mm256_set1_epi64x(0xffffffff));
++    __m256i vstamp_A = _mm256_and_si256(vstamp, _mm256_set1_epi64x(0xffffffff));
++    __m256i voffset_B = _mm256_srli_epi64(vblock_offset, 32);
++    __m256i vstamp_B = _mm256_srli_epi64(vstamp, 32);
++
++    auto blocks_i64 =
++        reinterpret_cast<arrow::util::int64_for_gather_t*>(blocks_->mutable_data());
++    auto vblock_A = _mm256_i64gather_epi64(blocks_i64, voffset_A, 1);
++    auto vblock_B = _mm256_i64gather_epi64(blocks_i64, voffset_B, 1);
++    __m256i vblock_highbits_A =
++        _mm256_cmpeq_epi8(vblock_A, _mm256_set1_epi8(static_cast<unsigned char>(0x80)));
++    __m256i vblock_highbits_B =
++        _mm256_cmpeq_epi8(vblock_B, _mm256_set1_epi8(static_cast<unsigned char>(0x80)));
++    __m256i vbyte_repeat_pattern =
++        _mm256_setr_epi64x(0ULL, kEachByteIs8, 0ULL, kEachByteIs8);
++    vstamp_A = _mm256_shuffle_epi8(
++        vstamp_A, _mm256_or_si256(vbyte_repeat_pattern, vblock_highbits_A));
++    vstamp_B = _mm256_shuffle_epi8(
++        vstamp_B, _mm256_or_si256(vbyte_repeat_pattern, vblock_highbits_B));
++    __m256i vmatches_A = _mm256_cmpeq_epi8(vblock_A, vstamp_A);
++    __m256i vmatches_B = _mm256_cmpeq_epi8(vblock_B, vstamp_B);
++
++    // In case when there are no matches in slots and the block is full (no empty slots),
++    // pretend that there is a match in the last slot.
++    //
++    vmatches_A = _mm256_or_si256(
++        vmatches_A, _mm256_andnot_si256(vblock_highbits_A, _mm256_set1_epi64x(0xff)));
++    vmatches_B = _mm256_or_si256(
++        vmatches_B, _mm256_andnot_si256(vblock_highbits_B, _mm256_set1_epi64x(0xff)));
++
++    __m256i vmatch_found = _mm256_andnot_si256(
++        _mm256_blend_epi32(_mm256_cmpeq_epi64(vmatches_A, _mm256_setzero_si256()),
++                           _mm256_cmpeq_epi64(vmatches_B, _mm256_setzero_si256()),
++                           0xaa),  // 0b10101010
++        _mm256_set1_epi8(static_cast<unsigned char>(0xff)));
++    vmatches_A =
++        _mm256_sad_epu8(_mm256_and_si256(_mm256_or_si256(vmatches_A, vblock_highbits_A),
++                                         _mm256_set1_epi64x(kByteSequenceOfPowersOf2)),
++                        _mm256_setzero_si256());
++    vmatches_B =
++        _mm256_sad_epu8(_mm256_and_si256(_mm256_or_si256(vmatches_B, vblock_highbits_B),
++                                         _mm256_set1_epi64x(kByteSequenceOfPowersOf2)),
++                        _mm256_setzero_si256());
++    __m256i vmatches = _mm256_or_si256(vmatches_A, _mm256_slli_epi64(vmatches_B, 32));
++
++    // We are now back to processing 8 at a time.
++    // Each lane contains 8-bit bit vector marking slots that are matches.
++    // We need to find leading zeroes count for all slots.
++    //
++    // Emulating lzcnt in lowest bytes of 32-bit elements
++    __m256i vgt = _mm256_cmpgt_epi32(_mm256_set1_epi32(16), vmatches);
++    __m256i vlocal_slot =
++        _mm256_blendv_epi8(_mm256_srli_epi32(vmatches, 4),
++                           _mm256_and_si256(vmatches, _mm256_set1_epi32(0x0f)), vgt);
++    vlocal_slot = _mm256_shuffle_epi8(
++        _mm256_setr_epi8(4, 3, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 4, 3, 2, 2, 1, 1,
++                         1, 1, 0, 0, 0, 0, 0, 0, 0, 0),
++        vlocal_slot);
++    vlocal_slot = _mm256_add_epi32(_mm256_and_si256(vlocal_slot, _mm256_set1_epi32(0xff)),
++                                   _mm256_and_si256(vgt, _mm256_set1_epi32(4)));
++
++    // Convert slot id relative to the block to slot id relative to the beginning of the
++    // table
++    //
++    uint64_t local_slot = _mm256_extract_epi64(
++        _mm256_permutevar8x32_epi32(
++            _mm256_shuffle_epi8(
++                vlocal_slot, _mm256_setr_epi32(0x0c080400, 0, 0, 0, 0x0c080400, 0, 0, 0)),
++            _mm256_setr_epi32(0, 4, 0, 0, 0, 0, 0, 0)),
++        0);
++    (reinterpret_cast<uint64_t*>(out_local_slots))[i] = local_slot;
++
++    // Convert match found vector from 32-bit elements to bit vector
++    out_match_bitvector[i] = _pext_u32(_mm256_movemask_epi8(vmatch_found),
++                                       0x11111111);  // 0b00010001 repeated 4x
++  }
++
++  return num_hashes - (num_hashes % unroll);
++}
++
++// Take a set of 16 64-bit elements,
++// Output one AVX2 register per byte (0 to 7), containing a sequence of 16 bytes,
++// one from each input 64-bit word, all from the same position in 64-bit word.
++// 16 bytes are replicated in lower and upper half of each output register.
++//
++inline void split_bytes_avx2(__m256i word0, __m256i word1, __m256i word2, __m256i word3,
++                             __m256i& byte0, __m256i& byte1, __m256i& byte2,
++                             __m256i& byte3, __m256i& byte4, __m256i& byte5,
++                             __m256i& byte6, __m256i& byte7) {
++  __m256i word01lo = _mm256_unpacklo_epi8(
++      word0, word1);  // {a0, e0, a1, e1, ... a7, e7, c0, g0, c1, g1, ... c7, g7}
++  __m256i word23lo = _mm256_unpacklo_epi8(
++      word2, word3);  // {i0, m0, i1, m1, ... i7, m7, k0, o0, k1, o1, ... k7, o7}
++  __m256i word01hi = _mm256_unpackhi_epi8(
++      word0, word1);  // {b0, f0, b1, f1, ... b7, f1, d0, h0, d1, h1, ... d7, h7}
++  __m256i word23hi = _mm256_unpackhi_epi8(
++      word2, word3);  // {j0, n0, j1, n1, ... j7, n7, l0, p0, l1, p1, ... l7, p7}
++
++  __m256i a =
++      _mm256_unpacklo_epi16(word01lo, word01hi);  // {a0, e0, b0, f0, ... a3, e3, b3, f3,
++                                                  // c0, g0, d0, h0, ... c3, g3, d3, h3}
++  __m256i b =
++      _mm256_unpacklo_epi16(word23lo, word23hi);  // {i0, m0, j0, n0, ... i3, m3, j3, n3,
++                                                  // k0, o0, l0, p0, ... k3, o3, l3, p3}
++  __m256i c =
++      _mm256_unpackhi_epi16(word01lo, word01hi);  // {a4, e4, b4, f4, ... a7, e7, b7, f7,
++                                                  // c4, g4, d4, h4, ... c7, g7, d7, h7}
++  __m256i d =
++      _mm256_unpackhi_epi16(word23lo, word23hi);  // {i4, m4, j4, n4, ... i7, m7, j7, n7,
++                                                  // k4, o4, l4, p4, ... k7, o7, l7, p7}
++
++  __m256i byte01 = _mm256_unpacklo_epi32(
++      a, b);  // {a0, e0, b0, f0, i0, m0, j0, n0, a1, e1, b1, f1, i1, m1, j1, n1,
++              // c0, g0, d0, h0, k0, o0, l0, p0, ...}
++  __m256i shuffle_const =
++      _mm256_setr_epi8(0, 2, 8, 10, 1, 3, 9, 11, 4, 6, 12, 14, 5, 7, 13, 15, 0, 2, 8, 10,
++                       1, 3, 9, 11, 4, 6, 12, 14, 5, 7, 13, 15);
++  byte01 = _mm256_permute4x64_epi64(
++      byte01, 0xd8);  // 11011000 b - swapping middle two 64-bit elements
++  byte01 = _mm256_shuffle_epi8(byte01, shuffle_const);
++  __m256i byte23 = _mm256_unpackhi_epi32(a, b);
++  byte23 = _mm256_permute4x64_epi64(byte23, 0xd8);
++  byte23 = _mm256_shuffle_epi8(byte23, shuffle_const);
++  __m256i byte45 = _mm256_unpacklo_epi32(c, d);
++  byte45 = _mm256_permute4x64_epi64(byte45, 0xd8);
++  byte45 = _mm256_shuffle_epi8(byte45, shuffle_const);
++  __m256i byte67 = _mm256_unpackhi_epi32(c, d);
++  byte67 = _mm256_permute4x64_epi64(byte67, 0xd8);
++  byte67 = _mm256_shuffle_epi8(byte67, shuffle_const);
++
++  byte0 = _mm256_permute4x64_epi64(byte01, 0x44);  // 01000100 b
++  byte1 = _mm256_permute4x64_epi64(byte01, 0xee);  // 11101110 b
++  byte2 = _mm256_permute4x64_epi64(byte23, 0x44);  // 01000100 b
++  byte3 = _mm256_permute4x64_epi64(byte23, 0xee);  // 11101110 b
++  byte4 = _mm256_permute4x64_epi64(byte45, 0x44);  // 01000100 b
++  byte5 = _mm256_permute4x64_epi64(byte45, 0xee);  // 11101110 b
++  byte6 = _mm256_permute4x64_epi64(byte67, 0x44);  // 01000100 b
++  byte7 = _mm256_permute4x64_epi64(byte67, 0xee);  // 11101110 b
++}
++
++// This one can only process a multiple of 32 values.
++// The caller needs to process the remaining tail, if the input is not divisible by 32,
++// using a different method.
++// TODO: Explain the idea behind storing arrays in SIMD registers.
++// Explain why it is faster with SIMD than using memory loads.
++//
++// Returns the number of hashes actually processed, which may be less than
++// requested due to alignment required by SIMD.
++//
++int SwissTable::early_filter_imp_avx2_x32(const int num_hashes, const uint32_t* hashes,
++                                          uint8_t* out_match_bitvector,
++                                          uint8_t* out_local_slots) const {
++  constexpr int unroll = 32;
++
++  // There is a limit on the number of input blocks,
++  // because we want to store all their data in a set of AVX2 registers.
++  ARROW_DCHECK(log_blocks_ <= 4);
++
++  // Remember that block bytes and group id bytes are in opposite orders in memory of hash
++  // table. We put them in the same order.
++  __m256i vblock_byte0, vblock_byte1, vblock_byte2, vblock_byte3, vblock_byte4,
++      vblock_byte5, vblock_byte6, vblock_byte7;
++  // What we output if there is no match in the block
++  __m256i vslot_empty_or_end;
++
++  constexpr uint32_t k4ByteSequence_0_4_8_12 = 0x0c080400;
++  constexpr uint32_t k4ByteSequence_1_5_9_13 = 0x0d090501;
++  constexpr uint32_t k4ByteSequence_2_6_10_14 = 0x0e0a0602;
++  constexpr uint32_t k4ByteSequence_3_7_11_15 = 0x0f0b0703;
++  constexpr uint64_t kByteSequence7DownTo0 = 0x0001020304050607ULL;
++  constexpr uint64_t kByteSequence15DownTo8 = 0x08090A0B0C0D0E0FULL;
++
++  // Bit unpack group ids into 1B.
++  // Assemble the sequence of block bytes.
++  uint64_t block_bytes[16];
++  const int num_groupid_bits = num_groupid_bits_from_log_blocks(log_blocks_);
++  const int num_block_bytes = num_block_bytes_from_num_groupid_bits(num_groupid_bits);
++  for (int i = 0; i < (1 << log_blocks_); ++i) {
++    uint64_t in_blockbytes =
++        *reinterpret_cast<const uint64_t*>(block_data(i, num_block_bytes));
++    block_bytes[i] = in_blockbytes;
++  }
++
++  // Split a sequence of 64-bit words into SIMD vectors holding individual bytes
++  __m256i vblock_words0 =
++      _mm256_loadu_si256(reinterpret_cast<const __m256i*>(block_bytes) + 0);
++  __m256i vblock_words1 =
++      _mm256_loadu_si256(reinterpret_cast<const __m256i*>(block_bytes) + 1);
++  __m256i vblock_words2 =
++      _mm256_loadu_si256(reinterpret_cast<const __m256i*>(block_bytes) + 2);
++  __m256i vblock_words3 =
++      _mm256_loadu_si256(reinterpret_cast<const __m256i*>(block_bytes) + 3);
++  // Reverse the bytes in blocks
++  __m256i vshuffle_const =
++      _mm256_setr_epi64x(kByteSequence7DownTo0, kByteSequence15DownTo8,
++                         kByteSequence7DownTo0, kByteSequence15DownTo8);
++  vblock_words0 = _mm256_shuffle_epi8(vblock_words0, vshuffle_const);
++  vblock_words1 = _mm256_shuffle_epi8(vblock_words1, vshuffle_const);
++  vblock_words2 = _mm256_shuffle_epi8(vblock_words2, vshuffle_const);
++  vblock_words3 = _mm256_shuffle_epi8(vblock_words3, vshuffle_const);
++  split_bytes_avx2(vblock_words0, vblock_words1, vblock_words2, vblock_words3,
++                   vblock_byte0, vblock_byte1, vblock_byte2, vblock_byte3, vblock_byte4,
++                   vblock_byte5, vblock_byte6, vblock_byte7);
++
++  // Calculate the slot to output when there is no match in a block.
++  // It will be the index of the first empty slot or 7 (the number of slots in block)
++  // if there are no empty slots.
++  vslot_empty_or_end = _mm256_set1_epi8(7);
++  {
++    __m256i vis_empty;
++#define CMP(VBLOCKBYTE, BYTENUM)                                                         \
++  vis_empty =                                                                            \
++      _mm256_cmpeq_epi8(VBLOCKBYTE, _mm256_set1_epi8(static_cast<unsigned char>(0x80))); \
++  vslot_empty_or_end =                                                                   \
++      _mm256_blendv_epi8(vslot_empty_or_end, _mm256_set1_epi8(BYTENUM), vis_empty);
++    CMP(vblock_byte7, 7);
++    CMP(vblock_byte6, 6);
++    CMP(vblock_byte5, 5);
++    CMP(vblock_byte4, 4);
++    CMP(vblock_byte3, 3);
++    CMP(vblock_byte2, 2);
++    CMP(vblock_byte1, 1);
++    CMP(vblock_byte0, 0);
++#undef CMP
++  }
++  __m256i vblock_is_full = _mm256_andnot_si256(
++      _mm256_cmpeq_epi8(vblock_byte7, _mm256_set1_epi8(static_cast<unsigned char>(0x80))),
++      _mm256_set1_epi8(static_cast<unsigned char>(0xff)));
++
++  const int block_id_mask = (1 << log_blocks_) - 1;
++
++  for (int i = 0; i < num_hashes / unroll; ++i) {
++    __m256i vhash0 =
++        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + 4 * i + 0);
++    __m256i vhash1 =
++        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + 4 * i + 1);
++    __m256i vhash2 =
++        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + 4 * i + 2);
++    __m256i vhash3 =
++        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + 4 * i + 3);
++
++    // We will get input in byte lanes in the order: [0, 8, 16, 24, 1, 9, 17, 25, 2, 10,
++    // 18, 26, ...]
++    vhash0 = _mm256_or_si256(_mm256_srli_epi32(vhash0, 16),
++                             _mm256_and_si256(vhash2, _mm256_set1_epi32(0xffff0000)));
++    vhash1 = _mm256_or_si256(_mm256_srli_epi32(vhash1, 16),
++                             _mm256_and_si256(vhash3, _mm256_set1_epi32(0xffff0000)));
++    __m256i vstamp_A = _mm256_and_si256(_mm256_srli_epi32(vhash0, 16 - log_blocks_ - 7),
++                                        _mm256_set1_epi16(0x7f));
++    __m256i vstamp_B = _mm256_and_si256(_mm256_srli_epi32(vhash1, 16 - log_blocks_ - 7),
++                                        _mm256_set1_epi16(0x7f));
++    __m256i vstamp = _mm256_or_si256(vstamp_A, _mm256_slli_epi16(vstamp_B, 8));
++    __m256i vblock_id_A = _mm256_and_si256(_mm256_srli_epi32(vhash0, 16 - log_blocks_),
++                                           _mm256_set1_epi16(block_id_mask));
++    __m256i vblock_id_B = _mm256_and_si256(_mm256_srli_epi32(vhash1, 16 - log_blocks_),
++                                           _mm256_set1_epi16(block_id_mask));
++    __m256i vblock_id = _mm256_or_si256(vblock_id_A, _mm256_slli_epi16(vblock_id_B, 8));
++
++    // Visit all block bytes in reverse order (overwriting data on multiple matches)
++    //
++    // Always set match found to true for full blocks.
++    //
++    __m256i vmatch_found = _mm256_shuffle_epi8(vblock_is_full, vblock_id);
++    __m256i vslot_id = _mm256_shuffle_epi8(vslot_empty_or_end, vblock_id);
++#define CMP(VBLOCK_BYTE, BYTENUM)                                               \
++  {                                                                             \
++    __m256i vcmp =                                                              \
++        _mm256_cmpeq_epi8(_mm256_shuffle_epi8(VBLOCK_BYTE, vblock_id), vstamp); \
++    vmatch_found = _mm256_or_si256(vmatch_found, vcmp);                         \
++    vslot_id = _mm256_blendv_epi8(vslot_id, _mm256_set1_epi8(BYTENUM), vcmp);   \
++  }
++    CMP(vblock_byte7, 7);
++    CMP(vblock_byte6, 6);
++    CMP(vblock_byte5, 5);
++    CMP(vblock_byte4, 4);
++    CMP(vblock_byte3, 3);
++    CMP(vblock_byte2, 2);
++    CMP(vblock_byte1, 1);
++    CMP(vblock_byte0, 0);
++#undef CMP
++
++    // So far the output is in the order: [0, 8, 16, 24, 1, 9, 17, 25, 2, 10, 18, 26, ...]
++    vmatch_found = _mm256_shuffle_epi8(
++        vmatch_found,
++        _mm256_setr_epi32(k4ByteSequence_0_4_8_12, k4ByteSequence_1_5_9_13,
++                          k4ByteSequence_2_6_10_14, k4ByteSequence_3_7_11_15,
++                          k4ByteSequence_0_4_8_12, k4ByteSequence_1_5_9_13,
++                          k4ByteSequence_2_6_10_14, k4ByteSequence_3_7_11_15));
++    // Now it is: [0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27, | 4, 5, 6, 7,
++    // 12, 13, 14, 15, ...]
++    vmatch_found = _mm256_permutevar8x32_epi32(vmatch_found,
++                                               _mm256_setr_epi32(0, 4, 1, 5, 2, 6, 3, 7));
++
++    // Repeat the same permutation for slot ids
++    vslot_id = _mm256_shuffle_epi8(
++        vslot_id, _mm256_setr_epi32(k4ByteSequence_0_4_8_12, k4ByteSequence_1_5_9_13,
++                                    k4ByteSequence_2_6_10_14, k4ByteSequence_3_7_11_15,
++                                    k4ByteSequence_0_4_8_12, k4ByteSequence_1_5_9_13,
++                                    k4ByteSequence_2_6_10_14, k4ByteSequence_3_7_11_15));
++    vslot_id =
++        _mm256_permutevar8x32_epi32(vslot_id, _mm256_setr_epi32(0, 4, 1, 5, 2, 6, 3, 7));
++    _mm256_storeu_si256(reinterpret_cast<__m256i*>(out_local_slots) + i, vslot_id);
++
++    reinterpret_cast<uint32_t*>(out_match_bitvector)[i] =
++        _mm256_movemask_epi8(vmatch_found);
++  }
++
++  return num_hashes - (num_hashes % unroll);
++}
++
++int SwissTable::extract_group_ids_avx2(const int num_keys, const uint32_t* hashes,
++                                       const uint8_t* local_slots,
++                                       uint32_t* out_group_ids) const {
++  constexpr int unroll = 8;
++  if (log_blocks_ == 0) {
++    __m256i block_group_ids =
++        _mm256_set1_epi64x(reinterpret_cast<const uint64_t*>(blocks_->data())[1]);
++    for (int i = 0; i < num_keys / unroll; ++i) {
++      __m256i local_slot =
++          _mm256_set1_epi64x(reinterpret_cast<const uint64_t*>(local_slots)[i]);
++      __m256i group_id = _mm256_shuffle_epi8(block_group_ids, local_slot);
++      group_id = _mm256_shuffle_epi8(
++          group_id, _mm256_setr_epi32(0x80808000, 0x80808001, 0x80808002, 0x80808003,
++                                      0x80808004, 0x80808005, 0x80808006, 0x80808007));
++      _mm256_storeu_si256(reinterpret_cast<__m256i*>(out_group_ids) + i, group_id);
++    }
++  } else {
++    int num_groupid_bits = num_groupid_bits_from_log_blocks(log_blocks_);
++    int num_groupid_bytes = num_groupid_bits / 8;
++    uint32_t mask = num_groupid_bytes == 1   ? 0xFF
++                    : num_groupid_bytes == 2 ? 0xFFFF
++                                             : 0xFFFFFFFF;
++    int num_block_bytes = num_block_bytes_from_num_groupid_bits(num_groupid_bits);
++    const int* slots_base =
++        reinterpret_cast<const int*>(blocks_->data() + bytes_status_in_block_);
++
++    for (int i = 0; i < num_keys / unroll; ++i) {
++      __m256i hash = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + i);
++      __m256i block_id =
++          _mm256_srlv_epi32(hash, _mm256_set1_epi32(bits_hash_ - log_blocks_));
++
++      __m256i local_slot =
++          _mm256_set1_epi64x(reinterpret_cast<const uint64_t*>(local_slots)[i]);
++
++      // Extend block_id and local_slot to 64-bit to compute 64-bit group id offsets to
++      // gather from. This is to prevent index overflow issues in GH-44513.
++      __m256i local_slot_lo = _mm256_shuffle_epi8(
++          local_slot, _mm256_setr_epi32(0x80808000, 0x80808080, 0x80808001, 0x80808080,
++                                        0x80808002, 0x80808080, 0x80808003, 0x80808080));
++      __m256i local_slot_hi = _mm256_shuffle_epi8(
++          local_slot, _mm256_setr_epi32(0x80808004, 0x80808080, 0x80808005, 0x80808080,
++                                        0x80808006, 0x80808080, 0x80808007, 0x80808080));
++      local_slot_lo =
++          _mm256_mul_epu32(local_slot_lo, _mm256_set1_epi32(num_groupid_bytes));
++      local_slot_hi =
++          _mm256_mul_epu32(local_slot_hi, _mm256_set1_epi32(num_groupid_bytes));
++
++      // NB: Use zero-extend conversion for unsigned block_id.
++      __m256i slot_offset_lo = _mm256_cvtepu32_epi64(_mm256_castsi256_si128(block_id));
++      __m256i slot_offset_hi =
++          _mm256_cvtepu32_epi64(_mm256_extracti128_si256(block_id, 1));
++      slot_offset_lo =
++          _mm256_mul_epi32(slot_offset_lo, _mm256_set1_epi64x(num_block_bytes));
++      slot_offset_hi =
++          _mm256_mul_epi32(slot_offset_hi, _mm256_set1_epi64x(num_block_bytes));
++      slot_offset_lo = _mm256_add_epi64(slot_offset_lo, local_slot_lo);
++      slot_offset_hi = _mm256_add_epi64(slot_offset_hi, local_slot_hi);
++
++      __m128i group_id_lo = _mm256_i64gather_epi32(slots_base, slot_offset_lo, 1);
++      __m128i group_id_hi = _mm256_i64gather_epi32(slots_base, slot_offset_hi, 1);
++      __m256i group_id = _mm256_set_m128i(group_id_hi, group_id_lo);
++      group_id = _mm256_and_si256(group_id, _mm256_set1_epi32(mask));
++
++      _mm256_storeu_si256(reinterpret_cast<__m256i*>(out_group_ids) + i, group_id);
++    }
++  }
++  return num_keys - (num_keys % unroll);
++}
++
++}  // namespace compute
++}  // namespace arrow
+diff --git a/cpp/src/arrow/compute/row/compare_internal.cc b/cpp/src/arrow/compute/row/compare_internal.cc
+index 4bb79f4..da2dfca 100644
+--- a/cpp/src/arrow/compute/row/compare_internal.cc
++++ b/cpp/src/arrow/compute/row/compare_internal.cc
+@@ -43,6 +43,13 @@ void KeyCompare::NullUpdateColumnToRow(uint32_t id_col, uint32_t num_rows_to_com
+     return;
+   }
+   uint32_t num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (ctx->has_avx2()) {
++    num_processed = NullUpdateColumnToRow_avx2(
++        use_selection, id_col, num_rows_to_compare, sel_left_maybe_null,
++        left_to_right_map, ctx, col, rows, are_cols_in_encoding_order, match_bytevector);
++  }
++#endif
+ 
+   const uint32_t null_bit_id =
+       ColIdInEncodingOrder(rows, id_col, are_cols_in_encoding_order);
+@@ -121,6 +128,13 @@ void KeyCompare::CompareBinaryColumnToRow(uint32_t offset_within_row,
+                                           const RowTableImpl& rows,
+                                           uint8_t* match_bytevector) {
+   uint32_t num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (ctx->has_avx2()) {
++    num_processed = CompareBinaryColumnToRow_avx2(
++        use_selection, offset_within_row, num_rows_to_compare, sel_left_maybe_null,
++        left_to_right_map, ctx, col, rows, match_bytevector);
++  }
++#endif
+ 
+   uint32_t col_width = col.metadata().fixed_length;
+   if (col_width == 0) {
+@@ -286,6 +300,13 @@ void KeyCompare::CompareVarBinaryColumnToRow(uint32_t id_varbinary_col,
+                                              const RowTableImpl& rows,
+                                              uint8_t* match_bytevector) {
+   uint32_t num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (ctx->has_avx2()) {
++    num_processed = CompareVarBinaryColumnToRow_avx2(
++        use_selection, is_first_varbinary_col, id_varbinary_col, num_rows_to_compare,
++        sel_left_maybe_null, left_to_right_map, ctx, col, rows, match_bytevector);
++  }
++#endif
+ 
+   CompareVarBinaryColumnToRowHelper<use_selection, is_first_varbinary_col>(
+       id_varbinary_col, num_processed, num_rows_to_compare, sel_left_maybe_null,
+@@ -295,6 +316,11 @@ void KeyCompare::CompareVarBinaryColumnToRow(uint32_t id_varbinary_col,
+ void KeyCompare::AndByteVectors(LightContext* ctx, uint32_t num_elements,
+                                 uint8_t* bytevector_A, const uint8_t* bytevector_B) {
+   uint32_t num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (ctx->has_avx2()) {
++    num_processed = AndByteVectors_avx2(num_elements, bytevector_A, bytevector_B);
++  }
++#endif
+ 
+   for (uint32_t i = num_processed / 8; i < bit_util::CeilDiv(num_elements, 8); ++i) {
+     uint64_t* a = reinterpret_cast<uint64_t*>(bytevector_A);
+diff --git a/L4/cpp/src/arrow/compute/row/compare_internal_avx2.cc b/L4/cpp/src/arrow/compute/row/compare_internal_avx2.cc
+new file mode 100644
+index 0000000..c127354
+--- /dev/null
++++ b/cpp/src/arrow/compute/row/compare_internal_avx2.cc
+@@ -0,0 +1,670 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++#include "arrow/compute/row/compare_internal.h"
++#include "arrow/compute/row/row_util_avx2_internal.h"
++#include "arrow/compute/util.h"
++#include "arrow/util/bit_util.h"
++#include "arrow/util/simd.h"
++
++namespace arrow {
++namespace compute {
++
++inline __m256i set_first_n_bytes_avx2(int n) {
++  constexpr uint64_t kByteSequence0To7 = 0x0706050403020100ULL;
++  constexpr uint64_t kByteSequence8To15 = 0x0f0e0d0c0b0a0908ULL;
++  constexpr uint64_t kByteSequence16To23 = 0x1716151413121110ULL;
++  constexpr uint64_t kByteSequence24To31 = 0x1f1e1d1c1b1a1918ULL;
++
++  return _mm256_cmpgt_epi8(_mm256_set1_epi8(n),
++                           _mm256_setr_epi64x(kByteSequence0To7, kByteSequence8To15,
++                                              kByteSequence16To23, kByteSequence24To31));
++}
++
++template <bool use_selection>
++uint32_t KeyCompare::NullUpdateColumnToRowImp_avx2(
++    uint32_t id_col, uint32_t num_rows_to_compare, const uint16_t* sel_left_maybe_null,
++    const uint32_t* left_to_right_map, LightContext* ctx, const KeyColumnArray& col,
++    const RowTableImpl& rows, bool are_cols_in_encoding_order,
++    uint8_t* match_bytevector) {
++  if (!rows.has_any_nulls(ctx) && !col.data(0)) {
++    return num_rows_to_compare;
++  }
++
++  const uint32_t null_bit_id =
++      ColIdInEncodingOrder(rows, id_col, are_cols_in_encoding_order);
++
++  if (!col.data(0)) {
++    // Remove rows from the result for which the column value is a null
++    uint32_t num_processed = 0;
++    constexpr uint32_t unroll = 8;
++    for (uint32_t i = 0; i < num_rows_to_compare / unroll; ++i) {
++      __m256i irow_right;
++      if (use_selection) {
++        __m256i irow_left = _mm256_cvtepu16_epi32(
++            _mm_loadu_si128(reinterpret_cast<const __m128i*>(sel_left_maybe_null) + i));
++        irow_right = _mm256_i32gather_epi32((const int*)left_to_right_map, irow_left, 4);
++      } else {
++        irow_right =
++            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(left_to_right_map) + i);
++      }
++      __m256i right = GetNullBitInt32(rows, null_bit_id, irow_right);
++      __m256i cmp = _mm256_cmpeq_epi32(right, _mm256_setzero_si256());
++      reinterpret_cast<uint64_t*>(match_bytevector)[i] &= Cmp32To8(cmp);
++    }
++    num_processed = num_rows_to_compare / unroll * unroll;
++    return num_processed;
++  } else if (!rows.has_any_nulls(ctx)) {
++    // Remove rows from the result for which the column value on left side is
++    // null
++    const uint8_t* non_nulls = col.data(0);
++    ARROW_DCHECK(non_nulls);
++    uint32_t num_processed = 0;
++    constexpr uint32_t unroll = 8;
++    for (uint32_t i = 0; i < num_rows_to_compare / unroll; ++i) {
++      __m256i cmp;
++      if (use_selection) {
++        __m256i irow_left = _mm256_cvtepu16_epi32(
++            _mm_loadu_si128(reinterpret_cast<const __m128i*>(sel_left_maybe_null) + i));
++        irow_left = _mm256_add_epi32(irow_left, _mm256_set1_epi32(col.bit_offset(0)));
++        __m256i left = _mm256_i32gather_epi32((const int*)non_nulls,
++                                              _mm256_srli_epi32(irow_left, 3), 1);
++        left = _mm256_and_si256(
++            _mm256_set1_epi32(1),
++            _mm256_srlv_epi32(left, _mm256_and_si256(irow_left, _mm256_set1_epi32(7))));
++        cmp = _mm256_cmpeq_epi32(left, _mm256_set1_epi32(1));
++      } else {
++        __m256i left = _mm256_cvtepu8_epi32(_mm_set1_epi8(static_cast<uint8_t>(
++            reinterpret_cast<const uint16_t*>(non_nulls + i)[0] >> col.bit_offset(0))));
++        __m256i bits = _mm256_setr_epi32(1, 2, 4, 8, 16, 32, 64, 128);
++        cmp = _mm256_cmpeq_epi32(_mm256_and_si256(left, bits), bits);
++      }
++      reinterpret_cast<uint64_t*>(match_bytevector)[i] &= Cmp32To8(cmp);
++    }
++    num_processed = num_rows_to_compare / unroll * unroll;
++    return num_processed;
++  } else {
++    const uint8_t* non_nulls = col.data(0);
++    ARROW_DCHECK(non_nulls);
++
++    uint32_t num_processed = 0;
++    constexpr uint32_t unroll = 8;
++    for (uint32_t i = 0; i < num_rows_to_compare / unroll; ++i) {
++      __m256i left_null;
++      __m256i irow_right;
++      if (use_selection) {
++        __m256i irow_left = _mm256_cvtepu16_epi32(
++            _mm_loadu_si128(reinterpret_cast<const __m128i*>(sel_left_maybe_null) + i));
++        irow_right = _mm256_i32gather_epi32((const int*)left_to_right_map, irow_left, 4);
++        irow_left = _mm256_add_epi32(irow_left, _mm256_set1_epi32(col.bit_offset(0)));
++        __m256i left = _mm256_i32gather_epi32((const int*)non_nulls,
++                                              _mm256_srli_epi32(irow_left, 3), 1);
++        left = _mm256_and_si256(
++            _mm256_set1_epi32(1),
++            _mm256_srlv_epi32(left, _mm256_and_si256(irow_left, _mm256_set1_epi32(7))));
++        left_null = _mm256_cmpeq_epi32(left, _mm256_setzero_si256());
++      } else {
++        irow_right =
++            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(left_to_right_map) + i);
++        __m256i left = _mm256_cvtepu8_epi32(_mm_set1_epi8(static_cast<uint8_t>(
++            reinterpret_cast<const uint16_t*>(non_nulls + i)[0] >> col.bit_offset(0))));
++        __m256i bits = _mm256_setr_epi32(1, 2, 4, 8, 16, 32, 64, 128);
++        left_null =
++            _mm256_cmpeq_epi32(_mm256_and_si256(left, bits), _mm256_setzero_si256());
++      }
++      __m256i right = GetNullBitInt32(rows, null_bit_id, irow_right);
++      __m256i right_null = _mm256_cmpeq_epi32(right, _mm256_set1_epi32(1));
++
++      uint64_t left_null_64 = Cmp32To8(left_null);
++      uint64_t right_null_64 = Cmp32To8(right_null);
++
++      reinterpret_cast<uint64_t*>(match_bytevector)[i] |= left_null_64 & right_null_64;
++      reinterpret_cast<uint64_t*>(match_bytevector)[i] &= ~(left_null_64 ^ right_null_64);
++    }
++    num_processed = num_rows_to_compare / unroll * unroll;
++    return num_processed;
++  }
++}
++
++template <bool use_selection, class COMPARE8_FN>
++uint32_t KeyCompare::CompareBinaryColumnToRowHelper_avx2(
++    uint32_t offset_within_row, uint32_t num_rows_to_compare,
++    const uint16_t* sel_left_maybe_null, const uint32_t* left_to_right_map,
++    LightContext* ctx, const KeyColumnArray& col, const RowTableImpl& rows,
++    uint8_t* match_bytevector, COMPARE8_FN compare8_fn) {
++  bool is_fixed_length = rows.metadata().is_fixed_length;
++  if (is_fixed_length) {
++    uint32_t fixed_length = rows.metadata().fixed_length;
++    const uint8_t* rows_left = col.data(1);
++    const uint8_t* rows_right = rows.fixed_length_rows(/*row_id=*/0);
++    constexpr uint32_t unroll = 8;
++    __m256i irow_left = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
++    for (uint32_t i = 0; i < num_rows_to_compare / unroll; ++i) {
++      if (use_selection) {
++        irow_left = _mm256_cvtepu16_epi32(
++            _mm_loadu_si128(reinterpret_cast<const __m128i*>(sel_left_maybe_null) + i));
++      }
++      __m256i irow_right;
++      if (use_selection) {
++        irow_right = _mm256_i32gather_epi32((const int*)left_to_right_map, irow_left, 4);
++      } else {
++        irow_right =
++            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(left_to_right_map) + i);
++      }
++
++      // Widen the 32-bit row ids to 64-bit and store the first/last 4 of them into 2
++      // 256-bit registers.
++      __m256i irow_right_lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(irow_right));
++      __m256i irow_right_hi =
++          _mm256_cvtepi32_epi64(_mm256_extracti128_si256(irow_right, 1));
++      // Calculate the lower/higher 4 64-bit row offsets based on the lower/higher 4
++      // 64-bit row ids and the fixed length.
++      __m256i offset_right_lo =
++          _mm256_mul_epi32(irow_right_lo, _mm256_set1_epi64x(fixed_length));
++      __m256i offset_right_hi =
++          _mm256_mul_epi32(irow_right_hi, _mm256_set1_epi64x(fixed_length));
++      // Calculate the lower/higher 4 64-bit field offsets based on the lower/higher 4
++      // 64-bit row offsets and field offset within row.
++      offset_right_lo =
++          _mm256_add_epi64(offset_right_lo, _mm256_set1_epi64x(offset_within_row));
++      offset_right_hi =
++          _mm256_add_epi64(offset_right_hi, _mm256_set1_epi64x(offset_within_row));
++
++      reinterpret_cast<uint64_t*>(match_bytevector)[i] = compare8_fn(
++          rows_left, rows_right, i * unroll, irow_left, offset_right_lo, offset_right_hi);
++
++      if (!use_selection) {
++        irow_left = _mm256_add_epi32(irow_left, _mm256_set1_epi32(8));
++      }
++    }
++    return num_rows_to_compare - (num_rows_to_compare % unroll);
++  } else {
++    const uint8_t* rows_left = col.data(1);
++    const RowTableImpl::offset_type* offsets_right = rows.offsets();
++    const uint8_t* rows_right = rows.var_length_rows();
++    constexpr uint32_t unroll = 8;
++    __m256i irow_left = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
++    for (uint32_t i = 0; i < num_rows_to_compare / unroll; ++i) {
++      if (use_selection) {
++        irow_left = _mm256_cvtepu16_epi32(
++            _mm_loadu_si128(reinterpret_cast<const __m128i*>(sel_left_maybe_null) + i));
++      }
++      __m256i irow_right;
++      if (use_selection) {
++        irow_right = _mm256_i32gather_epi32((const int*)left_to_right_map, irow_left, 4);
++      } else {
++        irow_right =
++            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(left_to_right_map) + i);
++      }
++
++      static_assert(sizeof(RowTableImpl::offset_type) == sizeof(int64_t),
++                    "KeyCompare::CompareBinaryColumnToRowHelper_avx2 only supports "
++                    "64-bit RowTableImpl::offset_type");
++      auto offsets_right_i64 =
++          reinterpret_cast<const arrow::util::int64_for_gather_t*>(offsets_right);
++      // Gather the lower/higher 4 64-bit row offsets based on the lower/higher 4 32-bit
++      // row ids.
++      __m256i offset_right_lo =
++          _mm256_i32gather_epi64(offsets_right_i64, _mm256_castsi256_si128(irow_right),
++                                 sizeof(RowTableImpl::offset_type));
++      __m256i offset_right_hi = _mm256_i32gather_epi64(
++          offsets_right_i64, _mm256_extracti128_si256(irow_right, 1),
++          sizeof(RowTableImpl::offset_type));
++      // Calculate the lower/higher 4 64-bit field offsets based on the lower/higher 4
++      // 64-bit row offsets and field offset within row.
++      offset_right_lo =
++          _mm256_add_epi64(offset_right_lo, _mm256_set1_epi64x(offset_within_row));
++      offset_right_hi =
++          _mm256_add_epi64(offset_right_hi, _mm256_set1_epi64x(offset_within_row));
++
++      reinterpret_cast<uint64_t*>(match_bytevector)[i] = compare8_fn(
++          rows_left, rows_right, i * unroll, irow_left, offset_right_lo, offset_right_hi);
++
++      if (!use_selection) {
++        irow_left = _mm256_add_epi32(irow_left, _mm256_set1_epi32(8));
++      }
++    }
++    return num_rows_to_compare - (num_rows_to_compare % unroll);
++  }
++}
++
++template <int column_width>
++inline uint64_t CompareSelected8_avx2(const uint8_t* left_base, const uint8_t* right_base,
++                                      __m256i irow_left, __m256i offset_right_lo,
++                                      __m256i offset_right_hi, int bit_offset = 0) {
++  __m256i left;
++  switch (column_width) {
++    case 0: {
++      irow_left = _mm256_add_epi32(irow_left, _mm256_set1_epi32(bit_offset));
++      left = _mm256_i32gather_epi32((const int*)left_base,
++                                    _mm256_srli_epi32(irow_left, 5), 4);
++      __m256i bit_selection = _mm256_sllv_epi32(
++          _mm256_set1_epi32(1), _mm256_and_si256(irow_left, _mm256_set1_epi32(31)));
++      left = _mm256_cmpeq_epi32(bit_selection, _mm256_and_si256(left, bit_selection));
++      left = _mm256_and_si256(left, _mm256_set1_epi32(0xff));
++    } break;
++    case 1:
++      left = _mm256_i32gather_epi32((const int*)left_base, irow_left, 1);
++      left = _mm256_and_si256(left, _mm256_set1_epi32(0xff));
++      break;
++    case 2:
++      left = _mm256_i32gather_epi32((const int*)left_base, irow_left, 2);
++      left = _mm256_and_si256(left, _mm256_set1_epi32(0xffff));
++      break;
++    case 4:
++      left = _mm256_i32gather_epi32((const int*)left_base, irow_left, 4);
++      break;
++    default:
++      ARROW_DCHECK(false);
++  }
++
++  __m128i right_lo = _mm256_i64gather_epi32((const int*)right_base, offset_right_lo, 1);
++  __m128i right_hi = _mm256_i64gather_epi32((const int*)right_base, offset_right_hi, 1);
++  __m256i right = _mm256_set_m128i(right_hi, right_lo);
++  if (column_width != sizeof(uint32_t)) {
++    constexpr uint32_t mask = column_width == 0 || column_width == 1 ? 0xff : 0xffff;
++    right = _mm256_and_si256(right, _mm256_set1_epi32(mask));
++  }
++
++  __m256i cmp = _mm256_cmpeq_epi32(left, right);
++
++  return Cmp32To8(cmp);
++}
++
++template <int column_width>
++inline uint64_t Compare8_avx2(const uint8_t* left_base, const uint8_t* right_base,
++                              uint32_t irow_left_first, __m256i offset_right_lo,
++                              __m256i offset_right_hi, int bit_offset = 0) {
++  __m256i left;
++  switch (column_width) {
++    case 0: {
++      __m256i bits = _mm256_setr_epi32(1, 2, 4, 8, 16, 32, 64, 128);
++      uint32_t start_bit_index = irow_left_first + bit_offset;
++      uint8_t left_bits_8 =
++          (reinterpret_cast<const uint16_t*>(left_base + start_bit_index / 8)[0] >>
++           (start_bit_index % 8)) &
++          0xff;
++      left =
++          _mm256_cmpeq_epi32(_mm256_and_si256(bits, _mm256_set1_epi8(left_bits_8)), bits);
++      left = _mm256_and_si256(left, _mm256_set1_epi32(0xff));
++    } break;
++    case 1:
++      left = _mm256_cvtepu8_epi32(_mm_set1_epi64x(
++          *reinterpret_cast<const uint64_t*>(left_base + irow_left_first)));
++      break;
++    case 2:
++      left = _mm256_cvtepu16_epi32(_mm_loadu_si128(
++          reinterpret_cast<const __m128i*>(left_base + 2 * irow_left_first)));
++      break;
++    case 4:
++      left = _mm256_loadu_si256(
++          reinterpret_cast<const __m256i*>(left_base + 4 * irow_left_first));
++      break;
++    default:
++      ARROW_DCHECK(false);
++  }
++
++  __m128i right_lo = _mm256_i64gather_epi32((const int*)right_base, offset_right_lo, 1);
++  __m128i right_hi = _mm256_i64gather_epi32((const int*)right_base, offset_right_hi, 1);
++  __m256i right = _mm256_set_m128i(right_hi, right_lo);
++  if (column_width != sizeof(uint32_t)) {
++    constexpr uint32_t mask = column_width == 0 || column_width == 1 ? 0xff : 0xffff;
++    right = _mm256_and_si256(right, _mm256_set1_epi32(mask));
++  }
++
++  __m256i cmp = _mm256_cmpeq_epi32(left, right);
++
++  return Cmp32To8(cmp);
++}
++
++template <bool use_selection>
++inline uint64_t Compare8_64bit_avx2(const uint8_t* left_base, const uint8_t* right_base,
++                                    __m256i irow_left, uint32_t irow_left_first,
++                                    __m256i offset_right_lo, __m256i offset_right_hi) {
++  auto left_base_i64 =
++      reinterpret_cast<const arrow::util::int64_for_gather_t*>(left_base);
++  __m256i left_lo, left_hi;
++  if (use_selection) {
++    left_lo = _mm256_i32gather_epi64(left_base_i64, _mm256_castsi256_si128(irow_left), 8);
++    left_hi =
++        _mm256_i32gather_epi64(left_base_i64, _mm256_extracti128_si256(irow_left, 1), 8);
++  } else {
++    left_lo = _mm256_loadu_si256(
++        reinterpret_cast<const __m256i*>(left_base + irow_left_first * sizeof(uint64_t)));
++    left_hi = _mm256_loadu_si256(
++        reinterpret_cast<const __m256i*>(left_base + irow_left_first * sizeof(uint64_t)) +
++        1);
++  }
++  auto right_base_i64 =
++      reinterpret_cast<const arrow::util::int64_for_gather_t*>(right_base);
++  __m256i right_lo = _mm256_i64gather_epi64(right_base_i64, offset_right_lo, 1);
++  __m256i right_hi = _mm256_i64gather_epi64(right_base_i64, offset_right_hi, 1);
++  __m256i cmp_lo = _mm256_cmpeq_epi64(left_lo, right_lo);
++  __m256i cmp_hi = _mm256_cmpeq_epi64(left_hi, right_hi);
++  return Cmp64To8(cmp_lo, cmp_hi);
++}
++
++template <bool use_selection>
++inline uint64_t Compare8_Binary_avx2(uint32_t length, const uint8_t* left_base,
++                                     const uint8_t* right_base, __m256i irow_left,
++                                     uint32_t irow_left_first, __m256i offset_right_lo,
++                                     __m256i offset_right_hi) {
++  uint32_t irow_left_array[8];
++  RowTableImpl::offset_type offset_right_array[8];
++  if (use_selection) {
++    _mm256_storeu_si256(reinterpret_cast<__m256i*>(irow_left_array), irow_left);
++  }
++  static_assert(
++      sizeof(RowTableImpl::offset_type) * 4 == sizeof(__m256i),
++      "Unexpected RowTableImpl::offset_type size in KeyCompare::Compare8_Binary_avx2");
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(offset_right_array), offset_right_lo);
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(&offset_right_array[4]),
++                      offset_right_hi);
++
++  // Non-zero length guarantees no underflow
++  int32_t num_loops_less_one = (static_cast<int32_t>(length) + 31) / 32 - 1;
++
++  __m256i tail_mask = set_first_n_bytes_avx2(length - num_loops_less_one * 32);
++
++  uint64_t result = 0;
++  for (uint32_t irow = 0; irow < 8; ++irow) {
++    const __m256i* key_left_ptr = reinterpret_cast<const __m256i*>(
++        left_base +
++        (use_selection ? irow_left_array[irow] : irow_left_first + irow) * length);
++    const __m256i* key_right_ptr =
++        reinterpret_cast<const __m256i*>(right_base + offset_right_array[irow]);
++    __m256i result_or = _mm256_setzero_si256();
++    int32_t i;
++    // length cannot be zero
++    for (i = 0; i < num_loops_less_one; ++i) {
++      __m256i key_left = _mm256_loadu_si256(key_left_ptr + i);
++      __m256i key_right = _mm256_loadu_si256(key_right_ptr + i);
++      result_or = _mm256_or_si256(result_or, _mm256_xor_si256(key_left, key_right));
++    }
++    __m256i key_left = _mm256_loadu_si256(key_left_ptr + i);
++    __m256i key_right = _mm256_loadu_si256(key_right_ptr + i);
++    result_or = _mm256_or_si256(
++        result_or, _mm256_and_si256(tail_mask, _mm256_xor_si256(key_left, key_right)));
++    uint64_t result_single = _mm256_testz_si256(result_or, result_or) * 0xff;
++    result |= result_single << (8 * irow);
++  }
++  return result;
++}
++
++template <bool use_selection>
++uint32_t KeyCompare::CompareBinaryColumnToRowImp_avx2(
++    uint32_t offset_within_row, uint32_t num_rows_to_compare,
++    const uint16_t* sel_left_maybe_null, const uint32_t* left_to_right_map,
++    LightContext* ctx, const KeyColumnArray& col, const RowTableImpl& rows,
++    uint8_t* match_bytevector) {
++  uint32_t col_width = col.metadata().fixed_length;
++  if (col_width == 0) {
++    int bit_offset = col.bit_offset(1);
++    return CompareBinaryColumnToRowHelper_avx2<use_selection>(
++        offset_within_row, num_rows_to_compare, sel_left_maybe_null, left_to_right_map,
++        ctx, col, rows, match_bytevector,
++        [bit_offset](const uint8_t* left_base, const uint8_t* right_base,
++                     uint32_t irow_left_base, __m256i irow_left, __m256i offset_right_lo,
++                     __m256i offset_right_hi) {
++          if (use_selection) {
++            return CompareSelected8_avx2<0>(left_base, right_base, irow_left,
++                                            offset_right_lo, offset_right_hi, bit_offset);
++          } else {
++            return Compare8_avx2<0>(left_base, right_base, irow_left_base,
++                                    offset_right_lo, offset_right_hi, bit_offset);
++          }
++        });
++  } else if (col_width == 1) {
++    return CompareBinaryColumnToRowHelper_avx2<use_selection>(
++        offset_within_row, num_rows_to_compare, sel_left_maybe_null, left_to_right_map,
++        ctx, col, rows, match_bytevector,
++        [](const uint8_t* left_base, const uint8_t* right_base, uint32_t irow_left_base,
++           __m256i irow_left, __m256i offset_right_lo, __m256i offset_right_hi) {
++          if (use_selection) {
++            return CompareSelected8_avx2<1>(left_base, right_base, irow_left,
++                                            offset_right_lo, offset_right_hi);
++          } else {
++            return Compare8_avx2<1>(left_base, right_base, irow_left_base,
++                                    offset_right_lo, offset_right_hi);
++          }
++        });
++  } else if (col_width == 2) {
++    return CompareBinaryColumnToRowHelper_avx2<use_selection>(
++        offset_within_row, num_rows_to_compare, sel_left_maybe_null, left_to_right_map,
++        ctx, col, rows, match_bytevector,
++        [](const uint8_t* left_base, const uint8_t* right_base, uint32_t irow_left_base,
++           __m256i irow_left, __m256i offset_right_lo, __m256i offset_right_hi) {
++          if (use_selection) {
++            return CompareSelected8_avx2<2>(left_base, right_base, irow_left,
++                                            offset_right_lo, offset_right_hi);
++          } else {
++            return Compare8_avx2<2>(left_base, right_base, irow_left_base,
++                                    offset_right_lo, offset_right_hi);
++          }
++        });
++  } else if (col_width == 4) {
++    return CompareBinaryColumnToRowHelper_avx2<use_selection>(
++        offset_within_row, num_rows_to_compare, sel_left_maybe_null, left_to_right_map,
++        ctx, col, rows, match_bytevector,
++        [](const uint8_t* left_base, const uint8_t* right_base, uint32_t irow_left_base,
++           __m256i irow_left, __m256i offset_right_lo, __m256i offset_right_hi) {
++          if (use_selection) {
++            return CompareSelected8_avx2<4>(left_base, right_base, irow_left,
++                                            offset_right_lo, offset_right_hi);
++          } else {
++            return Compare8_avx2<4>(left_base, right_base, irow_left_base,
++                                    offset_right_lo, offset_right_hi);
++          }
++        });
++  } else if (col_width == 8) {
++    return CompareBinaryColumnToRowHelper_avx2<use_selection>(
++        offset_within_row, num_rows_to_compare, sel_left_maybe_null, left_to_right_map,
++        ctx, col, rows, match_bytevector,
++        [](const uint8_t* left_base, const uint8_t* right_base, uint32_t irow_left_base,
++           __m256i irow_left, __m256i offset_right_lo, __m256i offset_right_hi) {
++          return Compare8_64bit_avx2<use_selection>(left_base, right_base, irow_left,
++                                                    irow_left_base, offset_right_lo,
++                                                    offset_right_hi);
++        });
++  } else {
++    return CompareBinaryColumnToRowHelper_avx2<use_selection>(
++        offset_within_row, num_rows_to_compare, sel_left_maybe_null, left_to_right_map,
++        ctx, col, rows, match_bytevector,
++        [&col](const uint8_t* left_base, const uint8_t* right_base,
++               uint32_t irow_left_base, __m256i irow_left, __m256i offset_right_lo,
++               __m256i offset_right_hi) {
++          uint32_t length = col.metadata().fixed_length;
++          return Compare8_Binary_avx2<use_selection>(length, left_base, right_base,
++                                                     irow_left, irow_left_base,
++                                                     offset_right_lo, offset_right_hi);
++        });
++  }
++}
++
++// Overwrites the match_bytevector instead of updating it
++template <bool use_selection, bool is_first_varbinary_col>
++void KeyCompare::CompareVarBinaryColumnToRowImp_avx2(
++    uint32_t id_varbinary_col, uint32_t num_rows_to_compare,
++    const uint16_t* sel_left_maybe_null, const uint32_t* left_to_right_map,
++    LightContext* ctx, const KeyColumnArray& col, const RowTableImpl& rows,
++    uint8_t* match_bytevector) {
++  const uint32_t* offsets_left = col.offsets();
++  const RowTableImpl::offset_type* offsets_right = rows.offsets();
++  const uint8_t* rows_left = col.data(2);
++  const uint8_t* rows_right = rows.var_length_rows();
++  for (uint32_t i = 0; i < num_rows_to_compare; ++i) {
++    uint32_t irow_left = use_selection ? sel_left_maybe_null[i] : i;
++    uint32_t irow_right = left_to_right_map[irow_left];
++    uint32_t begin_left = offsets_left[irow_left];
++    uint32_t length_left = offsets_left[irow_left + 1] - begin_left;
++    RowTableImpl::offset_type begin_right = offsets_right[irow_right];
++    uint32_t length_right;
++    uint32_t offset_within_row;
++    if (!is_first_varbinary_col) {
++      rows.metadata().nth_varbinary_offset_and_length(
++          rows_right + begin_right, id_varbinary_col, &offset_within_row, &length_right);
++    } else {
++      rows.metadata().first_varbinary_offset_and_length(
++          rows_right + begin_right, &offset_within_row, &length_right);
++    }
++    begin_right += offset_within_row;
++
++    __m256i result_or = _mm256_setzero_si256();
++    uint32_t length = std::min(length_left, length_right);
++    if (length > 0) {
++      const __m256i* key_left_ptr =
++          reinterpret_cast<const __m256i*>(rows_left + begin_left);
++      const __m256i* key_right_ptr =
++          reinterpret_cast<const __m256i*>(rows_right + begin_right);
++      int32_t j;
++      // length is greater than zero
++      for (j = 0; j < (static_cast<int32_t>(length) + 31) / 32 - 1; ++j) {
++        __m256i key_left = _mm256_loadu_si256(key_left_ptr + j);
++        __m256i key_right = _mm256_loadu_si256(key_right_ptr + j);
++        result_or = _mm256_or_si256(result_or, _mm256_xor_si256(key_left, key_right));
++      }
++
++      __m256i tail_mask = set_first_n_bytes_avx2(length - j * 32);
++
++      __m256i key_left = _mm256_loadu_si256(key_left_ptr + j);
++      __m256i key_right = _mm256_loadu_si256(key_right_ptr + j);
++      result_or = _mm256_or_si256(
++          result_or, _mm256_and_si256(tail_mask, _mm256_xor_si256(key_left, key_right)));
++    }
++    int result = _mm256_testz_si256(result_or, result_or) * 0xff;
++    result *= (length_left == length_right ? 1 : 0);
++    match_bytevector[i] = result;
++  }
++}
++
++uint32_t KeyCompare::AndByteVectors_avx2(uint32_t num_elements, uint8_t* bytevector_A,
++                                         const uint8_t* bytevector_B) {
++  constexpr int unroll = 32;
++  for (uint32_t i = 0; i < num_elements / unroll; ++i) {
++    __m256i result = _mm256_and_si256(
++        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bytevector_A) + i),
++        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bytevector_B) + i));
++    _mm256_storeu_si256(reinterpret_cast<__m256i*>(bytevector_A) + i, result);
++  }
++  return (num_elements - (num_elements % unroll));
++}
++
++uint32_t KeyCompare::NullUpdateColumnToRow_avx2(
++    bool use_selection, uint32_t id_col, uint32_t num_rows_to_compare,
++    const uint16_t* sel_left_maybe_null, const uint32_t* left_to_right_map,
++    LightContext* ctx, const KeyColumnArray& col, const RowTableImpl& rows,
++    bool are_cols_in_encoding_order, uint8_t* match_bytevector) {
++  int64_t num_rows_safe =
++      TailSkipForSIMD::FixBitAccess(sizeof(uint32_t), col.length(), col.bit_offset(0));
++  if (sel_left_maybe_null) {
++    num_rows_to_compare = static_cast<uint32_t>(TailSkipForSIMD::FixSelection(
++        num_rows_safe, static_cast<int>(num_rows_to_compare), sel_left_maybe_null));
++  } else {
++    num_rows_to_compare = static_cast<uint32_t>(num_rows_safe);
++  }
++
++  if (use_selection) {
++    return NullUpdateColumnToRowImp_avx2<true>(
++        id_col, num_rows_to_compare, sel_left_maybe_null, left_to_right_map, ctx, col,
++        rows, are_cols_in_encoding_order, match_bytevector);
++  } else {
++    return NullUpdateColumnToRowImp_avx2<false>(
++        id_col, num_rows_to_compare, sel_left_maybe_null, left_to_right_map, ctx, col,
++        rows, are_cols_in_encoding_order, match_bytevector);
++  }
++}
++
++uint32_t KeyCompare::CompareBinaryColumnToRow_avx2(
++    bool use_selection, uint32_t offset_within_row, uint32_t num_rows_to_compare,
++    const uint16_t* sel_left_maybe_null, const uint32_t* left_to_right_map,
++    LightContext* ctx, const KeyColumnArray& col, const RowTableImpl& rows,
++    uint8_t* match_bytevector) {
++  uint32_t col_width = col.metadata().fixed_length;
++  int64_t num_rows_safe = col.length();
++  if (col_width == 0) {
++    // In this case we will access left column memory 4B at a time
++    num_rows_safe =
++        TailSkipForSIMD::FixBitAccess(sizeof(uint32_t), col.length(), col.bit_offset(1));
++  } else if (col_width == 1 || col_width == 2) {
++    // In this case we will access left column memory 4B at a time
++    num_rows_safe =
++        TailSkipForSIMD::FixBinaryAccess(sizeof(uint32_t), col.length(), col_width);
++  } else if (col_width != 4 && col_width != 8) {
++    // In this case we will access left column memory 32B at a time
++    num_rows_safe =
++        TailSkipForSIMD::FixBinaryAccess(sizeof(__m256i), col.length(), col_width);
++  }
++  if (sel_left_maybe_null) {
++    num_rows_to_compare = static_cast<uint32_t>(TailSkipForSIMD::FixSelection(
++        num_rows_safe, static_cast<int>(num_rows_to_compare), sel_left_maybe_null));
++  } else {
++    num_rows_to_compare = static_cast<uint32_t>(
++        std::min(num_rows_safe, static_cast<int64_t>(num_rows_to_compare)));
++  }
++
++  if (use_selection) {
++    return CompareBinaryColumnToRowImp_avx2<true>(offset_within_row, num_rows_to_compare,
++                                                  sel_left_maybe_null, left_to_right_map,
++                                                  ctx, col, rows, match_bytevector);
++  } else {
++    return CompareBinaryColumnToRowImp_avx2<false>(offset_within_row, num_rows_to_compare,
++                                                   sel_left_maybe_null, left_to_right_map,
++                                                   ctx, col, rows, match_bytevector);
++  }
++}
++
++uint32_t KeyCompare::CompareVarBinaryColumnToRow_avx2(
++    bool use_selection, bool is_first_varbinary_col, uint32_t id_varlen_col,
++    uint32_t num_rows_to_compare, const uint16_t* sel_left_maybe_null,
++    const uint32_t* left_to_right_map, LightContext* ctx, const KeyColumnArray& col,
++    const RowTableImpl& rows, uint8_t* match_bytevector) {
++  int64_t num_rows_safe =
++      TailSkipForSIMD::FixVarBinaryAccess(sizeof(__m256i), col.length(), col.offsets());
++  if (use_selection) {
++    num_rows_to_compare = static_cast<uint32_t>(TailSkipForSIMD::FixSelection(
++        num_rows_safe, static_cast<int>(num_rows_to_compare), sel_left_maybe_null));
++  } else {
++    num_rows_to_compare = static_cast<uint32_t>(num_rows_safe);
++  }
++
++  if (use_selection) {
++    if (is_first_varbinary_col) {
++      CompareVarBinaryColumnToRowImp_avx2<true, true>(
++          id_varlen_col, num_rows_to_compare, sel_left_maybe_null, left_to_right_map, ctx,
++          col, rows, match_bytevector);
++    } else {
++      CompareVarBinaryColumnToRowImp_avx2<true, false>(
++          id_varlen_col, num_rows_to_compare, sel_left_maybe_null, left_to_right_map, ctx,
++          col, rows, match_bytevector);
++    }
++  } else {
++    if (is_first_varbinary_col) {
++      CompareVarBinaryColumnToRowImp_avx2<false, true>(
++          id_varlen_col, num_rows_to_compare, sel_left_maybe_null, left_to_right_map, ctx,
++          col, rows, match_bytevector);
++    } else {
++      CompareVarBinaryColumnToRowImp_avx2<false, false>(
++          id_varlen_col, num_rows_to_compare, sel_left_maybe_null, left_to_right_map, ctx,
++          col, rows, match_bytevector);
++    }
++  }
++
++  return num_rows_to_compare;
++}
++
++}  // namespace compute
++}  // namespace arrow
+diff --git a/cpp/src/arrow/compute/row/encode_internal.cc b/cpp/src/arrow/compute/row/encode_internal.cc
+index 01e78b7..8c3f37e 100644
+--- a/cpp/src/arrow/compute/row/encode_internal.cc
++++ b/cpp/src/arrow/compute/row/encode_internal.cc
+@@ -460,11 +460,20 @@ void EncoderBinary::Decode(uint32_t start_row, uint32_t num_rows,
+ 
+     bool is_row_fixed_length = rows.metadata().is_fixed_length;
+ 
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++    if (ctx->has_avx2()) {
++      DecodeHelper_avx2(is_row_fixed_length, start_row, num_rows, offset_within_row, rows,
++                        col);
++    } else {
++#endif
+       if (is_row_fixed_length) {
+         DecodeImp<true>(start_row, num_rows, offset_within_row, rows, col);
+       } else {
+         DecodeImp<false>(start_row, num_rows, offset_within_row, rows, col);
+       }
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++    }
++#endif
+ 
+     if (EncoderInteger::UsesTransform(*col)) {
+       EncoderInteger::PostDecode(col_prep, col, ctx);
+@@ -520,6 +529,13 @@ void EncoderBinaryPair::Decode(uint32_t start_row, uint32_t num_rows,
+   bool is_row_fixed_length = rows.metadata().is_fixed_length;
+ 
+   uint32_t num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (ctx->has_avx2() && col_width1 == col_width2) {
++    num_processed =
++        DecodeHelper_avx2(is_row_fixed_length, col_width1, start_row, num_rows,
++                          offset_within_row, rows, &col_prep[0], &col_prep[1]);
++  }
++#endif
+   if (num_processed < num_rows) {
+     using DecodeImp_t = void (*)(uint32_t, uint32_t, uint32_t, uint32_t,
+                                  const RowTableImpl&, KeyColumnArray*, KeyColumnArray*);
+@@ -763,11 +779,19 @@ void EncoderVarBinary::Decode(uint32_t start_row, uint32_t num_rows,
+                               KeyColumnArray* col, LightContext* ctx) {
+   // Output column varbinary buffer needs an extra 32B
+   // at the end in avx2 version and 8B otherwise.
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  if (ctx->has_avx2()) {
++    DecodeHelper_avx2(start_row, num_rows, varbinary_col_id, rows, col);
++  } else {
++#endif
+     if (varbinary_col_id == 0) {
+       DecodeImp<true>(start_row, num_rows, varbinary_col_id, rows, col);
+     } else {
+       DecodeImp<false>(start_row, num_rows, varbinary_col_id, rows, col);
+     }
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++  }
++#endif
+ }
+ 
+ template <bool first_varbinary_col>
+diff --git a/L4/cpp/src/arrow/compute/row/encode_internal_avx2.cc b/L4/cpp/src/arrow/compute/row/encode_internal_avx2.cc
+new file mode 100644
+index 0000000..650d24b
+--- /dev/null
++++ b/cpp/src/arrow/compute/row/encode_internal_avx2.cc
+@@ -0,0 +1,230 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++#include "arrow/compute/row/encode_internal.h"
++#include "arrow/util/simd.h"
++
++namespace arrow {
++namespace compute {
++
++void EncoderBinary::DecodeHelper_avx2(bool is_row_fixed_length, uint32_t start_row,
++                                      uint32_t num_rows, uint32_t offset_within_row,
++                                      const RowTableImpl& rows, KeyColumnArray* col) {
++  if (is_row_fixed_length) {
++    DecodeImp_avx2<true>(start_row, num_rows, offset_within_row, rows, col);
++  } else {
++    DecodeImp_avx2<false>(start_row, num_rows, offset_within_row, rows, col);
++  }
++}
++
++template <bool is_row_fixed_length>
++void EncoderBinary::DecodeImp_avx2(uint32_t start_row, uint32_t num_rows,
++                                   uint32_t offset_within_row, const RowTableImpl& rows,
++                                   KeyColumnArray* col) {
++  DecodeHelper<is_row_fixed_length>(
++      start_row, num_rows, offset_within_row, &rows, nullptr, col, col,
++      [](uint8_t* dst, const uint8_t* src, int64_t length) {
++        for (uint32_t istripe = 0; istripe < (length + 31) / 32; ++istripe) {
++          __m256i* dst256 = reinterpret_cast<__m256i*>(dst);
++          const __m256i* src256 = reinterpret_cast<const __m256i*>(src);
++          _mm256_storeu_si256(dst256 + istripe, _mm256_loadu_si256(src256 + istripe));
++        }
++      });
++}
++
++uint32_t EncoderBinaryPair::DecodeHelper_avx2(
++    bool is_row_fixed_length, uint32_t col_width, uint32_t start_row, uint32_t num_rows,
++    uint32_t offset_within_row, const RowTableImpl& rows, KeyColumnArray* col1,
++    KeyColumnArray* col2) {
++  using DecodeImp_avx2_t =
++      uint32_t (*)(uint32_t start_row, uint32_t num_rows, uint32_t offset_within_row,
++                   const RowTableImpl& rows, KeyColumnArray* col1, KeyColumnArray* col2);
++  static const DecodeImp_avx2_t DecodeImp_avx2_fn[] = {
++      DecodeImp_avx2<false, 1>, DecodeImp_avx2<false, 2>, DecodeImp_avx2<false, 4>,
++      DecodeImp_avx2<false, 8>, DecodeImp_avx2<true, 1>,  DecodeImp_avx2<true, 2>,
++      DecodeImp_avx2<true, 4>,  DecodeImp_avx2<true, 8>};
++  int log_col_width = col_width == 8 ? 3 : col_width == 4 ? 2 : col_width == 2 ? 1 : 0;
++  int dispatch_const = log_col_width | (is_row_fixed_length ? 4 : 0);
++  return DecodeImp_avx2_fn[dispatch_const](start_row, num_rows, offset_within_row, rows,
++                                           col1, col2);
++}
++
++template <bool is_row_fixed_length, uint32_t col_width>
++uint32_t EncoderBinaryPair::DecodeImp_avx2(uint32_t start_row, uint32_t num_rows,
++                                           uint32_t offset_within_row,
++                                           const RowTableImpl& rows, KeyColumnArray* col1,
++                                           KeyColumnArray* col2) {
++  ARROW_DCHECK(col_width == 1 || col_width == 2 || col_width == 4 || col_width == 8);
++
++  uint8_t* col_vals_A = col1->mutable_data(1);
++  uint8_t* col_vals_B = col2->mutable_data(1);
++
++  uint32_t fixed_length = rows.metadata().fixed_length;
++  const RowTableImpl::offset_type* offsets;
++  if (is_row_fixed_length) {
++    offsets = nullptr;
++  } else {
++    offsets = rows.offsets() + start_row;
++  }
++
++  constexpr int unroll = 32 / col_width;
++
++  uint32_t num_processed = num_rows / unroll * unroll;
++
++  if (col_width == 8) {
++    for (uint32_t i = 0; i < num_rows / unroll; ++i) {
++      const __m128i *src0, *src1, *src2, *src3;
++      if (is_row_fixed_length) {
++        const uint8_t* src =
++            rows.fixed_length_rows(start_row + i * unroll) + offset_within_row;
++        src0 = reinterpret_cast<const __m128i*>(src);
++        src1 = reinterpret_cast<const __m128i*>(src + fixed_length);
++        src2 = reinterpret_cast<const __m128i*>(src + fixed_length * 2);
++        src3 = reinterpret_cast<const __m128i*>(src + fixed_length * 3);
++      } else {
++        const uint8_t* src = rows.var_length_rows() + offset_within_row;
++        const RowTableImpl::offset_type* row_offsets = offsets + i * unroll;
++        src0 = reinterpret_cast<const __m128i*>(src + row_offsets[0]);
++        src1 = reinterpret_cast<const __m128i*>(src + row_offsets[1]);
++        src2 = reinterpret_cast<const __m128i*>(src + row_offsets[2]);
++        src3 = reinterpret_cast<const __m128i*>(src + row_offsets[3]);
++      }
++
++      __m256i r0 = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_loadu_si128(src0)),
++                                           _mm_loadu_si128(src1), 1);
++      __m256i r1 = _mm256_inserti128_si256(_mm256_castsi128_si256(_mm_loadu_si128(src2)),
++                                           _mm_loadu_si128(src3), 1);
++
++      r0 = _mm256_permute4x64_epi64(r0, 0xd8);  // 0b11011000
++      r1 = _mm256_permute4x64_epi64(r1, 0xd8);
++
++      // First 128-bit lanes from both inputs
++      __m256i c1 = _mm256_permute2x128_si256(r0, r1, 0x20);
++      // Second 128-bit lanes from both inputs
++      __m256i c2 = _mm256_permute2x128_si256(r0, r1, 0x31);
++      _mm256_storeu_si256(reinterpret_cast<__m256i*>(col_vals_A) + i, c1);
++      _mm256_storeu_si256(reinterpret_cast<__m256i*>(col_vals_B) + i, c2);
++    }
++  } else {
++    uint8_t buffer[64];
++    for (uint32_t i = 0; i < num_rows / unroll; ++i) {
++      if (is_row_fixed_length) {
++        const uint8_t* src =
++            rows.fixed_length_rows(start_row + i * unroll) + offset_within_row;
++        for (int j = 0; j < unroll; ++j) {
++          if (col_width == 1) {
++            reinterpret_cast<uint16_t*>(buffer)[j] =
++                *reinterpret_cast<const uint16_t*>(src + fixed_length * j);
++          } else if (col_width == 2) {
++            reinterpret_cast<uint32_t*>(buffer)[j] =
++                *reinterpret_cast<const uint32_t*>(src + fixed_length * j);
++          } else if (col_width == 4) {
++            reinterpret_cast<uint64_t*>(buffer)[j] =
++                *reinterpret_cast<const uint64_t*>(src + fixed_length * j);
++          }
++        }
++      } else {
++        const uint8_t* src = rows.var_length_rows() + offset_within_row;
++        const RowTableImpl::offset_type* row_offsets = offsets + i * unroll;
++        for (int j = 0; j < unroll; ++j) {
++          if (col_width == 1) {
++            reinterpret_cast<uint16_t*>(buffer)[j] =
++                *reinterpret_cast<const uint16_t*>(src + row_offsets[j]);
++          } else if (col_width == 2) {
++            reinterpret_cast<uint32_t*>(buffer)[j] =
++                *reinterpret_cast<const uint32_t*>(src + row_offsets[j]);
++          } else if (col_width == 4) {
++            reinterpret_cast<uint64_t*>(buffer)[j] =
++                *reinterpret_cast<const uint64_t*>(src + row_offsets[j]);
++          }
++        }
++      }
++
++      __m256i r0 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(buffer));
++      __m256i r1 = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(buffer) + 1);
++
++      constexpr uint64_t kByteSequence_0_2_4_6_8_10_12_14 = 0x0e0c0a0806040200ULL;
++      constexpr uint64_t kByteSequence_1_3_5_7_9_11_13_15 = 0x0f0d0b0907050301ULL;
++      constexpr uint64_t kByteSequence_0_1_4_5_8_9_12_13 = 0x0d0c090805040100ULL;
++      constexpr uint64_t kByteSequence_2_3_6_7_10_11_14_15 = 0x0f0e0b0a07060302ULL;
++
++      if (col_width == 1) {
++        // Collect every second byte next to each other
++        const __m256i shuffle_const = _mm256_setr_epi64x(
++            kByteSequence_0_2_4_6_8_10_12_14, kByteSequence_1_3_5_7_9_11_13_15,
++            kByteSequence_0_2_4_6_8_10_12_14, kByteSequence_1_3_5_7_9_11_13_15);
++        r0 = _mm256_shuffle_epi8(r0, shuffle_const);
++        r1 = _mm256_shuffle_epi8(r1, shuffle_const);
++        // 0b11011000 swapping second and third 64-bit lane
++        r0 = _mm256_permute4x64_epi64(r0, 0xd8);
++        r1 = _mm256_permute4x64_epi64(r1, 0xd8);
++      } else if (col_width == 2) {
++        // Collect every second 16-bit word next to each other
++        const __m256i shuffle_const = _mm256_setr_epi64x(
++            kByteSequence_0_1_4_5_8_9_12_13, kByteSequence_2_3_6_7_10_11_14_15,
++            kByteSequence_0_1_4_5_8_9_12_13, kByteSequence_2_3_6_7_10_11_14_15);
++        r0 = _mm256_shuffle_epi8(r0, shuffle_const);
++        r1 = _mm256_shuffle_epi8(r1, shuffle_const);
++        // 0b11011000 swapping second and third 64-bit lane
++        r0 = _mm256_permute4x64_epi64(r0, 0xd8);
++        r1 = _mm256_permute4x64_epi64(r1, 0xd8);
++      } else if (col_width == 4) {
++        // Collect every second 32-bit word next to each other
++        const __m256i permute_const = _mm256_setr_epi32(0, 2, 4, 6, 1, 3, 5, 7);
++        r0 = _mm256_permutevar8x32_epi32(r0, permute_const);
++        r1 = _mm256_permutevar8x32_epi32(r1, permute_const);
++      }
++
++      // First 128-bit lanes from both inputs
++      __m256i c1 = _mm256_permute2x128_si256(r0, r1, 0x20);
++      // Second 128-bit lanes from both inputs
++      __m256i c2 = _mm256_permute2x128_si256(r0, r1, 0x31);
++      _mm256_storeu_si256(reinterpret_cast<__m256i*>(col_vals_A) + i, c1);
++      _mm256_storeu_si256(reinterpret_cast<__m256i*>(col_vals_B) + i, c2);
++    }
++  }
++
++  return num_processed;
++}
++
++void EncoderVarBinary::DecodeHelper_avx2(uint32_t start_row, uint32_t num_rows,
++                                         uint32_t varbinary_col_id,
++                                         const RowTableImpl& rows, KeyColumnArray* col) {
++  if (varbinary_col_id == 0) {
++    DecodeImp_avx2<true>(start_row, num_rows, varbinary_col_id, rows, col);
++  } else {
++    DecodeImp_avx2<false>(start_row, num_rows, varbinary_col_id, rows, col);
++  }
++}
++
++template <bool first_varbinary_col>
++void EncoderVarBinary::DecodeImp_avx2(uint32_t start_row, uint32_t num_rows,
++                                      uint32_t varbinary_col_id, const RowTableImpl& rows,
++                                      KeyColumnArray* col) {
++  DecodeHelper<first_varbinary_col>(
++      start_row, num_rows, varbinary_col_id, &rows, nullptr, col, col,
++      [](uint8_t* dst, const uint8_t* src, int64_t length) {
++        for (uint32_t istripe = 0; istripe < (length + 31) / 32; ++istripe) {
++          __m256i* dst256 = reinterpret_cast<__m256i*>(dst);
++          const __m256i* src256 = reinterpret_cast<const __m256i*>(src);
++          _mm256_storeu_si256(dst256 + istripe, _mm256_loadu_si256(src256 + istripe));
++        }
++      });
++}
++
++}  // namespace compute
++}  // namespace arrow
+diff --git a/L4/cpp/src/arrow/compute/row/row_util_avx2_internal.h b/L4/cpp/src/arrow/compute/row/row_util_avx2_internal.h
+new file mode 100644
+index 0000000..a8fce7e
+--- /dev/null
++++ b/cpp/src/arrow/compute/row/row_util_avx2_internal.h
+@@ -0,0 +1,64 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++#pragma once
++
++#include "arrow/compute/row/row_internal.h"
++#include "arrow/util/simd.h"
++
++#if !defined(ARROW_HAVE_AVX2) && !defined(ARROW_HAVE_AVX512) && \
++    !defined(ARROW_HAVE_RUNTIME_AVX2) && !defined(ARROW_HAVE_RUNTIME_AVX512)
++#  error "This file should only be included when AVX2 or AVX512 is enabled"
++#endif
++
++namespace arrow::compute {
++
++// Convert 8 64-bit comparision results, each being 0 or -1, to 8 bytes.
++inline uint64_t Cmp64To8(__m256i cmp64_lo, __m256i cmp64_hi) {
++  uint32_t cmp_lo = _mm256_movemask_epi8(cmp64_lo);
++  uint32_t cmp_hi = _mm256_movemask_epi8(cmp64_hi);
++  return cmp_lo | (static_cast<uint64_t>(cmp_hi) << 32);
++}
++
++// Convert 8 32-bit comparision results, each being 0 or -1, to 8 bytes.
++inline uint64_t Cmp32To8(__m256i cmp32) {
++  return Cmp64To8(_mm256_cvtepi32_epi64(_mm256_castsi256_si128(cmp32)),
++                  _mm256_cvtepi32_epi64(_mm256_extracti128_si256(cmp32, 1)));
++}
++
++// Get null bits for 8 32-bit row ids in `row_id32` at `col_pos` as a vector of 32-bit
++// integers. Note that the result integer is 0 if the corresponding column is not null, or
++// 1 otherwise.
++inline __m256i GetNullBitInt32(const RowTableImpl& rows, uint32_t col_pos,
++                               __m256i row_id32) {
++  const uint8_t* null_masks = rows.null_masks(/*row_id=*/0);
++  __m256i null_mask_num_bits =
++      _mm256_set1_epi64x(rows.metadata().null_masks_bytes_per_row * 8);
++  __m256i row_lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(row_id32));
++  __m256i row_hi = _mm256_cvtepi32_epi64(_mm256_extracti128_si256(row_id32, 1));
++  __m256i bit_id_lo = _mm256_mul_epi32(row_lo, null_mask_num_bits);
++  __m256i bit_id_hi = _mm256_mul_epi32(row_hi, null_mask_num_bits);
++  bit_id_lo = _mm256_add_epi64(bit_id_lo, _mm256_set1_epi64x(col_pos));
++  bit_id_hi = _mm256_add_epi64(bit_id_hi, _mm256_set1_epi64x(col_pos));
++  __m128i right_lo = _mm256_i64gather_epi32(reinterpret_cast<const int*>(null_masks),
++                                            _mm256_srli_epi64(bit_id_lo, 3), 1);
++  __m128i right_hi = _mm256_i64gather_epi32(reinterpret_cast<const int*>(null_masks),
++                                            _mm256_srli_epi64(bit_id_hi, 3), 1);
++  __m256i right = _mm256_set_m128i(right_hi, right_lo);
++  return _mm256_and_si256(_mm256_set1_epi32(1), _mm256_srli_epi32(right, col_pos & 7));
++}
++
++}  // namespace arrow::compute
+diff --git a/cpp/src/arrow/compute/util.cc b/cpp/src/arrow/compute/util.cc
+index 5beb26d..28bbfb7 100644
+--- a/cpp/src/arrow/compute/util.cc
++++ b/cpp/src/arrow/compute/util.cc
+@@ -90,6 +90,17 @@ void bits_to_indexes_internal(int64_t hardware_flags, const int num_bits,
+   // 64 bits at a time
+   constexpr int unroll = 64;
+   int tail = num_bits % unroll;
++#if defined(ARROW_HAVE_RUNTIME_AVX2) && defined(ARROW_HAVE_RUNTIME_BMI2)
++  if ((hardware_flags & CpuInfo::AVX2) && CpuInfo::GetInstance()->HasEfficientBmi2()) {
++    if (filter_input_indexes) {
++      avx2::bits_filter_indexes_avx2(bit_to_search, num_bits - tail, bits, input_indexes,
++                                     num_indexes, indexes);
++    } else {
++      avx2::bits_to_indexes_avx2(bit_to_search, num_bits - tail, bits, num_indexes,
++                                 indexes, base_index);
++    }
++  } else {
++#endif
+     *num_indexes = 0;
+     for (int i = 0; i < num_bits / unroll; ++i) {
+       uint64_t word = util::SafeLoad(&reinterpret_cast<const uint64_t*>(bits)[i]);
+@@ -102,6 +113,9 @@ void bits_to_indexes_internal(int64_t hardware_flags, const int num_bits,
+         bits_to_indexes_helper(word, i * 64 + base_index, num_indexes, indexes);
+       }
+     }
++#if defined(ARROW_HAVE_RUNTIME_AVX2) && defined(ARROW_HAVE_RUNTIME_BMI2)
++  }
++#endif
+   // Optionally process the last partial word with masking out bits outside range
+   if (tail) {
+     const uint8_t* bits_tail = bits + (num_bits - tail) / 8;
+@@ -211,6 +225,13 @@ void bits_to_bytes(int64_t hardware_flags, const int num_bits, const uint8_t* bi
+   }
+ 
+   int num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2) && defined(ARROW_HAVE_RUNTIME_BMI2)
++  if ((hardware_flags & CpuInfo::AVX2) && CpuInfo::GetInstance()->HasEfficientBmi2()) {
++    // The function call below processes whole 32 bit chunks together.
++    num_processed = num_bits - (num_bits % 32);
++    avx2::bits_to_bytes_avx2(num_processed, bits, bytes);
++  }
++#endif
+   // Processing 8 bits at a time
+   constexpr int unroll = 8;
+   for (int i = num_processed / unroll; i < num_bits / unroll; ++i) {
+@@ -260,6 +281,13 @@ void bytes_to_bits(int64_t hardware_flags, const int num_bits, const uint8_t* by
+   }
+ 
+   int num_processed = 0;
++#if defined(ARROW_HAVE_RUNTIME_AVX2) && defined(ARROW_HAVE_RUNTIME_BMI2)
++  if ((hardware_flags & CpuInfo::AVX2) && CpuInfo::GetInstance()->HasEfficientBmi2()) {
++    // The function call below processes whole 32 bit chunks together.
++    num_processed = num_bits - (num_bits % 32);
++    avx2::bytes_to_bits_avx2(num_processed, bytes, bits);
++  }
++#endif
+   // Process 8 bits at a time
+   constexpr int unroll = 8;
+   for (int i = num_processed / unroll; i < num_bits / unroll; ++i) {
+@@ -283,6 +311,11 @@ void bytes_to_bits(int64_t hardware_flags, const int num_bits, const uint8_t* by
+ 
+ bool are_all_bytes_zero(int64_t hardware_flags, const uint8_t* bytes,
+                         uint32_t num_bytes) {
++#if defined(ARROW_HAVE_RUNTIME_AVX2) && defined(ARROW_HAVE_RUNTIME_BMI2)
++  if ((hardware_flags & CpuInfo::AVX2) && CpuInfo::GetInstance()->HasEfficientBmi2()) {
++    return avx2::are_all_bytes_zero_avx2(bytes, num_bytes);
++  }
++#endif
+   uint64_t result_or = 0;
+   uint32_t i;
+   for (i = 0; i < num_bytes / 8; ++i) {
+diff --git a/L4/cpp/src/arrow/compute/util_avx2.cc b/L4/cpp/src/arrow/compute/util_avx2.cc
+new file mode 100644
+index 0000000..9e1b7e4
+--- /dev/null
++++ b/cpp/src/arrow/compute/util_avx2.cc
+@@ -0,0 +1,214 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++#include <bit>
++#include <cstring>
++
++#include "arrow/compute/util.h"
++#include "arrow/util/bit_util.h"
++#include "arrow/util/logging.h"
++#include "arrow/util/simd.h"
++
++namespace arrow::util::bit_util::avx2 {
++
++template <int bit_to_search>
++void bits_to_indexes_imp_avx2(const int num_bits, const uint8_t* bits, int* num_indexes,
++                              uint16_t* indexes, uint16_t base_index = 0) {
++  // 64 bits at a time
++  constexpr int unroll = 64;
++
++  // The caller takes care of processing the remaining bits at the end outside of the
++  // multiples of 64
++  ARROW_DCHECK(num_bits % unroll == 0);
++
++  constexpr uint64_t kEachByteIs1 = 0X0101010101010101ULL;
++  constexpr uint64_t kEachByteIs8 = 0x0808080808080808ULL;
++  constexpr uint64_t kByteSequence0To7 = 0x0706050403020100ULL;
++
++  uint8_t byte_indexes[64];
++  const uint64_t incr = kEachByteIs8;
++  const uint64_t mask = kByteSequence0To7;
++  *num_indexes = 0;
++  for (int i = 0; i < num_bits / unroll; ++i) {
++    uint64_t word = reinterpret_cast<const uint64_t*>(bits)[i];
++    if (bit_to_search == 0) {
++      word = ~word;
++    }
++    uint64_t base = 0;
++    int num_indexes_loop = 0;
++    while (word) {
++      uint64_t byte_indexes_next =
++          _pext_u64(mask, _pdep_u64(word, kEachByteIs1) * 0xff) + base;
++      *reinterpret_cast<uint64_t*>(byte_indexes + num_indexes_loop) = byte_indexes_next;
++      base += incr;
++      num_indexes_loop += static_cast<int>(std::popcount(word & 0xff));
++      word >>= 8;
++    }
++    // Unpack indexes to 16-bits and either add the base of i * 64 or shuffle input
++    // indexes
++    for (int j = 0; j < (num_indexes_loop + 15) / 16; ++j) {
++      __m256i output = _mm256_cvtepi8_epi16(
++          _mm_loadu_si128(reinterpret_cast<const __m128i*>(byte_indexes) + j));
++      output = _mm256_add_epi16(output, _mm256_set1_epi16(i * 64 + base_index));
++      _mm256_storeu_si256(((__m256i*)(indexes + *num_indexes)) + j, output);
++    }
++    *num_indexes += num_indexes_loop;
++  }
++}
++
++void bits_to_indexes_avx2(int bit_to_search, const int num_bits, const uint8_t* bits,
++                          int* num_indexes, uint16_t* indexes, uint16_t base_index) {
++  if (bit_to_search == 0) {
++    bits_to_indexes_imp_avx2<0>(num_bits, bits, num_indexes, indexes, base_index);
++  } else {
++    ARROW_DCHECK(bit_to_search == 1);
++    bits_to_indexes_imp_avx2<1>(num_bits, bits, num_indexes, indexes, base_index);
++  }
++}
++
++template <int bit_to_search>
++void bits_filter_indexes_imp_avx2(const int num_bits, const uint8_t* bits,
++                                  const uint16_t* input_indexes, int* out_num_indexes,
++                                  uint16_t* indexes) {
++  // 64 bits at a time
++  constexpr int unroll = 64;
++
++  // The caller takes care of processing the remaining bits at the end outside of the
++  // multiples of 64
++  ARROW_DCHECK(num_bits % unroll == 0);
++
++  constexpr uint64_t kRepeatedBitPattern0001 = 0x1111111111111111ULL;
++  constexpr uint64_t k4BitSequence0To15 = 0xfedcba9876543210ULL;
++  constexpr uint64_t kByteSequence_0_0_1_1_2_2_3_3 = 0x0303020201010000ULL;
++  constexpr uint64_t kByteSequence_4_4_5_5_6_6_7_7 = 0x0707060605050404ULL;
++  constexpr uint64_t kByteSequence_0_2_4_6_8_10_12_14 = 0x0e0c0a0806040200ULL;
++  constexpr uint64_t kByteSequence_1_3_5_7_9_11_13_15 = 0x0f0d0b0907050301ULL;
++  constexpr uint64_t kByteSequence_0_8_1_9_2_10_3_11 = 0x0b030a0209010800ULL;
++  constexpr uint64_t kByteSequence_4_12_5_13_6_14_7_15 = 0x0f070e060d050c04ULL;
++
++  const uint64_t mask = k4BitSequence0To15;
++  int num_indexes = 0;
++  for (int i = 0; i < num_bits / unroll; ++i) {
++    uint64_t word = reinterpret_cast<const uint64_t*>(bits)[i];
++    if (bit_to_search == 0) {
++      word = ~word;
++    }
++
++    int loop_id = 0;
++    while (word) {
++      uint64_t indexes_4bit =
++          _pext_u64(mask, _pdep_u64(word, kRepeatedBitPattern0001) * 0xf);
++      // Unpack 4 bit indexes to 8 bits
++      __m256i indexes_8bit = _mm256_set1_epi64x(indexes_4bit);
++      indexes_8bit = _mm256_shuffle_epi8(
++          indexes_8bit,
++          _mm256_setr_epi64x(kByteSequence_0_0_1_1_2_2_3_3, kByteSequence_4_4_5_5_6_6_7_7,
++                             kByteSequence_0_0_1_1_2_2_3_3,
++                             kByteSequence_4_4_5_5_6_6_7_7));
++      indexes_8bit = _mm256_blendv_epi8(
++          _mm256_and_si256(indexes_8bit, _mm256_set1_epi8(0x0f)),
++          _mm256_and_si256(_mm256_srli_epi32(indexes_8bit, 4), _mm256_set1_epi8(0x0f)),
++          _mm256_set1_epi16(static_cast<uint16_t>(0xff00)));
++      __m256i input =
++          _mm256_loadu_si256(((const __m256i*)input_indexes) + 4 * i + loop_id);
++      // Shuffle bytes to get low bytes in the first 128-bit lane and high bytes in the
++      // second
++      input = _mm256_shuffle_epi8(
++          input, _mm256_setr_epi64x(
++                     kByteSequence_0_2_4_6_8_10_12_14, kByteSequence_1_3_5_7_9_11_13_15,
++                     kByteSequence_0_2_4_6_8_10_12_14, kByteSequence_1_3_5_7_9_11_13_15));
++      input = _mm256_permute4x64_epi64(input, 0xd8);  // 0b11011000
++      // Apply permutation
++      __m256i output = _mm256_shuffle_epi8(input, indexes_8bit);
++      // Move low and high bytes across 128-bit lanes to assemble back 16-bit indexes.
++      // (This is the reverse of the byte permutation we did on the input)
++      output = _mm256_permute4x64_epi64(output,
++                                        0xd8);  // The reverse of swapping 2nd and 3rd
++                                                // 64-bit element is the same permutation
++      output = _mm256_shuffle_epi8(output,
++                                   _mm256_setr_epi64x(kByteSequence_0_8_1_9_2_10_3_11,
++                                                      kByteSequence_4_12_5_13_6_14_7_15,
++                                                      kByteSequence_0_8_1_9_2_10_3_11,
++                                                      kByteSequence_4_12_5_13_6_14_7_15));
++      _mm256_storeu_si256((__m256i*)(indexes + num_indexes), output);
++      num_indexes += static_cast<int>(std::popcount(word & 0xffff));
++      word >>= 16;
++      ++loop_id;
++    }
++  }
++
++  *out_num_indexes = num_indexes;
++}
++
++void bits_filter_indexes_avx2(int bit_to_search, const int num_bits, const uint8_t* bits,
++                              const uint16_t* input_indexes, int* num_indexes,
++                              uint16_t* indexes) {
++  if (bit_to_search == 0) {
++    bits_filter_indexes_imp_avx2<0>(num_bits, bits, input_indexes, num_indexes, indexes);
++  } else {
++    bits_filter_indexes_imp_avx2<1>(num_bits, bits, input_indexes, num_indexes, indexes);
++  }
++}
++
++void bits_to_bytes_avx2(const int num_bits, const uint8_t* bits, uint8_t* bytes) {
++  constexpr int unroll = 32;
++
++  constexpr uint64_t kEachByteIs1 = 0x0101010101010101ULL;
++  constexpr uint64_t kEachByteIs2 = 0x0202020202020202ULL;
++  constexpr uint64_t kEachByteIs3 = 0x0303030303030303ULL;
++  constexpr uint64_t kByteSequencePowersOf2 = 0x8040201008040201ULL;
++
++  // Processing 32 bits at a time
++  for (int i = 0; i < num_bits / unroll; ++i) {
++    __m256i unpacked = _mm256_set1_epi32(reinterpret_cast<const uint32_t*>(bits)[i]);
++    unpacked = _mm256_shuffle_epi8(
++        unpacked, _mm256_setr_epi64x(0ULL, kEachByteIs1, kEachByteIs2, kEachByteIs3));
++    __m256i bits_in_bytes = _mm256_set1_epi64x(kByteSequencePowersOf2);
++    unpacked =
++        _mm256_cmpeq_epi8(bits_in_bytes, _mm256_and_si256(unpacked, bits_in_bytes));
++    _mm256_storeu_si256(reinterpret_cast<__m256i*>(bytes) + i, unpacked);
++  }
++}
++
++void bytes_to_bits_avx2(const int num_bits, const uint8_t* bytes, uint8_t* bits) {
++  constexpr int unroll = 32;
++  // Processing 32 bits at a time
++  for (int i = 0; i < num_bits / unroll; ++i) {
++    reinterpret_cast<uint32_t*>(bits)[i] = _mm256_movemask_epi8(
++        _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bytes) + i));
++  }
++}
++
++bool are_all_bytes_zero_avx2(const uint8_t* bytes, uint32_t num_bytes) {
++  __m256i result_or = _mm256_setzero_si256();
++  uint32_t i;
++  for (i = 0; i < num_bytes / 32; ++i) {
++    __m256i x = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(bytes) + i);
++    result_or = _mm256_or_si256(result_or, x);
++  }
++  result_or = _mm256_cmpeq_epi8(result_or, _mm256_set1_epi8(0));
++  result_or =
++      _mm256_andnot_si256(result_or, _mm256_set1_epi8(static_cast<uint8_t>(0xff)));
++  uint32_t result_or32 = _mm256_movemask_epi8(result_or);
++  if (num_bytes % 32 > 0) {
++    uint64_t tail[4] = {0, 0, 0, 0};
++    result_or32 |= memcmp(bytes + i * 32, tail, num_bytes % 32);
++  }
++  return result_or32 == 0;
++}
++
++}  // namespace arrow::util::bit_util::avx2

@@ -1,0 +1,49 @@
+# arch: x86_64
+# The input-section pattern metacharacters `?` and `[...]` of section 5 of the
+# linker-script specification, and the numeric address slot in an output-section
+# header (`.name 0x500000 : { ... }`) of its section 4, both arrive at this
+# milestone -- step 4's section of this contract forward-references them here.
+#
+# Three read-only inputs with distinct names are routed by two different
+# patterns, so a linker that matched the metacharacters literally, or treated
+# them as a prefix match, would put the wrong bytes in the wrong place and be
+# caught by the section sizes as well as by the program's answer.
+rt_obj rt.o
+cat > g.c <<'C'
+__attribute__((section(".rodata.k1"))) const int r1[2] = {1, 2};
+__attribute__((section(".rodata.k2"))) const int r2[2] = {3, 4};
+__attribute__((section(".rodata.zz"))) const int rz[2] = {5, 6};
+int entry(void) { return r1[0] + r2[1] + rz[0] + 11; }
+C
+cc_obj g.o g.c
+cat > g.ld <<'L'
+SECTIONS {
+  . = 0x400000;
+  .text : { *(.text .text.*) }
+  .rodata 0x500000 : { *(.rodata.k?) }
+  .data 0x610000 : { *(.rodata.[xyz][xyz]) *(.data .data.*) }
+}
+L
+link_ok out -T g.ld rt.o g.o --no-gc-sections
+
+# Every address and size is captured and checked non-empty before it is read as
+# a hex number: an elided section would otherwise turn `$(( 16#$(...) ))` into
+# the invalid literal `16#`, and bash aborts that one command during word
+# expansion instead of running the assertion.
+ro_addr=$(sec_addr out .rodata); da_addr=$(sec_addr out .data)
+ro_size=$(sec_size out .rodata); da_size=$(sec_size out .data)
+[ -n "$ro_addr" ] && [ -n "$da_addr" ] && [ -n "$ro_size" ] && [ -n "$da_size" ] \
+  || die "the link did not produce both .rodata and .data: the glob patterns matched nothing, or the header address slot was ignored (addrs '$ro_addr'/'$da_addr', sizes '$ro_size'/'$da_size')"
+
+want "the header's address slot placed .rodata" "$((16#$ro_addr))" "$((0x500000))"
+want "the header's address slot placed .data"   "$((16#$da_addr))" "$((0x610000))"
+# `?` stands for exactly one character, so .rodata.k1 and .rodata.k2 land here
+# and .rodata.zz does not: two eight-byte arrays and nothing else.
+want "*(.rodata.k?) took both single-character names" "$((16#$ro_size))" "16"
+# The character class matches .rodata.zz alone.
+want "*(.rodata.[xyz][xyz]) took only the class match" "$((16#$da_size))" "8"
+run_expect out "" 21
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 4

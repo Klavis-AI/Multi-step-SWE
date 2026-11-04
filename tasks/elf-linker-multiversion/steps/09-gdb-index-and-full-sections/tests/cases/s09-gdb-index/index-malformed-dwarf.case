@@ -1,0 +1,63 @@
+# arch: x86_64
+# Building the index means parsing .debug_info, so a malformed CU header has to
+# be diagnosed rather than turned into a bogus index or a panic: spec/18 s.3
+# requires a CU that runs past the end of the section, a zero total length or a
+# truncated DWARF64 initial length to be reported, naming .debug_info.
+#
+# Only the failure and the mention of .debug_info are asserted -- spec/18
+# Provenance divergence 5 grades no prefix, wording or exit value.
+#
+# The positive control is what makes this a step-9 case rather than a test that
+# the option is unknown: the same inputs without the broken object must build a
+# real .gdb_index.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 5;
+int entry(void) { print("dw\n"); return g; }
+C
+cc_obj m.o m.c -g -ggnu-pubnames
+
+# A CU whose initial length runs past the end of .debug_info.
+cat > over.s <<'S'
+        .section .debug_info,"",@progbits
+        .4byte 0x7fffffff
+        .2byte 5
+        .byte  1
+        .byte  8
+        .4byte 0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj over.o over.s
+
+# A DWARF64 escape (0xffffffff) with fewer than eight bytes of length behind it.
+cat > trunc.s <<'S'
+        .section .debug_info,"",@progbits
+        .4byte 0xffffffff
+        .4byte 0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj trunc.o trunc.s
+
+# Control: the good inputs alone index cleanly.
+link_ok good --gdb-index rt.o m.o
+has_section good '\.gdb_index' || die "the control link produced no .gdb_index"
+run_expect good "dw" 5
+
+link_fails bad1 --gdb-index rt.o m.o over.o
+want_has "CU-overruns-section is diagnosed" "$LINK_OUT" '\.debug_info'
+
+link_fails bad2 --gdb-index rt.o m.o trunc.o
+want_has "truncated DWARF64 length is diagnosed" "$LINK_OUT" '\.debug_info'
+
+# The walk only happens when an index is being built, so the same broken input
+# is harmless without the option (spec/18 s.1: generation is opt-in).
+link_ok ok1 rt.o m.o over.o
+has_section ok1 '\.gdb_index' && die "no index was asked for but one appeared"
+run_expect ok1 "dw" 5
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

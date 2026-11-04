@@ -1,0 +1,26 @@
+CREATE TABLE q3_hss(a int) PARTITION BY HASH (a);
+CREATE TABLE q3_hss_0 PARTITION OF q3_hss FOR VALUES WITH (MODULUS 2, REMAINDER 0);
+CREATE TABLE q3_hss_1 PARTITION OF q3_hss FOR VALUES WITH (MODULUS 2, REMAINDER 1);
+SELECT satisfies_hash_partition('q3_hss'::regclass, 2, 0, 1)
+    OR satisfies_hash_partition('q3_hss'::regclass, 2, 1, 1) AS covered;
+ covered 
+---------
+ t
+(1 row)
+
+SELECT satisfies_hash_partition('q3_hss'::regclass, 2, 0, 1)
+   AND satisfies_hash_partition('q3_hss'::regclass, 2, 1, 1) AS both;
+ both 
+------
+ f
+(1 row)
+
+INSERT INTO q3_hss VALUES (1);
+SELECT satisfies_hash_partition('q3_hss'::regclass, 2, 0, 1) =
+       (SELECT tableoid = 'q3_hss_0'::regclass FROM q3_hss WHERE a = 1) AS agrees;
+ agrees 
+--------
+ t
+(1 row)
+
+DROP TABLE q3_hss;

@@ -1,0 +1,1308 @@
+diff --git a/include/stringzilla/hash/haswell.h b/include/stringzilla/hash/haswell.h
+new file mode 100644
+index 0000000..e230517
+--- /dev/null
++++ b/include/stringzilla/hash/haswell.h
+@@ -0,0 +1,602 @@
++/**
++ *  @author Ash Vardanian
++ *  @sa include/stringzilla/hash.h
++ */
++#ifndef STRINGZILLA_HASH_HASWELL_H_
++#define STRINGZILLA_HASH_HASWELL_H_
++
++#include "stringzilla/types.h"
++#include "stringzilla/compare.h" // `sz_equal`
++#include "stringzilla/hash/serial.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#if SZ_USE_HASWELL
++#if defined(__clang__)
++#pragma clang attribute push(__attribute__((target("avx2"))), apply_to = function)
++#elif defined(__GNUC__)
++#pragma GCC push_options
++#pragma GCC target("avx2")
++#endif
++
++SZ_API_COMPTIME sz_u64_t sz_bytesum_haswell(sz_cptr_t text, sz_size_t length) {
++    // The naive implementation of this function is very simple.
++    // It assumes the CPU is great at handling unaligned "loads".
++    //
++    // 1 MB x 2 blocks of L2 cache per core, and one shared L3 cache buffer.
++    // For now, let's avoid the cases beyond the L2 size.
++    int is_huge = length > 1ull * 1024ull * 1024ull;
++
++    // When the buffer is small, there isn't much to innovate.
++    if (length <= 32) { return sz_bytesum_serial(text, length); }
++    else if (!is_huge) {
++        sz_u256_vec_t text_vec, sums_vec;
++        sums_vec.ymm = _mm256_setzero_si256();
++        for (; length >= 32; text += 32, length -= 32) {
++            text_vec.ymm = _mm256_lddqu_si256((__m256i const *)text);
++            sums_vec.ymm = _mm256_add_epi64(sums_vec.ymm, _mm256_sad_epu8(text_vec.ymm, _mm256_setzero_si256()));
++        }
++        // We can also avoid the final serial loop by fetching 32 bytes from end, in reverse direction,
++        // and shifting the data within the register to zero-out the duplicate bytes.
++
++        // Accumulating 256 bits is harder, as we need to extract the 128-bit sums first.
++        __m128i low_u64x2 = _mm256_castsi256_si128(sums_vec.ymm);
++        __m128i high_u64x2 = _mm256_extracti128_si256(sums_vec.ymm, 1);
++        __m128i sums_u64x2 = _mm_add_epi64(low_u64x2, high_u64x2);
++        sz_u64_t low = (sz_u64_t)_mm_cvtsi128_si64(sums_u64x2);
++        sz_u64_t high = (sz_u64_t)_mm_extract_epi64(sums_u64x2, 1);
++        sz_u64_t result = low + high;
++        if (length) result += sz_bytesum_serial(text, length);
++        return result;
++    }
++    // For gigantic buffers, exceeding typical L1 cache sizes, there are other tricks we can use.
++    // Most notably, we can avoid populating the cache with the entire buffer, and instead traverse it in 2 directions.
++    else {
++        sz_size_t head_length = (32 - ((sz_size_t)text % 32)) % 32; // 31 or less.
++        sz_size_t tail_length = (sz_size_t)(text + length) % 32;    // 31 or less.
++        sz_size_t body_length = length - head_length - tail_length; // Multiple of 32.
++        sz_u64_t result = 0;
++
++        // Handle the tail before we start updating the `text` pointer. Read as `sz_u8_t`: a plain `char` is
++        // signed on x86, so a byte >= 0x80 would sign-extend to a negative `int` and wrongly subtract from the
++        // running sum (the SIMD body already accumulates unsigned via `_mm256_sad_epu8`).
++        while (tail_length) result += (sz_u8_t)text[length - (tail_length--)];
++        // Handle the head
++        while (head_length--) result += (sz_u8_t)*text++;
++
++        // This branch is reached only when `is_huge` (the `!is_huge` body above handled the rest), so the
++        // buffer is traversed in two directions at once - touching both ends keeps neither cache-resident and
++        // avoids evicting the whole buffer through L1.
++        sz_u256_vec_t text_vec, sums_vec;
++        sz_u256_vec_t text_reversed_vec, sums_reversed_vec;
++        sums_vec.ymm = _mm256_setzero_si256();
++        sums_reversed_vec.ymm = _mm256_setzero_si256();
++        for (; body_length >= 64; text += 32, body_length -= 64) {
++            text_vec.ymm = _mm256_stream_load_si256((__m256i *)(text));
++            sums_vec.ymm = _mm256_add_epi64(sums_vec.ymm, _mm256_sad_epu8(text_vec.ymm, _mm256_setzero_si256()));
++            text_reversed_vec.ymm = _mm256_stream_load_si256((__m256i *)(text + body_length - 32));
++            sums_reversed_vec.ymm = _mm256_add_epi64(sums_reversed_vec.ymm,
++                                                     _mm256_sad_epu8(text_reversed_vec.ymm, _mm256_setzero_si256()));
++        }
++        if (body_length >= 32) {
++            sz_assert_(body_length == 32);
++            text_vec.ymm = _mm256_stream_load_si256((__m256i *)(text));
++            sums_vec.ymm = _mm256_add_epi64(sums_vec.ymm, _mm256_sad_epu8(text_vec.ymm, _mm256_setzero_si256()));
++            text += 32;
++        }
++        sums_vec.ymm = _mm256_add_epi64(sums_vec.ymm, sums_reversed_vec.ymm);
++
++        // Accumulating 256 bits is harder, as we need to extract the 128-bit sums first.
++        __m128i low_u64x2 = _mm256_castsi256_si128(sums_vec.ymm);
++        __m128i high_u64x2 = _mm256_extracti128_si256(sums_vec.ymm, 1);
++        __m128i sums_u64x2 = _mm_add_epi64(low_u64x2, high_u64x2);
++        sz_u64_t low = (sz_u64_t)_mm_cvtsi128_si64(sums_u64x2);
++        sz_u64_t high = (sz_u64_t)_mm_extract_epi64(sums_u64x2, 1);
++        result += low + high;
++        return result;
++    }
++}
++
++/*  Without `vpternlogd` every bitwise primitive expands, and without `vprord` every rotation becomes a shift
++ *  pair and an or. Both are cheaper than the instruction counts suggest: logic issues on all three vector
++ *  ports on this class of core, so the round mix stays throughput-bound rather than shift-bound. */
++
++/** @brief Evaluates `(state_e & state_f) ^ (~state_e & state_g)` across 8 lanes. */
++SZ_HELPER_INLINE __m256i sz_sha256_choice_haswell_(__m256i state_e_u32x8, __m256i state_f_u32x8, __m256i state_g_u32x8) {
++    return _mm256_xor_si256(state_g_u32x8, _mm256_and_si256(state_e_u32x8, _mm256_xor_si256(state_f_u32x8, state_g_u32x8)));
++}
++
++/** @brief Evaluates `(state_a & state_b) ^ (state_a & state_c) ^ (state_b & state_c)` across 8 lanes. */
++SZ_HELPER_INLINE __m256i sz_sha256_majority_haswell_(__m256i state_a_u32x8, __m256i state_b_u32x8, __m256i state_c_u32x8) {
++    return _mm256_xor_si256(_mm256_and_si256(_mm256_xor_si256(state_a_u32x8, state_b_u32x8), state_c_u32x8),
++                            _mm256_and_si256(state_a_u32x8, state_b_u32x8));
++}
++
++/** @brief Evaluates `ror(state_a_u32x8, 2) ^ ror(state_a_u32x8, 13) ^ ror(state_a_u32x8, 22)` across 8 lanes. */
++SZ_HELPER_INLINE __m256i sz_sha256_big_sigma0_haswell_(__m256i state_a_u32x8) {
++    __m256i const rotated_by_2_u32x8 = _mm256_or_si256(_mm256_srli_epi32(state_a_u32x8, 2),
++                                                     _mm256_slli_epi32(state_a_u32x8, 30));
++    __m256i const rotated_by_13_u32x8 = _mm256_or_si256(_mm256_srli_epi32(state_a_u32x8, 13),
++                                                      _mm256_slli_epi32(state_a_u32x8, 19));
++    __m256i const rotated_by_22_u32x8 = _mm256_or_si256(_mm256_srli_epi32(state_a_u32x8, 22),
++                                                      _mm256_slli_epi32(state_a_u32x8, 10));
++    return _mm256_xor_si256(_mm256_xor_si256(rotated_by_2_u32x8, rotated_by_13_u32x8), rotated_by_22_u32x8);
++}
++
++/** @brief Evaluates `ror(state_e_u32x8, 6) ^ ror(state_e_u32x8, 11) ^ ror(state_e_u32x8, 25)` across 8 lanes. */
++SZ_HELPER_INLINE __m256i sz_sha256_big_sigma1_haswell_(__m256i state_e_u32x8) {
++    __m256i const rotated_by_6_u32x8 = _mm256_or_si256(_mm256_srli_epi32(state_e_u32x8, 6),
++                                                     _mm256_slli_epi32(state_e_u32x8, 26));
++    __m256i const rotated_by_11_u32x8 = _mm256_or_si256(_mm256_srli_epi32(state_e_u32x8, 11),
++                                                      _mm256_slli_epi32(state_e_u32x8, 21));
++    __m256i const rotated_by_25_u32x8 = _mm256_or_si256(_mm256_srli_epi32(state_e_u32x8, 25),
++                                                      _mm256_slli_epi32(state_e_u32x8, 7));
++    return _mm256_xor_si256(_mm256_xor_si256(rotated_by_6_u32x8, rotated_by_11_u32x8), rotated_by_25_u32x8);
++}
++
++/** @brief Evaluates `ror(word, 7) ^ ror(word, 18) ^ (word >> 3)` across 8 lanes. */
++SZ_HELPER_INLINE __m256i sz_sha256_small_sigma0_haswell_(__m256i message_word_u32x8) {
++    __m256i const rotated_by_7_u32x8 = _mm256_or_si256(_mm256_srli_epi32(message_word_u32x8, 7),
++                                                     _mm256_slli_epi32(message_word_u32x8, 25));
++    __m256i const rotated_by_18_u32x8 = _mm256_or_si256(_mm256_srli_epi32(message_word_u32x8, 18),
++                                                      _mm256_slli_epi32(message_word_u32x8, 14));
++    return _mm256_xor_si256(_mm256_xor_si256(rotated_by_7_u32x8, rotated_by_18_u32x8),
++                            _mm256_srli_epi32(message_word_u32x8, 3));
++}
++
++/** @brief Evaluates `ror(word, 17) ^ ror(word, 19) ^ (word >> 10)` across 8 lanes. */
++SZ_HELPER_INLINE __m256i sz_sha256_small_sigma1_haswell_(__m256i message_word_u32x8) {
++    __m256i const rotated_by_17_u32x8 = _mm256_or_si256(_mm256_srli_epi32(message_word_u32x8, 17),
++                                                      _mm256_slli_epi32(message_word_u32x8, 15));
++    __m256i const rotated_by_19_u32x8 = _mm256_or_si256(_mm256_srli_epi32(message_word_u32x8, 19),
++                                                      _mm256_slli_epi32(message_word_u32x8, 13));
++    return _mm256_xor_si256(_mm256_xor_si256(rotated_by_17_u32x8, rotated_by_19_u32x8),
++                            _mm256_srli_epi32(message_word_u32x8, 10));
++}
++
++/**
++ *  @brief Transposes eight 32-byte halves into word-major big-endian order.
++ *  @param lanes_u32x8 The eight per-lane halves, byte-swapped on entry.
++ *  @param words_u32x8 Receives eight registers, where `words_u32x8[index]` holds that word from all 8 lanes.
++ *
++ *  Two interleave stages gather 32-bit and then 64-bit neighbours inside each 128-bit half, and a final
++ *  cross-half permute completes the exchange. Transposition is its own inverse, so this also carries the
++ *  hash state the other way, from word-major registers back to one 32-byte lane each.
++ */
++SZ_HELPER_INLINE void sz_sha256_transpose_8x8_haswell_(__m256i const lanes_u32x8[8], __m256i words_u32x8[8]) {
++    __m256i const paired0_u32x8 = _mm256_unpacklo_epi32(lanes_u32x8[0], lanes_u32x8[1]);
++    __m256i const paired1_u32x8 = _mm256_unpackhi_epi32(lanes_u32x8[0], lanes_u32x8[1]);
++    __m256i const paired2_u32x8 = _mm256_unpacklo_epi32(lanes_u32x8[2], lanes_u32x8[3]);
++    __m256i const paired3_u32x8 = _mm256_unpackhi_epi32(lanes_u32x8[2], lanes_u32x8[3]);
++    __m256i const paired4_u32x8 = _mm256_unpacklo_epi32(lanes_u32x8[4], lanes_u32x8[5]);
++    __m256i const paired5_u32x8 = _mm256_unpackhi_epi32(lanes_u32x8[4], lanes_u32x8[5]);
++    __m256i const paired6_u32x8 = _mm256_unpacklo_epi32(lanes_u32x8[6], lanes_u32x8[7]);
++    __m256i const paired7_u32x8 = _mm256_unpackhi_epi32(lanes_u32x8[6], lanes_u32x8[7]);
++
++    __m256i const quadded0_u32x8 = _mm256_unpacklo_epi64(paired0_u32x8, paired2_u32x8);
++    __m256i const quadded1_u32x8 = _mm256_unpackhi_epi64(paired0_u32x8, paired2_u32x8);
++    __m256i const quadded2_u32x8 = _mm256_unpacklo_epi64(paired1_u32x8, paired3_u32x8);
++    __m256i const quadded3_u32x8 = _mm256_unpackhi_epi64(paired1_u32x8, paired3_u32x8);
++    __m256i const quadded4_u32x8 = _mm256_unpacklo_epi64(paired4_u32x8, paired6_u32x8);
++    __m256i const quadded5_u32x8 = _mm256_unpackhi_epi64(paired4_u32x8, paired6_u32x8);
++    __m256i const quadded6_u32x8 = _mm256_unpacklo_epi64(paired5_u32x8, paired7_u32x8);
++    __m256i const quadded7_u32x8 = _mm256_unpackhi_epi64(paired5_u32x8, paired7_u32x8);
++
++    words_u32x8[0] = _mm256_permute2x128_si256(quadded0_u32x8, quadded4_u32x8, 0x20);
++    words_u32x8[4] = _mm256_permute2x128_si256(quadded0_u32x8, quadded4_u32x8, 0x31);
++    words_u32x8[1] = _mm256_permute2x128_si256(quadded1_u32x8, quadded5_u32x8, 0x20);
++    words_u32x8[5] = _mm256_permute2x128_si256(quadded1_u32x8, quadded5_u32x8, 0x31);
++    words_u32x8[2] = _mm256_permute2x128_si256(quadded2_u32x8, quadded6_u32x8, 0x20);
++    words_u32x8[6] = _mm256_permute2x128_si256(quadded2_u32x8, quadded6_u32x8, 0x31);
++    words_u32x8[3] = _mm256_permute2x128_si256(quadded3_u32x8, quadded7_u32x8, 0x20);
++    words_u32x8[7] = _mm256_permute2x128_si256(quadded3_u32x8, quadded7_u32x8, 0x31);
++}
++
++/**
++ *  @brief Extends the rolling message window by one word across 8 lanes.
++ *  @param oldest_word_u32x8 The word being replaced, sixteen rounds behind.
++ *  @param next_word_u32x8 The word one position ahead, feeding the low sigma.
++ *  @param ninth_word_u32x8 The word nine positions ahead.
++ *  @param fourteenth_word_u32x8 The word fourteen positions ahead, feeding the high sigma.
++ */
++SZ_HELPER_INLINE __m256i sz_sha256_extend_haswell_(__m256i oldest_word_u32x8, __m256i next_word_u32x8,
++                                                   __m256i ninth_word_u32x8, __m256i fourteenth_word_u32x8) {
++    return _mm256_add_epi32(_mm256_add_epi32(oldest_word_u32x8, sz_sha256_small_sigma0_haswell_(next_word_u32x8)),
++                            _mm256_add_epi32(ninth_word_u32x8, sz_sha256_small_sigma1_haswell_(fourteenth_word_u32x8)));
++}
++
++/**
++ *  @brief Applies one SHA256 round to 8 lanes, writing the two working values that change.
++ *
++ *  The eight working variables rotate by one position per round, which the callers express by passing the
++ *  same locals in a different order rather than by moving data. Only `state_d` and `state_h` are written:
++ *  `state_d` becomes the next round's `state_e`, and `state_h` is dead on entry so it receives the next
++ *  round's `state_a`.
++ */
++SZ_HELPER_INLINE void sz_sha256_round_haswell_(                                          //
++    __m256i state_a_u32x8, __m256i state_b_u32x8, __m256i state_c_u32x8, __m256i *state_d_u32x8, //
++    __m256i state_e_u32x8, __m256i state_f_u32x8, __m256i state_g_u32x8, __m256i *state_h_u32x8, //
++    __m256i message_word_u32x8, sz_u32_t round_constant) {
++    __m256i const temporary_first_u32x8 = _mm256_add_epi32( //
++        _mm256_add_epi32(
++            _mm256_add_epi32(*state_h_u32x8, sz_sha256_big_sigma1_haswell_(state_e_u32x8)),
++            _mm256_add_epi32(sz_sha256_choice_haswell_(state_e_u32x8, state_f_u32x8, state_g_u32x8), message_word_u32x8)),
++        _mm256_set1_epi32((int)round_constant));
++    __m256i const temporary_second_u32x8 = _mm256_add_epi32(
++        sz_sha256_big_sigma0_haswell_(state_a_u32x8), sz_sha256_majority_haswell_(state_a_u32x8, state_b_u32x8, state_c_u32x8));
++    *state_d_u32x8 = _mm256_add_epi32(*state_d_u32x8, temporary_first_u32x8);
++    *state_h_u32x8 = _mm256_add_epi32(temporary_first_u32x8, temporary_second_u32x8);
++}
++
++/**
++ *  @brief Transposes and compresses one 64-byte block for each of 8 lanes into word-major hash registers.
++ *  @param hashes Eight registers of word-major hash state, updated in place.
++ *  @param lane_blocks Pointers to 8 message blocks, one per lane.
++ *  @param active_u32x8 All-ones per lane whose block counts; the rest keep their hash bit-for-bit.
++ *
++ *  Masking rides on the closing accumulation rather than on a saved copy and a blend. Compression ends in
++ *  `hash += working`, so clearing the addend for a lane is all it needs to sit out, which costs one `vpand`
++ *  per word and one live mask register at a point where the state and the message window are already
++ *  competing for sixteen. AVX2 has no write mask, hence the gated addend rather than a masked add. The
++ *  rounds still run for an inactive lane and produce a value nobody reads, so its block pointer only has to
++ *  be readable - `sz_sha256_state_t::block` is always 64 valid bytes and serves that purpose.
++ *
++ *  A 64-byte block is two 256-bit registers per lane, so the sixteen message words come from two independent
++ *  eight-by-eight transposes. The window lives in a local rather than a parameter so it is not forced to
++ *  memory across a call boundary.
++ */
++SZ_HELPER_INLINE void sz_sha256_compress_haswell_(__m256i hashes_u32x8[8], sz_u8_t const *const *lane_blocks,
++                                                  __m256i active_u32x8) {
++    sz_u32_t const *round_constants = (sz_u32_t const *)sz_x86_hide_pointer_origin_(sz_sha256_round_constants_());
++
++    __m256i const byte_swap_u8x32 = _mm256_setr_epi8(3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12, //
++                                                   3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12);
++    __m256i low_lanes_u32x8[8], high_lanes_u32x8[8], schedule_u32x8[16];
++    for (sz_size_t lane_index = 0; lane_index != 8; ++lane_index) {
++        low_lanes_u32x8[lane_index] = _mm256_shuffle_epi8(
++            _mm256_loadu_si256((__m256i const *)&lane_blocks[lane_index][0]), byte_swap_u8x32);
++        high_lanes_u32x8[lane_index] = _mm256_shuffle_epi8(
++            _mm256_loadu_si256((__m256i const *)&lane_blocks[lane_index][32]), byte_swap_u8x32);
++    }
++    sz_sha256_transpose_8x8_haswell_(low_lanes_u32x8, &schedule_u32x8[0]);
++    sz_sha256_transpose_8x8_haswell_(high_lanes_u32x8, &schedule_u32x8[8]);
++
++    __m256i state_a_u32x8 = hashes_u32x8[0], state_b_u32x8 = hashes_u32x8[1];
++    __m256i state_c_u32x8 = hashes_u32x8[2], state_d_u32x8 = hashes_u32x8[3];
++    __m256i state_e_u32x8 = hashes_u32x8[4], state_f_u32x8 = hashes_u32x8[5];
++    __m256i state_g_u32x8 = hashes_u32x8[6], state_h_u32x8 = hashes_u32x8[7];
++
++    sz_sha256_round_haswell_(state_a_u32x8, state_b_u32x8, state_c_u32x8, &state_d_u32x8, state_e_u32x8, state_f_u32x8, state_g_u32x8,
++                             &state_h_u32x8, schedule_u32x8[0], round_constants[0]);
++    sz_sha256_round_haswell_(state_h_u32x8, state_a_u32x8, state_b_u32x8, &state_c_u32x8, state_d_u32x8, state_e_u32x8, state_f_u32x8,
++                             &state_g_u32x8, schedule_u32x8[1], round_constants[1]);
++    sz_sha256_round_haswell_(state_g_u32x8, state_h_u32x8, state_a_u32x8, &state_b_u32x8, state_c_u32x8, state_d_u32x8, state_e_u32x8,
++                             &state_f_u32x8, schedule_u32x8[2], round_constants[2]);
++    sz_sha256_round_haswell_(state_f_u32x8, state_g_u32x8, state_h_u32x8, &state_a_u32x8, state_b_u32x8, state_c_u32x8, state_d_u32x8,
++                             &state_e_u32x8, schedule_u32x8[3], round_constants[3]);
++    sz_sha256_round_haswell_(state_e_u32x8, state_f_u32x8, state_g_u32x8, &state_h_u32x8, state_a_u32x8, state_b_u32x8, state_c_u32x8,
++                             &state_d_u32x8, schedule_u32x8[4], round_constants[4]);
++    sz_sha256_round_haswell_(state_d_u32x8, state_e_u32x8, state_f_u32x8, &state_g_u32x8, state_h_u32x8, state_a_u32x8, state_b_u32x8,
++                             &state_c_u32x8, schedule_u32x8[5], round_constants[5]);
++    sz_sha256_round_haswell_(state_c_u32x8, state_d_u32x8, state_e_u32x8, &state_f_u32x8, state_g_u32x8, state_h_u32x8, state_a_u32x8,
++                             &state_b_u32x8, schedule_u32x8[6], round_constants[6]);
++    sz_sha256_round_haswell_(state_b_u32x8, state_c_u32x8, state_d_u32x8, &state_e_u32x8, state_f_u32x8, state_g_u32x8, state_h_u32x8,
++                             &state_a_u32x8, schedule_u32x8[7], round_constants[7]);
++    sz_sha256_round_haswell_(state_a_u32x8, state_b_u32x8, state_c_u32x8, &state_d_u32x8, state_e_u32x8, state_f_u32x8, state_g_u32x8,
++                             &state_h_u32x8, schedule_u32x8[8], round_constants[8]);
++    sz_sha256_round_haswell_(state_h_u32x8, state_a_u32x8, state_b_u32x8, &state_c_u32x8, state_d_u32x8, state_e_u32x8, state_f_u32x8,
++                             &state_g_u32x8, schedule_u32x8[9], round_constants[9]);
++    sz_sha256_round_haswell_(state_g_u32x8, state_h_u32x8, state_a_u32x8, &state_b_u32x8, state_c_u32x8, state_d_u32x8, state_e_u32x8,
++                             &state_f_u32x8, schedule_u32x8[10], round_constants[10]);
++    sz_sha256_round_haswell_(state_f_u32x8, state_g_u32x8, state_h_u32x8, &state_a_u32x8, state_b_u32x8, state_c_u32x8, state_d_u32x8,
++                             &state_e_u32x8, schedule_u32x8[11], round_constants[11]);
++    sz_sha256_round_haswell_(state_e_u32x8, state_f_u32x8, state_g_u32x8, &state_h_u32x8, state_a_u32x8, state_b_u32x8, state_c_u32x8,
++                             &state_d_u32x8, schedule_u32x8[12], round_constants[12]);
++    sz_sha256_round_haswell_(state_d_u32x8, state_e_u32x8, state_f_u32x8, &state_g_u32x8, state_h_u32x8, state_a_u32x8, state_b_u32x8,
++                             &state_c_u32x8, schedule_u32x8[13], round_constants[13]);
++    sz_sha256_round_haswell_(state_c_u32x8, state_d_u32x8, state_e_u32x8, &state_f_u32x8, state_g_u32x8, state_h_u32x8, state_a_u32x8,
++                             &state_b_u32x8, schedule_u32x8[14], round_constants[14]);
++    sz_sha256_round_haswell_(state_b_u32x8, state_c_u32x8, state_d_u32x8, &state_e_u32x8, state_f_u32x8, state_g_u32x8, state_h_u32x8,
++                             &state_a_u32x8, schedule_u32x8[15], round_constants[15]);
++
++    for (sz_size_t turn_index = 1; turn_index != 4; ++turn_index) {
++        sz_u32_t const *turn_constants = round_constants + turn_index * 16;
++        schedule_u32x8[0] = sz_sha256_extend_haswell_(schedule_u32x8[0], schedule_u32x8[1], schedule_u32x8[9],
++                                                    schedule_u32x8[14]);
++        sz_sha256_round_haswell_(state_a_u32x8, state_b_u32x8, state_c_u32x8, &state_d_u32x8, state_e_u32x8, state_f_u32x8,
++                                 state_g_u32x8, &state_h_u32x8, schedule_u32x8[0], turn_constants[0]);
++        schedule_u32x8[1] = sz_sha256_extend_haswell_(schedule_u32x8[1], schedule_u32x8[2], schedule_u32x8[10],
++                                                    schedule_u32x8[15]);
++        sz_sha256_round_haswell_(state_h_u32x8, state_a_u32x8, state_b_u32x8, &state_c_u32x8, state_d_u32x8, state_e_u32x8,
++                                 state_f_u32x8, &state_g_u32x8, schedule_u32x8[1], turn_constants[1]);
++        schedule_u32x8[2] = sz_sha256_extend_haswell_(schedule_u32x8[2], schedule_u32x8[3], schedule_u32x8[11],
++                                                    schedule_u32x8[0]);
++        sz_sha256_round_haswell_(state_g_u32x8, state_h_u32x8, state_a_u32x8, &state_b_u32x8, state_c_u32x8, state_d_u32x8,
++                                 state_e_u32x8, &state_f_u32x8, schedule_u32x8[2], turn_constants[2]);
++        schedule_u32x8[3] = sz_sha256_extend_haswell_(schedule_u32x8[3], schedule_u32x8[4], schedule_u32x8[12],
++                                                    schedule_u32x8[1]);
++        sz_sha256_round_haswell_(state_f_u32x8, state_g_u32x8, state_h_u32x8, &state_a_u32x8, state_b_u32x8, state_c_u32x8,
++                                 state_d_u32x8, &state_e_u32x8, schedule_u32x8[3], turn_constants[3]);
++        schedule_u32x8[4] = sz_sha256_extend_haswell_(schedule_u32x8[4], schedule_u32x8[5], schedule_u32x8[13],
++                                                    schedule_u32x8[2]);
++        sz_sha256_round_haswell_(state_e_u32x8, state_f_u32x8, state_g_u32x8, &state_h_u32x8, state_a_u32x8, state_b_u32x8,
++                                 state_c_u32x8, &state_d_u32x8, schedule_u32x8[4], turn_constants[4]);
++        schedule_u32x8[5] = sz_sha256_extend_haswell_(schedule_u32x8[5], schedule_u32x8[6], schedule_u32x8[14],
++                                                    schedule_u32x8[3]);
++        sz_sha256_round_haswell_(state_d_u32x8, state_e_u32x8, state_f_u32x8, &state_g_u32x8, state_h_u32x8, state_a_u32x8,
++                                 state_b_u32x8, &state_c_u32x8, schedule_u32x8[5], turn_constants[5]);
++        schedule_u32x8[6] = sz_sha256_extend_haswell_(schedule_u32x8[6], schedule_u32x8[7], schedule_u32x8[15],
++                                                    schedule_u32x8[4]);
++        sz_sha256_round_haswell_(state_c_u32x8, state_d_u32x8, state_e_u32x8, &state_f_u32x8, state_g_u32x8, state_h_u32x8,
++                                 state_a_u32x8, &state_b_u32x8, schedule_u32x8[6], turn_constants[6]);
++        schedule_u32x8[7] = sz_sha256_extend_haswell_(schedule_u32x8[7], schedule_u32x8[8], schedule_u32x8[0], schedule_u32x8[5]);
++        sz_sha256_round_haswell_(state_b_u32x8, state_c_u32x8, state_d_u32x8, &state_e_u32x8, state_f_u32x8, state_g_u32x8,
++                                 state_h_u32x8, &state_a_u32x8, schedule_u32x8[7], turn_constants[7]);
++        schedule_u32x8[8] = sz_sha256_extend_haswell_(schedule_u32x8[8], schedule_u32x8[9], schedule_u32x8[1], schedule_u32x8[6]);
++        sz_sha256_round_haswell_(state_a_u32x8, state_b_u32x8, state_c_u32x8, &state_d_u32x8, state_e_u32x8, state_f_u32x8,
++                                 state_g_u32x8, &state_h_u32x8, schedule_u32x8[8], turn_constants[8]);
++        schedule_u32x8[9] = sz_sha256_extend_haswell_(schedule_u32x8[9], schedule_u32x8[10], schedule_u32x8[2],
++                                                    schedule_u32x8[7]);
++        sz_sha256_round_haswell_(state_h_u32x8, state_a_u32x8, state_b_u32x8, &state_c_u32x8, state_d_u32x8, state_e_u32x8,
++                                 state_f_u32x8, &state_g_u32x8, schedule_u32x8[9], turn_constants[9]);
++        schedule_u32x8[10] = sz_sha256_extend_haswell_(schedule_u32x8[10], schedule_u32x8[11], schedule_u32x8[3],
++                                                     schedule_u32x8[8]);
++        sz_sha256_round_haswell_(state_g_u32x8, state_h_u32x8, state_a_u32x8, &state_b_u32x8, state_c_u32x8, state_d_u32x8,
++                                 state_e_u32x8, &state_f_u32x8, schedule_u32x8[10], turn_constants[10]);
++        schedule_u32x8[11] = sz_sha256_extend_haswell_(schedule_u32x8[11], schedule_u32x8[12], schedule_u32x8[4],
++                                                     schedule_u32x8[9]);
++        sz_sha256_round_haswell_(state_f_u32x8, state_g_u32x8, state_h_u32x8, &state_a_u32x8, state_b_u32x8, state_c_u32x8,
++                                 state_d_u32x8, &state_e_u32x8, schedule_u32x8[11], turn_constants[11]);
++        schedule_u32x8[12] = sz_sha256_extend_haswell_(schedule_u32x8[12], schedule_u32x8[13], schedule_u32x8[5],
++                                                     schedule_u32x8[10]);
++        sz_sha256_round_haswell_(state_e_u32x8, state_f_u32x8, state_g_u32x8, &state_h_u32x8, state_a_u32x8, state_b_u32x8,
++                                 state_c_u32x8, &state_d_u32x8, schedule_u32x8[12], turn_constants[12]);
++        schedule_u32x8[13] = sz_sha256_extend_haswell_(schedule_u32x8[13], schedule_u32x8[14], schedule_u32x8[6],
++                                                     schedule_u32x8[11]);
++        sz_sha256_round_haswell_(state_d_u32x8, state_e_u32x8, state_f_u32x8, &state_g_u32x8, state_h_u32x8, state_a_u32x8,
++                                 state_b_u32x8, &state_c_u32x8, schedule_u32x8[13], turn_constants[13]);
++        schedule_u32x8[14] = sz_sha256_extend_haswell_(schedule_u32x8[14], schedule_u32x8[15], schedule_u32x8[7],
++                                                     schedule_u32x8[12]);
++        sz_sha256_round_haswell_(state_c_u32x8, state_d_u32x8, state_e_u32x8, &state_f_u32x8, state_g_u32x8, state_h_u32x8,
++                                 state_a_u32x8, &state_b_u32x8, schedule_u32x8[14], turn_constants[14]);
++        schedule_u32x8[15] = sz_sha256_extend_haswell_(schedule_u32x8[15], schedule_u32x8[0], schedule_u32x8[8],
++                                                     schedule_u32x8[13]);
++        sz_sha256_round_haswell_(state_b_u32x8, state_c_u32x8, state_d_u32x8, &state_e_u32x8, state_f_u32x8, state_g_u32x8,
++                                 state_h_u32x8, &state_a_u32x8, schedule_u32x8[15], turn_constants[15]);
++    }
++
++    hashes_u32x8[0] = _mm256_add_epi32(hashes_u32x8[0], _mm256_and_si256(active_u32x8, state_a_u32x8));
++    hashes_u32x8[1] = _mm256_add_epi32(hashes_u32x8[1], _mm256_and_si256(active_u32x8, state_b_u32x8));
++    hashes_u32x8[2] = _mm256_add_epi32(hashes_u32x8[2], _mm256_and_si256(active_u32x8, state_c_u32x8));
++    hashes_u32x8[3] = _mm256_add_epi32(hashes_u32x8[3], _mm256_and_si256(active_u32x8, state_d_u32x8));
++    hashes_u32x8[4] = _mm256_add_epi32(hashes_u32x8[4], _mm256_and_si256(active_u32x8, state_e_u32x8));
++    hashes_u32x8[5] = _mm256_add_epi32(hashes_u32x8[5], _mm256_and_si256(active_u32x8, state_f_u32x8));
++    hashes_u32x8[6] = _mm256_add_epi32(hashes_u32x8[6], _mm256_and_si256(active_u32x8, state_g_u32x8));
++    hashes_u32x8[7] = _mm256_add_epi32(hashes_u32x8[7], _mm256_and_si256(active_u32x8, state_h_u32x8));
++}
++
++/**
++ *  @brief Compresses each lane's own run of whole blocks, plus an optional buffered block ahead of them.
++ *  @param states The lane states, whose hash words are gathered on entry and scattered on exit.
++ *  @param active_lanes_count Lanes owning a state, 1 to 8; the rest borrow lane zero and are discarded.
++ *  @param buffered_bitmask Lanes whose `block` the caller has just filled to 64 bytes, compressed first.
++ *  @param cursors Per-lane read positions, advanced past every block consumed.
++ *  @param blocks_per_lane Whole 64-byte blocks each lane owns; the loop runs as far as the largest.
++ *
++ *  Lanes retire independently. `blocks_per_lane` rides in a register as a countdown, and two masks come off
++ *  it each turn: `counts > 0` says whose accumulation lands, `counts > 1` says whose cursor steps. Splitting
++ *  the two is what parks a retiring lane on its @b last full block instead of on a short tail, so every read
++ *  stays in bounds with no per-block pointer select. A lane owning no blocks at all reads its own `block`
++ *  buffer, which is always 64 valid bytes.
++ *
++ *  The gather and scatter go through one 32-byte temporary rather than a 256-byte array, since neither is
++ *  live across the loop between them.
++ *
++ */
++SZ_HELPER_AUTO void sz_sha256_multistate_blocks_haswell_(sz_sha256_state_t *states, sz_size_t active_lanes_count,
++                                                         sz_u32_t buffered_bitmask, sz_u8_t const **cursors,
++                                                         sz_size_t const *blocks_per_lane) {
++    __m256i hashes_u32x8[8];
++    sz_u256_vec_t counts_vec, buffered_vec;
++    sz_u8_t const *sources[8];
++    sz_size_t largest_blocks_count = 0;
++
++    // The topped-up block and the fallback for a lane with nothing whole left are the same buffer, so one
++    // source array serves both phases and the head costs no extra stack. An absent lane, or one with
++    // nothing whole left, keeps reading that buffer and never advances, so the transpose stays in bounds
++    // without a bounds test in the loop.
++    for (sz_size_t lane_index = 0; lane_index != 8; ++lane_index) {
++        sz_size_t const source_lane = lane_index < active_lanes_count ? lane_index : 0;
++        sz_size_t const lane_blocks = lane_index < active_lanes_count ? blocks_per_lane[lane_index] : 0;
++        counts_vec.u32s[lane_index] = (sz_u32_t)lane_blocks;
++        buffered_vec.u32s[lane_index] = ((buffered_bitmask >> lane_index) & 1u) ? 0xFFFFFFFFu : 0u;
++        sources[lane_index] = states[source_lane].block;
++        if (lane_blocks > largest_blocks_count) largest_blocks_count = lane_blocks;
++    }
++
++    // Token-sized messages compress nothing here - their whole hash is the padding block the digest path
++    // emits - so leaving before the gather keeps them off the word-major round trip entirely.
++    if (buffered_bitmask == 0 && largest_blocks_count == 0) return;
++
++    // A lane's eight hash words are exactly one 256-bit register, so the transpose that carries the message
++    // schedule carries the state too, and AVX2's missing scatter never comes up.
++    __m256i lanes_u32x8[8];
++    for (sz_size_t lane_index = 0; lane_index != 8; ++lane_index) {
++        sz_size_t const source_lane = lane_index < active_lanes_count ? lane_index : 0;
++        lanes_u32x8[lane_index] = _mm256_loadu_si256((__m256i const *)states[source_lane].hash);
++    }
++    sz_sha256_transpose_8x8_haswell_(lanes_u32x8, hashes_u32x8);
++
++    if (buffered_bitmask) sz_sha256_compress_haswell_(hashes_u32x8, sources, buffered_vec.ymm);
++    for (sz_size_t lane_index = 0; lane_index != 8; ++lane_index)
++        if (counts_vec.u32s[lane_index] != 0) sources[lane_index] = cursors[lane_index];
++
++    __m256i counts_u32x8 = counts_vec.ymm;
++    __m256i const ones_u32x8 = _mm256_set1_epi32(1);
++    for (sz_size_t block_index = 0; block_index != largest_blocks_count; ++block_index) {
++        __m256i const active_u32x8 = _mm256_cmpgt_epi32(counts_u32x8, _mm256_setzero_si256());
++        __m256i const advance_u32x8 = _mm256_cmpgt_epi32(counts_u32x8, ones_u32x8);
++        sz_u32_t const advance_bitmask = (sz_u32_t)_mm256_movemask_ps(_mm256_castsi256_ps(advance_u32x8));
++        sz_sha256_compress_haswell_(hashes_u32x8, sources, active_u32x8);
++        for (sz_size_t lane_index = 0; lane_index != 8; ++lane_index)
++            sources[lane_index] += ((advance_bitmask >> lane_index) & 1u) * SZ_SHA256_BLOCK_LENGTH;
++        counts_u32x8 = _mm256_add_epi32(counts_u32x8, active_u32x8);
++    }
++
++    sz_sha256_transpose_8x8_haswell_(hashes_u32x8, lanes_u32x8);
++    for (sz_size_t lane_index = 0; lane_index != active_lanes_count; ++lane_index)
++        _mm256_storeu_si256((__m256i *)states[lane_index].hash, lanes_u32x8[lane_index]);
++    for (sz_size_t lane_index = 0; lane_index != active_lanes_count; ++lane_index)
++        cursors[lane_index] += blocks_per_lane[lane_index] * SZ_SHA256_BLOCK_LENGTH;
++}
++
++SZ_API_COMPTIME void sz_sha256_multistate_update_haswell(sz_sha256_state_t *states, sz_sequence_t const *texts) {
++    sz_size_t const lanes_count = texts->count;
++
++    for (sz_size_t first_lane_index = 0; first_lane_index < lanes_count; first_lane_index += 8) {
++        sz_size_t const lanes_left = lanes_count - first_lane_index;
++        sz_size_t const active_lanes_count = lanes_left < 8 ? lanes_left : 8;
++        sz_u8_t const *cursors[8];
++        sz_size_t remaining[8], blocks_per_lane[8];
++        sz_u32_t buffered_bitmask = 0;
++
++        // Top up any buffered partial block into the state's own 64-byte buffer, which then serves as that
++        // lane's first block source. Every lane's whole chunk is charged to `total_length` here, once, so
++        // the head, body and tail below only move bytes.
++        for (sz_size_t lane_index = 0; lane_index != active_lanes_count; ++lane_index) {
++            sz_sha256_state_t *const state = &states[first_lane_index + lane_index];
++            cursors[lane_index] = (sz_u8_t const *)texts->get_start(texts->handle, first_lane_index + lane_index);
++            remaining[lane_index] = texts->get_length(texts->handle, first_lane_index + lane_index);
++
++            // The countdown rides in 32-bit lanes AVX2 compares as signed, so a chunk longer than that many
++            // blocks goes through the single-state kernel over the very same state and sits the group out.
++            if (remaining[lane_index] / SZ_SHA256_BLOCK_LENGTH > 0x7FFFFFFFull) {
++                sz_sha256_state_update_serial(state, (sz_cptr_t)cursors[lane_index], remaining[lane_index]);
++                remaining[lane_index] = 0, blocks_per_lane[lane_index] = 0;
++                continue;
++            }
++
++            state->total_length += remaining[lane_index];
++            if (state->block_length != 0) {
++                sz_size_t const missing = SZ_SHA256_BLOCK_LENGTH - state->block_length;
++                if (remaining[lane_index] >= missing) {
++                    for (sz_size_t byte_index = 0; byte_index != missing; ++byte_index)
++                        state->block[state->block_length + byte_index] = cursors[lane_index][byte_index];
++                    buffered_bitmask |= (sz_u32_t)1 << lane_index;
++                    state->block_length = 0;
++                    cursors[lane_index] += missing, remaining[lane_index] -= missing;
++                }
++            }
++            blocks_per_lane[lane_index] = remaining[lane_index] / SZ_SHA256_BLOCK_LENGTH;
++        }
++
++        sz_sha256_multistate_blocks_haswell_(&states[first_lane_index], active_lanes_count, buffered_bitmask, cursors,
++                                             blocks_per_lane);
++
++        // Whatever is left cannot fill a block, so it only ever buffers.
++        for (sz_size_t lane_index = 0; lane_index != active_lanes_count; ++lane_index) {
++            sz_sha256_state_t *const state = &states[first_lane_index + lane_index];
++            sz_size_t const tail_length = remaining[lane_index] % SZ_SHA256_BLOCK_LENGTH;
++            for (sz_size_t byte_index = 0; byte_index != tail_length; ++byte_index)
++                state->block[state->block_length + byte_index] = cursors[lane_index][byte_index];
++            state->block_length += tail_length;
++        }
++    }
++}
++
++/**
++ *  @brief Finalizes 8 already-gathered lanes into their digests.
++ *  @param states The 8 lane states, left untouched.
++ *  @param active_lanes_count Lanes to emit, 1 to 8; the rest ride along and are discarded.
++ *  @param digests Receives `active_lanes_count` 32-byte big-endian digests.
++ *
++ *  since AVX2 has no mask registers.
++ */
++SZ_HELPER_AUTO void sz_sha256_multistate_digest_lanes_haswell_(sz_sha256_state_t const *states,
++                                                               sz_size_t active_lanes_count, sz_u8_t *digests) {
++    // A SHA256 block is 64 bytes whatever the vector width, so the staged blocks are 512-bit unions even
++    // though the lanes themselves are 256-bit wide.
++    sz_u512_vec_t staged_vec[8];
++    sz_u256_vec_t overflow_vec;
++    sz_u8_t const *staged_blocks[8];
++    __m256i hashes_u32x8[8], lanes_u32x8[8];
++    sz_bool_t any_overflow = sz_false_k;
++
++    for (sz_size_t lane_index = 0; lane_index != 8; ++lane_index) {
++        sz_size_t const source_lane = lane_index < active_lanes_count ? lane_index : 0;
++        staged_blocks[lane_index] = staged_vec[lane_index].u8s;
++        lanes_u32x8[lane_index] = _mm256_loadu_si256((__m256i const *)states[source_lane].hash);
++        overflow_vec.u32s[lane_index] = 0;
++
++        // The terminator lands in a carrier block whenever it would crowd out the trailing bit length.
++        if (states[source_lane].block_length + 1 > SZ_SHA256_BLOCK_LENGTH - 8)
++            overflow_vec.u32s[lane_index] = 0xFFFFFFFFu, any_overflow = sz_true_k;
++    }
++    sz_sha256_transpose_8x8_haswell_(lanes_u32x8, hashes_u32x8);
++
++    // One staging buffer serves both blocks: the carrier compression is gated to the lanes that need it and
++    // has consumed the buffer before the final block overwrites it.
++    if (any_overflow == sz_true_k) {
++        for (sz_size_t lane_index = 0; lane_index != 8; ++lane_index) {
++            sz_size_t const source_lane = lane_index < active_lanes_count ? lane_index : 0;
++            sz_size_t const buffered = states[source_lane].block_length;
++            for (sz_size_t byte_index = 0; byte_index != SZ_SHA256_BLOCK_LENGTH; ++byte_index)
++                staged_vec[lane_index].u8s[byte_index] = byte_index < buffered ? states[source_lane].block[byte_index]
++                                                                              : (sz_u8_t)0;
++            staged_vec[lane_index].u8s[buffered] = 0x80;
++        }
++        sz_sha256_compress_haswell_(hashes_u32x8, staged_blocks, overflow_vec.ymm);
++    }
++
++    for (sz_size_t lane_index = 0; lane_index != 8; ++lane_index) {
++        sz_size_t const source_lane = lane_index < active_lanes_count ? lane_index : 0;
++        sz_size_t const buffered = states[source_lane].block_length;
++        // An overflowing lane has already spent its buffered bytes on the carrier block, so its final block
++        // carries nothing but the trailing length.
++        int const carried = overflow_vec.u32s[lane_index] != 0;
++        sz_size_t const kept = carried ? 0 : buffered;
++        for (sz_size_t byte_index = 0; byte_index != SZ_SHA256_BLOCK_LENGTH; ++byte_index)
++            staged_vec[lane_index].u8s[byte_index] = byte_index < kept ? states[source_lane].block[byte_index]
++                                                                      : (sz_u8_t)0;
++        if (!carried) staged_vec[lane_index].u8s[buffered] = 0x80;
++        staged_vec[lane_index].u64s[7] = sz_u64_bytes_reverse(states[source_lane].total_length * 8);
++    }
++    sz_sha256_compress_haswell_(hashes_u32x8, staged_blocks, _mm256_set1_epi32(-1));
++
++    // Big-endian output is a byte reverse inside each word, and the same transpose that gathered the state
++    // returns each lane's digest as one 32-byte register.
++    __m256i const byte_swap_u8x32 = _mm256_setr_epi8(                                //
++        3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12,                        //
++        3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12);
++    for (sz_size_t word_index = 0; word_index != 8; ++word_index)
++        hashes_u32x8[word_index] = _mm256_shuffle_epi8(hashes_u32x8[word_index], byte_swap_u8x32);
++    sz_sha256_transpose_8x8_haswell_(hashes_u32x8, lanes_u32x8);
++    for (sz_size_t lane_index = 0; lane_index != active_lanes_count; ++lane_index)
++        _mm256_storeu_si256((__m256i *)&digests[lane_index * SZ_SHA256_DIGEST_LENGTH], lanes_u32x8[lane_index]);
++}
++
++SZ_API_COMPTIME void sz_sha256_multistate_digest_haswell(sz_sha256_state_t const *states, sz_size_t states_count,
++                                                         sz_u8_t *digests) {
++    sz_size_t first_lane_index = 0;
++    for (; first_lane_index < states_count; first_lane_index += 8) {
++        sz_size_t const remaining = states_count - first_lane_index;
++        sz_size_t const active_lanes_count = remaining < 8 ? remaining : 8;
++        sz_sha256_multistate_digest_lanes_haswell_(&states[first_lane_index], active_lanes_count,
++                                                   &digests[first_lane_index * SZ_SHA256_DIGEST_LENGTH]);
++    }
++}
++
++#if defined(__clang__)
++#pragma clang attribute pop
++#elif defined(__GNUC__)
++#pragma GCC pop_options
++#endif
++#endif // SZ_USE_HASWELL
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // STRINGZILLA_HASH_HASWELL_H_
+diff --git a/include/stringzilla/hash/westmere.h b/include/stringzilla/hash/westmere.h
+new file mode 100644
+index 0000000..a2bb11c
+--- /dev/null
++++ b/include/stringzilla/hash/westmere.h
+@@ -0,0 +1,538 @@
++/**
++ *  @author Ash Vardanian
++ *  @sa include/stringzilla/hash.h
++ */
++#ifndef STRINGZILLA_HASH_WESTMERE_H_
++#define STRINGZILLA_HASH_WESTMERE_H_
++
++#include "stringzilla/types.h"
++#include "stringzilla/compare.h" // `sz_equal`
++#include "stringzilla/hash/serial.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#if SZ_USE_WESTMERE
++#if defined(__clang__)
++#pragma clang attribute push(__attribute__((target("sse4.2,aes"))), apply_to = function)
++#elif defined(__GNUC__)
++#pragma GCC push_options
++#pragma GCC target("sse4.2", "aes")
++#endif
++
++/**
++ *  @brief Initializes the minimal single-lane AES hash state using SSE2/AES-NI intrinsics.
++ *         Requires the @p state to be 16-byte aligned.
++ *  @param state Pointer to the aligned minimal hash state to initialize.
++ *  @param seed 64-bit seed value XOR-ed with Pi constants to form the initial state.
++ */
++SZ_HELPER_AUTO void sz_hash_state_short_init_westmere_aligned_(sz_hash_state_aligned_for_short_t *state,
++                                                               sz_u64_t seed) {
++
++    // The key is made from the seed and half of it will be mixed with the length in the end
++    __m128i seed_u8x16 = _mm_set1_epi64x(seed);
++    state->key.xmm = seed_u8x16;
++
++    // XOR the user-supplied keys with the two "pi" constants
++    sz_u64_t const *pi = sz_hash_pi_constants_();
++    __m128i const pi0_u8x16 = _mm_load_si128((__m128i const *)(pi));
++    __m128i const pi1_u8x16 = _mm_load_si128((__m128i const *)(pi + 8));
++    __m128i aes_state_key_u8x16 = _mm_xor_si128(seed_u8x16, pi0_u8x16);
++    __m128i sum_state_key_u8x16 = _mm_xor_si128(seed_u8x16, pi1_u8x16);
++
++    // The first 128 bits of the "sum" and "AES" blocks are the same for the "minimal" and full state
++    state->aes.xmm = aes_state_key_u8x16;
++    state->sum.xmm = sum_state_key_u8x16;
++}
++
++/**
++ *  @brief Absorbs one 128-bit block into the minimal hash state using AES-NI and SSSE3 intrinsics.
++ *  @param state_ptr Pointer to the aligned minimal hash state.
++ *  @param block_u8x16 128-bit data block to absorb.
++ *  @param order_u8x16 Shuffle permutation for the additive accumulator lane (loaded from `sz_hash_u8x16x4_shuffle_`).
++ */
++SZ_HELPER_AUTO void sz_hash_state_short_update_westmere_aligned_(sz_hash_state_aligned_for_short_t *state_ptr,
++                                                                 __m128i block_u8x16, __m128i order_u8x16) {
++    state_ptr->aes.xmm = _mm_aesenc_si128(state_ptr->aes.xmm, block_u8x16);
++    state_ptr->sum.xmm = _mm_add_epi64(_mm_shuffle_epi8(state_ptr->sum.xmm, order_u8x16), block_u8x16);
++}
++
++/**
++ *  @brief Finalizes the minimal AES hash state using AES-NI and returns a 64-bit digest.
++ *  @param state Pointer to the (const) aligned minimal hash state.
++ *  @param length Total number of bytes hashed, mixed into the key for length sensitivity.
++ *  @return 64-bit hash value.
++ */
++SZ_HELPER_AUTO sz_u64_t sz_hash_state_short_finalize_westmere_aligned_(sz_hash_state_aligned_for_short_t const *state,
++                                                                       sz_size_t length) {
++    // Mix the length into the key
++    __m128i key_with_length_u64x2 = _mm_add_epi64(state->key.xmm, _mm_set_epi64x(0, length));
++    // Combine the "sum" and the "AES" blocks
++    __m128i mixed_u8x16 = _mm_aesenc_si128(state->sum.xmm, state->aes.xmm);
++    // Make sure the "key" mixes enough with the state,
++    // as with less than 2 rounds - SMHasher fails
++    __m128i mixed_in_register_u8x16 = _mm_aesenc_si128(_mm_aesenc_si128(mixed_u8x16, key_with_length_u64x2),
++                                                       mixed_u8x16);
++    // Extract the low 64 bits
++    return _mm_cvtsi128_si64(mixed_in_register_u8x16);
++}
++
++SZ_API_COMPTIME void sz_hash_state_init_westmere(sz_hash_state_t *state, sz_u64_t seed) {
++    // The key is made from the seed and half of it will be mixed with the length in the end
++    __m128i seed_u8x16 = _mm_set1_epi64x(seed);
++
++    // ! In this kernel, assuming it may be called on arbitrarily misaligned `state`,
++    // ! we must use `_mm_storeu_si128` stores to update the state. Moreover, accessing `state.xmms[i]`
++    // ! fools the compiler into preferring aligned operations over out misaligned ones.
++    _mm_storeu_si128((__m128i *)state->key, seed_u8x16);
++
++    // XOR the user-supplied keys with the two "pi" constants
++    sz_u64_t const *pi = sz_hash_pi_constants_();
++    for (int lane_index = 0; lane_index < 4; ++lane_index)
++        _mm_storeu_si128((__m128i *)&state->aes[lane_index * 16],
++                         _mm_xor_si128(seed_u8x16, _mm_lddqu_si128((__m128i const *)(pi + lane_index * 2))));
++    for (int lane_index = 0; lane_index < 4; ++lane_index)
++        _mm_storeu_si128((__m128i *)&state->sum[lane_index * 16],
++                         _mm_xor_si128(seed_u8x16, _mm_lddqu_si128((__m128i const *)(pi + lane_index * 2 + 8))));
++
++    // The inputs are zeroed out at the beginning
++    _mm_storeu_si128((__m128i *)&state->ins[0], _mm_setzero_si128());
++    _mm_storeu_si128((__m128i *)&state->ins[16], _mm_setzero_si128());
++    _mm_storeu_si128((__m128i *)&state->ins[32], _mm_setzero_si128());
++    _mm_storeu_si128((__m128i *)&state->ins[48], _mm_setzero_si128());
++    state->ins_length = 0;
++}
++
++/**
++ *  @brief Loads the packed public state into the aligned internal twin (4x `_mm_lddqu_si128` per 64-byte field).
++ */
++SZ_HELPER_AUTO sz_hash_state_aligned_t sz_hash_state_load_westmere_(sz_hash_state_t const *packed) {
++    sz_hash_state_aligned_t state;
++    for (int lane_index = 0; lane_index < 4; ++lane_index) {
++        state.aes.xmms[lane_index] = _mm_lddqu_si128((__m128i const *)&packed->aes[lane_index * 16]);
++        state.sum.xmms[lane_index] = _mm_lddqu_si128((__m128i const *)&packed->sum[lane_index * 16]);
++        state.ins.xmms[lane_index] = _mm_lddqu_si128((__m128i const *)&packed->ins[lane_index * 16]);
++    }
++    state.key.xmm = _mm_lddqu_si128((__m128i const *)packed->key);
++    state.ins_length = packed->ins_length;
++    return state;
++}
++
++/** @brief Stores the aligned internal twin back into the packed public state (4x `_mm_storeu_si128` per field). */
++SZ_HELPER_AUTO void sz_hash_state_store_westmere_(sz_hash_state_t *packed, sz_hash_state_aligned_t const *state) {
++    for (int lane_index = 0; lane_index < 4; ++lane_index) {
++        _mm_storeu_si128((__m128i *)&packed->aes[lane_index * 16], state->aes.xmms[lane_index]);
++        _mm_storeu_si128((__m128i *)&packed->sum[lane_index * 16], state->sum.xmms[lane_index]);
++        _mm_storeu_si128((__m128i *)&packed->ins[lane_index * 16], state->ins.xmms[lane_index]);
++    }
++    _mm_storeu_si128((__m128i *)packed->key, state->key.xmm);
++    packed->ins_length = state->ins_length;
++}
++
++/**
++ *  @brief Absorbs the buffered 64-byte block into the aligned state (four 128-bit lanes), in place.
++ *  @param state Pointer to the aligned hash state whose `ins` lanes are consumed.
++ */
++SZ_HELPER_AUTO void sz_hash_state_update_westmere_(sz_hash_state_aligned_t *state) {
++    __m128i const order_u8x16 = _mm_load_si128((__m128i const *)sz_hash_u8x16x4_shuffle_());
++    state->aes.xmms[0] = _mm_aesenc_si128(state->aes.xmms[0], state->ins.xmms[0]);
++    state->aes.xmms[1] = _mm_aesenc_si128(state->aes.xmms[1], state->ins.xmms[1]);
++    state->aes.xmms[2] = _mm_aesenc_si128(state->aes.xmms[2], state->ins.xmms[2]);
++    state->aes.xmms[3] = _mm_aesenc_si128(state->aes.xmms[3], state->ins.xmms[3]);
++    state->sum.xmms[0] = _mm_add_epi64(_mm_shuffle_epi8(state->sum.xmms[0], order_u8x16), state->ins.xmms[0]);
++    state->sum.xmms[1] = _mm_add_epi64(_mm_shuffle_epi8(state->sum.xmms[1], order_u8x16), state->ins.xmms[1]);
++    state->sum.xmms[2] = _mm_add_epi64(_mm_shuffle_epi8(state->sum.xmms[2], order_u8x16), state->ins.xmms[2]);
++    state->sum.xmms[3] = _mm_add_epi64(_mm_shuffle_epi8(state->sum.xmms[3], order_u8x16), state->ins.xmms[3]);
++}
++
++/**
++ *  @brief Finalizes the full 512-bit AES hash state using AES-NI and returns a 64-bit digest.
++ *  @param state Pointer to the (const) aligned hash state; lanes are read directly.
++ *  @return 64-bit hash value derived by folding the four AES lanes together with the key.
++ */
++SZ_HELPER_AUTO sz_u64_t sz_hash_state_finalize_westmere_(sz_hash_state_aligned_t const *state) {
++    // Mix the length into the key
++    __m128i key_with_length_u64x2 = _mm_add_epi64(state->key.xmm, _mm_set_epi64x(0, state->ins_length));
++
++    // Fold the deferred final block (still buffered in `ins` - a full 64 bytes or a zero-padded tail) into each
++    // lane. Folding the last block here, rather than in `update`, lets both one-shot `sz_hash` and the streaming
++    // digest defer it and share this single finalization with no state copy.
++    __m128i const order_u8x16 = _mm_load_si128((__m128i const *)sz_hash_u8x16x4_shuffle_());
++    __m128i ins0_u8x16 = state->ins.xmms[0];
++    __m128i ins1_u8x16 = state->ins.xmms[1];
++    __m128i ins2_u8x16 = state->ins.xmms[2];
++    __m128i ins3_u8x16 = state->ins.xmms[3];
++    __m128i aes0_u8x16 = _mm_aesenc_si128(state->aes.xmms[0], ins0_u8x16);
++    __m128i aes1_u8x16 = _mm_aesenc_si128(state->aes.xmms[1], ins1_u8x16);
++    __m128i aes2_u8x16 = _mm_aesenc_si128(state->aes.xmms[2], ins2_u8x16);
++    __m128i aes3_u8x16 = _mm_aesenc_si128(state->aes.xmms[3], ins3_u8x16);
++    __m128i sum0_u64x2 = _mm_add_epi64(_mm_shuffle_epi8(state->sum.xmms[0], order_u8x16), ins0_u8x16);
++    __m128i sum1_u64x2 = _mm_add_epi64(_mm_shuffle_epi8(state->sum.xmms[1], order_u8x16), ins1_u8x16);
++    __m128i sum2_u64x2 = _mm_add_epi64(_mm_shuffle_epi8(state->sum.xmms[2], order_u8x16), ins2_u8x16);
++    __m128i sum3_u64x2 = _mm_add_epi64(_mm_shuffle_epi8(state->sum.xmms[3], order_u8x16), ins3_u8x16);
++
++    // Combine the "sum" and the "AES" blocks
++    __m128i mixed0_u8x16 = _mm_aesenc_si128(sum0_u64x2, aes0_u8x16);
++    __m128i mixed1_u8x16 = _mm_aesenc_si128(sum1_u64x2, aes1_u8x16);
++    __m128i mixed2_u8x16 = _mm_aesenc_si128(sum2_u64x2, aes2_u8x16);
++    __m128i mixed3_u8x16 = _mm_aesenc_si128(sum3_u64x2, aes3_u8x16);
++    // Combine the mixed registers
++    __m128i mixed01_u8x16 = _mm_aesenc_si128(mixed0_u8x16, mixed1_u8x16);
++    __m128i mixed23_u8x16 = _mm_aesenc_si128(mixed2_u8x16, mixed3_u8x16);
++    __m128i mixed_u8x16 = _mm_aesenc_si128(mixed01_u8x16, mixed23_u8x16);
++    // Make sure the "key" mixes enough with the state,
++    // as with less than 2 rounds - SMHasher fails
++    __m128i mixed_in_register_u8x16 = _mm_aesenc_si128(_mm_aesenc_si128(mixed_u8x16, key_with_length_u64x2),
++                                                       mixed_u8x16);
++    // Extract the low 64 bits
++    return _mm_cvtsi128_si64(mixed_in_register_u8x16);
++}
++
++SZ_API_COMPTIME SZ_NO_STACK_PROTECTOR sz_u64_t sz_hash_westmere(sz_cptr_t start, sz_size_t length, sz_u64_t seed) {
++
++    if (length <= 16) {
++        // Initialize the AES block with a given seed
++        sz_align_(16) sz_hash_state_aligned_for_short_t state;
++        sz_hash_state_short_init_westmere_aligned_(&state, seed);
++
++        // Load the data and update the state
++        sz_u128_vec_t data_vec;
++        data_vec.xmm = _mm_setzero_si128();
++        for (sz_size_t byte_index = 0; byte_index < length; ++byte_index) data_vec.u8s[byte_index] = start[byte_index];
++
++        // Shuffle with the same mask
++        __m128i const order_u8x16 = _mm_load_si128((__m128i const *)sz_hash_u8x16x4_shuffle_());
++        sz_hash_state_short_update_westmere_aligned_(&state, data_vec.xmm, order_u8x16);
++        return sz_hash_state_short_finalize_westmere_aligned_(&state, length);
++    }
++    else if (length <= 32) {
++        // Initialize the AES block with a given seed
++        sz_align_(16) sz_hash_state_aligned_for_short_t state;
++        sz_hash_state_short_init_westmere_aligned_(&state, seed);
++
++        // Load the data, shifting the data within the register to de-interleave the bytes
++        sz_u128_vec_t data0_vec, data1_vec;
++        data0_vec.xmm = _mm_lddqu_si128((__m128i const *)(start));
++        data1_vec.xmm = _mm_lddqu_si128((__m128i const *)(start + length - 16));
++        sz_hash_shift_in_register_serial_(&data1_vec, (int)(32 - length));
++
++        // Shuffle with the same mask
++        __m128i const order_u8x16 = _mm_load_si128((__m128i const *)sz_hash_u8x16x4_shuffle_());
++        sz_hash_state_short_update_westmere_aligned_(&state, data0_vec.xmm, order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&state, data1_vec.xmm, order_u8x16);
++        return sz_hash_state_short_finalize_westmere_aligned_(&state, length);
++    }
++    else if (length <= 48) {
++        // Initialize the AES block with a given seed
++        sz_align_(16) sz_hash_state_aligned_for_short_t state;
++        sz_hash_state_short_init_westmere_aligned_(&state, seed);
++
++        // Load the data, shifting the data within the register to de-interleave the bytes
++        sz_u128_vec_t data0_vec, data1_vec, data2_vec;
++        data0_vec.xmm = _mm_lddqu_si128((__m128i const *)(start + 0));
++        data1_vec.xmm = _mm_lddqu_si128((__m128i const *)(start + 16));
++        data2_vec.xmm = _mm_lddqu_si128((__m128i const *)(start + length - 16));
++        sz_hash_shift_in_register_serial_(&data2_vec, (int)(48 - length));
++
++        // Shuffle with the same mask
++        __m128i const order_u8x16 = _mm_load_si128((__m128i const *)sz_hash_u8x16x4_shuffle_());
++        sz_hash_state_short_update_westmere_aligned_(&state, data0_vec.xmm, order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&state, data1_vec.xmm, order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&state, data2_vec.xmm, order_u8x16);
++        return sz_hash_state_short_finalize_westmere_aligned_(&state, length);
++    }
++    else if (length <= 64) {
++        // Initialize the AES block with a given seed
++        sz_align_(16) sz_hash_state_aligned_for_short_t state;
++        sz_hash_state_short_init_westmere_aligned_(&state, seed);
++
++        // Load the data, shifting the data within the register to de-interleave the bytes
++        sz_u128_vec_t data0_vec, data1_vec, data2_vec, data3_vec;
++        data0_vec.xmm = _mm_lddqu_si128((__m128i const *)(start + 0));
++        data1_vec.xmm = _mm_lddqu_si128((__m128i const *)(start + 16));
++        data2_vec.xmm = _mm_lddqu_si128((__m128i const *)(start + 32));
++        data3_vec.xmm = _mm_lddqu_si128((__m128i const *)(start + length - 16));
++        sz_hash_shift_in_register_serial_(&data3_vec, (int)(64 - length));
++
++        // Shuffle with the same mask
++        __m128i const order_u8x16 = _mm_load_si128((__m128i const *)sz_hash_u8x16x4_shuffle_());
++        sz_hash_state_short_update_westmere_aligned_(&state, data0_vec.xmm, order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&state, data1_vec.xmm, order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&state, data2_vec.xmm, order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&state, data3_vec.xmm, order_u8x16);
++        return sz_hash_state_short_finalize_westmere_aligned_(&state, length);
++    }
++    else {
++        sz_align_(64) sz_hash_state_aligned_t state;
++        sz_hash_state_init_westmere((sz_hash_state_t *)&state, seed);
++
++        // Absorb every full 64-byte block EXCEPT the last; the final block (a full 64 or a partial tail) stays
++        // buffered in `ins` for `sz_hash_state_finalize_westmere_` to fold - the same deferral the streaming path uses.
++        for (; state.ins_length + 64 < length; state.ins_length += 64) {
++            state.ins.xmms[0] = _mm_lddqu_si128((__m128i const *)(start + state.ins_length + 0));
++            state.ins.xmms[1] = _mm_lddqu_si128((__m128i const *)(start + state.ins_length + 16));
++            state.ins.xmms[2] = _mm_lddqu_si128((__m128i const *)(start + state.ins_length + 32));
++            state.ins.xmms[3] = _mm_lddqu_si128((__m128i const *)(start + state.ins_length + 48));
++            sz_hash_state_update_westmere_(&state);
++        }
++        // Stage the final [ins_length, length) bytes (1..64) into a zeroed buffer; finalize folds them.
++        state.ins.xmms[0] = _mm_setzero_si128();
++        state.ins.xmms[1] = _mm_setzero_si128();
++        state.ins.xmms[2] = _mm_setzero_si128();
++        state.ins.xmms[3] = _mm_setzero_si128();
++        for (sz_size_t byte_index = 0; state.ins_length < length; ++byte_index, ++state.ins_length)
++            state.ins.u8s[byte_index] = start[state.ins_length];
++        return sz_hash_state_finalize_westmere_(&state);
++    }
++}
++
++/**
++ *  @brief Splits a short (<= 64B) input into up to four 128-bit text-lanes using SSE loads.
++ *         Mirrors the loading ladder of `sz_hash_westmere`: full `lddqu` loads for complete lanes
++ *         and one overlapping load + in-register shift for the partial tail; byte-by-byte only for
++ *         the `< 16` case, where a 16-byte SSE load could read past the input.
++ *  @return The number of populated text-lanes (1..4).
++ */
++SZ_HELPER_AUTO sz_size_t sz_hash_multiseed_prepare_westmere_(sz_cptr_t text, sz_size_t length,
++                                                             sz_u512_vec_t *text_lanes_vec) {
++    if (length <= 16) {
++        sz_u128_vec_t lane_vec;
++        if (length == 16) { lane_vec.xmm = _mm_lddqu_si128((__m128i const *)text); }
++        else {
++            lane_vec.xmm = _mm_setzero_si128();
++            for (sz_size_t byte_index = 0; byte_index < length; ++byte_index)
++                lane_vec.u8s[byte_index] = text[byte_index];
++        }
++        text_lanes_vec->u128s[0] = lane_vec;
++        return 1;
++    }
++    sz_size_t const text_lanes_count = sz_size_divide_round_up(length, 16);
++    for (sz_size_t lane_index = 0; lane_index + 1 < text_lanes_count; ++lane_index)
++        text_lanes_vec->u128s[lane_index].xmm = _mm_lddqu_si128((__m128i const *)(text + lane_index * 16));
++    sz_u128_vec_t tail_vec;
++    tail_vec.xmm = _mm_lddqu_si128((__m128i const *)(text + length - 16));
++    sz_hash_shift_in_register_serial_(&tail_vec, (int)(text_lanes_count * 16 - length));
++    text_lanes_vec->u128s[text_lanes_count - 1] = tail_vec;
++    return text_lanes_count;
++}
++
++SZ_API_COMPTIME void sz_hash_multiseed_westmere(sz_cptr_t text, sz_size_t length,             //
++                                                sz_u64_t const *seeds, sz_size_t seeds_count, //
++                                                sz_u64_t *hashes) {
++    // Trivial counts don't benefit from sharing a normalization pass - go straight to the single-shot.
++    if (seeds_count == 0) return;
++    if (seeds_count == 1) {
++        hashes[0] = sz_hash_westmere(text, length, seeds[0]);
++        return;
++    }
++    // Without VAES there is no cross-lane AES, so the win here is the shared normalization pass plus
++    // the instruction-level parallelism of two independent single-lane AES chains.
++    if (length > 64) {
++        for (sz_size_t seed_index = 0; seed_index < seeds_count; ++seed_index)
++            hashes[seed_index] = sz_hash_westmere(text, length, seeds[seed_index]);
++        return;
++    }
++
++    sz_u512_vec_t text_lanes_vec;
++    sz_size_t const text_lanes_count = sz_hash_multiseed_prepare_westmere_(text, length, &text_lanes_vec);
++    __m128i const order_u8x16 = _mm_load_si128((__m128i const *)sz_hash_u8x16x4_shuffle_());
++
++    sz_size_t seed_index = 0;
++    for (; seed_index + 2 <= seeds_count; seed_index += 2) {
++        sz_align_(16) sz_hash_state_aligned_for_short_t state0, state1;
++        sz_hash_state_short_init_westmere_aligned_(&state0, seeds[seed_index + 0]);
++        sz_hash_state_short_init_westmere_aligned_(&state1, seeds[seed_index + 1]);
++        for (sz_size_t lane_index = 0; lane_index < text_lanes_count; ++lane_index) {
++            sz_hash_state_short_update_westmere_aligned_(&state0, text_lanes_vec.u128s[lane_index].xmm, order_u8x16);
++            sz_hash_state_short_update_westmere_aligned_(&state1, text_lanes_vec.u128s[lane_index].xmm, order_u8x16);
++        }
++        hashes[seed_index + 0] = sz_hash_state_short_finalize_westmere_aligned_(&state0, length);
++        hashes[seed_index + 1] = sz_hash_state_short_finalize_westmere_aligned_(&state1, length);
++    }
++    if (seed_index < seeds_count) {
++        sz_align_(16) sz_hash_state_aligned_for_short_t state;
++        sz_hash_state_short_init_westmere_aligned_(&state, seeds[seed_index]);
++        for (sz_size_t lane_index = 0; lane_index < text_lanes_count; ++lane_index)
++            sz_hash_state_short_update_westmere_aligned_(&state, text_lanes_vec.u128s[lane_index].xmm, order_u8x16);
++        hashes[seed_index] = sz_hash_state_short_finalize_westmere_aligned_(&state, length);
++    }
++}
++
++SZ_API_COMPTIME void sz_hash_state_update_westmere(sz_hash_state_t *state_ptr, sz_cptr_t text, sz_size_t length) {
++
++    // Load the packed public state (any alignment) into an aligned twin once, buffer/absorb on it, then store back.
++    // `ins` is one 64-byte block; track how many bytes it holds (0..64; 64 == a full block deferred by an earlier
++    // call so `digest` can still choose minimal/full by total length), absorb it only once it becomes interior
++    // (more bytes arrive), and append with a single contiguous copy (SSE has no masked store). Re-zeroing `ins`
++    // after each absorb keeps the high lanes zero-padded for `finalize` to fold.
++    sz_hash_state_aligned_t state = sz_hash_state_load_westmere_(state_ptr);
++    sz_size_t buffered = state.ins_length % 64;
++    if (buffered == 0 && state.ins_length) buffered = 64;
++    while (length) {
++        if (buffered == 64) { // the deferred block is now interior - absorb it (4x AES-NI) and re-zero the buffer
++            sz_hash_state_update_westmere_(&state);
++            state.ins.xmms[0] = _mm_setzero_si128();
++            state.ins.xmms[1] = _mm_setzero_si128();
++            state.ins.xmms[2] = _mm_setzero_si128();
++            state.ins.xmms[3] = _mm_setzero_si128();
++            buffered = 0;
++        }
++        sz_size_t const to_copy = sz_min_of_two(length, (sz_size_t)64 - buffered);
++        for (sz_size_t byte_index = 0; byte_index < to_copy; ++byte_index)
++            state.ins.u8s[buffered + byte_index] = (sz_u8_t)text[byte_index];
++        buffered += to_copy, text += to_copy, length -= to_copy, state.ins_length += to_copy;
++    }
++    sz_hash_state_store_westmere_(state_ptr, &state);
++}
++
++SZ_API_COMPTIME sz_u64_t sz_hash_state_digest_westmere(sz_hash_state_t const *state_ptr) {
++    sz_hash_state_aligned_t state = sz_hash_state_load_westmere_(state_ptr);
++    sz_size_t length = state.ins_length;
++    // Inputs longer than one block fold through the full four-lane state, where the deferred final block buffered
++    // in `ins` is folded by `sz_hash_state_finalize_westmere_`. A length of exactly 64 uses the minimal (<=64)
++    // path below - matching one-shot `sz_hash`, whose `length <= 64` ladder also stays minimal.
++    if (length > 64) return sz_hash_state_finalize_westmere_(&state);
++
++    // Switch back to a smaller "short" state for small inputs; the aligned twin lanes are read directly.
++    sz_align_(16) sz_hash_state_aligned_for_short_t minimal_state;
++    minimal_state.key = state.key;
++    minimal_state.aes = state.aes.u128s[0];
++    minimal_state.sum = state.sum.u128s[0];
++
++    // The logic is different depending on the length of the input
++    __m128i const order_u8x16 = _mm_load_si128((__m128i const *)sz_hash_u8x16x4_shuffle_());
++    if (length <= 16) {
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[0], order_u8x16);
++        return sz_hash_state_short_finalize_westmere_aligned_(&minimal_state, length);
++    }
++    else if (length <= 32) {
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[0], order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[1], order_u8x16);
++        return sz_hash_state_short_finalize_westmere_aligned_(&minimal_state, length);
++    }
++    else if (length <= 48) {
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[0], order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[1], order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[2], order_u8x16);
++        return sz_hash_state_short_finalize_westmere_aligned_(&minimal_state, length);
++    }
++    else {
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[0], order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[1], order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[2], order_u8x16);
++        sz_hash_state_short_update_westmere_aligned_(&minimal_state, state.ins.xmms[3], order_u8x16);
++        return sz_hash_state_short_finalize_westmere_aligned_(&minimal_state, length);
++    }
++}
++
++SZ_API_COMPTIME void sz_fill_random_westmere(sz_ptr_t text, sz_size_t length, sz_u64_t nonce) {
++    sz_u64_t const *pi_ptr = sz_hash_pi_constants_();
++    if (length <= 16) {
++        __m128i input_u8x16 = _mm_set1_epi64x(nonce);
++        __m128i pi_u8x16 = _mm_load_si128((__m128i const *)pi_ptr);
++        __m128i key_u8x16 = _mm_xor_si128(_mm_set1_epi64x(nonce), pi_u8x16);
++        __m128i generated_u8x16 = _mm_aesenc_si128(input_u8x16, key_u8x16);
++        // Now the tricky part is outputting this data to the user-supplied buffer
++        // without masked writes, like in AVX-512.
++        for (sz_size_t byte_index = 0; byte_index < length; ++byte_index)
++            text[byte_index] = ((sz_u8_t *)&generated_u8x16)[byte_index];
++    }
++    // Assuming the YMM register contains two 128-bit blocks, the input to the generator
++    // will be more complex, containing the sum of the nonce and the block number.
++    else if (length <= 32) {
++        __m128i inputs_u8x16[2], pis_u8x16[2], keys_u8x16[2], generated_u8x16[2];
++        inputs_u8x16[0] = _mm_set1_epi64x(nonce);
++        inputs_u8x16[1] = _mm_set1_epi64x(nonce + 1);
++        pis_u8x16[0] = _mm_load_si128((__m128i const *)(pi_ptr + 0));
++        pis_u8x16[1] = _mm_load_si128((__m128i const *)(pi_ptr + 2));
++        keys_u8x16[0] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[0]);
++        keys_u8x16[1] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[1]);
++        generated_u8x16[0] = _mm_aesenc_si128(inputs_u8x16[0], keys_u8x16[0]);
++        generated_u8x16[1] = _mm_aesenc_si128(inputs_u8x16[1], keys_u8x16[1]);
++        // The first store can easily be vectorized, but the second can be serial for now
++        _mm_storeu_si128((__m128i *)text, generated_u8x16[0]);
++        for (sz_size_t byte_index = 16; byte_index < length; ++byte_index)
++            text[byte_index] = ((sz_u8_t *)&generated_u8x16[1])[byte_index - 16];
++    }
++    // The last special case we handle outside of the primary loop is for buffers up to 64 bytes long.
++    else if (length <= 48) {
++        __m128i inputs_u8x16[3], pis_u8x16[3], keys_u8x16[3], generated_u8x16[3];
++        inputs_u8x16[0] = _mm_set1_epi64x(nonce);
++        inputs_u8x16[1] = _mm_set1_epi64x(nonce + 1);
++        inputs_u8x16[2] = _mm_set1_epi64x(nonce + 2);
++        pis_u8x16[0] = _mm_load_si128((__m128i const *)(pi_ptr + 0));
++        pis_u8x16[1] = _mm_load_si128((__m128i const *)(pi_ptr + 2));
++        pis_u8x16[2] = _mm_load_si128((__m128i const *)(pi_ptr + 4));
++        keys_u8x16[0] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[0]);
++        keys_u8x16[1] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[1]);
++        keys_u8x16[2] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[2]);
++        generated_u8x16[0] = _mm_aesenc_si128(inputs_u8x16[0], keys_u8x16[0]);
++        generated_u8x16[1] = _mm_aesenc_si128(inputs_u8x16[1], keys_u8x16[1]);
++        generated_u8x16[2] = _mm_aesenc_si128(inputs_u8x16[2], keys_u8x16[2]);
++        // The first store can easily be vectorized, but the second can be serial for now
++        _mm_storeu_si128((__m128i *)(text + 0), generated_u8x16[0]);
++        _mm_storeu_si128((__m128i *)(text + 16), generated_u8x16[1]);
++        for (sz_size_t byte_index = 32; byte_index < length; ++byte_index)
++            text[byte_index] = ((sz_u8_t *)generated_u8x16)[byte_index];
++    }
++    // The final part of the function is the primary loop, which processes the buffer in 64-byte chunks.
++    else {
++        __m128i inputs_u64x2[4], pis_u8x16[4], keys_u8x16[4], generated_u8x16[4];
++        inputs_u64x2[0] = _mm_set1_epi64x(nonce);
++        inputs_u64x2[1] = _mm_set1_epi64x(nonce + 1);
++        inputs_u64x2[2] = _mm_set1_epi64x(nonce + 2);
++        inputs_u64x2[3] = _mm_set1_epi64x(nonce + 3);
++        // Load parts of PI into the registers
++        pis_u8x16[0] = _mm_load_si128((__m128i const *)(pi_ptr + 0));
++        pis_u8x16[1] = _mm_load_si128((__m128i const *)(pi_ptr + 2));
++        pis_u8x16[2] = _mm_load_si128((__m128i const *)(pi_ptr + 4));
++        pis_u8x16[3] = _mm_load_si128((__m128i const *)(pi_ptr + 6));
++        // XOR the nonce with the PI constants
++        keys_u8x16[0] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[0]);
++        keys_u8x16[1] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[1]);
++        keys_u8x16[2] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[2]);
++        keys_u8x16[3] = _mm_xor_si128(_mm_set1_epi64x(nonce), pis_u8x16[3]);
++
++        // Produce the output, fixing the key and enumerating input chunks.
++        sz_size_t byte_index = 0;
++        __m128i const increment_u64x2 = _mm_set1_epi64x(4);
++        for (; byte_index + 64 <= length; byte_index += 64) {
++            generated_u8x16[0] = _mm_aesenc_si128(inputs_u64x2[0], keys_u8x16[0]);
++            generated_u8x16[1] = _mm_aesenc_si128(inputs_u64x2[1], keys_u8x16[1]);
++            generated_u8x16[2] = _mm_aesenc_si128(inputs_u64x2[2], keys_u8x16[2]);
++            generated_u8x16[3] = _mm_aesenc_si128(inputs_u64x2[3], keys_u8x16[3]);
++            _mm_storeu_si128((__m128i *)(text + byte_index + 0), generated_u8x16[0]);
++            _mm_storeu_si128((__m128i *)(text + byte_index + 16), generated_u8x16[1]);
++            _mm_storeu_si128((__m128i *)(text + byte_index + 32), generated_u8x16[2]);
++            _mm_storeu_si128((__m128i *)(text + byte_index + 48), generated_u8x16[3]);
++            inputs_u64x2[0] = _mm_add_epi64(inputs_u64x2[0], increment_u64x2);
++            inputs_u64x2[1] = _mm_add_epi64(inputs_u64x2[1], increment_u64x2);
++            inputs_u64x2[2] = _mm_add_epi64(inputs_u64x2[2], increment_u64x2);
++            inputs_u64x2[3] = _mm_add_epi64(inputs_u64x2[3], increment_u64x2);
++        }
++
++        // Handle the tail of the buffer.
++        {
++            generated_u8x16[0] = _mm_aesenc_si128(inputs_u64x2[0], keys_u8x16[0]);
++            generated_u8x16[1] = _mm_aesenc_si128(inputs_u64x2[1], keys_u8x16[1]);
++            generated_u8x16[2] = _mm_aesenc_si128(inputs_u64x2[2], keys_u8x16[2]);
++            generated_u8x16[3] = _mm_aesenc_si128(inputs_u64x2[3], keys_u8x16[3]);
++            for (sz_size_t tail_index = 0; byte_index < length; ++byte_index, ++tail_index)
++                text[byte_index] = ((sz_u8_t *)generated_u8x16)[tail_index];
++        }
++    }
++}
++
++#if defined(__clang__)
++#pragma clang attribute pop
++#elif defined(__GNUC__)
++#pragma GCC pop_options
++#endif
++#endif // SZ_USE_WESTMERE
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // STRINGZILLA_HASH_WESTMERE_H_
+diff --git a/include/stringzilla/hash.h b/include/stringzilla/hash.h
+index 1d919e0..f60abc9 100644
+--- a/include/stringzilla/hash.h
++++ b/include/stringzilla/hash.h
+@@ -398,8 +398,43 @@ SZ_API_COMPTIME void sz_sha256_multistate_update_serial(sz_sha256_state_t *state
+ SZ_API_COMPTIME void sz_sha256_multistate_digest_serial(sz_sha256_state_t const *states, sz_size_t states_count,
+                                                         sz_u8_t *digests);
+ 
++#if SZ_USE_WESTMERE
+ 
++/** @copydoc sz_hash */
++SZ_API_COMPTIME SZ_NO_STACK_PROTECTOR sz_u64_t sz_hash_westmere(sz_cptr_t text, sz_size_t length, sz_u64_t seed);
++
++/** @copydoc sz_hash_multiseed */
++SZ_API_COMPTIME void sz_hash_multiseed_westmere(sz_cptr_t text, sz_size_t length, sz_u64_t const *seeds,
++                                                sz_size_t seeds_count, sz_u64_t *hashes);
++
++/** @copydoc sz_fill_random */
++SZ_API_COMPTIME void sz_fill_random_westmere(sz_ptr_t text, sz_size_t length, sz_u64_t nonce);
++
++/** @copydoc sz_hash_state_init */
++SZ_API_COMPTIME void sz_hash_state_init_westmere(sz_hash_state_t *state, sz_u64_t seed);
++
++/** @copydoc sz_hash_state_update */
++SZ_API_COMPTIME void sz_hash_state_update_westmere(sz_hash_state_t *state, sz_cptr_t text, sz_size_t length);
++
++/** @copydoc sz_hash_state_digest */
++SZ_API_COMPTIME sz_u64_t sz_hash_state_digest_westmere(sz_hash_state_t const *state);
++
++#endif
++
++
++#if SZ_USE_HASWELL
++
++/** @copydoc sz_bytesum */
++SZ_API_COMPTIME sz_u64_t sz_bytesum_haswell(sz_cptr_t text, sz_size_t length);
++
++/** @copydoc sz_sha256_multistate_update */
++SZ_API_COMPTIME void sz_sha256_multistate_update_haswell(sz_sha256_state_t *states, sz_sequence_t const *texts);
++
++/** @copydoc sz_sha256_multistate_digest */
++SZ_API_COMPTIME void sz_sha256_multistate_digest_haswell(sz_sha256_state_t const *states, sz_size_t states_count,
++                                                         sz_u8_t *digests);
+ 
++#endif
+ 
+ 
+ 
+@@ -428,6 +463,8 @@ SZ_API_COMPTIME sz_bool_t sz_hash_state_equal(sz_hash_state_t const *lhs, sz_has
+ #pragma endregion // Helper Methods
+ 
+ #include "stringzilla/hash/serial.h"
++#include "stringzilla/hash/westmere.h"
++#include "stringzilla/hash/haswell.h"
+ 
+ /*  Pick the right implementation for the string search algorithms.
+  *  To override this behavior and precompile all backends - set `SZ_DYNAMIC_DISPATCH` to 1.
+@@ -436,7 +473,9 @@ SZ_API_COMPTIME sz_bool_t sz_hash_state_equal(sz_hash_state_t const *lhs, sz_has
+ #if !SZ_DYNAMIC_DISPATCH
+ 
+ SZ_API_RUNTIME sz_u64_t sz_bytesum(sz_cptr_t text, sz_size_t length) {
+-#if SZ_USE_NEON
++#if SZ_USE_HASWELL
++    return sz_bytesum_haswell(text, length);
++#elif SZ_USE_NEON
+     return sz_bytesum_serial(text, length);
+ #else
+     return sz_bytesum_serial(text, length);
+@@ -444,7 +483,9 @@ SZ_API_RUNTIME sz_u64_t sz_bytesum(sz_cptr_t text, sz_size_t length) {
+ }
+ 
+ SZ_API_RUNTIME sz_u64_t sz_hash(sz_cptr_t text, sz_size_t length, sz_u64_t seed) {
+-#if SZ_USE_NEONAES
++#if SZ_USE_WESTMERE
++    return sz_hash_westmere(text, length, seed);
++#elif SZ_USE_NEONAES
+     return sz_hash_serial(text, length, seed);
+ #else
+     return sz_hash_serial(text, length, seed);
+@@ -454,7 +495,9 @@ SZ_API_RUNTIME sz_u64_t sz_hash(sz_cptr_t text, sz_size_t length, sz_u64_t seed)
+ SZ_API_RUNTIME void sz_hash_multiseed(sz_cptr_t text, sz_size_t length,             //
+                                       sz_u64_t const *seeds, sz_size_t seeds_count, //
+                                       sz_u64_t *hashes) {
+-#if SZ_USE_NEONAES
++#if SZ_USE_WESTMERE
++    sz_hash_multiseed_westmere(text, length, seeds, seeds_count, hashes);
++#elif SZ_USE_NEONAES
+     sz_hash_multiseed_serial(text, length, seeds, seeds_count, hashes);
+ #else
+     sz_hash_multiseed_serial(text, length, seeds, seeds_count, hashes);
+@@ -462,7 +505,9 @@ SZ_API_RUNTIME void sz_hash_multiseed(sz_cptr_t text, sz_size_t length,
+ }
+ 
+ SZ_API_RUNTIME void sz_fill_random(sz_ptr_t text, sz_size_t length, sz_u64_t nonce) {
+-#if SZ_USE_NEONAES
++#if SZ_USE_WESTMERE
++    sz_fill_random_westmere(text, length, nonce);
++#elif SZ_USE_NEONAES
+     sz_fill_random_serial(text, length, nonce);
+ #else
+     sz_fill_random_serial(text, length, nonce);
+@@ -470,7 +515,9 @@ SZ_API_RUNTIME void sz_fill_random(sz_ptr_t text, sz_size_t length, sz_u64_t non
+ }
+ 
+ SZ_API_RUNTIME void sz_hash_state_init(sz_hash_state_t *state, sz_u64_t seed) {
+-#if SZ_USE_NEONAES
++#if SZ_USE_WESTMERE
++    sz_hash_state_init_westmere(state, seed);
++#elif SZ_USE_NEONAES
+     sz_hash_state_init_serial(state, seed);
+ #else
+     sz_hash_state_init_serial(state, seed);
+@@ -478,7 +525,9 @@ SZ_API_RUNTIME void sz_hash_state_init(sz_hash_state_t *state, sz_u64_t seed) {
+ }
+ 
+ SZ_API_RUNTIME void sz_hash_state_update(sz_hash_state_t *state, sz_cptr_t text, sz_size_t length) {
+-#if SZ_USE_NEONAES
++#if SZ_USE_WESTMERE
++    sz_hash_state_update_westmere(state, text, length);
++#elif SZ_USE_NEONAES
+     sz_hash_state_update_serial(state, text, length);
+ #else
+     sz_hash_state_update_serial(state, text, length);
+@@ -486,7 +535,9 @@ SZ_API_RUNTIME void sz_hash_state_update(sz_hash_state_t *state, sz_cptr_t text,
+ }
+ 
+ SZ_API_RUNTIME sz_u64_t sz_hash_state_digest(sz_hash_state_t const *state) {
+-#if SZ_USE_NEONAES
++#if SZ_USE_WESTMERE
++    return sz_hash_state_digest_westmere(state);
++#elif SZ_USE_NEONAES
+     return sz_hash_state_digest_serial(state);
+ #else
+     return sz_hash_state_digest_serial(state);
+@@ -519,7 +570,9 @@ SZ_API_RUNTIME void sz_sha256_state_digest(sz_sha256_state_t const *state,
+ }
+ 
+ SZ_API_RUNTIME void sz_sha256_multistate_update(sz_sha256_state_t *states, sz_sequence_t const *texts) {
+-#if SZ_USE_GOLDMONT
++#if SZ_USE_HASWELL
++    sz_sha256_multistate_update_haswell(states, texts);
++#elif SZ_USE_GOLDMONT
+     sz_sha256_multistate_update_serial(states, texts);
+ #else
+     sz_sha256_multistate_update_serial(states, texts);
+@@ -528,7 +581,9 @@ SZ_API_RUNTIME void sz_sha256_multistate_update(sz_sha256_state_t *states, sz_se
+ 
+ SZ_API_RUNTIME void sz_sha256_multistate_digest(sz_sha256_state_t const *states, sz_size_t states_count,
+                                                 sz_u8_t *digests) {
+-#if SZ_USE_GOLDMONT
++#if SZ_USE_HASWELL
++    sz_sha256_multistate_digest_haswell(states, states_count, digests);
++#elif SZ_USE_GOLDMONT
+     sz_sha256_multistate_digest_serial(states, states_count, digests);
+ #else
+     sz_sha256_multistate_digest_serial(states, states_count, digests);

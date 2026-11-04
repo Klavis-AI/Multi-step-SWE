@@ -1,0 +1,90 @@
+# arch: x86_64
+# spec/05 S13.2's three prohibitions, each against the positive baseline in the
+# same case so that "no copy relocation" cannot pass by the linker simply not
+# having the feature. A copy relocation MUST NOT be created
+#   (a) for a function,
+#   (b) for output that is -shared or -pie,
+#   (c) for a reference from a writable section,
+# The spec's parenthetical -- such a reference "can use a GLOB_DAT-class slot
+# instead" -- is permissive, so what is graded is the prohibition itself: no
+# R_X86_64_COPY, the symbol is NOT redefined in the output (it stays UND in
+# .dynsym, which is step 2 of the copy-relocation recipe not happening), and
+# some dynamic relocation is still left behind naming it, so the reference is
+# handed to the loader rather than silently baked into the image.
+rt_obj rt.o
+cat > lib.c <<'C'
+long shared_data[4] = {11, 22, 33, 44};
+long libfn(void) { return shared_data[0]; }
+C
+cc_obj lib.o lib.c -fPIC
+ld -shared -soname liby.so.1 -o liby.so.1 lib.o 2> ld.err || die "fixture ld failed: $(tail -2 ld.err)"
+DL=(-dynamic-linker /lib64/ld-linux-x86-64.so.2)
+# Baseline: a direct data reference from non-writable text in a non-PIC
+# executable is exactly the case that MUST copy.
+cat > base.c <<'C'
+extern long shared_data[4];
+int entry(void) { return (int)shared_data[1]; }
+C
+cc_obj base.o base.c -fno-pic
+link_ok obase rt.o base.o liby.so.1 "${DL[@]}"
+relocs obase > base.rel
+want "baseline creates one copy relocation" "$(grep -c 'R_X86_64_COPY' base.rel)" "1"
+
+# (a) a function, reached through its address from non-PIC text.
+cat > fa.c <<'C'
+long libfn(void);
+static long (*p)(void) = libfn;
+int entry(void) { return (int)p(); }
+C
+cc_obj fa.o fa.c -fno-pic
+link_ok ofa rt.o fa.o liby.so.1 "${DL[@]}"
+relocs ofa > fa.rel
+want "no copy relocation for a function" "$(grep -c 'R_X86_64_COPY' fa.rel)" "0"
+grep -qE 'R_X86_64_[A-Z0-9_]+ +[0-9a-f]+ libfn' fa.rel \
+  || die "libfn got no dynamic relocation naming it: $(cat fa.rel)"
+
+# (b) the identical data reference, but the output is -pie.
+cat > pd.c <<'C'
+extern long shared_data[4];
+int entry(void) { return (int)shared_data[1]; }
+C
+cc_obj pd.o pd.c -fPIC
+link_ok opd -pie rt.o pd.o liby.so.1 "${DL[@]}"
+relocs opd > pd.rel
+want "no copy relocation for -pie output" "$(grep -c 'R_X86_64_COPY' pd.rel)" "0"
+dynsyms opd > pd.dyn
+grep -qE 'UND +shared_data' pd.dyn \
+  || die "-pie output redefined shared_data locally: $(cat pd.dyn)"
+grep -qE 'R_X86_64_[A-Z0-9_]+ +[0-9a-f]+ shared_data' pd.rel \
+  || die "-pie output left no dynamic relocation naming shared_data: $(cat pd.rel)"
+want "opd really is ET_DYN" "$(hdr opd | awk '/^ *Type:/{print $2}')" "DYN"
+
+# (b') and as -shared, where the reference is simply left to the loader.
+link_ok osh -shared pd.o
+relocs osh > sh.rel
+want "no copy relocation for -shared output" "$(grep -c 'R_X86_64_COPY' sh.rel)" "0"
+
+# (c) the reference comes from .data, which is writable.
+cat > wd.c <<'C'
+extern long shared_data[4];
+long *volatile p = shared_data;
+int entry(void) { return (int)p[1]; }
+C
+cc_obj wd.o wd.c -fno-pic
+relocs wd.o > wd.in
+grep -qE 'R_X86_64_64 .* shared_data' wd.in \
+  || die "the fixture's reference is not from a writable section: $(cat wd.in)"
+link_ok owd rt.o wd.o liby.so.1 "${DL[@]}"
+relocs owd > wd.rel
+want "no copy relocation from a writable section" "$(grep -c 'R_X86_64_COPY' wd.rel)" "0"
+dynsyms owd > wd.dyn
+grep -qE 'UND +shared_data' wd.dyn \
+  || die "the writable reference was resolved by redefining shared_data locally: $(cat wd.dyn)"
+grep -qE 'R_X86_64_[A-Z0-9_]+ +[0-9a-f]+ shared_data' wd.rel \
+  || die "the writable reference left no dynamic relocation naming shared_data: $(cat wd.rel)"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 6

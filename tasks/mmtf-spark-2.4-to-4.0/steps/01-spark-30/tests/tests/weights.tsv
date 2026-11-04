@@ -1,0 +1,91 @@
+# Step 1 (01-spark-30): what each scored family is worth.
+#
+# Since 2026-10-13 (user decision, product scoring) the two families are
+# multiplied, not added: reward = T1 x T2, where T1 is the migrated family's
+# points over its total weight below and T2 is the behavior family's points
+# over its total weight below (score.py, product_reward). The weights still
+# sum to 1; they now set the proportions inside each factor. Where the prose
+# below speaks of a family's share of the reward, read it as that family's
+# share before this change.
+#
+# Two families, as rule 5 requires, and neither below ~30%:
+#
+#   behavior   0.30   the tree still does what it did      replay + the repo's own tests
+#   migrated   0.70   the tree is on Scala 2.12 / Spark 3.0.3, off the APIs 3.0
+#                     removed, pinned and reproducible
+#
+# The split is the step's floor, and the floor is zero. Rule 5's sentence -- the
+# untouched previous-step tree passes the first family completely and fails the
+# second -- assumes a step in which only the code moves. Here the runtime moves
+# with it: all three Spark artifacts are `provided`, so whatever the pom
+# resolves, the replay runs the candidate's jar against the /opt/spark 3.0.3 in
+# the image. The pin does not pass the behavior family completely; it reproduces
+# most of the recordings by accident of compatibility. Paying 0.30 for that
+# would make the nop non-zero, which section 8 of migration_prompt.md forbids in
+# as many words, so the behavior family is graded only on a build that left the
+# 2.4 line at all -- `spark_line_moved` in score.py, read out of the same
+# gate/pom.tsv the m1 rules are read from. The pin is red in all six
+# requirements (NOTES 6.1.7, 6.1.13) and now scores 0.000000 outright
+# (NOTES 6.1.19).
+#
+# The condition is a floor, not a scale. One org.apache.spark artifact resolving
+# anywhere off 2.4.x satisfies it, so a candidate who landed on the wrong 3.x,
+# or who left a stray 2.4 artifact in a mixed graph, keeps every point of
+# proportional behavior credit and loses only the m1 rules that measure those
+# things. Nobody who tried falls off a cliff here.
+#
+# And -- unlike at the rung this step replaced -- there is no pom-only candidate
+# at all. A tree whose pom names Scala 2.12 and Spark 3.0.3 and nothing else
+# does not compile: `org.spark_project.guava` is gone,
+# `Word2VecModel.Word2VecModelReader` is not accessible, and `spark-xml_2.11`
+# has no 2.12 release to resolve. A build that does not build answers neither
+# family.
+#
+# Within `migrated`, a requirement scores all or nothing: every rule carrying
+# its prefix must be PASS. Half a dependency graph is not half migrated, and a
+# partial credit there would pay for a pom that names Scala 2.12 while still
+# resolving 2.11 through spark-mllib.
+#
+# Why m3 is the largest single requirement. It is the one that cannot be
+# answered from the build's description of itself: its four rules are read out
+# of the constant pools of the classes the build produced, not out of the pom,
+# and answering them means editing Java in two files and knowing why. m1 is
+# larger than m2 because it is the version move proper; m6 is larger than m4
+# because reproducibility costs a plugin upgrade and a build-output change
+# rather than a list of versions.
+#
+# Within `behavior`, credit is proportional and the unit is rule 7's scored
+# input -- 247 of them at this census, 42.9% adversarial (build/inputs.py over
+# r23). A demo is one input and its recording is one answer; a harness
+# subcommand is as many inputs as it prints labeled cases, and each case's
+# block of output is compared on its own so that breaking one of advnumeric's
+# 19 costs 1/19 of that job rather than all of it.
+#
+# The two behavior weights are in the ratio the two instruments deserve rather
+# than in the ratio of their wall-clock: the replay is 247 inputs over 140 jobs
+# and the repo's own suite is 142 tests the agent can read and run for itself,
+# which rule 7 says counts toward neither bar. It is here because a migration
+# that breaks the tree's own tests has broken the tree, not because it measures
+# anything the replay does not.
+#
+# --- what it costs to score, measured -------------------------------------
+#
+# 37m57s end to end, on 7 vCPU, from this step's first phase header to its
+# reward.json: the oracle run of 2026-09-18 (jobs dir m27-s3-oracle, job
+# 27-spark24-to-4.0__k7shaVo), taken while another agent's jobs shared the
+# box, so it is an upper reading rather than a clean one. Rule 10 aims at
+# ~30 minutes a step and caps at 60. The replay opens at 1m35s and the
+# inherited suite at 31m28s, so the replay is 30 of the 38 minutes;
+# neither the replay's 140 jobs nor the suite's 142 tests is reducible
+# without asking a smaller question, and rule 10's own instruction is not
+# to shrink a fixture set to fit a clock.
+#
+# family	key	weight	what it is a claim about
+behavior	replay	0.22	the 140 recorded jobs of census r23 answer the same way, compared after norm.py and projection.tsv
+behavior	tests	0.08	the repository's own 47 test classes / 142 tests still pass, run from a pristine copy
+migrated	m1	0.14	the build is for Scala 2.12 and every org.apache.spark artifact resolves at 3.0.3
+migrated	m2	0.06	com.databricks:spark-xml is gone from the declaration, from the resolved graph and from the jar
+migrated	m3	0.17	the artifact references neither of Spark's shaded prefixes nor Word2VecModelReader, and still loads a Word2Vec model through the public API
+migrated	m4	0.10	every plugin the build runs takes its version from the project's own pom.xml
+migrated	m5	0.11	nothing the build resolves can move under it: no snapshot repository, no moving version, an output timestamp
+migrated	m6	0.12	two clean builds of the tree produce the same bytes, and neither writes outside target/

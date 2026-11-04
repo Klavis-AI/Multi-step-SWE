@@ -1,0 +1,25 @@
+# arch: x86_64
+# -z x86-64-v2/-v3/-v4 must synthesise a GNU_PROPERTY_X86_ISA_1_NEEDED record
+# even when no input object carries a property note at all.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("isa\n"); return 5; }
+C
+cc_obj m.o m.c
+want_not "inputs carry no property note" "$(sections m.o)" '\.note\.gnu\.property'
+for lvl in v2 v3 v4; do
+  link_ok "out_$lvl" -z "x86-64-$lvl" --no-gc-sections rt.o m.o
+  n=$(notes "out_$lvl")
+  want_has "-z x86-64-$lvl makes a property note" "$n" 'NT_GNU_PROPERTY_TYPE_0'
+  want_has "-z x86-64-$lvl records ISA needed"    "$n" "x86 ISA needed:.*x86-64-$lvl"
+  want "note payload is one 16-byte property" \
+       "$(( 0x$(sec_size "out_$lvl" .note.gnu.property) ))" "32"
+  run_expect "out_$lvl" "isa" 5
+done
+# Without the switch there is no property note at all, so the switch is what
+# produced it rather than something emitted unconditionally.
+link_ok plain --no-gc-sections rt.o m.o
+want_not "no note without -z x86-64-*" "$(sections plain)" '\.note\.gnu\.property'
+
+asserts_at_least 11

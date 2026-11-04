@@ -1,0 +1,131 @@
+# arch: x86_64
+# PT_TLS geometry and variant II thread-pointer arithmetic.  The segment
+# starts at .tdata and its MemSiz spans .tdata plus the NOBITS .tbss, its
+# alignment is the max of the two, and an initial-exec reference gets one GOT
+# slot with R_X86_64_TPOFF64 and no other TLS GOT machinery invented alongside
+# it.  The second half then executes the arithmetic: the x86-64 static TLS
+# block sits BELOW the thread pointer (spec/08 S3), so every local-exec offset
+# is negative, and an initial-exec reference to the same variable must land on
+# exactly the same address (spec/08 S5.4).  The case installs its own thread
+# pointer with arch_prctl and a self-pointing TCB word, so nothing is assumed
+# about the host libc.  Nothing asserts the relaxed instruction bytes --
+# whether the linker rewrites the GOTTPOFF sequence to local exec or fills a
+# GOT slot directly is its choice (spec/08 S5.3); only the address is graded.
+# NOTE: inspection output is dumped to a file and grepped there, so that no
+# assertion rides on the exit status of a pipeline ending in `grep -q`.
+cat > s.s <<'S'
+        .text
+        .globl get_ie
+get_ie: movq    ie_var@GOTTPOFF(%rip), %rax
+        addq    %fs:0, %rax
+        ret
+        .section .tdata,"awT",@progbits
+        .globl tdat
+        .p2align 3
+tdat:   .quad 7
+        .globl ie_var
+ie_var: .quad 9
+        .section .tbss,"awT",@nobits
+        .globl tzero
+        .p2align 5
+tzero:  .zero 64
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj s.o s.s
+relocs s.o > in.rel
+grep -q 'R_X86_64_GOTTPOFF' in.rel || die "input lacks GOTTPOFF: $(cat in.rel)"
+link_ok libs.so -shared s.o
+sections libs.so > sec.txt
+segments libs.so > seg.txt
+relocs   libs.so > out.rel
+grep -qE '\.tbss +NOBITS' sec.txt || die ".tbss is not NOBITS: $(grep tbss sec.txt)"
+set -- $(awk '$1 == "TLS" { print $3, $5, $6, $8; exit }' seg.txt)
+[ $# -eq 4 ] || die "no PT_TLS segment: $(cat seg.txt)"
+vaddr=$1; filesz=$2; memsz=$3; align=$4
+want "PT_TLS vaddr == .tdata" "$((vaddr))" "$((0x$(sec_addr libs.so .tdata)))"
+tend=$(( 0x$(sec_addr libs.so .tbss) + 0x$(sec_size libs.so .tbss) ))
+want "PT_TLS MemSiz spans .tdata+.tbss" "$((memsz))" "$(( tend - $((vaddr)) ))"
+want "PT_TLS align is max(.tdata=8,.tbss=32)" "$((align))" "32"
+[ "$((filesz))" -ge "$((0x$(sec_size libs.so .tdata)))" ] \
+  || die "PT_TLS FileSiz $filesz does not even cover .tdata"
+[ "$((filesz))" -le "$((memsz))" ] \
+  || die "PT_TLS FileSiz $filesz exceeds MemSiz $memsz"
+grep -qE 'R_X86_64_TPOFF64 +0+8 ie_var' out.rel || die "no TPOFF64 for ie_var: $(cat out.rel)"
+! grep -q 'R_X86_64_DTPMOD64' out.rel || die "a module-id GOT slot was invented for an IE-only link"
+gotaddr=$(sec_addr libs.so .got); gotsize=$(sec_size libs.so .got)
+off=$(awk '/R_X86_64_TPOFF64/ { print $1; exit }' out.rel)
+[ $((0x$off)) -ge $((0x$gotaddr)) ] && [ $((0x$off)) -lt $((0x$gotaddr + 0x$gotsize)) ] \
+  || die "TPOFF64 at 0x$off is not inside .got [0x$gotaddr, +0x$gotsize)"
+want "ie_var offset in TLS block" "$((0x$(sym_value libs.so ie_var)))" "8"
+
+# --- variant II arithmetic, executed -----------------------------------------
+rt_obj rt.o
+cat > acc.s <<'S'
+        .section .tdata,"awT",@progbits
+        .globl tv
+        .p2align 3
+tv:     .quad 0
+        .section .tbss,"awT",@nobits
+        .globl tz
+        .p2align 4
+tz:     .zero 32
+        .text
+        .globl set_tp
+set_tp: movq    %rdi, %rsi
+        movl    $0x1002, %edi
+        movl    $158, %eax
+        syscall
+        ret
+        .globl le_addr
+le_addr:
+        movq    %fs:0, %rax
+        leaq    tv@tpoff(%rax), %rax
+        ret
+        .globl ie_addr
+ie_addr:
+        movq    tv@gottpoff(%rip), %rax
+        addq    %fs:0, %rax
+        ret
+        .globl lez_addr
+lez_addr:
+        movq    %fs:0, %rax
+        leaq    tz@tpoff(%rax), %rax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj acc.o acc.s
+relocs acc.o > acc.rel
+grep -q 'R_X86_64_TPOFF32'  acc.rel || die "input lacks a local-exec TPOFF32: $(cat acc.rel)"
+grep -q 'R_X86_64_GOTTPOFF' acc.rel || die "input lacks an initial-exec GOTTPOFF: $(cat acc.rel)"
+cat > m.c <<'C'
+#include "rt.h"
+void set_tp(void *); long *le_addr(void); long *ie_addr(void); long *lez_addr(void);
+static char pool[4096] __attribute__((aligned(64)));
+int entry(void) {
+    char *tp = &pool[2048];
+    *(void **)tp = tp;            /* variant II: the TCB's first word is TP */
+    set_tp(tp);
+    long *a = le_addr(), *b = ie_addr(), *z = lez_addr();
+    putdec(a == b); print("\n");
+    putdec((char *)a < tp && (char *)a >= tp - 1024); print("\n");
+    putdec(a != z); print("\n");
+    *a = 4242; *z = 77;
+    putdec(*b); print(","); putdec(*z); print("\n");
+    return 0;
+}
+C
+cc_obj m.o m.c
+link_ok exe rt.o m.o acc.o
+segments exe > eseg.txt; sections exe > esec.txt
+grep -qE '^ +TLS ' eseg.txt || die "the executable has no PT_TLS segment: $(cat eseg.txt)"
+grep -qE '\.tbss +NOBITS' esec.txt || die "the executable's .tbss is not NOBITS: $(grep tbss esec.txt)"
+run_expect exe "1
+1
+1
+4242,77" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

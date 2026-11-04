@@ -1,0 +1,180 @@
+# arch: x86_64
+# The .gdb_index symbol table and constant pool, read back with the lookup
+# algorithm spec/18 s.7.2-7.4 documents: case-folded hash, odd probe step,
+# name and CU-vector offsets relative to the constant pool.
+#
+# The fixture is compiled -ggnu-pubnames because that is the only source the
+# reference indexes (spec/18 Provenance divergence 2 and s.7.5); without it a
+# conforming link still succeeds but writes a zero-slot table, which is what
+# the rest of this group sees.
+#
+# Nothing here asserts which slot a name lands in. Slot occupancy depends on
+# insertion order, so the case looks every name up the way a debugger does --
+# start at `h & mask`, step by `(h * 17 & mask) | 1`, stop at a match or an
+# empty slot -- and asserts what the lookup yields.
+rt_obj rt.o
+cat > g1.c <<'C'
+#include "rt.h"
+int gvarA = 5;
+int funcA(int x) { return x + gvarA; }
+C
+cat > g2.c <<'C'
+#include "rt.h"
+int funcA(int);
+int gvarB = 2;
+int entry(void) { print("syms\n"); return funcA(gvarB) - 2; }
+C
+cc_obj g1.o g1.c -g -ggnu-pubnames
+cc_obj g2.o g2.c -g -ggnu-pubnames
+
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+getsec() { local o s; o=$(sec_off "$1" "$2"); s=$(sec_size "$1" "$2")
+           [ -n "$o" ] && [ -n "$s" ] || die "$1 has no section $2"
+           dd if="$1" of="$3" bs=1 skip=$((16#$o)) count=$((16#$s)) status=none; }
+u32() { od -An -tu4 -j "$2" -N 4 -- "$1" | tr -d ' \n'; }
+# Names are compared as hex so a NUL terminator never has to survive a shell
+# variable: read len(name) bytes, then check the next byte really is 00.
+bytehex() { od -An -tx1 -j "$2" -N "$3" -v -- "$1" | tr -d ' \n'; }
+strhex()  { printf '%s' "$1" | od -An -tx1 -v | tr -d ' \n'; }
+
+link_ok out --gdb-index --no-gc-sections rt.o g1.o g2.o
+has_section out '\.gdb_index' || die "--gdb-index produced no .gdb_index section"
+getsec out .gdb_index gi.bin
+size=$(stat -c %s gi.bin)
+
+want ".gdb_index version" "$(u32 gi.bin 0)" "9"
+cu_off=$(u32 gi.bin 4); tu_off=$(u32 gi.bin 8)
+sym_off=$(u32 gi.bin 16); sc_off=$(u32 gi.bin 20); pool_off=$(u32 gi.bin 24)
+ncus=$(( (tu_off - cu_off) / 16 ))
+want "two debug inputs give two CUs" "$ncus" "2"
+
+# ---- the table exists and is sized by the documented rule -------------------
+slots=$(( (sc_off - sym_off) / 8 ))
+[ $(( (sc_off - sym_off) % 8 )) -eq 0 ] \
+  || die "symbol table spans $((sc_off - sym_off)) bytes, not a multiple of 8"
+[ "$slots" -gt 0 ] \
+  || die "symbol table is empty; -ggnu-pubnames inputs must produce symbols"
+[ $(( slots & (slots - 1) )) -eq 0 ] || die "slot count $slots is not a power of two"
+
+# Walk every slot once: count symbols, total the CU-vector bytes, and check the
+# per-symbol invariants of spec/18 s.7.4 (ascending, no duplicates, valid CU).
+nsym=0; vecbytes=0; minname=$size; maxend=0
+for i in $(seq 0 $((slots - 1))); do
+  no=$(u32 gi.bin $((sym_off + i * 8)))
+  cv=$(u32 gi.bin $((sym_off + i * 8 + 4)))
+  [ "$no" -eq 0 ] && [ "$cv" -eq 0 ] && continue
+  nsym=$((nsym + 1))
+  n=$(u32 gi.bin $((pool_off + cv)))
+  [ "$n" -ge 1 ] || die "slot $i has an empty CU vector"
+  vecbytes=$((vecbytes + 4 + 4 * n))
+  prev=-1
+  for k in $(seq 0 $((n - 1))); do
+    e=$(u32 gi.bin $((pool_off + cv + 4 + 4 * k)))
+    [ "$e" -gt "$prev" ] || die "slot $i CU vector is not strictly ascending at $k"
+    [ $(( e & 0xFFFFFF )) -lt "$ncus" ] \
+      || die "slot $i entry $k names CU $(( e & 0xFFFFFF )), only $ncus CUs exist"
+    [ $(( (e >> 24) & 0xF )) -eq 0 ] || die "slot $i entry $k sets reserved bits 24-27"
+    prev=$e
+  done
+  [ "$no" -lt "$minname" ] && minname=$no
+  # find the name's terminator to measure where the names region ends
+  j=$no
+  while [ "$(bytehex gi.bin $((pool_off + j)) 1)" != "00" ]; do
+    j=$((j + 1)); [ $((pool_off + j)) -lt "$size" ] || die "unterminated name at slot $i"
+  done
+  [ $((j + 1)) -gt "$maxend" ] && maxend=$((j + 1))
+done
+want "table is at most 75% full (spec/18 s.7.1)" \
+     "$slots" "$(python3 -c 'import sys;n=int(sys.argv[1]);t=n*4//3+1;s=1
+while s<t: s*=2
+print(s)' "$nsym")"
+
+# spec/18 s.9, invariant 1: names start exactly where the CU vectors end.
+want "lowest name offset equals the CU-vector region size" "$minname" "$vecbytes"
+# spec/18 s.9, invariant 2: the pool ends at the section end, with no slack.
+want "constant pool ends at the section end" "$((pool_off + maxend))" "$size"
+
+# ---- look names up with the documented hash and probe -----------------------
+gdbhash() { local s h=0 i c
+  s=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
+  for (( i = 0; i < ${#s}; i++ )); do
+    printf -v c '%d' "'${s:i:1}"
+    h=$(( (h * 67 + c - 113) & 0xFFFFFFFF ))
+  done
+  printf '%s' "$h"
+}
+lookup() { # lookup <name>; on success sets NAME_OFF and CV_OFF
+  local name=$1 h mask slot step want wl no cv tries=0
+  h=$(gdbhash "$name"); mask=$((slots - 1))
+  slot=$(( h & mask )); step=$(( ((h * 17) & mask) | 1 ))
+  want=$(strhex "$name"); wl=${#name}
+  while [ "$tries" -le "$slots" ]; do
+    no=$(u32 gi.bin $((sym_off + slot * 8)))
+    cv=$(u32 gi.bin $((sym_off + slot * 8 + 4)))
+    if [ "$no" -eq 0 ] && [ "$cv" -eq 0 ]; then return 1; fi
+    if [ "$(bytehex gi.bin $((pool_off + no)) "$wl")" = "$want" ] \
+       && [ "$(bytehex gi.bin $((pool_off + no + wl)) 1)" = "00" ]; then
+      NAME_OFF=$no; CV_OFF=$cv; return 0
+    fi
+    slot=$(( (slot + step) & mask )); tries=$((tries + 1))
+  done
+  return 1
+}
+# The hash is ASCII-case-folded, so this must hold before any lookup is trusted.
+want "hash folds case (spec/18 s.7.2)" "$(gdbhash FuncA)" "$(gdbhash funca)"
+want "hash of funcA is the documented value" "$(gdbhash funcA)" "4074493596"
+
+# entry_of <name> sets E to the symbol's single CU-vector entry. It must not
+# run in a command substitution: die() in a subshell would only kill the
+# subshell and the case would carry on reading a zero.
+entry_of() {
+  local n
+  lookup "$1" || die "'$1' is not reachable by the documented hash probe"
+  n=$(u32 gi.bin $((pool_off + CV_OFF)))
+  want "'$1' has one CU-vector entry" "$n" "1"
+  E=$(u32 gi.bin $((pool_off + CV_OFF + 4)))
+}
+
+entry_of gvarA
+want "gvarA is a variable (kind 2)"       "$(( (E >> 28) & 7 ))" "2"
+want "gvarA is global (static bit clear)" "$(( E >> 31 ))"       "0"
+want "gvarA is in the first CU"           "$(( E & 0xFFFFFF ))"  "0"
+
+entry_of funcA
+want "funcA is a function (kind 3)"       "$(( (E >> 28) & 7 ))" "3"
+want "funcA is global (static bit clear)" "$(( E >> 31 ))"       "0"
+want "funcA is in the first CU"           "$(( E & 0xFFFFFF ))"  "0"
+
+# g2.o is the second object with DWARF, so its CU index is rebased to 1
+# (spec/18 s.3, "global CU indices").
+entry_of gvarB
+want "gvarB is a variable (kind 2)"  "$(( (E >> 28) & 7 ))" "2"
+want "gvarB is in the second CU"     "$(( E & 0xFFFFFF ))"  "1"
+entry_of entry
+want "entry is a function (kind 3)"  "$(( (E >> 28) & 7 ))" "3"
+want "entry is in the second CU"     "$(( E & 0xFFFFFF ))"  "1"
+
+# A name described by both CUs gets one slot and several vector entries.
+lookup int || die "'int' is not reachable by the documented hash probe"
+n=$(u32 gi.bin $((pool_off + CV_OFF)))
+[ "$n" -ge 1 ] || die "'int' has no CU-vector entries"
+for k in $(seq 0 $((n - 1))); do
+  e=$(u32 gi.bin $((pool_off + CV_OFF + 4 + 4 * k)))
+  want "'int' entry $k is a type (kind 1)" "$(( (e >> 28) & 7 ))" "1"
+done
+
+# A name that is in no input must not be findable, which is what makes the
+# probe above evidence of anything.
+lookup thisnameisnotindexed && die "a name no input defines was found in the index"
+
+# Under --gdb-index the pubnames inputs are consumed, not copied (spec/18 s.1).
+has_section out '\.debug_gnu_pubnames' && die ".debug_gnu_pubnames was copied through"
+has_section out '\.debug_info' || die "the output lost its .debug_info"
+
+run_expect out "syms" 5
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 23

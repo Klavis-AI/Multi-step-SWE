@@ -1,0 +1,100 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Collected per path rather than as one /app tree: Harbor's pod-exec transport
+# decodes the stream as UTF-8, so only text survives the trip. These paths are
+# the candidate's own work and are text by construction, and leaving the build
+# output behind forces the verifier to rebuild from source. The platform class
+# library and the corpus come from the verifier image, never from /app.
+artifacts = [
+  { source = "/app/jvm/src", destination = "workspace/jvm/src" },
+  { source = "/app/jvm/Makefile", destination = "workspace/jvm/Makefile" },
+  { source = "/app/WORKSPACE_HANDOFF.md", destination = "workspace/WORKSPACE_HANDOFF.md" },
+]
+
+[task]
+name = "harbor/jvm-classfile-version-chain"
+version = "1.0.0"
+description = "Carry one Java virtual machine, written in C, from class file version 45 to 69: the JVMS class file format, verifier, interpreter, object model, method handles, the module system, records, hidden classes, virtual threads, FFM, a generational collector and a compiled tier."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["jvm", "class-file", "bytecode", "verifier", "interpreter", "gc", "jit", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["jvm", "compilers", "runtimes", "c", "multi-step"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-classfile-45-49"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-classfile-50-52"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-classfile-53-55"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-classfile-56-61"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-classfile-62-65"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-classfile-66-69"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

@@ -1,0 +1,29 @@
+CREATE TABLE q3_wnm(g int, v int);
+INSERT INTO q3_wnm VALUES (1,1),(1,3),(1,5),(2,2),(2,4);
+SELECT g, v, sum(v) OVER w1, count(*) OVER w2 FROM q3_wnm
+  WINDOW w1 AS (PARTITION BY g ORDER BY v RANGE BETWEEN 2 PRECEDING AND 2 FOLLOWING),
+         w2 AS (PARTITION BY g ORDER BY v GROUPS BETWEEN 1 PRECEDING AND CURRENT ROW)
+  ORDER BY g, v;
+ g | v | sum | count 
+---+---+-----+-------
+ 1 | 1 |   4 |     1
+ 1 | 3 |   9 |     2
+ 1 | 5 |   8 |     2
+ 2 | 2 |   6 |     1
+ 2 | 4 |   6 |     2
+(5 rows)
+
+SELECT g, v, first_value(v) OVER w, last_value(v) OVER w FROM q3_wnm
+  WINDOW w AS (PARTITION BY g ORDER BY v RANGE BETWEEN UNBOUNDED PRECEDING
+               AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW)
+  ORDER BY g, v;
+ g | v | first_value | last_value 
+---+---+-------------+------------
+ 1 | 1 |           3 |          5
+ 1 | 3 |           1 |          5
+ 1 | 5 |           1 |          3
+ 2 | 2 |           4 |          4
+ 2 | 4 |           2 |          2
+(5 rows)
+
+DROP TABLE q3_wnm;

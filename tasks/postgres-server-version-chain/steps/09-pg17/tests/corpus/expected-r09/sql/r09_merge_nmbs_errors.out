@@ -1,0 +1,20 @@
+CREATE TABLE r09ms5_t(id int primary key, v int);
+INSERT INTO r09ms5_t VALUES (1,10);
+MERGE INTO r09ms5_t t USING (VALUES (1)) s(id) ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE THEN INSERT VALUES (9,9);
+ERROR:  syntax error at or near "INSERT"
+LINE 2:   WHEN NOT MATCHED BY SOURCE THEN INSERT VALUES (9,9);
+                                          ^
+MERGE INTO r09ms5_t t USING (VALUES (1)) s(id) ON t.id = s.id
+  WHEN NOT MATCHED BY SOURCE AND s.id > 0 THEN DELETE;
+ERROR:  invalid reference to FROM-clause entry for table "s"
+LINE 2:   WHEN NOT MATCHED BY SOURCE AND s.id > 0 THEN DELETE;
+                                         ^
+DETAIL:  There is an entry for table "s", but it cannot be referenced from this part of the query.
+SELECT id, v FROM r09ms5_t ORDER BY id;
+ id | v  
+----+----
+  1 | 10
+(1 row)
+
+DROP TABLE r09ms5_t;

@@ -1,0 +1,41 @@
+# arch: x86_64
+# The plugin hands back only the code the link needs: a bitcode function nothing
+# references is absent even though section garbage collection is switched off.
+rt_obj rt.o
+plugin=""
+for p in /usr/lib/llvm-16/lib/LLVMgold.so /usr/lib/bfd-plugins/LLVMgold-16.so \
+         /usr/lib/bfd-plugins/LLVMgold.so; do
+  [ -f "$p" ] && { plugin=$p; break; }
+done
+[ -n "$plugin" ] || die "no LLVMgold.so in this image (llvm-16-linker-tools)"
+
+cat > m.c <<'C'
+int helper(int);
+int never_used_fn(int x) { return x - 99; }
+int entry(void) { return helper(11); }
+C
+cat > h.c <<'C'
+int helper(int x) { return x + 7; }
+int also_unused(int x) { return x * 3; }
+C
+cc_obj m.o m.c -flto
+cc_obj h.o h.c -flto
+link_ok out --plugin "$plugin" rt.o m.o h.o --no-gc-sections
+
+sym=$(symbols out)
+want_not "dead bitcode function dropped"       "$sym" ' never_used_fn$'
+want_not "dead bitcode function dropped (2)"   "$sym" ' also_unused$'
+want_has "the entry point is still there"      "$sym" ' entry$'
+run_expect out "" 18
+
+# The same sources compiled to ELF keep those functions under --no-gc-sections,
+# so the difference is the plugin's doing and not section GC.
+cc_obj me.o m.c
+cc_obj he.o h.c
+link_ok elf rt.o me.o he.o --no-gc-sections
+want_has "ELF build keeps the dead function" "$(symbols elf)" ' never_used_fn$'
+run_expect elf "" 18
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 4

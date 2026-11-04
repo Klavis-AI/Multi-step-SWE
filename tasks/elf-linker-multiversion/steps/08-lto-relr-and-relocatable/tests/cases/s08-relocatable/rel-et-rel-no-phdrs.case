@@ -1,0 +1,37 @@
+# arch: x86_64
+# -r writes an ET_REL object with no program headers and no entry point, and
+# keeps the relocation that a final link would have resolved.
+cat > a.c <<'C'
+int helper(int);
+int spare(int x) { return x * 3; }
+int entry(void) { return helper(17); }
+C
+cat > b.c <<'C'
+int helper(int x) { return x + 34; }
+C
+cc_obj a.o a.c
+cc_obj b.o b.c
+link_ok part -r a.o b.o
+
+h=$(hdr part)
+want_has "ET_REL"            "$h" 'Type: +REL \(Relocatable file\)'
+want_has "no program headers" "$h" 'Number of program headers: +0'
+want_has "no entry point"     "$h" 'Entry point address: +0x0'
+want "no PT_LOAD" "$(has_segment part LOAD && echo yes || echo no)" "no"
+
+sec=$(sections part)
+want_has ".text kept"      "$sec" '\.text +PROGBITS'
+want_has ".rela.text kept" "$sec" '\.rela\.text +RELA'
+want_not "no .dynamic"     "$sec" '\.dynamic'
+want_not "no .interp"      "$sec" '\.interp'
+
+rel=$(relocs part)
+want_has "call relocation preserved" "$rel" 'R_X86_64_PLT32 .* helper'
+
+sym=$(symbols part)
+want_has "helper defined in the partial link" "$sym" 'FUNC +GLOBAL +DEFAULT +[0-9]+ helper'
+want_has "entry defined in the partial link"  "$sym" 'FUNC +GLOBAL +DEFAULT +[0-9]+ entry'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 11

@@ -1,0 +1,147 @@
+/**
+ * Created by HH on 2017/3/16.
+ */
+import React, {useDeferredValue, useEffect, useRef, useState} from 'react';
+import ActiveLink from '../activeLink';
+import {useSelector} from 'react-redux';
+import { Outlet } from 'react-router-dom';
+import {useSellersListQuery} from '../../store/api';
+import { FaAngleDoubleRight, FaSearch } from 'react-icons/fa';
+
+/* shouldComponentUpdate sat behind connect, which already refused to re-render
+   this component unless the seller list had changed - between them the parent
+   re-rendering on a route change did not reach it.  memo was the transcription
+   of that refusal; the compiler makes it for itself, on this component and on
+   the ones that render it, so the wrapper is gone and the refusal is not. */
+function SidebarNav() {
+  const sellers = useSelector(state => state.sellers.sellers);
+
+  // Fetched once from componentDidMount, with no argument, and the list itself
+  // is read off the slice below rather than out of the query.
+  useSellersListQuery();
+
+  // findDOMNode(this.refs.searchText) on a string ref to an <input> gave back
+  // that input; a ref on the same input is the same node.
+  const searchText = useRef(null);
+  const [list, setList] = useState([]);
+
+  /* Every keystroke in 搜索商家 re-renders this list, and the list is every
+     seller the store holds.  The input is uncontrolled - it is a ref to the
+     <input>, not a controlled value - so the field itself costs nothing to
+     re-render and the whole cost is the rows.  Deferring the rows lets the
+     keystroke commit at once and the list catch up: what is on the screen for a
+     frame is the previous list, which is what the previous render already
+     showed.
+
+     The list is what is deferred and not the text.  entireList resets the list
+     to every seller without touching the input, so a list derived from a
+     deferred copy of the search text would filter it straight back down. */
+  const shownList = useDeferredValue(list);
+
+  /* componentWillUpdate copied the incoming list straight onto the state object
+     before rendering, so a new list from the store replaced whatever the search
+     box had filtered down to.  Connect only re-rendered this component when that
+     list actually changed, so "before every render" and "when the list changes"
+     were the same moment; adjusting the state during the render that first sees
+     a new list is that moment written out. */
+  const [seen, setSeen] = useState(sellers);
+  if (seen !== sellers) {
+    setSeen(sellers);
+    setList(sellers);
+  }
+
+  useEffect(() => {
+        // console.log('componentDidMount...')
+    scrollTo(0, 0);
+        // debugger
+        // this.props.sellersInit();
+  }, []);
+    // componentWillReceiveProps(nextProps,nextState){
+        // console.log('componentWillReceiveProps..');
+        // debugger;
+        /* 获取商家名称，要是一个数组或对象*/
+        // debugger;
+        // this.state.sellers=this.props.b.sellers;
+        /**
+         * 有一个bug，或者是和别的路由相同接口引起的。this.props.b.sellers是 []
+         */
+         // debugger;
+        // this.setState({
+        //     sellers:this.props.b.sellers
+        // })
+// debugger
+        // console.log(nextProps.sellers);
+        // bug消除：全部商家列表中，搜索后为部分商家，选择某商家，商家列表就回到全部商家。下面entireList函数，点击全部商家回到全部
+        // if(nextProps.sellers){
+        //     this.setState({
+        //         sellers:nextProps.sellers
+        //     })
+        //     // this.change();
+        // }
+        // console.log(this)
+        // console.log('输出sellers：')
+        // console.log(this.props.b.sellers)
+        // console.log(this.state.sellers)
+        // this.state.sellers=['111','222','333','113','美宜佳','麦克风'];
+    // }
+  const change = () => {
+    const text = searchText.current.value;
+        // if(text === ' ') return;  //输入中文时有空格
+    const rows = [];
+        // 输入时留下匹配的商家列表
+        // let afdsa=sellers;
+        // let css=sellers.toJS();
+    sellers.forEach((seller) => {
+            // seller是数值，不能indexOf，要转成string
+      if (seller.indexOf(text.trim()) === -1) {
+
+      } else {
+        rows.push(seller);
+      }
+    });
+    setList(rows);
+  };
+    // 回到整个商家列表
+  const entireList = () => {
+        // let dom=searchText.current;
+        // dom.value='';
+    setList(sellers);
+  };
+
+        // debugger
+        // console.log('----this')
+        // const usersdom = sellers.map(seller=><li>{seller.name}</li>);
+        // console.log(list.toJS())
+  const rows = [];
+  let routeData = '/sellers/';
+  rows.push(<li key="all" onClick={entireList}><ActiveLink to="/sellers/allsellers" draggable="false">全部商家<FaAngleDoubleRight className="fa fa-angle-double-right" /></ActiveLink></li>);
+  if (shownList) {
+    shownList.forEach((seller, index) => {
+      routeData += seller;
+      rows.push(<li key={seller}><ActiveLink to={routeData} draggable="false">{seller}<FaAngleDoubleRight className="fa fa-angle-double-right" /></ActiveLink></li>);
+      routeData = '/sellers/';
+    });
+  }
+        // return <ul className="sidebar_nav">
+
+        //    {usersdom}
+        // </ul>
+  return (<div id="sidebar_nav">
+    <ul>
+      <li key="search">
+        <input type="text" ref={searchText} placeholder="搜索商家" onChange={change} /><FaSearch className="fa-search" />
+      </li>
+      {rows}
+    </ul>
+  </div>);
+};
+
+function Sellers() {
+  return (<div id="container">
+    <SidebarNav />
+    <Outlet />
+  </div>);
+}
+
+export default Sellers;
+

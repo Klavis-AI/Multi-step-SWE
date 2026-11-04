@@ -1,0 +1,66 @@
+# arch: x86_64
+# what: ENTRY(sym) in a linker script chooses the entry point, overriding the
+# default _start, and the chosen symbol is kept as a GC root.
+rt_obj rt.o
+cat > alt.s <<'S'
+        .section .text.alt,"ax",@progbits
+        .globl alt_start
+alt_start:
+        mov     $9, %edi
+        mov     $60, %eax
+        syscall
+        hlt
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj alt.o alt.s
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("via _start\n"); return 1; }
+C
+cc_obj m.o m.c
+# Baseline: with no script the default entry is _start and the program prints.
+link_ok base rt.o m.o alt.o
+# Capture, then compare. `$(( 16#$(sym_value ...) ))` written inline expands to
+# the invalid literal `16#` when the symbol is absent; bash then aborts the
+# enclosing command during word expansion and CONTINUES, so the assertion is
+# skipped rather than failed. caselib's assertion counter is the backstop.
+bv=$(sym_value base _start)
+[ -n "$bv" ] || die "baseline: _start is not in the output symbol table"
+want "baseline e_entry == _start" \
+  "$(( $(hdr base | awk '/Entry point/{print $NF}') ))" "$(( 16#$bv ))"
+run_expect base "via _start" 1
+# The script's ENTRY must win.
+cat > e.ld <<'L'
+ENTRY(alt_start)
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+}
+L
+link_ok out -T e.ld rt.o m.o alt.o
+av=$(sym_value out alt_start)
+[ -n "$av" ] && [ "$(( 16#$av ))" -ne 0 ] || die "alt_start was not kept as a GC root"
+ent=$(( $(hdr out | awk '/Entry point/{print $NF}') ))
+want "e_entry == alt_start" "$ent" "$(( 16#$av ))"
+# ENTRY(alt_start) also moves the GC root, so _start is normally collected here
+# and has no address to compare against. Both outcomes are asserted for real:
+# if _start survives, the entry must not be it; if it does not, its absence is
+# itself the evidence that the default root was replaced. Exactly one branch
+# runs either way, so the case's assertion count is stable.
+sv=$(sym_value out _start)
+if [ -n "$sv" ]; then
+  want "e_entry != _start" "$(( ent == $(( 16#$sv )) ? 1 : 0 ))" "0"
+else
+  want "_start was collected, so the entry cannot be _start" \
+    "$(symbols out | awk '$8 == "_start" { c++ } END { print c + 0 }')" "0"
+fi
+# alt_start exits straight away, so nothing is printed and the status is 9.
+run_expect out "" 9
+# --entry=SYM on the command line must override script ENTRY(alt_start).
+link_ok overridden --entry=_start -T e.ld rt.o m.o alt.o
+sv=$(sym_value overridden _start)
+[ -n "$sv" ] && [ "$(( 16#$sv ))" -ne 0 ] || die "--entry=_start: _start was not found in output"
+want "overridden: e_entry == _start" \
+  "$(( $(hdr overridden | awk '/Entry point/{print $NF}') ))" "$(( 16#$sv ))"
+run_expect overridden "via _start" 1
+asserts_at_least 4

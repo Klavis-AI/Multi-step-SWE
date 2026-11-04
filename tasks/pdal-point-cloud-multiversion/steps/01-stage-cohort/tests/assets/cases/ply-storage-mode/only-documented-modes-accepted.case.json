@@ -1,0 +1,74 @@
+{
+ "doc": "stages/writers.ply.rst: 'storage_mode: Type of ply file to write. Valid values are 'ascii', 'little endian', 'big endian'. [Default: \"ascii\"]' -- 'default' is not a valid value and is refused; so is any other unlisted value ('binary'); 'big endian' is accepted and writes a 'format binary_big_endian 1.0' header.",
+ "files": {
+  "in.las": {
+   "fixture": "dups.las"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "bad1.ply",
+    "--writers.ply.storage_mode=default"
+   ]
+  },
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "bad2.ply",
+    "--writers.ply.storage_mode=binary"
+   ]
+  },
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "ok.ply",
+    "--writers.ply.storage_mode=big endian"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "writers\\.ply"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad1.ply"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 1,
+   "regex": "writers\\.ply"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad2.ply"
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "equals": 0
+  },
+  {
+   "kind": "file_text_regex",
+   "file": "ok.ply",
+   "regex": "^ply\\nformat binary_big_endian 1\\.0\\n"
+  }
+ ]
+}

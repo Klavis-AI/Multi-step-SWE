@@ -1,0 +1,1 @@
+CREATE TABLE so(a int) WITH OIDS;

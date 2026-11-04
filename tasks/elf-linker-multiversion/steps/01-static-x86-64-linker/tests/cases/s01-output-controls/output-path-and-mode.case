@@ -1,0 +1,25 @@
+# arch: x86_64
+# -o writes the executable to exactly the named path, with the execute bit
+# set, replacing whatever was there rather than growing it.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("o\n"); return 2; }
+C
+cc_obj m.o m.c
+mkdir -p sub
+head -c 200000 /dev/zero > sub/prog
+link_ok sub/prog rt.o m.o
+[ -f sub/prog ] || die "-o did not write the named path"
+sz=$(stat -c %s sub/prog)
+[ "$sz" -lt 200000 ] || die "output is $sz bytes: the existing file was not replaced"
+want "output is executable" "$(stat -c %a sub/prog | cut -c1)" "7"
+want "output is an ELF executable" "$(hdr sub/prog | awk '/^ *Type:/{print $2}')" "EXEC"
+want "nothing was written beside it" "$(ls sub | tr '\n' ' ')" "prog "
+run_expect sub/prog "o" 2
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

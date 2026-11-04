@@ -1,0 +1,65 @@
+# The shape of every fact the five scanners emit: one row per (scanner, kind),
+# naming each field after the kind. rules.py loads this and requires a rule's
+# selector to name every field of its kind, so a selector can never be off by
+# one column and quietly match nothing.
+#
+# Keyed on scanner as well as kind because `error` is not the same fact in all
+# five -- ast's carries a line number and the other four do not -- and a rule
+# that guessed wrong would be a rule that never fires.
+#
+# scanner	kind	fields (comma separated, in order after the kind)
+ast	file	path,package
+ast	import	path,line,name,kind
+ast	type	path,line,name,kind
+ast	annotation	path,line,name,args
+ast	suppress	path,line,warning,element
+ast	newclass	path,line,type,argc
+ast	call	path,line,method,receiver
+ast	strlit	path,line,length,pad
+ast	comment	path,line,marker,text
+ast	error	path,line,code,message
+bytecode	container	path,nclasses
+bytecode	in	name,container
+bytecode	class	name,major
+bytecode	classversion	major,count
+bytecode	ref	name,owner,member,descriptor
+bytecode	strconst	value,count
+bytecode	error	path,why
+pom	project	ga_v,packaging
+pom	prop	name,value
+pom	dep	ga,version,scope
+pom	depmgmt	ga,version
+pom	plugin	ga,version
+pom	pluginconfig	ga,key,value
+pom	unpinned	ga,version
+pom	repo	where,id,url,snapshots
+pom	compile	key,value
+pom	jdklevel	key,value,origin
+pom	compilerarg	arg
+pom	resolved	ga,version,scope
+pom	scalasuffix	suffix,count
+pom	error	what,detail
+probe	probe	key,value
+probe	conf	key,value
+probe	setconf	key,value
+probe	event	key,value
+# `job` is the one probe kind whose key is not the name of a setting: it is
+# <label>#<job id>, where <label> is GATE_PROBE_LABEL -- the replay's row name
+# -- falling back to the application's own name when nothing set it. A gate
+# reads 140 applications' probe files concatenated and job ids restart at 0 in
+# each, so the label is what makes a red row attributable to a row; app names
+# are not unique here (three mains call themselves CustomReportDemo).
+#
+# The value is one of three things, and the third is the point:
+#   <id>          the job ran inside SQL execution <id>, which did start
+#   -             the job ran outside any execution
+#   forged:<id>   the job carried execution id <id> and no such execution ever
+#                 started -- setLocalProperty("spark.sql.execution.id", ...),
+#                 the one-line cheat of NOTES 6.2.5
+probe	job	key,value
+probe	error	key,value
+build	round	n,rc,seconds
+build	artifact	round,name,sha256,entries
+build	repro	name,verdict
+build	stray	path
+build	error	what,detail

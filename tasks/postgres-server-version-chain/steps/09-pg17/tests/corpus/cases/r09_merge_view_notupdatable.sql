@@ -1,0 +1,11 @@
+CREATE TABLE r09mv4_b(id int primary key, v int);
+INSERT INTO r09mv4_b VALUES (1,1),(2,2);
+CREATE VIEW r09mv4_v AS SELECT id, count(*) AS n FROM r09mv4_b GROUP BY id;
+MERGE INTO r09mv4_v t USING (VALUES (1)) s(id) ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+CREATE VIEW r09mv4_w AS SELECT DISTINCT id FROM r09mv4_b;
+MERGE INTO r09mv4_w t USING (VALUES (1)) s(id) ON t.id = s.id
+  WHEN MATCHED THEN DELETE;
+DROP VIEW r09mv4_w;
+DROP VIEW r09mv4_v;
+DROP TABLE r09mv4_b;

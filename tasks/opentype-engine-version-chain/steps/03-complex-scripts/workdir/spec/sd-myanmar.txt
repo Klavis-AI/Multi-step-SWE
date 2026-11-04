@@ -1,0 +1,1004 @@
+Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+ Creating and Supporting OpenType Fonts for Myanmar Script
+
+ Feedback
+
+ Summarize this article for me
+
+This document presents information that will help font developers in creating OpenType fonts for Myanmar script as covered by the Unicode Standard 6.0. The Myanmar script is used to write the Myanmar language. It is also used to write other languages including Pali and Sanskrit.
+
+Introduction
+
+This document targets developers implementing shaping behavior compatible with the Microsoft OpenType specification for the Myanmar script. It contains information about terminology, font features and behavior of the Myanmar shaping engine. While it does not contain instructions for creating Myanmar fonts, it will help font developers understand how the Myanmar shaping engine processes Myanmar text.
+
+Terms
+
+The following terms are useful for understanding the layout features and script rules discussed in this document.
+
+Base glyph – Any glyph that can have a diacritic mark attached to it. Layout operations are defined in terms of a base glyph, not a base character, as a ligature may act as a base
+
+Character – Each character represents a Unicode character code point. A character may have multiple glyph forms
+
+Cluster – A group of characters that form an integral unit in Brahmi-derived scripts, oftentimes this corresponds to a syllable
+
+Consonant – Myanmar consonants have an inherent vowel (the short vowel /a/). For example, “Ka” and “Ta”, rather than just “K” or “T”
+
+Consonant conjunct (aka ‘conjunct’) – A ligature of two or more consonants
+
+Format controls – special formatting characters used in the shaping process of Myanmar scripts (U+200c and U+200D). These characters have no visual appearance, except when an application chooses to display zero width glyphs
+
+Glyph – A glyph represents a form of one or more characters
+
+Kinzi – A reduced form of certain consonant signs that is written as an above base mark on a following base. This corresponds to a reph in other Brahmi-derived scripts.
+
+Ligature – A combination of glyphs that join to form a single glyph
+
+Matra (dependent vowel) – Used to represent a vowel sound that is not inherent to the consonant. Dependent vowels are referred to as “matras” in Sanskrit. They are always depicted in combination with a single consonant, or with a consonant cluster
+
+OpenType layout engine – The library responsible for executing OpenType layout features in a font. In the Microsoft text formatting stack, it is named OTLS (OpenType layout services)
+
+OTLS – OpenType Layout Services
+
+OpenType tag – A 4-byte identifier for script, language system or feature in the font
+
+Shaping engine - Code responsible for shaping input, classified to a particular script
+
+Shaping Engine
+
+The Uniscribe Myanmar shaping engine processes text in stages. The stages are:
+
+Analyzing the characters
+
+Well-formed Clusters
+
+Reordering characters
+
+Apply OpenType GSUB features
+
+Apply OpenType GPOS features
+
+The descriptions which follow will help font developers understand the rationale for the Myanmar feature encoding model, and help application developers better understand how layout clients can divide responsibilities with operating system functions.
+
+Analyzing the characters
+
+The run of text that the shaping engine receives for the purpose of shaping is a sequence of Unicode characters. The shaping engine divides the text into syllable clusters and identifies character properties. Character properties are used in parsing syllables and identifying their parts as well as determining whether any contextual reordering is required.
+
+Additionally, the engine verifies that the run consists of valid clusters and inserts a placeholder glyph (U+25CC) wherever combining marks occur without a valid base.
+
+In the Myanmar engine, OpenType features are applied in two stages, first GSUB features are applied to the logical cluster. Then, GSUB and GPOS features are applied to the entire run.
+
+In the diagrams below, the rules for forming clusters are given in terms of the classes of characters in the character stream. The meanings of the symbols are:
+
+ROW 
+A | 
+Anusvara class (1032, 1036) | 
+
+ROW 
+As | 
+Asat (103A) | 
+
+ROW 
+C | 
+Consonants and Independent vowels (1000-1020, 103F, 104E, 1050, 1051, 105A-105D, 1061, 1065, 1066, 106E-1070, 1075-1081, 108E, AA60-AA6F, AA71-AA76, AA7A) | 
+
+ROW 
+D | 
+Myanmar digits except zero (1041-1049, 1090-1099) | 
+
+ROW 
+D0 | 
+Myanmar digit zero (1040) | 
+
+ROW 
+DB | 
+Dot below (1037) | 
+
+ROW 
+GB | 
+Generic base characters (00A0, 00D7, 2012–2015, 2022, 25CC, 25FB–25FE) | 
+
+ROW 
+H | 
+Halant/virama (1039) | 
+
+ROW 
+IV | 
+Independent vowel (1021-102A, 1052-1055) | 
+
+ROW 
+J | 
+Joiners (200C, 200D) | 
+
+ROW 
+K | 
+A special sequence of three characters (<1004 | 101B | 105A>, 103A, 1039) | 
+
+ROW 
+MH | 
+Medial consonants Ha, Mon La (103E, 1060) | 
+
+ROW 
+MR | 
+Medial consonants Ra (103C) | 
+
+ROW 
+MW | 
+Medial consonants Wa, Shan Wa (103D, 1082) | 
+
+ROW 
+MY | 
+Medial consonants Ya, Mon Na, Mon Ma (103B, 105E, 105F) | 
+
+ROW 
+O | 
+SCRIPT_COMMON characters in a Myanmar run | 
+
+ROW 
+P | 
+Punctuation (104A, 104B) | 
+
+ROW 
+PT | 
+Pwo and other tones (1063, 1064, 1069-106D, AA7B) | 
+
+ROW 
+R | 
+Reserved characters from the Myanmar Extended-A block (AA7C-AA7F) | 
+
+ROW 
+S | 
+Symbols (104C, 104D, 104F, 109E, 109F, AA70, AA77-AA79) | 
+
+ROW 
+V | 
+Visarga and Shan tones (1038, 1087-108D, 108F, 109A-109C) | 
+
+ROW 
+VAbv | 
+Above base dependent vowel (102D, 102E, 1033-1035, 1071-1074, 1085, 1086, 109D) | 
+
+ROW 
+VBlw | 
+Below base dependent vowel (102F, 1030, 1058, 1059) | 
+
+ROW 
+VPre | 
+Pre base dependent vowel (1031, 1084) | 
+
+ROW 
+VPst | 
+Post base dependent vowel (102B, 102C, 1056, 1057, 1062, 1067, 1068, 1083) | 
+
+ROW 
+VS | 
+Variation selectors (FE00–FE0F) | 
+
+ROW 
+WJ | 
+Word joiner (2060) | 
+
+ROW 
+WS | 
+White space (any white space character including ZWSP) | 
+
+ROW 
+X* | 
+sequence of zero or more occurrences of X. Since this could extend a cluster indefinitely an arbitrary limit of 31 characters in a sequence has been used | 
+
+ROW 
+X+ | 
+sequence of one or more occurrences of X | 
+
+ROW 
+<X | Y> | 
+disjunction of elements: X or Y | 
+
+ROW 
+[X] | 
+optional (zero or one) occurrence of X | 
+
+ROW 
+# | 
+occurrence of a boundary | 
+
+ROW 
+× | 
+no boundary allowed at indicated position | 
+
+ROW 
+÷ | 
+boundary allowed at indicated position | 
+
+ROW 
+^ | 
+Except | 
+
+Well-formed Clusters
+
+Well-formed Myanmar character clusters can have combinations of groups as defined below. There are three options:
+
+Simple non-compounding cluster
+
+<P | S | R | WJ| WS | O | D0 >
+
+Punctuation (P), symbols (S), reserved characters from the Myanmar block (R), word joiner (WJ), white space (WS), and other SCRIPT_COMMON charcters (O) contain one character per cluster.
+
+Cluster terminating in Halant
+
+[K] <C | IV | D | GB>[VS] (H <C | IV> [VS])* H
+
+Optional Kinzi with a required base sign and optional variation selector. Zero or more stacked consonants or full vowel forms and optional variation selector. A halant character terminates the cluster.
+
+Complex cluster
+
+[K] <C | IV | D | GB>[VS] (H <C | IV> [VS]) (As) [MY [As]] [MR] [<MW [As] | [MW] MH [As]>] (VPre) (VAbv)* (VBlw) (A) [DB [As]] (VPst [MH] (As)* (VAbv)* (A)* [DB [As]]) (PT < [A] [DB] [As] | [As] [A] > ) (V)* [J]
+
+Optional Kinzi with a required base sign and optional variation selector. Zero or more stacked consonants or full vowel forms and optional variation selector followed by Zero or more Asat signs. Zero or one of each medial consonant, a single Asat may follow MY, MW and MH. Zero or more dependent pre-base and above-base vowels. Zero or more below-base vowels. Zero or more Anusvara and zero or one dots below, if there is a dot below, a single Asat is permitted. Zero or more sequences of a post-base vowel, followed by zero or one medial H, zero or more Asat, zero or more vowels above, and zero or one dots below, if there is a dot below, a single Asat is permitted. Zero or more sequences of a Pwo tone mark each of which may either be followed by optional Anusavara, optional dot below, optional Asat; or be followed by optional Asat, optional Anusvara. Zero or more visargas. Zero-width joiner and zero-width non joiner will be the last item in any cluster in which they occur.
+
+The cluster rules need to permit this level of complexity in order to be able to handle the full range of possible encoded sequences. However, only test cases will try to exercise more than a few of these positions in a single cluster:
+
+င်္က္ကျြွှေို့်ာှီ့ၤဲံ့းႍ
+
+Reordering characters
+
+Once the Myanmar shaping engine has analyzed the run as described above, it creates a buffer of appropriately reordered elements (glyphs) representing the cluster according to the rules given below.
+
+Kinzi sequences (K) are reordered directly after the cluster base
+
+The medial ra (MR) is reordered before the base consonant
+
+Pre-base vowels (VPre) are reordered to the start of the syllable cluster. A sequence of multiple prebase vowels is permitted. Such sequences are moved as a block to the beginning of the cluster
+
+Anusvara (A) coming immediately after one or more below-base vowels (VBlw) will reorder immediately before them
+
+Pathological Reordering Example
+
+A run containing many of the possible items in a single syllable would reorder as follows:
+
+Key
+
+Kinzi Base Medial Ra Prebase vowel Anusvara
+
+INPUT
+
+1004 103A 1039 1000 1039 1000 103B 103C 103D 1031 1031 102D 102F 1036 102C 1036
+
+REORDERED
+
+1031 1031 103C 1000 1004 103A 1039 1039 1000 103B 103D 102D 1036 102F 102C 1036
+
+The OpenType lookups in a Myanmar font must be written to match glyph sequences after re-ordering has occurred. OpenType fonts should not have substitutions that attempt to perform the re-ordering. If a font developer attempted to encode such reordering information in an OpenType font, they would need to add a huge number of many-to-many glyph mappings to cover the general algorithms that a shaping engine will use.
+
+Apply OpenType GSUB features
+
+Uniscribe calls OTLS to apply the features. All OTL processing is divided into a set of predefined features (described and illustrated in the Features section of this document). Each feature is applied to the entire run and OTLS processes them. Uniscribe makes as many calls to the OTL Services as there are features. This ensures that the features are executed in the desired order.
+
+The steps of the shaping process are outlined below. Not all of the features listed must be used by all languages using the Myanmar script.
+
+Shaping features:
+
+Localized forms
+
+Apply feature ‘locl’ to preprocess any localized forms for the current language
+
+Basic shaping forms
+
+Apply feature ‘rphf’ to get kinzi glyph forms
+
+Apply feature ‘pref’ to get pre-base glyph forms
+
+Apply feature ‘blwf’ to get below-base glyph forms
+
+Apply feature ‘pstf’ to get post-base forms
+
+Presentation forms
+
+Apply feature ‘pres’ to substitute pre-base glyph forms
+
+Apply feature ‘abvs’ to substitute above-base glyph forms
+
+Apply feature ‘blws’ to substitute below-base glyph forms
+
+Apply feature ‘psts’ to substitute post-base glyph forms
+
+Note: since the presentation form features are applied simultaneously over the entire cluster, several features are operationally equivalent to a single feature. Multiple features are provided as an aid for font developers to organize the lookups they implement.
+
+Apply OpenType GPOS features
+
+The shaping engine next processes the GPOS (glyph positioning) table, applying features concerned with positioning. All features are applied simultaneously to the entire cluster.
+
+The font developer must consider the effects of re-ordering when creating the GPOS feature and lookup tables.
+
+Kerning
+
+Apply feature ‘kern’ to provide pair kerning between glyphs for better typographic quality. Note this feature may be disabled by some applications
+
+Apply feature ‘dist’ to make any required distance adjustments
+
+Mark placement
+
+Apply feature ‘mark’ to position diacritic glyphs relative to the base glyph
+
+Apply feature ‘mkmk’ to position diacritic glyphs relative to each other
+
+Features
+
+The features listed below have been defined to create the basic forms for languages that use the Myanmar script. Regardless of the model an application chooses for supporting layout of complex scripts, Uniscribe requires a fixed order for executing features within a run of text to consistently obtain the proper basic form. This is achieved by calling features one-by-one in the standard order listed below.
+
+The order of the lookups within each feature is also very important. For more information on lookups and defining features in OpenType fonts, see Encoding feature information in the OpenType font development section.
+
+The standard order for applying Myanmar features encoded in OpenType fonts:
+
+ROW 
+Feature | 
+Feature function | 
+Layout operation | 
+Required | 
+
+ROW 
+Localized forms | 
+
+ROW 
+
+locl
+
+ | 
+ | 
+
+GSUB
+
+ | 
+ | 
+
+ROW 
+Basic shaping forms | 
+
+ROW 
+
+rphf
+
+ | 
+
+Kinzi substitution
+
+ | 
+
+GSUB
+
+ | 
+
+X
+
+ | 
+
+ROW 
+
+pref
+
+ | 
+
+Pre-base substitution
+
+ | 
+
+GSUB
+
+ | 
+
+X
+
+ | 
+
+ROW 
+
+blwf
+
+ | 
+
+Below-base substitution
+
+ | 
+
+GSUB
+
+ | 
+
+X
+
+ | 
+
+ROW 
+
+pstf
+
+ | 
+
+Post-base form substitution
+
+ | 
+
+GSUB
+
+ | 
+
+X
+
+ | 
+
+ROW 
+Presentation forms | 
+
+ROW 
+
+pres
+
+ | 
+
+Pre-base substitution
+
+ | 
+
+GSUB
+
+ | 
+ | 
+
+ROW 
+
+abvs
+
+ | 
+
+Above-base substitution
+
+ | 
+
+GSUB
+
+ | 
+ | 
+
+ROW 
+
+blws
+
+ | 
+
+Below-base substitution
+
+ | 
+
+GSUB
+
+ | 
+ | 
+
+ROW 
+
+psts
+
+ | 
+
+Post-base substitution
+
+ | 
+
+GSUB
+
+ | 
+ | 
+
+ROW 
+Kerning: | 
+
+ROW 
+
+kern
+
+ | 
+
+Pair kerning
+
+ | 
+
+GPOS
+
+ | 
+ | 
+
+ROW 
+
+dist
+
+ | 
+
+Distance adjustments
+
+ | 
+
+GPOS
+
+ | 
+
+X
+
+ | 
+
+ROW 
+Mark placement | 
+
+ROW 
+
+mark
+
+ | 
+
+Mark positioning
+
+ | 
+
+GPOS
+
+ | 
+ | 
+
+ROW 
+
+mkmk
+
+ | 
+
+Mark to mark positioning
+
+ | 
+
+GPOS
+
+ | 
+ | 
+
+ROW 
+ 
+[GSUB = glyph substitution, GPOS = glyph positioning] | 
+
+Feature examples
+
+The registered features described and illustrated in this document are based on the Microsoft OpenType font Myanmar Text (mmrtext.ttf). Myanmar Text contains layout information and glyphs to support all of the required features of the Myanmar script.
+
+The illustrations in the following examples show the result of that particular feature being applied. Features must be written to match glyph sequences after re-ordering has occurred. Note that the input context for a feature may be the result of a previous feature having already been applied.
+
+Localized forms
+
+Feature Tag: “locl”
+
+This feature is used in association with OpenType language system tags to trigger lookups that will select alternate glyphs needed for language-specific typographic conventions. The ‘locl’ should not be used in association with the default language system, but only used with other language system tags. See the Appendix of this document for language system tags associated with the Myanmar script.
+
+Basic shaping forms
+
+Feature Tag: “rphf”
+
+This feature is used to substitute the kinzi forms. Kinzi sequences are reordered after valid base, see above. If there is no valid base, a dotted circle glyph is inserted by the shaping engine to serve as the base. Kinzi sequences should be substituted with a mark glyph so that it can be positioned above the preceding base character after reordering. The kinzi substitution must be done with the rphf feature.
+
+Feature Tag: “pref”
+
+This feature is used to substitute the pre-base forms. For example, the Myanmar Text font uses this feature to substitute different width forms of the medial consonant Ra (MR).
+
+Feature Tag: “blwf”
+
+This feature is used to substitute the below-base forms. For example, the Myanmar Text font uses this feature to form stacked consonant glyphs.
+
+Feature Tag: “pstf”
+
+This feature is used to substitute the post-base forms. For example, the Myanmar Text font uses this feature to substitute the combination of the vowel sign tall Aa and a following Asat.
+
+Presentation forms
+
+Feature Tag: “pres”
+
+This feature is used to substitute presentation forms involving pre-base elements. For example, the Myanmar Text font substitutes the clipped forms of the medial consonant Ra using the pres feature.
+
+Feature Tag: “abvs”
+
+This feature is used to substitute presentation forms relating to above-base elements. For example, the Myanmar Text font uses this feature to form ligatures of above-base marks.
+
+Feature Tag: “blws”
+
+This feature is used to substitute presentation forms relating to below-base elements. For example, the Myanmar Text font uses this feature to substitute spacing forms of below-base marks vowels.
+
+Feature Tag: “psts”
+
+This feature is used to substitute presentation forms relating to post-base elements. For example, the Myanmar Text font uses this feature to substitute a presentation form for medial consonant Ya.
+
+Kerning
+
+Feature Tag: “kern”
+
+This feature may be used to adjust the positioning of glyph pairs. The Myanmar Text font does not use this feature.
+
+Feature Tag: “dist”
+
+This feature may be used to adjust distances. The Myanmar Text font uses this feature add back width to spacing marks.
+
+Note that mark glyphs have their width set to zero by OTLS. If a mark glyph must have width, it is necessary to add back lost width for correct display. The dist feature is a required feature and should be used for this purpose as well as other required distance adjustments.
+
+Mark placement
+
+Feature Tag: “mark”
+
+This feature is used to position marks relative to a base glyph. The Myanmar Text font uses this feature to position above and below marks relative to the base glyph.
+
+Note that the mark feature is a required feature and will always be triggered by the shaping engine. Fonts may use other mark positioning features such as abvm or blwm, but these are not required features.
+
+Feature Tag: “mkmk”
+
+This feature is used to position marks relative to each other. The Myanmar Text font uses this feature to position a sequence of marks.
+
+Note that the mkmk feature is a required feature and will always be triggered by the shaping engine.
+
+Handling invalid combining marks
+
+Combining marks and signs that do not occur in conjunction with a valid base are considered invalid. Shaping engine implementations may adopt different strategies for how invalid marks are handled. For example, a shaping engine implementation might treat an invalid mark as a separate cluster and display the stand-alone mark positioned on some default base glyph, such as a dotted circle (U+25CC). (See Fallback Rendering in section 5.13 of the Unicode Standard 4.0.) Shaping engine implementations may vary somewhat with regard to what sequences are or are not considered valid. For instance, some implementations may impose a limit of at most one above-base vowel mark while others may not.
+
+To allow for shaping engine implementations that expect to position an invalid mark on a dotted circle, it is recommended that a Myanmar OT font contain a glyph for the dotted circle character, U+25CC. If this character is not supported in the font, such implementations will display invalid signs on the missing glyph shape (white box).
+
+Recommended Glyphs
+
+Unicode code points that are strongly recommended for inclusion in any Myanmar font are:
+
+ROW 
+Code point | 
+Description | 
+
+ROW 
+
+U+200B
+
+ | 
+
+Zero Width Space
+
+ | 
+
+ROW 
+
+U+200C
+
+ | 
+
+Zero Width Non-Joiner
+
+ | 
+
+ROW 
+
+U+200D
+
+ | 
+
+Zero Width Joiner
+
+ | 
+
+ROW 
+
+U+25CC
+
+ | 
+
+Dotted Circle
+
+ | 
+
+ROW 
+
+U+002D
+
+ | 
+
+Hyphen-minus
+
+ | 
+
+ROW 
+
+U+00A0
+
+ | 
+
+No-break space
+
+ | 
+
+ROW 
+
+U+00D7
+
+ | 
+
+Multiplication sign
+
+ | 
+
+ROW 
+
+U+2012
+
+ | 
+
+Figure dash
+
+ | 
+
+ROW 
+
+U+2013
+
+ | 
+
+En dash
+
+ | 
+
+ROW 
+
+U+2014
+
+ | 
+
+Em dash
+
+ | 
+
+ROW 
+
+U+2015
+
+ | 
+
+Horizontal bar
+
+ | 
+
+ROW 
+
+U+2022
+
+ | 
+
+Bullet
+
+ | 
+
+ROW 
+
+U+25FB
+
+ | 
+
+White medium square
+
+ | 
+
+ROW 
+
+U+25FC
+
+ | 
+
+Black medium square
+
+ | 
+
+ROW 
+
+U+25FD
+
+ | 
+
+White medium small square
+
+ | 
+
+ROW 
+
+U+25FE
+
+ | 
+
+Black medium small square
+
+ | 
+
+Appendix
+
+Appendix: Writing system and language tags
+
+Features are encoded according to both a designated script and language system. The language system tag specifies a typographic convention associated with a language or linguistic subgroup. For example, there are different language systems defined for the Myanmar script; Burmese, Pali, and Sanskrit.
+
+NOTE: The script tag for Myanmar script for use with the Myanmar shaping engine is mym2 and not mymr. The script tag mymr has limited support and should not be used.
+
+Not all software applications support specific language tags for use when rendering text runs.
+
+NOTE: It is strongly recommended to include the “dflt” language tag in all OpenType fonts because it defines the basic script handling for a font. The “dflt” language system is used as the default if no other language specific features are defined or if the application does not support that particular language. If the “dflt” tag is not present for the script being used, the font may not work in some applications.
+
+The following tables list the registered tag names for scripts and language systems.
+
+ROW 
+Registered tags for the Myanmar script | 
+Registered tags for Myanmar language systems | 
+
+ROW 
+Script tag | 
+Script | 
+Language system tag | 
+Language | 
+
+ROW 
+
+“mym2”
+ | 
+
+Myanmar
+ | 
+
+“dflt”
+ | 
+
+*default script handling
+ | 
+
+ROW 
+ | 
+ | 
+
+ARK
+ | 
+
+Rakhine-Marma (Arakanese)
+ | 
+
+ROW 
+ | 
+ | 
+
+BRM
+ | 
+
+Burmese
+ | 
+
+ROW 
+ | 
+ | 
+
+MON
+ | 
+
+Mon
+ | 
+
+ROW 
+ | 
+ | 
+
+KRN
+ | 
+
+Karen
+ | 
+
+ROW 
+ | 
+ | 
+
+QIN
+ | 
+
+Chin
+ | 
+
+ROW 
+ | 
+ | 
+
+SHN
+ | 
+
+Shan
+ | 
+
+ROW 
+ | 
+ | 
+
+PLG
+ | 
+
+Palaung
+ | 
+
+ROW 
+ | 
+ | 
+
+SAN
+ | 
+
+Sanskrit
+ | 
+
+ROW 
+ | 
+ | 
+
+PAL
+ | 
+
+Pali
+ | 
+
+Note: both the script and language tags are case sensitive (script tags should be lowercase, language tags are all caps) and must contain four characters (ie. you must add a space to the three character language tags).
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ Script development specifications
+
+ Open a documentation issue
+
+ Provide product feedback
+
+ Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2022-06-17

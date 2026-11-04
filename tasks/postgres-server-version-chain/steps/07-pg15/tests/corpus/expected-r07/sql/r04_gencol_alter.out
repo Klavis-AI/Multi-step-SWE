@@ -1,0 +1,28 @@
+CREATE TABLE q4_gca(a int);
+INSERT INTO q4_gca VALUES (1),(2);
+ALTER TABLE q4_gca ADD COLUMN b int GENERATED ALWAYS AS (a * 3) STORED;
+SELECT a, b FROM q4_gca ORDER BY a;
+ a | b 
+---+---
+ 1 | 3
+ 2 | 6
+(2 rows)
+
+ALTER TABLE q4_gca ALTER COLUMN b DROP DEFAULT;
+ERROR:  column "b" of relation "q4_gca" is a generated column
+HINT:  Use ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION instead.
+ALTER TABLE q4_gca ALTER COLUMN b SET DEFAULT 7;
+ERROR:  column "b" of relation "q4_gca" is a generated column
+ALTER TABLE q4_gca ALTER COLUMN b TYPE bigint;
+SELECT a, b FROM q4_gca ORDER BY a;
+ a | b 
+---+---
+ 1 | 3
+ 2 | 6
+(2 rows)
+
+ALTER TABLE q4_gca DROP COLUMN a;
+ERROR:  cannot drop column a of table q4_gca because other objects depend on it
+DETAIL:  column b of table q4_gca depends on column a of table q4_gca
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+DROP TABLE q4_gca;

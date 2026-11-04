@@ -1,0 +1,61 @@
+# Step 2's verifier stack.
+#
+# The library pins are character-for-character the eleven this step's
+# workdir/setup.sh installs into the agent's /opt/venv. They have to be: this
+# step's expectation is step 1's recording plus 119 declared flips, and a
+# replay under a different pandas would report the library's own changes as the
+# candidate's regressions -- or, worse, would silently satisfy a flip that the
+# pinned pandas does not actually produce.
+#
+# The verifier installs them itself rather than inheriting the agent image, so
+# nothing the candidate did to /opt/venv can reach the scorer.
+setuptools==59.8.0
+wheel==0.37.1
+numpy==1.21.6
+scipy==1.7.3
+pandas==1.3.5
+scikit-learn==0.24.2
+matplotlib==3.5.3
+seaborn==0.11.2
+six==1.16.0
+Cython==0.29.36
+pytest==7.4.4
+
+# Scorer-only, never in the agent image.
+#
+# tomli: skutil_gates.suppress reads pyproject.toml to count the suppressions
+# configured there. Python grew tomllib in 3.11; on 3.9 there is no reader in
+# the stdlib, and without one the suppression scan reports a single
+# `toml-unreadable` finding instead of what the file actually contains -- a
+# ceiling that cannot be compared with the one measured on the entry tree.
+#
+# The same pin step 1 carries, deliberately. The suppression ceiling is a
+# carried check: step 1 measured it with this reader and step 2 re-measures it,
+# and two steps reading the same file with two different parsers is a
+# difference the score would charge to the candidate.
+tomli==1.2.3
+
+# ---- transitive closure, pinned (tools/pin_closure.py) ----
+#
+# Not named by anything above; pip chose them while resolving it.
+# Written down because the behaviour corpus was recorded against
+# these exact versions and some of them move on their own
+# schedule -- pytz publishes a release whenever a government
+# changes a timezone rule -- so an image rebuilt later would not
+# be the image the recording came from.
+#
+# Regenerate: python tools/pin_closure.py <image> <this file>
+cycler==0.12.1
+exceptiongroup==1.3.1
+fonttools==4.60.2
+iniconfig==2.1.0
+joblib==1.5.3
+kiwisolver==1.4.7
+packaging==26.3
+pillow==11.3.0
+pluggy==1.6.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+threadpoolctl==3.7.0
+typing_extensions==4.16.0

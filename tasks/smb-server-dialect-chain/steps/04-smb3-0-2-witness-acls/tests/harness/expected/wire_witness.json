@@ -1,0 +1,140 @@
+{
+ "dcerpc-bind": {
+  "ack_result": 0,
+  "call_id": 1,
+  "ioctl": 0,
+  "ptype": 12,
+  "version": 5,
+  "version_minor": 0
+ },
+ "note": "Samba 4.17.12 runs its witness service only on a clustered server, so `\\pipe\\witness` cannot be opened on it and there is nothing to record. This set is derived from two places instead. (a) The DCE/RPC framing values are Samba's own, measured on its srvsvc pipe under the same smb.conf, because [MS-RPCE]'s framing does not depend on which interface is bound: bind_ack is ptype 12 with ack_result 0 and version 5.0, an unknown opnum is a fault (ptype 3) carrying nca_s_op_rng_error 0x1C010002, an unknown pipe name is STATUS_OBJECT_NAME_NOT_FOUND, IPC$ reports ShareType 2, and a WRITE followed by a READ is an equivalent transport to FSCTL_PIPE_TRANSCEIVE. The measurement is in reference/witness-oracle/. (b) The [MS-SWN] semantics and the NDR encoding of each response stub, checked by handing the stub to Samba's own `ndrdump witness <op> out --validate`, which re-marshals what it parsed and compares: `valid: true` means Samba's NDR implementation accepts the encoding as its own. `witness-register-then-async-notify` is the case that makes the rest of the group mean something: it takes the context handle the service itself issued from a successful Register, and requires that unregistering it succeeds once and then reports WERR_NOT_FOUND. Without it a service that implements only \"a handle I never issued is WERR_NOT_FOUND\" satisfies every other case, because no case would ever hand it a handle it had issued. Two error codes here are taken from the specification's PROCESSING RULES rather than from the 'most common error codes' tables above them, because the two disagree: 3.1.4.3 lists ERROR_NOT_FOUND in the table and then says a context handle with no matching entry returns ERROR_INVALID_PARAMETER, while 3.1.4.4 says AsyncNotify with no matching entry returns ERROR_NOT_FOUND. The reference implementation was right and an earlier version of this file was wrong. `witness-register-wrong-netname` exists because the reference implementation had the NetName check switched off so that this probe's own registrations would be accepted; with the check on, a Register naming a different server is ERROR_INVALID_PARAMETER per [MS-SWN] 3.1.4.2.",
+ "pipe-open-on-disk-share": {
+  "status": 3221225524
+ },
+ "pipe-open-unknown": {
+  "status": 3221225524
+ },
+ "pipe-open-witness": {
+  "ShareType": 2,
+  "create": 0,
+  "tree": 0
+ },
+ "pipe-write-then-read": {
+  "call_id": 7,
+  "ptype": 12,
+  "read": 0,
+  "write": 0
+ },
+ "witness-async-notify": {
+  "bind_ptype": 12,
+  "bind_result": 0,
+  "call_id": 2,
+  "ioctl": 0,
+  "ndr": {
+   "ran": true,
+   "result": "WERR_NOT_FOUND",
+   "valid": true
+  },
+  "ptype": 2
+ },
+ "witness-get-interface-list": {
+  "bind_ptype": 12,
+  "bind_result": 0,
+  "call_id": 2,
+  "ioctl": 0,
+  "ndr": {
+   "ran": true,
+   "result": "WERR_OK",
+   "valid": true
+  },
+  "ptype": 2
+ },
+ "witness-register": {
+  "bind_ptype": 12,
+  "bind_result": 0,
+  "call_id": 2,
+  "ioctl": 0,
+  "ndr": {
+   "ran": true,
+   "result": "WERR_OK",
+   "valid": true
+  },
+  "ptype": 2
+ },
+ "witness-register-bad-version": {
+  "bind_ptype": 12,
+  "bind_result": 0,
+  "call_id": 2,
+  "ioctl": 0,
+  "ndr": {
+   "ran": true,
+   "result": "WERR_REVISION_MISMATCH",
+   "valid": true
+  },
+  "ptype": 2
+ },
+ "witness-register-ex": {
+  "bind_ptype": 12,
+  "bind_result": 0,
+  "call_id": 2,
+  "ioctl": 0,
+  "ndr": {
+   "ran": true,
+   "result": "WERR_OK",
+   "valid": true
+  },
+  "ptype": 2
+ },
+ "witness-register-then-async-notify": {
+  "bind_ptype": 12,
+  "bind_result": 0,
+  "handle_nonzero": true,
+  "register_ioctl": 0,
+  "register_ndr": {
+   "ran": true,
+   "result": "WERR_OK",
+   "valid": true
+  },
+  "register_ptype": 2,
+  "unregister_again": {
+   "ran": true,
+   "result": "WERR_INVALID_PARAMETER",
+   "valid": true
+  },
+  "unregister_first": {
+   "ran": true,
+   "result": "WERR_OK",
+   "valid": true
+  }
+ },
+ "witness-register-wrong-netname": {
+  "bind_ptype": 12,
+  "bind_result": 0,
+  "call_id": 2,
+  "ioctl": 0,
+  "ndr": {
+   "ran": true,
+   "result": "WERR_INVALID_PARAMETER",
+   "valid": true
+  },
+  "ptype": 2
+ },
+ "witness-unknown-opnum": {
+  "bind_ptype": 12,
+  "fault_status": 469827586,
+  "ioctl": 0,
+  "ptype": 3
+ },
+ "witness-unregister": {
+  "bind_ptype": 12,
+  "bind_result": 0,
+  "call_id": 2,
+  "ioctl": 0,
+  "ndr": {
+   "ran": true,
+   "result": "WERR_INVALID_PARAMETER",
+   "valid": true
+  },
+  "ptype": 2
+ }
+}

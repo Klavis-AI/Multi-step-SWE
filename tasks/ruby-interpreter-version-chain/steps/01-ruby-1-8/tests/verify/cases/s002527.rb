@@ -1,0 +1,12 @@
+class ScratchPad
+  def self.record(v); @v = v; end
+  def self.recorded; @v; end
+  def self.<<(x); @v << x; end
+  def self.clear; @v = nil; end
+end
+def suppress_warning; yield; end
+m = /(.)(.)(\d+)(\d)/.match("THX1138.")
+
+    p(m.offset(2))
+    p(m.offset(3))
+    p(m.offset(4))

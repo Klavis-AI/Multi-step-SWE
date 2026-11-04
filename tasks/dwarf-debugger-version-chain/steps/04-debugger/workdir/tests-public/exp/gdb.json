@@ -1,0 +1,27 @@
+{
+ "group": "gdb",
+ "cases": [
+  {
+   "id": "pub_basic_gcc4_O0_static#brk_bt",
+   "group": "gdb",
+   "fixture": "pub_basic_gcc4_O0_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34101\nbreak pick\ncontinue\nbt\ninfo registers rip\nprintf \"ARG=%d\\n\", v\nfinish\nkill\n",
+   "port": 34101,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/pub_a.c, line 22.\nBreakpoint 1, pick (v=4) at src/pub_a.c:22\n22\t    switch (v % 5) {\n#0  pick (v=4) at src/pub_a.c:22\n#1  chain (depth=4) at src/pub_a.c:36\n#2  main (argc=1, argv=) at src/pub_a.c:43\nrip            0x401757            <pick+7>\nARG=4\nchain (depth=4) at src/pub_a.c:36\n36\t    return pick(depth) + chain(depth - 1);\nValue returned is $1 = -7"
+  },
+  {
+   "id": "pub_deep_gcc2_O0_static#step_mem",
+   "group": "gdb",
+   "fixture": "pub_deep_gcc2_O0_static",
+   "tool": "gdbserver",
+   "gdb_script": "set confirm off\nset pagination off\nset print address off\ntarget remote 127.0.0.1:34102\nbreak stage_b\ncontinue\nnext\nstep\ninfo registers rax rbx rcx\nx/8xb $pc\ninfo frame\nkill\n",
+   "port": 34102,
+   "split": "line",
+   "normalize": "gdb",
+   "expect": "_start ()\nBreakpoint 1: file src/pub_d.c, line 14.\nBreakpoint 1, stage_b (d=2, t=\"pub-tag\") at src/pub_d.c:14\n14\tstatic int stage_b(int d, const char *t) { return stage_c(d + 1, t) + 2; }\nProgram received signal SIGSEGV, Segmentation fault.\nstage_d (d=4, t=\"pub-tag\") at src/pub_d.c:10\n10\t    if (d > 0) return *p;\nProgram terminated with signal SIGSEGV, Segmentation fault.\nThe program no longer exists."
+  }
+ ]
+}

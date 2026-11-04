@@ -1,0 +1,1 @@
+/dev/null: maps/01_all_key_types.proto

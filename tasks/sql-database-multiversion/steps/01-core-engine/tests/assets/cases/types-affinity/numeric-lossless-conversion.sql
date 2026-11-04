@@ -1,0 +1,12 @@
+CREATE TABLE t(n NUMERIC);
+INSERT INTO t VALUES('3.0e+5');
+SELECT typeof(n), n FROM t;
+DELETE FROM t;
+INSERT INTO t VALUES('abc');
+SELECT typeof(n), n FROM t;
+DELETE FROM t;
+INSERT INTO t VALUES('12abc');
+SELECT typeof(n), n FROM t;
+CREATE TABLE r(x REAL);
+INSERT INTO r VALUES(5);
+SELECT typeof(x), x FROM r;

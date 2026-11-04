@@ -1,0 +1,15 @@
+CREATE TABLE q3_pik(a int, b int) PARTITION BY RANGE (a);
+CREATE UNIQUE INDEX q3_pik_u ON q3_pik (b);
+ERROR:  unique constraint on partitioned table must include all partitioning columns
+DETAIL:  UNIQUE constraint on table "q3_pik" lacks column "a" which is part of the partition key.
+ALTER TABLE q3_pik ADD UNIQUE (b);
+ERROR:  unique constraint on partitioned table must include all partitioning columns
+DETAIL:  UNIQUE constraint on table "q3_pik" lacks column "a" which is part of the partition key.
+ALTER TABLE q3_pik ADD UNIQUE (a, b);
+SELECT conname, contype FROM pg_constraint WHERE conrelid = 'q3_pik'::regclass ORDER BY conname;
+    conname     | contype 
+----------------+---------
+ q3_pik_a_b_key | u
+(1 row)
+
+DROP TABLE q3_pik;

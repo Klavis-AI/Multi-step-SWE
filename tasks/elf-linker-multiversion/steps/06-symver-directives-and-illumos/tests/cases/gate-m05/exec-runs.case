@@ -1,0 +1,35 @@
+# arch: riscv64
+# what: the RISC-V backend must emit a runnable EM_RISCV ET_EXEC whose entry
+# point is _start and whose ELF identity is little-endian ELF64 RISC-V.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("riscv64-ok\n"); return 7; }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o
+hdr out > h.txt; segments out > seg.txt
+want "e_type"    "$(awk '/^ *Type:/{print $2; exit}' h.txt)"  "EXEC"
+want "e_class"   "$(awk '/^ *Class:/{print $2; exit}' h.txt)" "ELF64"
+want "e_data"    "$(awk '/^ *Data:/{print $4; exit}' h.txt)"  "little"
+want "e_machine" "$(awk '/^ *Machine:/{print $2; exit}' h.txt)" "RISC-V"
+start=$(sym_value out _start)
+[ -n "$start" ] || die "_start has no value in the output"
+want "e_entry == _start" "$((  $(awk '/Entry point address:/{print $NF}' h.txt) ))" "$((0x$start))"
+# Find the PT_LOAD that covers .text by address, never by permission bits: from
+# 0.9.0 on there is a second writable PT_LOAD for RELRO, so counting or matching
+# on flags picks the wrong segment.
+text_hex=$(sec_addr out .text)
+[ -n "$text_hex" ] || die "the output has no .text to locate"
+textaddr=$(( 0x$text_hex ))
+flags=
+while read -r v m f; do
+  [ "$textaddr" -ge "$((v))" ] && [ "$textaddr" -lt "$(( $((v)) + $((m)) ))" ] && flags=$f
+done < <(awk '$1 == "LOAD" { f = ""; for (i = 7; i < NF; i++) f = f $i; print $3, $6, f }' seg.txt)
+want ".text sits in a read+execute PT_LOAD" "$flags" "RE"
+run_expect out "riscv64-ok" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. 6 assertions run against the reference
+# at 0.6.0 and 0.10.0.
+asserts_at_least 6

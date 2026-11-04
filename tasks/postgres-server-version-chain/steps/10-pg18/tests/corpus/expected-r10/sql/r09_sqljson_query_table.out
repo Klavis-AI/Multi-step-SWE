@@ -1,0 +1,34 @@
+CREATE TABLE r09sq1(id int, doc jsonb);
+INSERT INTO r09sq1 VALUES (1,'{"n":1,"s":"a"}'),(2,'{"n":2}'),(3,'{"s":"c"}');
+SELECT id FROM r09sq1 WHERE JSON_EXISTS(doc, '$.n') ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SELECT id, JSON_VALUE(doc, '$.n' RETURNING int DEFAULT -1 ON EMPTY) AS n FROM r09sq1 ORDER BY id;
+ id | n  
+----+----
+  1 |  1
+  2 |  2
+  3 | -1
+(3 rows)
+
+SELECT id, JSON_QUERY(doc, '$.s') AS s FROM r09sq1 ORDER BY id;
+ id |  s  
+----+-----
+  1 | "a"
+  2 | 
+  3 | "c"
+(3 rows)
+
+SELECT id, JSON_VALUE(doc, '$.s' DEFAULT 'zz' ON EMPTY) FROM r09sq1 ORDER BY id;
+ id | json_value 
+----+------------
+  1 | a
+  2 | zz
+  3 | c
+(3 rows)
+
+DROP TABLE r09sq1;

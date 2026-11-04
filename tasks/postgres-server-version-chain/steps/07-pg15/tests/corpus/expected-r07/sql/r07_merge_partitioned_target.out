@@ -1,0 +1,19 @@
+CREATE TABLE x07_10a(id int, v int) PARTITION BY RANGE (id);
+CREATE TABLE x07_10a1 PARTITION OF x07_10a FOR VALUES FROM (0) TO (10);
+CREATE TABLE x07_10a2 PARTITION OF x07_10a FOR VALUES FROM (10) TO (20);
+CREATE TABLE x07_10b(id int, v int);
+INSERT INTO x07_10a VALUES (1,1),(11,11);
+INSERT INTO x07_10b VALUES (1,100),(5,500),(11,1100),(15,1500);
+MERGE INTO x07_10a t USING x07_10b s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED THEN INSERT (id,v) VALUES (s.id, s.v);
+SELECT tableoid::regclass::text AS part, id, v FROM x07_10a ORDER BY id;
+   part   | id |  v   
+----------+----+------
+ x07_10a1 |  1 |  100
+ x07_10a1 |  5 |  500
+ x07_10a2 | 11 | 1100
+ x07_10a2 | 15 | 1500
+(4 rows)
+
+DROP TABLE x07_10a, x07_10b;

@@ -1,0 +1,75 @@
+///////////////////////////////////////////////////////////////////////////////
+
+#include "app_business.h"
+#include "svr_mod_echo.h"
+#include "svr_mod_discard.h"
+#include "svr_mod_daytime.h"
+#include "svr_mod_chargen.h"
+
+//-----------------------------------------------------------------------------
+
+IseBusiness* createIseBusinessObject()
+{
+    return new AppBusiness();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+void AppBusiness::initialize()
+{
+    IseSvrModBusiness::initialize();
+}
+
+//-----------------------------------------------------------------------------
+
+void AppBusiness::finalize()
+{
+    IseSvrModBusiness::finalize();
+
+    string msg = std::format("{} stoped.", getAppExeName(false));
+    std::cout << msg << std::endl;
+    logger().writeStr(msg);
+}
+
+//-----------------------------------------------------------------------------
+
+void AppBusiness::afterInit()
+{
+    string msg = std::format("{} started.", getAppExeName(false));
+    std::cout << std::endl << msg << std::endl;
+    logger().writeStr(msg);
+}
+
+//-----------------------------------------------------------------------------
+
+void AppBusiness::onInitFailed(Exception& /*e*/)
+{
+    string msg = std::format("fail to start {}.", getAppExeName(false));
+    std::cout << std::endl << msg << std::endl;
+    logger().writeStr(msg);
+}
+
+//-----------------------------------------------------------------------------
+
+void AppBusiness::initIseOptions(IseOptions& options)
+{
+    options.setServerType(static_cast<UINT>(SERVER_TYPE::ST_TCP));
+}
+
+//-----------------------------------------------------------------------------
+
+void AppBusiness::createServerModules(IseServerModuleList& svrModList)
+{
+    // 每个模块先由句柄持有，加入列表的那一刻把所有权交给列表的接收者。
+    IseServerModuleHandle echoModule(new ServerModule_Echo());
+    svrModList.push_back(echoModule.release());
+
+    IseServerModuleHandle discardModule(new ServerModule_Discard());
+    svrModList.push_back(discardModule.release());
+
+    IseServerModuleHandle daytimeModule(new ServerModule_Daytime());
+    svrModList.push_back(daytimeModule.release());
+
+    IseServerModuleHandle chargenModule(new ServerModule_Chargen());
+    svrModList.push_back(chargenModule.release());
+}

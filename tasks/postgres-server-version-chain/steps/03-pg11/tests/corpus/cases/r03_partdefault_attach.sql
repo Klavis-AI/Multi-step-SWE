@@ -1,0 +1,11 @@
+CREATE TABLE q3_dfa(a int, b text) PARTITION BY LIST (a);
+CREATE TABLE q3_dfa_1 PARTITION OF q3_dfa FOR VALUES IN (1);
+CREATE TABLE q3_dfa_ext(a int, b text);
+INSERT INTO q3_dfa_ext VALUES (7,'seven');
+ALTER TABLE q3_dfa ATTACH PARTITION q3_dfa_ext DEFAULT;
+INSERT INTO q3_dfa VALUES (1,'one'),(9,'nine');
+SELECT tableoid::regclass::text AS part, a, b FROM q3_dfa ORDER BY a;
+ALTER TABLE q3_dfa DETACH PARTITION q3_dfa_ext;
+INSERT INTO q3_dfa VALUES (3,'three');
+DROP TABLE IF EXISTS q3_dfa;
+DROP TABLE IF EXISTS q3_dfa_ext;

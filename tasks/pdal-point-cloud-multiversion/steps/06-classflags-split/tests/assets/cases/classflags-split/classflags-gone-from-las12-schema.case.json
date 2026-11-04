@@ -1,0 +1,14 @@
+{
+  "doc": "PROFILE.md §6.2: '`ClassFlags` splits into `Synthetic`, `KeyPoint`, `Withheld` and `Overlap`. `pdal info --schema` lists the four, and `ClassFlags` is no longer among them.' The companion to the PDRF 6 case, on the other side of the point model: `grid.las` is LAS 1.2 PDRF 3, a record that never carried a class-flags byte at all, and at 2.5.0 its schema names none of the four. At 2.6.0 all four are in the schema of that same file -- the split is a property of PDAL's point model, not of the file's point format. `ScanAngleRank` ('Angle degree at which the laser point was output from the system' in the shipped `dimension-table.csv`, which dimensions.rst includes) is asserted alongside them: the dimensions the PDRF already had are still reported. Presence only -- no shipped page states schema order or record length, so neither is graded.",
+  "files": {"in.las": {"fixture": "grid.las"}},
+  "run": [{"argv": ["info", "--schema", "in.las"], "stdout_to": "schema.json"}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"Synthetic\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"KeyPoint\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"Withheld\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"Overlap\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"ScanAngleRank\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "ClassFlags", "absent": true}
+  ]
+}

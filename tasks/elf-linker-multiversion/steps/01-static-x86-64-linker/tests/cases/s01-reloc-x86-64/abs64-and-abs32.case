@@ -1,0 +1,49 @@
+# arch: x86_64
+# R_X86_64_64 and R_X86_64_32 compute S+A: the stored words must equal the
+# symbol's final address plus the addend, checked by running the result.
+rt_obj rt.o
+cat > t.s <<'S'
+        .data
+        .globl  target
+target: .quad   0x1122334455667788
+        .quad   0x99aabbccddeeff00
+        .section .note.GNU-stack,"",@progbits
+S
+cat > r.s <<'S'
+        .data
+        .globl  w64
+w64:    .quad   target + 8
+        .globl  w32
+w32:    .long   target
+        .globl  w32b
+w32b:   .long   target + 8
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj t.o t.s; as_obj r.o r.s
+ri=$(relocs r.o)
+want_has "input has R_X86_64_64"     "$ri" "R_X86_64_64 +[0-9a-f]+ +target \+ 8"
+want_has "input has R_X86_64_32"     "$ri" "R_X86_64_32 +[0-9a-f]+ +target \+ 0"
+want_has "input has R_X86_64_32 + A" "$ri" "R_X86_64_32 +[0-9a-f]+ +target \+ 8"
+cat > m.c <<'C'
+#include "rt.h"
+extern unsigned long target, w64;
+extern unsigned int w32, w32b;
+int entry(void) {
+  int ok = 0;
+  if (w64  == (unsigned long)&target + 8) ok |= 1;
+  if (w32  == (unsigned int)(unsigned long)&target) ok |= 2;
+  if (w32b == (unsigned int)((unsigned long)&target + 8)) ok |= 4;
+  if (*(unsigned long *)(unsigned long)w64 == 0x99aabbccddeeff00UL) ok |= 8;
+  putdec(ok); print("\n");
+  return ok;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o t.o r.o m.o
+run_expect out "15" 15
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

@@ -1,0 +1,39 @@
+id = "s11-cache-clean-force-held-lock"
+step = 11
+group = "cache-force-flag"
+python = "3.12"
+mode = "bare"
+# A detached process holds the cache lock for the whole probe -- the setup
+# command only returns once it is held, and fails otherwise, so this can never
+# pass vacuously. `--force` must proceed without waiting for that lock and
+# without prompting, which is the only way to finish inside `timeout`.
+#
+# Maintenance note (round 3 finding N7, recorded round 4). The measurement is
+# one-sided, not racy: a correct `--force` finishes in milliseconds against the
+# 15 s `timeout`, roughly three orders of magnitude of margin, and the holder's
+# `time.sleep(30)` covers the whole window. The holder's sleep and this
+# `timeout` are a pair -- if `tests/test.sh` ever raises `--jobs` above 4, or
+# this runs on a more loaded machine, raise BOTH together so the sleep stays at
+# about twice the timeout. Each observation gets its own `UV_CACHE_DIR`, so a
+# holder can never leak into another probe.
+setup_argv = [["run", "--no-project", "--no-cache", "--", "python", "-c", '''import pathlib, subprocess, sys, time
+holder = """
+import fcntl, os, pathlib, time
+p = pathlib.Path(os.environ["UV_CACHE_DIR"]) / ".lock"
+p.parent.mkdir(parents=True, exist_ok=True)
+f = open(p, "a+")
+fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+pathlib.Path("held").write_text("1")
+time.sleep(30)
+"""
+subprocess.Popen([sys.executable, "-c", holder], start_new_session=True,
+                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+for _ in range(100):
+    if pathlib.Path("held").exists():
+        sys.exit(0)
+    time.sleep(0.1)
+sys.exit(1)
+''']]
+argv = ["cache", "clean", "--force"]
+timeout = 15
+observe = ["status", "setup_status", "exists:held"]

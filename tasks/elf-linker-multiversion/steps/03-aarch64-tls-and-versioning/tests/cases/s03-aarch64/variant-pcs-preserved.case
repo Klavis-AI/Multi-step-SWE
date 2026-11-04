@@ -1,0 +1,35 @@
+# arch: aarch64
+# `.variant_pcs` sets STO_AARCH64_VARIANT_PCS (bit 0x80 of st_other) on a
+# symbol that uses a non-standard procedure call standard. The linker must
+# preserve that bit when copying the symbol into both .symtab and .dynsym
+# (spec/07-aarch64-relocations.md S12.2).
+# NOTE: emitting the companion DT_AARCH64_VARIANT_PCS dynamic tag is a MUST
+# only for a linker that can leave such a PLT entry lazily bound; a linker
+# that always binds eagerly and generates a plain PLT does not need it, and
+# that clause is not graded for one (S12.2, "a linker that always binds
+# eagerly and generates a plain PLT does not need any of the three, and this
+# task does not grade them"). wild always emits BIND_NOW / DT_FLAGS_1 NOW and
+# never supports -z lazy, so this case checks only bit preservation, not the
+# dynamic tag.
+cat > lib.s <<'S'
+        .text
+        .globl vecfn
+        .variant_pcs vecfn
+vecfn:  mov     w0, #7
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj lib.o lib.s
+symbols lib.o > in.sym
+inline=$(awk '$NF == "vecfn" { print; exit }' in.sym)
+[ -n "$inline" ] || die "input object has no vecfn symbol: $(cat in.sym)"
+grep -q 'VARIANT_PCS' <<<"$inline" || die "fixture assembler did not set VARIANT_PCS: $inline"
+link_ok libv.so -shared lib.o
+symbols  libv.so > out.sym
+dynsyms  libv.so > out.dynsym
+outline=$(awk '$NF == "vecfn" { print; exit }' out.sym)
+[ -n "$outline" ] || die "vecfn missing from output .symtab: $(cat out.sym)"
+grep -q 'VARIANT_PCS' <<<"$outline" || die ".symtab dropped VARIANT_PCS on vecfn: $outline"
+dynline=$(awk '$NF == "vecfn" { print; exit }' out.dynsym)
+[ -n "$dynline" ] || die "vecfn missing from output .dynsym: $(cat out.dynsym)"
+grep -q 'VARIANT_PCS' <<<"$dynline" || die ".dynsym dropped VARIANT_PCS on vecfn: $dynline"

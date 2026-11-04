@@ -1,0 +1,2918 @@
+diff -ruN tmp/ffmpeg-swscale-pipeline-asm/ladder/L2/libswscale/x86/Makefile tmp/ffmpeg-swscale-pipeline-asm/ladder/L3/libswscale/x86/Makefile
+--- a/libswscale/x86/Makefile	2026-09-23 17:23:50.144771093 +0000
++++ b/libswscale/x86/Makefile	2026-09-23 17:23:50.220772095 +0000
+@@ -12,4 +12,18 @@
+                                    x86/input.o                            \
+                                    x86/rgb_2_rgb.o
+ 
+-OBJS-$(CONFIG_UNSTABLE)         += x86/ops.o
++SKIPHEADERS                     += x86/uops_macros.asm.h
++
++ifdef ARCH_X86_64
++X86ASM-OBJS-$(CONFIG_UNSTABLE)  += x86/ops_common.o                     \
++                                   x86/ops_int.o                        \
++                                   x86/ops_float.o                      \
++                                   x86/ops.o
++
++$(SUBDIR)x86/ops_common.o: $(SUBDIR)x86/uops_macros.gen.asm
++$(SUBDIR)x86/ops_int.o: $(SUBDIR)x86/uops_macros.gen.asm
++$(SUBDIR)x86/ops_float.o: $(SUBDIR)x86/uops_macros.gen.asm
++$(SUBDIR)x86/uops_macros.gen.asm: $(SRC_PATH)/libswscale/x86/uops_macros.asm.h \
++                                  $(SRC_PATH)/libswscale/uops_macros.h
++	$(HOSTCC) $(HOSTCC_E) $(CPPFLAGS) $<
++endif
+diff -ruN tmp/ffmpeg-swscale-pipeline-asm/ladder/L2/libswscale/x86/ops.c tmp/ffmpeg-swscale-pipeline-asm/ladder/L3/libswscale/x86/ops.c
+--- a/libswscale/x86/ops.c	2026-09-23 17:23:50.144771093 +0000
++++ b/libswscale/x86/ops.c	2026-09-23 16:07:57.000000000 +0000
+@@ -18,24 +18,648 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-/*
+- * x86 backend for the swscale fused-operation engine.
+- *
+- * Registered unconditionally on x86-64 so that the backend table resolves
+- * `backend_x86` in every configuration. With no x86 kernels compiled in,
+- * `compile` declines every operation list and the generic backend is selected
+- * instead -- the same path the reference takes on a CPU with no usable SIMD.
+- */
++#include <float.h>
++
++#include "libavutil/avassert.h"
++#include "libavutil/mem.h"
++#include "libavutil/x86/cpu.h"
++
++#include "../ops_chain.h"
++#include "../uops.h"
++#include "../uops_macros.h"
++
++static int setup_rw_packed(const SwsImplParams *params, SwsImplResult *out)
++{
++    const SwsUOp *uop = params->uop;
++
++    /* 3-component packed reads/writes process one extra garbage word */
++    if (uop->mask == SWS_COMP_ELEMS(3)) {
++        switch (uop->uop) {
++        case SWS_UOP_READ_PACKED:  out->over_read[0]  = sizeof(uint32_t); break;
++        case SWS_UOP_WRITE_PACKED: out->over_write[0] = sizeof(uint32_t); break;
++        }
++    }
++
++    return 0;
++}
++
++static int setup_filter_v(const SwsImplParams *params, SwsImplResult *out)
++{
++    const SwsFilterWeights *filter = params->uop->data.kernel;
++    static_assert(sizeof(out->priv.ptr) <= sizeof(int32_t[2]),
++                  ">8 byte pointers not supported");
++
++    /* Pre-convert weights to float */
++    float *weights = av_calloc(filter->num_weights, sizeof(float));
++    if (!weights)
++        return AVERROR(ENOMEM);
++
++    for (int i = 0; i < filter->num_weights; i++)
++        weights[i] = (float) filter->weights[i] / SWS_FILTER_SCALE;
++
++    out->priv.ptr = weights;
++    out->priv.uptr[1] = filter->filter_size;
++    out->free = ff_op_priv_free;
++    return 0;
++}
++
++static int hscale_sizeof_weight(const SwsUOp *uop)
++{
++    switch (uop->type) {
++    case SWS_PIXEL_U8:  return sizeof(int16_t);
++    case SWS_PIXEL_U16: return sizeof(int16_t);
++    case SWS_PIXEL_F32: return sizeof(float);
++    default:            return 0;
++    }
++}
++
++static int setup_filter_h(const SwsImplParams *params, SwsImplResult *out)
++{
++    const SwsUOp *uop = params->uop;
++    const SwsFilterWeights *filter = uop->data.kernel;
++
++    /**
++     * `vpgatherdd` gathers 32 bits at a time; so if we're filtering a smaller
++     * size, we need to gather 2/4 taps simultaneously and unroll the inner
++     * loop over several packed samples.
++     */
++    const int pixel_size = ff_sws_pixel_type_size(uop->type);
++    const int taps_align = sizeof(int32_t) / pixel_size;
++    const int filter_size = filter->filter_size;
++    const int block_size = params->table->block_size;
++    const size_t aligned_size = FFALIGN(filter_size, taps_align);
++    const size_t line_size = FFALIGN(filter->dst_size, block_size);
++    av_assert1(FFALIGN(line_size, taps_align) == line_size);
++    if (aligned_size > INT_MAX)
++        return AVERROR(EINVAL);
++
++    union {
++        void *ptr;
++        int16_t *i16;
++        float *f32;
++    } weights;
++
++    const int sizeof_weight = hscale_sizeof_weight(uop);
++    weights.ptr = av_calloc(line_size, sizeof_weight * aligned_size);
++    if (!weights.ptr)
++        return AVERROR(ENOMEM);
++
++    /**
++     * Transpose filter weights to group (aligned) taps by block
++     */
++    const int mmsize = block_size * 2;
++    const int gather_size = mmsize / sizeof(int32_t); /* pixels per vpgatherdd */
++    for (size_t x = 0; x < line_size; x += block_size) {
++        const int elems = FFMIN(block_size, filter->dst_size - x);
++        for (int j = 0; j < filter_size; j++) {
++            const int jb = j & ~(taps_align - 1);
++            const int ji = j - jb;
++            const size_t idx_base = x * aligned_size + jb * block_size + ji;
++            for (int i = 0; i < elems; i++) {
++                const int w = filter->weights[(x + i) * filter_size + j];
++                size_t idx = idx_base;
++                if (uop->type == SWS_PIXEL_U8) {
++                    /* Interleave the pixels within each lane, i.e.:
++                     *  [a0 a1 a2 a3 | b0 b1 b2 b3 ] pixels 0-1, taps 0-3 (lane 0)
++                     *  [e0 e1 e2 e3 | f0 f1 f2 f3 ] pixels 4-5, taps 0-3 (lane 1)
++                     *  [c0 c1 c2 c3 | d0 d1 d2 d3 ] pixels 2-3, taps 0-3 (lane 0)
++                     *  [g0 g1 g2 g3 | h0 h1 h2 h3 ] pixels 6-7, taps 0-3 (lane 1)
++                     *  [i0 i1 i2 i3 | j0 j1 j2 j3 ] pixels 8-9, taps 0-3 (lane 0)
++                     *  ...
++                     *  [o0 o1 o2 o3 | p0 p1 p2 p3 ] pixels 14-15, taps 0-3 (lane 1)
++                     *  (repeat for taps 4-7, etc.)
++                     */
++                    const int gather_base = i & ~(gather_size - 1);
++                    const int gather_pos  = i - gather_base;
++                    const int lane_idx    = gather_pos >> 2;
++                    const int pos_in_lane = gather_pos & 3;
++                    idx += gather_base * 4 /* which gather (m0 or m1) */
++                         + (pos_in_lane >> 1) * (mmsize / 2) /* lo/hi unpack */
++                         + lane_idx * 8 /* 8 ints per lane */
++                         + (pos_in_lane & 1) * 4; /* 4 taps per pair */
++                } else {
++                    idx += i * taps_align;
++                }
++
++                switch (uop->type) {
++                case SWS_PIXEL_U8:  weights.i16[idx] = w; break;
++                case SWS_PIXEL_U16: weights.i16[idx] = w; break;
++                case SWS_PIXEL_F32: weights.f32[idx] = w; break;
++                }
++            }
++        }
++    }
++
++    out->priv.ptr = weights.ptr;
++    out->priv.uptr[1] = aligned_size;
++    out->free = ff_op_priv_free;
++
++    for (int i = 0; i < 4; i++) {
++        if (uop->mask & SWS_COMP(i))
++            out->over_read[i] = (aligned_size - filter_size) * pixel_size;
++    }
++    return 0;
++}
++
++static bool check_filter_h_4x4(const SwsImplParams *params)
++{
++    SwsContext *ctx = params->ctx;
++    const SwsUOp *uop = params->uop;
++    if ((ctx->flags & SWS_BITEXACT) && uop->type == SWS_PIXEL_F32)
++        return false; /* different accumulation order due to 4x4 transpose */
++
++    const int cpu_flags = av_get_cpu_flags();
++    if (cpu_flags & AV_CPU_FLAG_SLOW_GATHER)
++        return true; /* always prefer over gathers if gathers are slow */
++
++    /**
++     * Otherwise, prefer it above a certain filter size. Empirically, this
++     * kernel seems to be faster whenever the reference/gather kernel crosses
++     * a breakpoint for the number of gathers needed, but this filter doesn't.
++     *
++     * Tested on a Lunar Lake (Intel Core Ultra 7 258V) system.
++     */
++    const SwsFilterWeights *filter = uop->data.kernel;
++    return uop->type == SWS_PIXEL_U8  && filter->filter_size > 12 ||
++           uop->type == SWS_PIXEL_U16 && filter->filter_size > 4  ||
++           uop->type == SWS_PIXEL_F32 && filter->filter_size > 1;
++}
++
++static int setup_filter_h_4x4(const SwsImplParams *params, SwsImplResult *out)
++{
++    const SwsUOp *uop = params->uop;
++    const SwsFilterWeights *filter = uop->data.kernel;
++    const int pixel_size = ff_sws_pixel_type_size(uop->type);
++    const int sizeof_weights = hscale_sizeof_weight(uop);
++    const int block_size = params->table->block_size;
++    const int taps_align = 16 / sizeof_weights; /* taps per iteration (XMM) */
++    const int pixels_align = 4; /* pixels per iteration */
++    const int filter_size = filter->filter_size;
++    const size_t aligned_size = FFALIGN(filter_size, taps_align);
++    const int line_size = FFALIGN(filter->dst_size, block_size);
++    av_assert1(FFALIGN(line_size, pixels_align) == line_size);
++
++    union {
++        void *ptr;
++        int16_t *i16;
++        float *f32;
++    } weights;
++
++    weights.ptr = av_calloc(line_size, aligned_size * sizeof_weights);
++    if (!weights.ptr)
++        return AVERROR(ENOMEM);
++
++    /**
++     * Desired memory layout: [w][taps][pixels_align][taps_align]
++     *
++     * Example with taps_align=8, pixels_align=4:
++     *   [a0, a1, ... a7]  weights for pixel 0, taps 0..7
++     *   [b0, b1, ... b7]  weights for pixel 1, taps 0..7
++     *   [c0, c1, ... c7]  weights for pixel 2, taps 0..7
++     *   [d0, d1, ... d7]  weights for pixel 3, taps 0..7
++     *   [a8, a9, ... a15] weights for pixel 0, taps 8..15
++     *   ...
++     *   repeat for all taps, then move on to pixels 4..7, etc.
++     */
++    for (int x = 0; x < filter->dst_size; x++) {
++        for (int j = 0; j < filter_size; j++) {
++            const int xb = x & ~(pixels_align - 1);
++            const int jb = j & ~(taps_align - 1);
++            const int xi = x - xb, ji = j - jb;
++            const int w = filter->weights[x * filter_size + j];
++            const int idx = xb * aligned_size + jb * pixels_align + xi * taps_align + ji;
++
++            switch (uop->type) {
++            case SWS_PIXEL_U8:  weights.i16[idx] = w; break;
++            case SWS_PIXEL_U16: weights.i16[idx] = w; break;
++            case SWS_PIXEL_F32: weights.f32[idx] = w; break;
++            }
++        }
++    }
++
++    out->priv.ptr = weights.ptr;
++    out->priv.uptr[1] = aligned_size * sizeof_weights;
++    out->free = ff_op_priv_free;
++
++    for (int i = 0; i < 4; i++) {
++        if (uop->mask & SWS_COMP(i))
++            out->over_read[i] = (aligned_size - filter_size) * pixel_size;
++    }
++    return 0;
++}
++
++static int setup_scale(const SwsImplParams *params, SwsImplResult *out)
++{
++    const SwsUOp *uop = params->uop;
++    switch (uop->type) {
++    case SWS_PIXEL_U8:  out->priv.u16[0] = uop->data.scalar.u8;  break; /* for pmullw */
++    case SWS_PIXEL_U16: out->priv.u16[0] = uop->data.scalar.u16; break;
++    case SWS_PIXEL_U32: out->priv.u32[0] = uop->data.scalar.u32; break;
++    case SWS_PIXEL_F32: out->priv.f32[0] = uop->data.scalar.f32; break;
++    default: return AVERROR(EINVAL);
++    }
++
++    return 0;
++}
++
++static int setup_clear(const SwsImplParams *params, SwsImplResult *out)
++{
++    const SwsUOp *uop = params->uop;
++    for (int i = 0; i < 4; i++)
++        out->priv.u32[i] = uop->data.vec4[i].u32;
++    return 0;
++}
++
++static int setup_dither(const SwsImplParams *params, SwsImplResult *out)
++{
++    out->priv.ptr = av_refstruct_ref(params->uop->data.ptr);
++    out->free = ff_op_priv_unref;
++    return 0;
++}
++
++static int setup_linear(const SwsImplParams *params, SwsImplResult *out)
++{
++    const SwsUOp *uop = params->uop;
++    out->priv.ptr = av_memdup(uop->data.mat4, sizeof(uop->data.mat4));
++    out->free = ff_op_priv_free;
++    return out->priv.ptr ? 0 : AVERROR(ENOMEM);
++}
++
++static bool uop_is_type_invariant(const SwsUOpType uop)
++{
++    switch (uop) {
++    case SWS_UOP_READ_PLANAR:
++    case SWS_UOP_WRITE_PLANAR:
++    case SWS_UOP_CLEAR:
++        return true;
++    default:
++        return false;
++    }
++}
++
++#define REF_ENTRY(EXT, NAME, ...) &uop_##NAME##EXT,
++#define DECL_ENTRY(EXT, CHECK, SETUP, NAME, ...)                                \
++    void ff_##NAME##EXT(void);                                                  \
++    static const SwsUOpEntry uop_##NAME##EXT = {                                \
++        .func = (SwsFuncPtr) ff_##NAME##EXT,                                    \
++        .check = CHECK,                                                         \
++        .setup = SETUP,                                                         \
++        __VA_ARGS__,                                                            \
++    };
++
++/* Define all UOPs except conversion ops and type-invariant ops */
++#define DECL_OPS_COMMON(EXT, TYPE)                                              \
++SWS_FOR_STRUCT(TYPE, READ_PACKED,     DECL_ENTRY, EXT, NULL, setup_rw_packed)   \
++SWS_FOR_STRUCT(TYPE, READ_NIBBLE,     DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, READ_BIT,        DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, READ_PALETTE,    DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, WRITE_PACKED,    DECL_ENTRY, EXT, NULL, setup_rw_packed)   \
++SWS_FOR_STRUCT(TYPE, WRITE_NIBBLE,    DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, WRITE_BIT,       DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, SWAP_BYTES,      DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, EXPAND_BIT,      DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, MOVE,            DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, SCALE,           DECL_ENTRY, EXT, NULL, setup_scale)       \
++SWS_FOR_STRUCT(TYPE, ADD,             DECL_ENTRY, EXT, NULL, ff_sws_setup_vec4) \
++SWS_FOR_STRUCT(TYPE, MIN,             DECL_ENTRY, EXT, NULL, ff_sws_setup_vec4) \
++SWS_FOR_STRUCT(TYPE, MAX,             DECL_ENTRY, EXT, NULL, ff_sws_setup_vec4) \
++SWS_FOR_STRUCT(TYPE, UNPACK,          DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, PACK,            DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, LSHIFT,          DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, RSHIFT,          DECL_ENTRY, EXT, NULL, NULL)              \
++SWS_FOR_STRUCT(TYPE, LINEAR_FMA,      DECL_ENTRY, EXT, NULL, setup_linear)      \
++SWS_FOR_STRUCT(TYPE, DITHER,          DECL_ENTRY, EXT, NULL, setup_dither)      \
++/* end of macro */
++
++#define REF_OPS_COMMON(EXT, TYPE)                                               \
++    SWS_FOR(TYPE, READ_PACKED,    REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, READ_NIBBLE,    REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, READ_BIT,       REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, READ_PALETTE,   REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, WRITE_PACKED,   REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, WRITE_NIBBLE,   REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, WRITE_BIT,      REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, SWAP_BYTES,     REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, EXPAND_BIT,     REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, MOVE,           REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, SCALE,          REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, ADD,            REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, MIN,            REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, MAX,            REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, UNPACK,         REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, PACK,           REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, LSHIFT,         REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, RSHIFT,         REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, LINEAR_FMA,     REF_ENTRY, EXT)                               \
++    SWS_FOR(TYPE, DITHER,         REF_ENTRY, EXT)                               \
++    /* end of macro */
++
++#define DECL_TABLE_U8(EXT, SIZE, FLAG)                                          \
++DECL_OPS_COMMON(EXT, U8)                                                        \
++SWS_FOR_STRUCT(U8, READ_PLANAR,     DECL_ENTRY, EXT, NULL, NULL)                \
++SWS_FOR_STRUCT(U8, WRITE_PLANAR,    DECL_ENTRY, EXT, NULL, NULL)                \
++SWS_FOR_STRUCT(U8, CLEAR,           DECL_ENTRY, EXT, NULL, setup_clear)         \
++                                                                                \
++static const SwsUOpTable uops_u8##EXT = {                                       \
++    .cpu_flags = AV_CPU_FLAG_##FLAG,                                            \
++    .block_size = SIZE,                                                         \
++    .entries = {                                                                \
++        REF_OPS_COMMON(EXT, U8)                                                 \
++        SWS_FOR(U8, READ_PLANAR,    REF_ENTRY, EXT)                             \
++        SWS_FOR(U8, WRITE_PLANAR,   REF_ENTRY, EXT)                             \
++        SWS_FOR(U8, CLEAR,          REF_ENTRY, EXT)                             \
++        NULL                                                                    \
++    },                                                                          \
++};
++
++#define DECL_TABLE_U16(EXT, SIZE, FLAG)                                         \
++DECL_OPS_COMMON(EXT, U16)                                                       \
++SWS_FOR_STRUCT(U8,  TO_U16, DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(U16, TO_U8,  DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(U8,  EXPAND_PAIR, DECL_ENTRY, EXT, NULL, NULL)                   \
++                                                                                \
++static const SwsUOpTable uops_u16##EXT = {                                      \
++    .cpu_flags = AV_CPU_FLAG_##FLAG,                                            \
++    .block_size = SIZE,                                                         \
++    .entries = {                                                                \
++        REF_OPS_COMMON(EXT, U16)                                                \
++        SWS_FOR(U8,  TO_U16, REF_ENTRY, EXT)                                    \
++        SWS_FOR(U16, TO_U8,  REF_ENTRY, EXT)                                    \
++        SWS_FOR(U8,  EXPAND_PAIR, REF_ENTRY, EXT)                               \
++        NULL                                                                    \
++    },                                                                          \
++};
++
++#define DECL_TABLE_U32(EXT, SIZE, FLAG)                                         \
++DECL_OPS_COMMON(EXT, U32)                                                       \
++SWS_FOR_STRUCT(U8,  TO_U32, DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(U32, TO_U8,  DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(U16, TO_U32, DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(U32, TO_U16, DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(U8,  EXPAND_QUAD, DECL_ENTRY, EXT, NULL, NULL)                   \
++                                                                                \
++static const SwsUOpTable uops_u32##EXT = {                                      \
++    .cpu_flags = AV_CPU_FLAG_##FLAG,                                            \
++    .block_size = SIZE,                                                         \
++    .entries = {                                                                \
++        REF_OPS_COMMON(EXT, U32)                                                \
++        SWS_FOR(U8,  TO_U32, REF_ENTRY, EXT)                                    \
++        SWS_FOR(U32, TO_U8,  REF_ENTRY, EXT)                                    \
++        SWS_FOR(U16, TO_U32, REF_ENTRY, EXT)                                    \
++        SWS_FOR(U32, TO_U16, REF_ENTRY, EXT)                                    \
++        SWS_FOR(U8,  EXPAND_QUAD, REF_ENTRY, EXT)                               \
++        NULL                                                                    \
++    },                                                                          \
++};
++
++#define DECL_TABLE_F32(EXT, SIZE, FLAG)                                         \
++DECL_OPS_COMMON(EXT, F32)                                                       \
++SWS_FOR_STRUCT(U8,  TO_F32, DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(F32, TO_U8,  DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(U16, TO_F32, DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(F32, TO_U16, DECL_ENTRY, EXT, NULL, NULL)                        \
++SWS_FOR_STRUCT(U8,  READ_PLANAR_FH, DECL_ENTRY, EXT, NULL, setup_filter_h)      \
++SWS_FOR_STRUCT(U16, READ_PLANAR_FH, DECL_ENTRY, EXT, NULL, setup_filter_h)      \
++SWS_FOR_STRUCT(F32, READ_PLANAR_FH, DECL_ENTRY, EXT, NULL, setup_filter_h)      \
++SWS_FOR_STRUCT(U8,  READ_PLANAR_FH, DECL_ENTRY, _4x4##EXT,                      \
++               check_filter_h_4x4, setup_filter_h_4x4)                          \
++SWS_FOR_STRUCT(U16, READ_PLANAR_FH, DECL_ENTRY, _4x4##EXT,                      \
++               check_filter_h_4x4, setup_filter_h_4x4)                          \
++SWS_FOR_STRUCT(F32, READ_PLANAR_FH, DECL_ENTRY, _4x4##EXT,                      \
++               check_filter_h_4x4, setup_filter_h_4x4)                          \
++SWS_FOR_STRUCT(U8,  READ_PLANAR_FV, DECL_ENTRY, EXT, NULL, setup_filter_v)      \
++SWS_FOR_STRUCT(U16, READ_PLANAR_FV, DECL_ENTRY, EXT, NULL, setup_filter_v)      \
++SWS_FOR_STRUCT(F32, READ_PLANAR_FV, DECL_ENTRY, EXT, NULL, setup_filter_v)      \
++SWS_FOR_STRUCT(U8,  READ_PLANAR_FV_FMA, DECL_ENTRY, EXT, NULL, setup_filter_v)  \
++SWS_FOR_STRUCT(U16, READ_PLANAR_FV_FMA, DECL_ENTRY, EXT, NULL, setup_filter_v)  \
++SWS_FOR_STRUCT(F32, READ_PLANAR_FV_FMA, DECL_ENTRY, EXT, NULL, setup_filter_v)  \
++                                                                                \
++static const SwsUOpTable uops_f32##EXT = {                                      \
++    .cpu_flags = AV_CPU_FLAG_##FLAG,                                            \
++    .block_size = SIZE,                                                         \
++    .entries = {                                                                \
++        REF_OPS_COMMON(EXT, F32)                                                \
++        SWS_FOR(U8,  TO_F32, REF_ENTRY, EXT)                                    \
++        SWS_FOR(F32, TO_U8,  REF_ENTRY, EXT)                                    \
++        SWS_FOR(U16, TO_F32, REF_ENTRY, EXT)                                    \
++        SWS_FOR(F32, TO_U16, REF_ENTRY, EXT)                                    \
++        SWS_FOR(U8,  READ_PLANAR_FH, REF_ENTRY, _4x4##EXT)                      \
++        SWS_FOR(U16, READ_PLANAR_FH, REF_ENTRY, _4x4##EXT)                      \
++        SWS_FOR(F32, READ_PLANAR_FH, REF_ENTRY, _4x4##EXT)                      \
++        SWS_FOR(U8,  READ_PLANAR_FH, REF_ENTRY, EXT)                            \
++        SWS_FOR(U16, READ_PLANAR_FH, REF_ENTRY, EXT)                            \
++        SWS_FOR(F32, READ_PLANAR_FH, REF_ENTRY, EXT)                            \
++        SWS_FOR(U8,  READ_PLANAR_FV, REF_ENTRY, EXT)                            \
++        SWS_FOR(U16, READ_PLANAR_FV, REF_ENTRY, EXT)                            \
++        SWS_FOR(F32, READ_PLANAR_FV, REF_ENTRY, EXT)                            \
++        SWS_FOR(U8,  READ_PLANAR_FV_FMA, REF_ENTRY, EXT)                        \
++        SWS_FOR(U16, READ_PLANAR_FV_FMA, REF_ENTRY, EXT)                        \
++        SWS_FOR(F32, READ_PLANAR_FV_FMA, REF_ENTRY, EXT)                        \
++        NULL                                                                    \
++    },                                                                          \
++};
++
++DECL_TABLE_U8( _m1_sse4, 16, SSE4)
++DECL_TABLE_U8( _m1_avx2, 32, AVX2)
++DECL_TABLE_U8( _m2_sse4, 32, SSE4)
++DECL_TABLE_U8( _m2_avx2, 64, AVX2)
++DECL_TABLE_U16(_m1_avx2, 16, AVX2)
++DECL_TABLE_U16(_m2_avx2, 32, AVX2)
++DECL_TABLE_U32(_m2_avx2, 16, AVX2)
++DECL_TABLE_F32(_m2_avx2, 16, AVX2)
++
++static const SwsUOpTable *const tables[] = {
++    &uops_u8_m1_sse4,
++    &uops_u8_m1_avx2, /* order before _m2_sse4 */
++    &uops_u8_m2_sse4,
++    &uops_u8_m2_avx2,
++    &uops_u16_m1_avx2,
++    &uops_u16_m2_avx2,
++    &uops_u32_m2_avx2,
++    &uops_f32_m2_avx2,
++};
++
++SWS_DECL_FUNC(ff_sws_process1_x86);
++SWS_DECL_FUNC(ff_sws_process2_x86);
++SWS_DECL_FUNC(ff_sws_process3_x86);
++SWS_DECL_FUNC(ff_sws_process4_x86);
++
++static int movsize(const int bytes, const int mmsize)
++{
++    return bytes <= 4 ? 4 : /* movd */
++           bytes <= 8 ? 8 : /* movq */
++           mmsize;          /* movu */
++}
++
++static int solve_shuffle(const SwsOpList *ops, int mmsize, SwsCompiledOp *out)
++{
++    uint8_t shuffle[16];
++    int read_bytes, write_bytes;
++    int pixels;
++
++    /* Solve the shuffle mask for one 128-bit lane only */
++    pixels = ff_sws_solve_shuffle(ops, shuffle, 16, 0x80, &read_bytes, &write_bytes);
++    if (pixels < 0)
++        return pixels;
++
++    /* We can't shuffle across lanes, so restrict the vector size to XMM
++     * whenever the read/write size would be a subset of the full vector */
++    if (read_bytes < 16 || write_bytes < 16)
++        mmsize = 16;
+ 
+-#include "config.h"
+-#include "libavutil/attributes.h"
+-#include "libswscale/ops.h"
+-#include "libswscale/ops_dispatch.h"
+-#include "libswscale/ops_internal.h"
++    const int num_lanes = mmsize / 16;
++    const int in_total  = num_lanes * read_bytes;
++    const int out_total = num_lanes * write_bytes;
++
++    *out = (SwsCompiledOp) {
++        .priv        = av_memdup(shuffle, sizeof(shuffle)),
++        .free        = av_free,
++        .slice_align = 1,
++        .block_size  = pixels * num_lanes,
++        .over_read   = { movsize(in_total,  mmsize) - in_total },
++        .over_write  = { movsize(out_total, mmsize) - out_total },
++        .cpu_flags   = mmsize > 32 ? AV_CPU_FLAG_AVX512 :
++                       mmsize > 16 ? AV_CPU_FLAG_AVX2 :
++                                     AV_CPU_FLAG_SSE4,
++    };
++
++    if (!out->priv)
++        return AVERROR(ENOMEM);
++
++#define ASSIGN_SHUFFLE_FUNC(IN, OUT, EXT)                                       \
++do {                                                                            \
++    SWS_DECL_FUNC(ff_packed_shuffle##IN##_##OUT##_##EXT);                       \
++    if (in_total == IN && out_total == OUT)                                     \
++        out->func = ff_packed_shuffle##IN##_##OUT##_##EXT;                      \
++} while (0)
++
++    ASSIGN_SHUFFLE_FUNC( 5, 15, sse4);
++    ASSIGN_SHUFFLE_FUNC( 4, 16, sse4);
++    ASSIGN_SHUFFLE_FUNC( 2, 12, sse4);
++    ASSIGN_SHUFFLE_FUNC(16,  8, sse4);
++    ASSIGN_SHUFFLE_FUNC(10, 15, sse4);
++    ASSIGN_SHUFFLE_FUNC( 8, 16, sse4);
++    ASSIGN_SHUFFLE_FUNC( 4, 12, sse4);
++    ASSIGN_SHUFFLE_FUNC(15,  5, sse4);
++    ASSIGN_SHUFFLE_FUNC(15, 15, sse4);
++    ASSIGN_SHUFFLE_FUNC(12, 16, sse4);
++    ASSIGN_SHUFFLE_FUNC( 6, 12, sse4);
++    ASSIGN_SHUFFLE_FUNC(16,  4, sse4);
++    ASSIGN_SHUFFLE_FUNC(16, 12, sse4);
++    ASSIGN_SHUFFLE_FUNC(16, 16, sse4);
++    ASSIGN_SHUFFLE_FUNC( 8, 12, sse4);
++    ASSIGN_SHUFFLE_FUNC(12, 12, sse4);
++    ASSIGN_SHUFFLE_FUNC(32, 32, avx2);
++    ASSIGN_SHUFFLE_FUNC(64, 64, avx512);
++    av_assert1(out->func);
++    return 0;
++}
++
++/* Expand pixel value to 32-bits by repeating as necessary */
++static uint32_t expand32(const SwsPixelType type, const SwsPixel value)
++{
++    switch (type) {
++    case SWS_PIXEL_U8:  return value.u8  * 0x01010101u;
++    case SWS_PIXEL_U16: return value.u16 * 0x00010001u;
++    case SWS_PIXEL_U32: return value.u32;
++    case SWS_PIXEL_F32: return value.u32; /* reinterpret */
++    default: return 0;
++    }
++}
++
++static void normalize_clear(SwsUOp *uop)
++{
++    for (int i = 0; i < 4; i++)
++        uop->data.vec4[i].u32 = expand32(uop->type, uop->data.vec4[i]);
++}
+ 
+ static int compile(SwsContext *ctx, const SwsOpList *ops, SwsCompiledOp *out)
+ {
+-    return AVERROR(ENOTSUP);
++    const int cpu_flags = av_get_cpu_flags();
++    int ret, mmsize;
++    if (EXTERNAL_AVX512(cpu_flags))
++        mmsize = 64;
++    else if (EXTERNAL_AVX2(cpu_flags))
++        mmsize = 32;
++    else if (EXTERNAL_SSE4(cpu_flags))
++        mmsize = 16;
++    else
++        return AVERROR(ENOTSUP);
++
++    /* Special fast path for in-place packed shuffle */
++    ret = solve_shuffle(ops, mmsize, out);
++    if (ret != AVERROR(ENOTSUP))
++        return ret;
++
++    SwsOpChain *chain = ff_sws_op_chain_alloc();
++    if (!chain)
++        return AVERROR(ENOMEM);
++
++    SwsUOpList *uops = ff_sws_uop_list_alloc();
++    if (!uops) {
++        ret = AVERROR(ENOMEM);
++        goto fail;
++    }
++
++    SwsUOpFlags flags = SWS_UOP_FLAG_MOVE;
++    if (EXTERNAL_FMA3(cpu_flags))
++        flags |= SWS_UOP_FLAG_FMA;
++
++    ret = ff_sws_ops_translate(ctx, ops, flags, uops);
++    if (ret < 0)
++        goto fail;
++
++    *out = (SwsCompiledOp) {
++        /* Use at most two full YMM regs during the widest precision section */
++        .block_size  = 2 * FFMIN(mmsize, 32) / ff_sws_op_list_max_size(ops),
++        .slice_align = 1,
++        .free        = ff_sws_op_chain_free_cb,
++        .priv        = chain,
++    };
++
++    for (int i = 0; i < uops->num_ops; i++) {
++        SwsUOp *uop = &uops->ops[i];
++        int op_block_size = out->block_size;
++
++        if (uop_is_type_invariant(uop->uop)) {
++            if (uop->uop == SWS_UOP_CLEAR)
++                normalize_clear(uop);
++            op_block_size *= ff_sws_pixel_type_size(uop->type);
++            uop->type = SWS_PIXEL_U8;
++        }
++
++        ret = ff_sws_uop_lookup(ctx, tables, FF_ARRAY_ELEMS(tables), uop,
++                                op_block_size, chain);
++        if (ret < 0)
++            goto fail;
++    }
++
++    const SwsOp *read      = ff_sws_op_list_input(ops);
++    const SwsOp *write     = ff_sws_op_list_output(ops);
++    const int read_planes  = read ? ff_sws_rw_op_planes(read) : 0;
++    const int write_planes = ff_sws_rw_op_planes(write);
++    switch (FFMAX(read_planes, write_planes)) {
++    case 1: out->func = ff_sws_process1_x86; break;
++    case 2: out->func = ff_sws_process2_x86; break;
++    case 3: out->func = ff_sws_process3_x86; break;
++    case 4: out->func = ff_sws_process4_x86; break;
++    }
++
++    if (ret < 0) {
++        ff_sws_op_chain_free(chain);
++        return ret;
++    }
++
++    out->cpu_flags = chain->cpu_flags;
++    memcpy(out->over_read,  chain->over_read,  sizeof(out->over_read));
++    memcpy(out->over_write, chain->over_write, sizeof(out->over_write));
++    ff_sws_uop_list_free(&uops);
++    return 0;
++
++fail:
++    ff_sws_uop_list_free(&uops);
++    ff_sws_op_chain_free(chain);
++    return ret;
+ }
+ 
+ const SwsOpBackend backend_x86 = {
+diff -ruN tmp/ffmpeg-swscale-pipeline-asm/ladder/L2/libswscale/x86/ops_common.asm tmp/ffmpeg-swscale-pipeline-asm/ladder/L3/libswscale/x86/ops_common.asm
+--- a/libswscale/x86/ops_common.asm	1970-01-01 00:00:00.000000000 +0000
++++ b/libswscale/x86/ops_common.asm	2026-09-23 16:07:57.000000000 +0000
+@@ -0,0 +1,200 @@
++;******************************************************************************
++;* Copyright (c) 2025 Niklas Haas
++;*
++;* This file is part of FFmpeg.
++;*
++;* FFmpeg is free software; you can redistribute it and/or
++;* modify it under the terms of the GNU Lesser General Public
++;* License as published by the Free Software Foundation; either
++;* version 2.1 of the License, or (at your option) any later version.
++;*
++;* FFmpeg is distributed in the hope that it will be useful,
++;* but WITHOUT ANY WARRANTY; without even the implied warranty of
++;* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++;* Lesser General Public License for more details.
++;*
++;* You should have received a copy of the GNU Lesser General Public
++;* License along with FFmpeg; if not, write to the Free Software
++;* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++;******************************************************************************
++
++%include "ops_include.asm"
++
++SECTION .text
++
++;---------------------------------------------------------
++; Global entry point. See `ops_include.asm` for info.
++
++%macro process_fn 1 ; number of planes
++cglobal sws_process%1_x86, 6, 7 + 2 * %1, 16
++            ; Args:
++            ;   execq, implq, bxd, yd as defined in ops_include.asm
++            ;   bx_end and y_end are initially in tmp0d / tmp1d
++            ;   (see SwsOpFunc signature)
++            ;
++            ; Stack layout:
++            ;   [rsp +  0] = [qword] impl->cont (address of first kernel)
++            ;   [rsp +  8] = [qword] &impl[1]   (restore implq after chain)
++            ;   [rsp + 16] = [dword] bx start   (restore after line finish)
++            ;   [rsp + 20] = [dword] bx end     (loop counter limit)
++            ;   [rsp + 24] = [dword] y end      (loop counter limit)
++            sub rsp, 32
++            mov [rsp + 16], bxd
++            mov [rsp + 20], tmp0d ; bx_end
++            mov [rsp + 24], tmp1d ; y_end
++            mov tmp0q, [implq + SwsOpImpl.cont]
++            add implq, SwsOpImpl.next
++            mov [rsp +  0], tmp0q
++            mov [rsp +  8], implq
++            movsxdifnidn bxq, bxd
++            movsxdifnidn yq, yd
++
++            ; load plane pointers
++            mov in0q,  [execq + SwsOpExec.in0]
++IF %1 > 1,  mov in1q,  [execq + SwsOpExec.in1]
++IF %1 > 2,  mov in2q,  [execq + SwsOpExec.in2]
++IF %1 > 3,  mov in3q,  [execq + SwsOpExec.in3]
++            mov out0q, [execq + SwsOpExec.out0]
++IF %1 > 1,  mov out1q, [execq + SwsOpExec.out1]
++IF %1 > 2,  mov out2q, [execq + SwsOpExec.out2]
++IF %1 > 3,  mov out3q, [execq + SwsOpExec.out3]
++.loop:
++            call [rsp] ; call into op chain
++            mov implq, [rsp + 8]
++            inc bxd
++            cmp bxd, [rsp + 20]
++            jne .loop
++            ; end of line
++            inc yd
++            cmp yd, [rsp + 24]
++            je .end
++            ; bump addresses to point to start of next line
++            add in0q,  [execq + SwsOpExec.in_bump0]
++IF %1 > 1,  add in1q,  [execq + SwsOpExec.in_bump1]
++IF %1 > 2,  add in2q,  [execq + SwsOpExec.in_bump2]
++IF %1 > 3,  add in3q,  [execq + SwsOpExec.in_bump3]
++            add out0q, [execq + SwsOpExec.out_bump0]
++IF %1 > 1,  add out1q, [execq + SwsOpExec.out_bump1]
++IF %1 > 2,  add out2q, [execq + SwsOpExec.out_bump2]
++IF %1 > 3,  add out3q, [execq + SwsOpExec.out_bump3]
++            mov bxd, [rsp + 16]
++            ; conditionally apply y bump (if non-NULL)
++            mov tmp0q, [execq + SwsOpExec.in_bump_y]
++            test tmp0q, tmp0q
++            jz .loop
++            movsxd tmp0q, [tmp0q + yq * 4 - 4] ; load (signed) y bump
++%if %1 > 3
++            mov tmp1q, tmp0q
++            imul tmp1q, [execq + SwsOpExec.in_stride3]
++            add in3q, tmp1q
++%endif
++%if %1 > 2
++            mov tmp1q, tmp0q
++            imul tmp1q, [execq + SwsOpExec.in_stride2]
++            add in2q, tmp1q
++%endif
++%if %1 > 1
++            mov tmp1q, tmp0q
++            imul tmp1q, [execq + SwsOpExec.in_stride1]
++            add in1q, tmp1q
++%endif
++            imul tmp0q, [execq + SwsOpExec.in_stride0]
++            add in0q, tmp0q
++            jmp .loop
++.end:
++            add rsp, 32
++            RET
++%endmacro
++
++process_fn 1
++process_fn 2
++process_fn 3
++process_fn 4
++
++;---------------------------------------------------------
++; Packed shuffle fast-path
++
++; This is a special entry point for handling a subset of operation chains
++; that can be reduced down to a single `pshufb` shuffle mask. For more details
++; about when this works, refer to the documentation of `ff_sws_solve_shuffle`.
++;
++; We specialize this function for every possible combination of pixel strides.
++; For example, gray -> gray16 is classified as an "8, 16" operation because it
++; takes 8 bytes and expands them out to 16 bytes in each application of the
++; 128-bit shuffle mask.
++;
++; Since pshufb can't shuffle across lanes, we only instantiate SSE4 versions for
++; all shuffles that are not a clean multiple of 128 bits (e.g. rgb24 -> rgb0).
++; For the clean multiples (e.g. rgba -> argb), we also define AVX2 and AVX512
++; versions that can handle a larger number of bytes at once.
++
++%macro MOVSIZE 3 ; size, dst, src
++    %if %1 <= 4
++        movd %2, %3
++    %elif %1 <= 8
++        movq %2, %3
++    %else
++        movu %2, %3
++    %endif
++%endmacro
++
++%macro packed_shuffle 2 ; size_in, size_out
++cglobal packed_shuffle%1_%2, 6, 10, 2, \
++    exec, shuffle, bx, y, bxend, yend, src, dst, src_stride, dst_stride
++            mov srcq, [execq + SwsOpExec.in0]
++            mov dstq, [execq + SwsOpExec.out0]
++            mov src_strideq, [execq + SwsOpExec.in_stride0]
++            mov dst_strideq, [execq + SwsOpExec.out_stride0]
++            VBROADCASTI128 m1, [shuffleq]
++            sub bxendd, bxd
++            sub yendd, yd
++            ; reuse now-unneeded regs
++    %define srcidxq execq
++            imul srcidxq, bxendq, -%1
++%if %1 = %2
++    %define dstidxq srcidxq
++%else
++    %define dstidxq shuffleq ; no longer needed reg
++            imul dstidxq, bxendq, -%2
++%endif
++            sub srcq, srcidxq
++            sub dstq, dstidxq
++.loop:
++            MOVSIZE %1, m0, [srcq + srcidxq]
++            pshufb m0, m1
++            MOVSIZE %2, [dstq + dstidxq], m0
++            add srcidxq, %1
++IF %1 != %2,add dstidxq, %2
++            jnz .loop
++            add srcq, src_strideq
++            add dstq, dst_strideq
++            imul srcidxq, bxendq, -%1
++IF %1 != %2,imul dstidxq, bxendq, -%2
++            dec yendd
++            jnz .loop
++            RET
++%endmacro
++
++INIT_XMM sse4
++packed_shuffle  5, 15 ;  8 -> 24
++packed_shuffle  4, 16 ;  8 -> 32, 16 -> 64
++packed_shuffle  2, 12 ;  8 -> 48
++packed_shuffle 16,  8 ; 16 -> 8
++packed_shuffle 10, 15 ; 16 -> 24
++packed_shuffle  8, 16 ; 16 -> 32, 32 -> 64
++packed_shuffle  4, 12 ; 16 -> 48
++packed_shuffle 15,  5 ; 24 -> 8
++packed_shuffle 15, 15 ; 24 -> 24
++packed_shuffle 12, 16 ; 24 -> 32
++packed_shuffle  6, 12 ; 24 -> 48
++packed_shuffle 16,  4 ; 32 -> 8,  64 -> 16
++packed_shuffle 16, 12 ; 32 -> 24, 64 -> 48
++packed_shuffle 16, 16 ; 32 -> 32, 64 -> 64
++packed_shuffle  8, 12 ; 32 -> 48
++packed_shuffle 12, 12 ; 48 -> 48
++
++INIT_YMM avx2
++packed_shuffle 32, 32
++
++INIT_ZMM avx512
++packed_shuffle 64, 64
+diff -ruN tmp/ffmpeg-swscale-pipeline-asm/ladder/L2/libswscale/x86/ops_float.asm tmp/ffmpeg-swscale-pipeline-asm/ladder/L3/libswscale/x86/ops_float.asm
+--- a/libswscale/x86/ops_float.asm	1970-01-01 00:00:00.000000000 +0000
++++ b/libswscale/x86/ops_float.asm	2026-09-23 16:07:57.000000000 +0000
+@@ -0,0 +1,700 @@
++;******************************************************************************
++;* Copyright (c) 2025-2026 Niklas Haas
++;*
++;* This file is part of FFmpeg.
++;*
++;* FFmpeg is free software; you can redistribute it and/or
++;* modify it under the terms of the GNU Lesser General Public
++;* License as published by the Free Software Foundation; either
++;* version 2.1 of the License, or (at your option) any later version.
++;*
++;* FFmpeg is distributed in the hope that it will be useful,
++;* but WITHOUT ANY WARRANTY; without even the implied warranty of
++;* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++;* Lesser General Public License for more details.
++;*
++;* You should have received a copy of the GNU Lesser General Public
++;* License along with FFmpeg; if not, write to the Free Software
++;* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++;******************************************************************************
++
++%include "ops_include.asm"
++
++%assign SWS_FILTER_SCALE (1 << 14)
++%define FILTER_WIDTH (BLOCK_SIZE / 4)       ; always outputs F32
++%define FILTER_SIZE  (FILTER_WIDTH * BYTES) ; in source bytes
++
++SECTION_RODATA
++
++align 32
++bias16: times 16 dw 0x8000 ; shift unsigned to signed range
++
++align 16
++bias32:    times 4 dd 0x8000 * SWS_FILTER_SCALE
++scale_inv: times 4 dd 0x38800000 ; 1.0f / SWS_FILTER_SCALE
++
++SECTION .text
++
++;---------------------------------------------------------
++; Generic vertical filtering (add+mul and fma)
++
++%macro FLOAD_SWS_PIXEL_U8 2 ; dst, src
++        pmovzxbd  %1, %2
++        vcvtdq2ps %1, %1
++%endmacro
++
++%macro FLOAD_SWS_PIXEL_U16 2 ; dst, src
++        pmovzxwd  %1, %2
++        vcvtdq2ps %1, %1
++%endmacro
++
++%macro FLOAD_SWS_PIXEL_U32 2 ; dst, src
++        %error TODO, no clean way to convert U32 to F32 on AVX2
++%endmacro
++
++%macro FLOAD_SWS_PIXEL_F32 2 ; dst, src
++        movu %1, %2
++%endmacro
++
++%macro ACCUM_MULADD 3 ; sum, src, weight
++        mulps %2, %3
++        addps %1, %2
++%endmacro
++
++%macro ACCUM_FMA 3 ; sum, src, weight
++        fmaddps %1, %2, %3, %1
++%endmacro
++
++%macro filter_v_iter 1 ; accum_fn
++        vbroadcastss m12, [weights]
++IF X,   FLOAD_PX m8,  [in0q]
++IF Y,   FLOAD_PX m9,  [in1q]
++IF Z,   FLOAD_PX m10, [in2q]
++IF W,   FLOAD_PX m11, [in3q]
++IF X,   %1 mx, m8,  m12
++IF Y,   %1 my, m9,  m12
++IF Z,   %1 mz, m10, m12
++IF W,   %1 mw, m11, m12
++IF X,   FLOAD_PX m8,  [in0q + (FILTER_SIZE >> 1)]
++IF Y,   FLOAD_PX m9,  [in1q + (FILTER_SIZE >> 1)]
++IF Z,   FLOAD_PX m10, [in2q + (FILTER_SIZE >> 1)]
++IF W,   FLOAD_PX m11, [in3q + (FILTER_SIZE >> 1)]
++IF X,   %1 mx2, m8,  m12
++IF Y,   %1 my2, m9,  m12
++IF Z,   %1 mz2, m10, m12
++IF W,   %1 mw2, m11, m12
++%endmacro
++
++%macro read_planar_fv 1 ; accum_fn
++%xdefine FLOAD_PX FLOAD_ %+ TYPE
++%xdefine weights tmp0q
++%xdefine fltsize tmp1q
++
++assert_idn FILTER_TYPE, SWS_PIXEL_F32
++%assign SIZEOF_WEIGHT 4
++
++        mov weights, [implq + SwsOpImpl.priv]     ; float *weights
++        mov fltsize, [implq + SwsOpImpl.priv + 8] ; size_t filter_size
++        ; weights += filter_size * y * sizeof(float)
++        mov tmp2q, fltsize
++        imul tmp2q, yq
++        lea weights, [weights + SIZEOF_WEIGHT * tmp2q]
++        filter_v_iter mulps
++        dec fltsize
++        jz .done
++IF X,   push in0q
++IF Y,   push in1q
++IF Z,   push in2q
++IF W,   push in3q
++.loop:
++IF X,   add in0q, [execq + SwsOpExec.in_stride0]
++IF Y,   add in1q, [execq + SwsOpExec.in_stride1]
++IF Z,   add in2q, [execq + SwsOpExec.in_stride2]
++IF W,   add in3q, [execq + SwsOpExec.in_stride3]
++        add weights, SIZEOF_WEIGHT
++        filter_v_iter %1
++        dec fltsize
++        jnz .loop
++IF W,   pop in3q
++IF Z,   pop in2q
++IF Y,   pop in1q
++IF X,   pop in0q
++.done:
++        LOAD_CONT tmp0q
++IF W,   add in3q, FILTER_SIZE
++IF Z,   add in2q, FILTER_SIZE
++IF Y,   add in1q, FILTER_SIZE
++IF X,   add in0q, FILTER_SIZE
++        CONTINUE tmp0q
++%undef weights
++%undef fltsize
++%endmacro
++
++%macro READ_PLANAR_FV 1
++%xdefine FILTER_TYPE %1
++    read_planar_fv ACCUM_MULADD
++%endmacro
++
++%macro READ_PLANAR_FV_FMA 1
++%xdefine FILTER_TYPE %1
++    read_planar_fv ACCUM_FMA
++%endmacro
++
++;---------------------------------------------------------
++; Generic horizontal filtering (vpgatherdd)
++
++%macro FILTER_H_SWS_PIXEL_U8 4 ; acc, acc2, src, first
++        pcmpeqb m12, m12
++        pcmpeqb m13, m13
++        vpgatherdd m8, [%3 + m14], m12 ; { ABCD | EFGH } 4 pixel per word
++        vpgatherdd m9, [%3 + m15], m13 ; { IJKL | MNOP }
++        ; unpack 4 bytes into separate 16-bit integer registers
++        punpckhbw m10, m8, m12 ; { CCDD | GGHH } 2 pixels per word
++        punpcklbw m8,  m8, m12 ; { AABB | EEFF }
++        punpckhbw m11, m9, m12 ; { KKLL | OOPP }
++        punpcklbw m9,  m9, m12 ; { IIJJ | MMNN }
++        pmaddwd m8,  [weights]
++        pmaddwd m10, [weights + mmsize]
++        pmaddwd m9,  [weights + mmsize * 2]
++        pmaddwd m11, [weights + mmsize * 3]
++    %if %4
++        phaddd %1, m8, m10 ; { ABCD | EFGH }
++        phaddd %2, m9, m11 ; { IJKL | MNOP }
++    %else
++        phaddd m8, m10
++        phaddd m9, m11
++        paddd %1, m8
++        paddd %2, m9
++    %endif
++%endmacro
++
++%macro FILTER_H_SWS_PIXEL_U16 4 ; acc, acc2, src, first
++        pcmpeqb m12, m12
++        pcmpeqb m13, m13
++        vpgatherdd m8, [%3 + m14], m12
++        vpgatherdd m9, [%3 + m15], m13
++        psubw m8, m10
++        psubw m9, m10
++    %if %4
++        pmaddwd %1, m8, [weights]
++        pmaddwd %2, m9, [weights + mmsize]
++    %else
++        pmaddwd m8, [weights]
++        pmaddwd m9, [weights + mmsize]
++        paddd %1, m8
++        paddd %2, m9
++    %endif
++%endmacro
++
++%macro FILTER_H_SWS_PIXEL_F32 4 ; acc, acc2, src, first
++        pcmpeqb m12, m12
++        pcmpeqb m13, m13
++        vpgatherdd m8, [%3 + m14], m12
++        vpgatherdd m9, [%3 + m15], m13
++    %if %4
++        mulps %1, m8, [weights]
++        mulps %2, m9, [weights + mmsize]
++    %else
++        mulps m8, [weights]
++        mulps m9, [weights + mmsize]
++        addps %1, m8
++        addps %2, m9
++    %endif
++%endmacro
++
++%macro READ_PLANAR_FH 1
++%xdefine FILTER_TYPE %1
++%xdefine weights tmp0q
++%xdefine fltsize tmp1q
++%xdefine FILTER_H_PX FILTER_H_ %+ TYPE
++
++assert_idn FILTER_TYPE, SWS_PIXEL_F32
++%ifidn TYPE, SWS_PIXEL_F32
++    %assign SIZEOF_WEIGHT 4 ; F32
++%else
++    %assign SIZEOF_WEIGHT 2 ; I16
++%endif
++
++        mov tmp0q,   [execq + SwsOpExec.in_offset_x]
++        mov fltsize, [implq + SwsOpImpl.priv + 8] ; size_t filter_size
++        mov tmp2d, bxd
++        shl_log2 tmp2q, FILTER_WIDTH   ; x := bx * FILTER_WIDTH
++        movu m14, [tmp0q + 4 * tmp2q]  ; &exec->in_offset_x[x]
++        movu m15, [tmp0q + 4 * tmp2q + mmsize]
++        mov weights, [implq + SwsOpImpl.priv]
++    %ifidn TYPE, SWS_PIXEL_U16
++        VBROADCASTI128 m10, [bias16]
++        VBROADCASTI128 m11, [bias32]
++    %endif
++        imul tmp2q, fltsize
++        lea weights, [weights + tmp2q * SIZEOF_WEIGHT] ; weights += x * filter_size
++IF X,   FILTER_H_PX mx, mx2, in0q, 1
++IF Y,   FILTER_H_PX my, my2, in1q, 1
++IF Z,   FILTER_H_PX mz, mz2, in2q, 1
++IF W,   FILTER_H_PX mw, mw2, in3q, 1
++        sub fltsize, 4 / BYTES
++        jz .done
++IF X,   push in0q
++IF Y,   push in1q
++IF Z,   push in2q
++IF W,   push in3q
++.loop:
++IF X,   add in0q, 4
++IF Y,   add in1q, 4
++IF Z,   add in2q, 4
++IF W,   add in3q, 4
++        add weights, BLOCK_WIDTH * SIZEOF_WEIGHT
++IF X,   FILTER_H_PX mx, mx2, in0q, 0
++IF Y,   FILTER_H_PX my, my2, in1q, 0
++IF Z,   FILTER_H_PX mz, mz2, in2q, 0
++IF W,   FILTER_H_PX mw, mw2, in3q, 0
++        sub fltsize, 4 / BYTES
++        jnz .loop
++IF W,   pop in3q
++IF Z,   pop in2q
++IF Y,   pop in1q
++IF X,   pop in0q
++.done:
++    %ifidn TYPE, SWS_PIXEL_U16
++IF X,   paddd mx, m11
++IF Y,   paddd my, m11
++IF Z,   paddd mz, m11
++IF W,   paddd mw, m11
++IF X,   paddd mx2, m11
++IF Y,   paddd my2, m11
++IF Z,   paddd mz2, m11
++IF W,   paddd mw2, m11
++    %endif
++    %ifnidn TYPE, SWS_PIXEL_F32
++IF X,   vcvtdq2ps mx, mx
++IF Y,   vcvtdq2ps my, my
++IF Z,   vcvtdq2ps mz, mz
++IF W,   vcvtdq2ps mw, mw
++IF X,   vcvtdq2ps mx2, mx2
++IF Y,   vcvtdq2ps my2, my2
++IF Z,   vcvtdq2ps mz2, mz2
++IF W,   vcvtdq2ps mw2, mw2
++    %endif
++        VBROADCASTI128 m12, [scale_inv]
++        LOAD_CONT tmp0q
++IF X,   mulps mx, m12
++IF Y,   mulps my, m12
++IF Z,   mulps mz, m12
++IF W,   mulps mw, m12
++IF X,   mulps mx2, m12
++IF Y,   mulps my2, m12
++IF Z,   mulps mz2, m12
++IF W,   mulps mw2, m12
++        CONTINUE tmp0q
++%undef weights
++%undef fltsize
++%endmacro
++
++;---------------------------------------------------------
++; 4x4 transposed horizontal filtering
++
++%macro ILOAD_SWS_PIXEL_U8 2 ; dst, src
++        pmovzxbw %1, %2
++%endmacro
++
++%macro ILOAD_SWS_PIXEL_U16 2 ; dst, src
++        movu %1, %2
++        psubw %1, [bias16] ; shift into signed I16 range
++%endmacro
++
++%macro ILOAD_SWS_PIXEL_F32 2 ; dst, src
++        movu %1, %2
++%endmacro
++
++; filter 4 adjacent pixels at the same time
++%macro filter_h4_4x4 2 ; dst, src
++%ifidn TYPE, SWS_PIXEL_F32
++    %xdefine MUL mulps
++    %xdefine ADD addps
++%else
++    %xdefine MUL pmaddwd
++    %xdefine ADD paddd
++%endif
++
++        ILOAD_PX xm8,  [%2 + offset0q] ; {a0, a1, a2, a3}
++        ILOAD_PX xm9,  [%2 + offset1q] ; {b0, b1, b2, b3}
++        ILOAD_PX xm10, [%2 + offset2q] ; {c0, c1, c2, c3}
++        ILOAD_PX xm11, [%2 + offset3q] ; {d0, d1, d2, d3}
++        MUL xm8,  [weights]
++        MUL xm9,  [weights + 16]
++        MUL xm10, [weights + 32]
++        MUL xm11, [weights + 48]
++        mov bxq, fltsize
++        sub bxq, 64
++        jz %%done
++        push weights
++        push %2
++%%loop:
++        add weights, 64
++        add %2, (16 / SIZEOF_WEIGHT) * BYTES ; pixels per xmm reg
++        ILOAD_PX xm14, [%2 + offset0q]
++        ILOAD_PX xm15, [%2 + offset1q]
++        MUL xm14, [weights]
++        MUL xm15, [weights + 16]
++        ADD xm8, xm14
++        ADD xm9, xm15
++        ILOAD_PX xm14, [%2 + offset2q]
++        ILOAD_PX xm15, [%2 + offset3q]
++        MUL xm14, [weights + 32]
++        MUL xm15, [weights + 48]
++        ADD xm10, xm14
++        ADD xm11, xm15
++        sub bxq, 64
++        jnz %%loop
++        pop %2
++        pop weights
++%%done:
++        ; 4x4 transpose (on XMM size)
++        punpckhdq  xm15, xm8,  xm9  ; {a2, b2, a3, b3}
++        punpckldq  xm8,  xm9        ; {a0, b0, a1, b1}
++        punpckhdq  xm9,  xm10, xm11 ; {c2, d2, c3, d3}
++        punpckldq  xm10, xm11       ; {c0, d0, c1, d1}
++        punpckhqdq xm11, xm8,  xm10 ; {a1, b1, c1, d1}
++        punpcklqdq xm8,  xm10       ; {a0, b0, c0, d0}
++        punpckhqdq xm10, xm15, xm9  ; {a3, b3, c3, d3}
++        punpcklqdq xm15, xm9        ; {a2, b2, c2, d2}
++        ADD xm8,  xm11 ; sum all even terms
++        ADD xm15, xm10 ; sum all odd terms
++        ADD %1, xm8, xm15
++%undef MUL
++%undef ADD
++%endmacro
++
++; filter low and high lanes separately and combine results for each plane
++%macro filter_h8_4x4 1-2 ; offsets, dst_suffix
++        movsxd offset0q, dword [%1 +  0]
++        movsxd offset1q, dword [%1 +  4]
++        movsxd offset2q, dword [%1 +  8]
++        movsxd offset3q, dword [%1 + 12]
++IF X,   filter_h4_4x4 xmx%2, in0q
++IF Y,   filter_h4_4x4 xmy%2, in1q
++IF Z,   filter_h4_4x4 xmz%2, in2q
++IF W,   filter_h4_4x4 xmw%2, in3q
++        add weights, fltsize
++        movsxd offset0q, dword [%1 + 16]
++        movsxd offset1q, dword [%1 + 20]
++        movsxd offset2q, dword [%1 + 24]
++        movsxd offset3q, dword [%1 + 28]
++IF X,   filter_h4_4x4 xm12, in0q
++IF Y,   filter_h4_4x4 xm13, in1q
++IF X,   vinsertf128 mx%2, mx%2, xmm12, 1
++IF Y,   vinsertf128 my%2, my%2, xmm13, 1
++IF Z,   filter_h4_4x4 xm12, in2q
++IF W,   filter_h4_4x4 xm13, in3q
++IF Z,   vinsertf128 mz%2, mz%2, xmm12, 1
++IF W,   vinsertf128 mw%2, mw%2, xmm13, 1
++    %ifidn TYPE, SWS_PIXEL_U16
++        VBROADCASTI128 m15, [bias32]
++IF X,   paddd mx%2, m15
++IF Y,   paddd my%2, m15
++IF Z,   paddd mz%2, m15
++IF W,   paddd mw%2, m15
++    %endif
++    %ifnidn TYPE, SWS_PIXEL_F32
++IF X,   vcvtdq2ps mx%2, mx%2
++IF Y,   vcvtdq2ps my%2, my%2
++IF Z,   vcvtdq2ps mz%2, mz%2
++IF W,   vcvtdq2ps mw%2, mw%2
++    %endif
++%endmacro
++
++%macro READ_PLANAR_FH_4X4 1
++%xdefine FILTER_TYPE %1
++%xdefine offset0q out0q
++%xdefine offset1q out1q
++%xdefine offset2q out2q
++%xdefine offset3q out3q
++%xdefine weights  tmp0q
++%xdefine offsets  tmp2q
++%xdefine fltsize  tmp1q
++%xdefine ILOAD_PX ILOAD_ %+ TYPE
++
++assert_idn FILTER_TYPE, SWS_PIXEL_F32
++%ifidn TYPE, SWS_PIXEL_F32
++    %assign SIZEOF_WEIGHT 4 ; F32
++%else
++    %assign SIZEOF_WEIGHT 2 ; I16
++%endif
++
++        ; reserve some registers for the inner loops
++        push bxq
++        push offset0q
++        push offset1q
++        push offset2q
++        push offset3q
++        shl_log2 bxq, FILTER_WIDTH ; x := bx * FILTER_WIDTH
++        mov weights, [implq + SwsOpImpl.priv]        ; int16_t *weights
++        mov tmp1d,   [implq + SwsOpImpl.priv + 8]    ; size_t filter_size
++        mov offsets, [execq + SwsOpExec.in_offset_x] ; int32_t *offsets
++        lea offsets, [offsets + 4 * bxq] ; offsets += x * sizeof(int32_t)
++        imul bxq, fltsize
++        add weights, bxq ; weights += x * filter_size
++        shl fltsize, 2   ; fltsize *= 4 (number of pixels / iter)
++        filter_h8_4x4 offsets
++        add weights, fltsize
++        filter_h8_4x4 offsets + 32, 2
++        VBROADCASTI128 m10, [scale_inv]
++        pop offset3q
++        pop offset2q
++        pop offset1q
++        pop offset0q
++        pop bxq
++        LOAD_CONT tmp0q
++IF X,   mulps mx, m10
++IF Y,   mulps my, m10
++IF Z,   mulps mz, m10
++IF W,   mulps mw, m10
++IF X,   mulps mx2, m10
++IF Y,   mulps my2, m10
++IF Z,   mulps mz2, m10
++IF W,   mulps mw2, m10
++        CONTINUE tmp0q
++%undef offset0q
++%undef offset1q
++%undef offset2q
++%undef offset3q
++%undef weights
++%undef offsets
++%undef fltsize
++%endmacro
++
++;---------------------------------------------------------
++; Arithmetic operations
++
++%macro SCALE 0
++        vbroadcastss m8, [implq + SwsOpImpl.priv]
++        LOAD_CONT tmp0q
++IF X,   mulps mx, m8
++IF Y,   mulps my, m8
++IF Z,   mulps mz, m8
++IF W,   mulps mw, m8
++IF X,   mulps mx2, m8
++IF Y,   mulps my2, m8
++IF Z,   mulps mz2, m8
++IF W,   mulps mw2, m8
++        CONTINUE tmp0q
++%endmacro
++
++%macro ADD 0
++IF X,   vbroadcastss m8,  [implq + SwsOpImpl.priv + 0 * BYTES]
++IF Y,   vbroadcastss m9,  [implq + SwsOpImpl.priv + 1 * BYTES]
++IF Z,   vbroadcastss m10, [implq + SwsOpImpl.priv + 2 * BYTES]
++IF W,   vbroadcastss m11, [implq + SwsOpImpl.priv + 3 * BYTES]
++        LOAD_CONT tmp0q
++IF X,   addps mx, m8
++IF Y,   addps my, m9
++IF Z,   addps mz, m10
++IF W,   addps mw, m11
++IF X,   addps mx2, m8
++IF Y,   addps my2, m9
++IF Z,   addps mz2, m10
++IF W,   addps mw2, m11
++        CONTINUE tmp0q
++%endmacro
++
++%macro MIN 0
++IF X,   vbroadcastss m8,  [implq + SwsOpImpl.priv + 0 * BYTES]
++IF Y,   vbroadcastss m9,  [implq + SwsOpImpl.priv + 1 * BYTES]
++IF Z,   vbroadcastss m10, [implq + SwsOpImpl.priv + 2 * BYTES]
++IF W,   vbroadcastss m11, [implq + SwsOpImpl.priv + 3 * BYTES]
++        LOAD_CONT tmp0q
++IF X,   minps mx, m8
++IF Y,   minps my, m9
++IF Z,   minps mz, m10
++IF W,   minps mw, m11
++IF X,   minps mx2, m8
++IF Y,   minps my2, m9
++IF Z,   minps mz2, m10
++IF W,   minps mw2, m11
++        CONTINUE tmp0q
++%endmacro
++
++%macro MAX 0
++IF X,   vbroadcastss m8,  [implq + SwsOpImpl.priv + 0 * BYTES]
++IF Y,   vbroadcastss m9,  [implq + SwsOpImpl.priv + 1 * BYTES]
++IF Z,   vbroadcastss m10, [implq + SwsOpImpl.priv + 2 * BYTES]
++IF W,   vbroadcastss m11, [implq + SwsOpImpl.priv + 3 * BYTES]
++        LOAD_CONT tmp0q
++IF X,   maxps mx, m8
++IF Y,   maxps my, m9
++IF Z,   maxps mz, m10
++IF W,   maxps mw, m11
++IF X,   maxps mx2, m8
++IF Y,   maxps my2, m9
++IF Z,   maxps mz2, m10
++IF W,   maxps mw2, m11
++        CONTINUE tmp0q
++%endmacro
++
++;---------------------------------------------------------
++; Linear operations
++
++%define LIN_MASK(I, J) (1 << (5 * (I) + (J)))
++
++%macro linear_muladd 5 ; dst, src, use_coef, coef, use_fma
++    %if INIT ; dst is already initialized
++        %if %3 && %5
++            fmaddps %1, %4, %2, %1
++        %elif %3
++            mulps %4, %2
++            addps %1, %4
++        %else
++            addps %1, %2
++        %endif
++    %else
++        %assign INIT 1
++        %if %3
++            mulps %1, %4, %2
++        %else
++            mova %1, %2
++        %endif
++    %endif
++%endmacro
++
++%macro linear_row 3-4 ; dst, src, row, suffix
++%xdefine NEED(J) (!(ZERO_MASK & LIN_MASK(%3, J)))
++%xdefine LOAD(J) (NEED(J) && !(ONE_MASK & LIN_MASK(%3, J)))
++%xdefine FMA(J)  (EXACT_MASK & LIN_MASK(%3, J))
++%assign INIT 0 ; track whether `dst` already contains data
++
++    %if !(ZERO_MASK & LIN_MASK(%3, 4)) ; nonzero output offset
++            %assign INIT 1
++            vbroadcastss %1,  [%2 + 4 * BYTES]
++    %endif
++IF LOAD(0), vbroadcastss m12, [%2 + 0 * BYTES]
++IF LOAD(1), vbroadcastss m13, [%2 + 1 * BYTES]
++IF LOAD(2), vbroadcastss m14, [%2 + 2 * BYTES]
++IF LOAD(3), vbroadcastss m15, [%2 + 3 * BYTES]
++IF NEED(0), linear_muladd %1, mx%4, LOAD(0), m12, FMA(0)
++IF NEED(1), linear_muladd %1, my%4, LOAD(1), m13, FMA(1)
++IF NEED(2), linear_muladd %1, mz%4, LOAD(2), m14, FMA(2)
++IF NEED(3), linear_muladd %1, mw%4, LOAD(3), m15, FMA(3)
++            assert INIT, SWS_UOP_LINEAR should not contain empty rows
++%endmacro
++
++%macro LINEAR_FMA 3
++%assign ONE_MASK   %1
++%assign ZERO_MASK  %2
++%assign EXACT_MASK %3
++
++        mov tmp0q, [implq + SwsOpImpl.priv] ; address of matrix
++        LOAD_CONT tmp1q
++IF1 X,  linear_row m8,  tmp0q +  0 * BYTES, 0
++IF1 Y,  linear_row m9,  tmp0q +  5 * BYTES, 1
++IF1 Z,  linear_row m10, tmp0q + 10 * BYTES, 2
++IF1 W,  linear_row m11, tmp0q + 15 * BYTES, 3
++IF X,   mova mx, m8
++IF Y,   mova my, m9
++IF Z,   mova mz, m10
++IF W,   mova mw, m11
++IF1 X,  linear_row m8,  tmp0q +  0 * BYTES, 0, 2
++IF1 Y,  linear_row m9,  tmp0q +  5 * BYTES, 1, 2
++IF1 Z,  linear_row m10, tmp0q + 10 * BYTES, 2, 2
++IF1 W,  linear_row m11, tmp0q + 15 * BYTES, 3, 2
++IF X,   mova mx2, m8
++IF Y,   mova my2, m9
++IF Z,   mova mz2, m10
++IF W,   mova mw2, m11
++        CONTINUE tmp1q
++%endmacro
++
++;---------------------------------------------------------
++; Dithering
++
++%macro VBROADCAST 3 ; size, dst, src
++    %if %1 == 4
++        vbroadcastss %2, %3
++    %elif %1 == 8
++        vbroadcastsd %2, %3
++    %elif %1 == 16
++        VBROADCASTF128 %2, %3
++    %else
++        mova %2, %3
++    %endif
++%endmacro
++
++%macro DITHER 5 ; x_off, y_off, z_off, w_off, size_log2
++%assign SIZE_LOG2 %5
++%assign SIZE      (1 << SIZE_LOG2)
++%assign STRIDE    (SIZE * BYTES)
++        ; dither matrix is stored indirectly at the private data address
++        mov tmp1q, [implq + SwsOpImpl.priv]
++        ; add y offset. note that for 2x2, we would only need to look at the
++        ; sign of `y`, but this special case is ignored for simplicity reasons
++        ; (and because the current upstream format code never generates matrices
++        ; that small)
++        mov tmp0d, yd
++        and tmp0d, SIZE - 1
++        shl_log2 tmp0d, STRIDE
++        add tmp1q, tmp0q
++    %if STRIDE > BLOCK_SIZE
++        ; need to add in x offset
++        mov tmp0d, bxd
++        shl tmp0d, BLOCK_SIZE
++        and tmp0d, STRIDE - 1
++        add tmp1q, tmp0q
++    %endif
++    %xdefine dither_addr_x (tmp1q + %1 * STRIDE)
++    %xdefine dither_addr_y (tmp1q + %2 * STRIDE)
++    %xdefine dither_addr_z (tmp1q + %3 * STRIDE)
++    %xdefine dither_addr_w (tmp1q + %4 * STRIDE)
++    %if STRIDE > mmsize
++        LOAD_CONT tmp0q
++IF X,   addps mx,  [dither_addr_x]
++IF Y,   addps my,  [dither_addr_y]
++IF Z,   addps mz,  [dither_addr_z]
++IF W,   addps mw,  [dither_addr_w]
++IF X,   addps mx2, [dither_addr_x + mmsize]
++IF Y,   addps my2, [dither_addr_y + mmsize]
++IF Z,   addps mz2, [dither_addr_z + mmsize]
++IF W,   addps mw2, [dither_addr_w + mmsize]
++    %else
++IF X,   VBROADCAST STRIDE, m8,  [dither_addr_x]
++IF Y,   VBROADCAST STRIDE, m9,  [dither_addr_y]
++IF Z,   VBROADCAST STRIDE, m10, [dither_addr_z]
++IF W,   VBROADCAST STRIDE, m11, [dither_addr_w]
++        LOAD_CONT tmp0q
++IF X,   addps mx,  m8
++IF Y,   addps my,  m9
++IF Z,   addps mz,  m10
++IF W,   addps mw,  m11
++IF X,   addps mx2, m8
++IF Y,   addps my2, m9
++IF Z,   addps mz2, m10
++IF W,   addps mw2, m11
++    %endif
++        CONTINUE tmp0q
++%endmacro
++
++;---------------------------------------------------------
++; Instantiate above macros to generate all uop kernels
++
++%macro decl_filter_ops 1 ; type
++    decl_suffix _4x4,   DECL_%1_READ_PLANAR_FH (READ_PLANAR_FH_4X4)
++
++    DECL_%1_READ_PLANAR_FH      (READ_PLANAR_FH)
++    DECL_%1_READ_PLANAR_FV      (READ_PLANAR_FV)
++    DECL_%1_READ_PLANAR_FV_FMA  (READ_PLANAR_FV_FMA)
++%endmacro
++
++%macro decl_float_ops 1 ; type
++    DECL_%1_SCALE           (SCALE)
++    DECL_%1_ADD             (ADD)
++    DECL_%1_MIN             (MIN)
++    DECL_%1_MAX             (MAX)
++    DECL_%1_LINEAR_FMA      (LINEAR_FMA)
++    DECL_%1_DITHER          (DITHER)
++%endmacro
++
++INIT_YMM avx2
++%assign V2 1
++
++decl_filter_ops U8
++decl_filter_ops U16
++decl_filter_ops F32
++decl_float_ops  F32
+diff -ruN tmp/ffmpeg-swscale-pipeline-asm/ladder/L2/libswscale/x86/ops_include.asm tmp/ffmpeg-swscale-pipeline-asm/ladder/L3/libswscale/x86/ops_include.asm
+--- a/libswscale/x86/ops_include.asm	1970-01-01 00:00:00.000000000 +0000
++++ b/libswscale/x86/ops_include.asm	2026-09-23 16:07:57.000000000 +0000
+@@ -0,0 +1,374 @@
++;******************************************************************************
++;* Copyright (c) 2025 Niklas Haas
++;*
++;* This file is part of FFmpeg.
++;*
++;* FFmpeg is free software; you can redistribute it and/or
++;* modify it under the terms of the GNU Lesser General Public
++;* License as published by the Free Software Foundation; either
++;* version 2.1 of the License, or (at your option) any later version.
++;*
++;* FFmpeg is distributed in the hope that it will be useful,
++;* but WITHOUT ANY WARRANTY; without even the implied warranty of
++;* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++;* Lesser General Public License for more details.
++;*
++;* You should have received a copy of the GNU Lesser General Public
++;* License along with FFmpeg; if not, write to the Free Software
++;* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++;******************************************************************************
++
++%include "libavutil/x86/x86util.asm"
++%include "libswscale/x86/uops_macros.gen.asm"
++
++; High-level explanation of how the x86 backend works:
++;
++; sws_processN is the shared entry point for all operation chains. This
++; function is responsible for the block loop, as well as initializing the
++; plane pointers. It will jump directly into the first operation kernel,
++; and each operation kernel will jump directly into the next one, with the
++; final kernel returning back into the entry point.
++;
++; Inside an operation chain, we use a custom calling convention to preserve
++; registers between kernels. The exact register allocation is found further
++; below in this file, but we basically reserve (and share) the following
++; registers:
++;
++; - const execq (read-only, shared execution data, see SwsOpExec); stores the
++;   static metadata for this call and describes the image layouts
++;
++; - implq (read-only, operation chain, see SwsOpChain); stores the private data
++;   for each operation as well as the pointer to the next kernel in the sequence.
++;   This register is automatically incremented by the CONTINUE macro, and will
++;   be reset back to the first operation kernel by sws_process.
++;
++; - bxd, yd: current line and block number, used as loop counters in sws_process.
++;   Also used by e.g. the dithering code to do position-dependent dithering.
++;
++; - tmp0, tmp1, tmp2: temporary registers which are NOT preserved between kernels
++;
++; - inNq, outNq: plane pointers. These are incremented automatically after the
++;   corresponding read/write operation, by the read/write kernels themselves.
++;   sws_process will take care of resetting these to the next line after the
++;   block loop is done.
++;
++; Additionally, we pass data between kernels by directly keeping them inside
++; vector registers. For this, we reserve the following registers:
++;
++; - mx, my, mz, mw:     low half of the X, Y, Z and W components
++; - mx2, my2, mz2, mw2: high half of the X, Y, Z and W components
++; (As well as sized variants for xmx, ymx, etc.)
++;
++; The "high half" registers are only sometimes used; in order to enable
++; processing more pixels at the same time. See `decl_v2` below, which allows
++; assembling the same operation twice, once with only the lower half (V2=0),
++; and once with both halves (V2=1). The remaining vectors (m8-m15) are free for
++; use inside operation kernels.
++;
++; The basic rule is that we always use the full set of both vector registers
++; when processing the largest element size within a pixel chain. For example,
++; if we load 8-bit values and convert them to 32-bit floats internally, then
++; we would have an operation chain which combines an SSE4 V2=0 u8 kernel (128
++; bits = 16 pixels) with an AVX2 V2=1 f32 kernel (512 bits = 16 pixels). This
++; keeps the number of pixels being processed (BLOCK_WIDTH) constant. The V2
++; setting is suffixed to the operation name (_m1 or _m2), along with any other
++; custom NAME_SUFFIX (e.g. for operation variants).
++;
++; This design leaves us with the following set of possibilities:
++;
++; SSE4:
++; - max element is 32-bit: currently unsupported
++; - max element is 16-bit: currently unsupported
++; - max element is 8-bit:  block size 32, u8_m2_sse4
++;
++; AVX2:
++; - max element is 32-bit: block size 16, u32_m2_avx2, u16_m1_avx2, u8_m1_sse4
++; - max element is 16-bit: block size 32, u16_m2_avx2, u8_m1_avx2
++; - max element is 8-bit:  block size 64, u8_m2_avx2
++;
++; Meaning we need to cover the following code paths for each bit depth:
++;
++; -  8-bit kernels: m1_sse4, m2_sse4, m1_avx2, m2_avx2
++; - 16-bit kernels: m1_avx2, m2_avx2
++; - 32-bit kernels: m2_avx2
++;
++; See the bottom of ops_int.asm for an example.
++
++struc SwsOpExec
++    .in0 resq 1
++    .in1 resq 1
++    .in2 resq 1
++    .in3 resq 1
++    .out0 resq 1
++    .out1 resq 1
++    .out2 resq 1
++    .out3 resq 1
++    .in_stride0 resq 1
++    .in_stride1 resq 1
++    .in_stride2 resq 1
++    .in_stride3 resq 1
++    .out_stride0 resq 1
++    .out_stride1 resq 1
++    .out_stride2 resq 1
++    .out_stride3 resq 1
++    .in_bump0 resq 1
++    .in_bump1 resq 1
++    .in_bump2 resq 1
++    .in_bump3 resq 1
++    .out_bump0 resq 1
++    .out_bump1 resq 1
++    .out_bump2 resq 1
++    .out_bump3 resq 1
++    .width resd 1
++    .height resd 1
++    .slice_y resd 1
++    .slice_h resd 1
++    .block_size_in resd 4
++    .block_size_out resd 4
++    .in_sub_y4 resb 4
++    .out_sub_y4 resb 4
++    .in_sub_x4 resb 4
++    .out_sub_x4 resb 4
++    .in_bump_y resq 1
++    .in_offset_x resq 1
++endstruc
++
++struc SwsOpImpl
++    .cont resb 16
++    .priv resb 16
++    .next resb 0
++endstruc
++
++%define SWS_COMP_NONE           0
++%define SWS_COMP_ALL            0xF
++%define SWS_COMP(X)             (1 << (X))
++%define SWS_COMP_TEST(mask, X)  (((mask) >> X) & 1)
++%define SWS_COMP_INV(mask)      ((mask) ^ SWS_COMP_ALL)
++%define SWS_COMP_ELEMS(N)       ((1 << (N)) - 1)
++
++;---------------------------------------------------------
++; Common macros for declaring operations
++
++; Declare an operation kernel, calling a provided macro to generate the body.
++; Note: This is automatically called by the DECL_*() macros
++%macro DECL_OP 5-6+ ; macro, name, type, uop, mask
++    ; Declare named variables for common macro parameters
++    %ifdef NAME_SUFFIX
++        %xdefine NAME %2 %+ NAME_SUFFIX
++    %else
++        %xdefine NAME %2
++    %endif
++    %xdefine TYPE %3
++    %xdefine UOP  %4
++    %xdefine MASK %5
++
++    ; Declare X/Y/Z/W based on the provided mask
++    %assign X SWS_COMP_TEST(MASK, 0)
++    %assign Y SWS_COMP_TEST(MASK, 1)
++    %assign Z SWS_COMP_TEST(MASK, 2)
++    %assign W SWS_COMP_TEST(MASK, 3)
++    %assign COMPS (X + Y + Z + W)
++
++    ; Declare BYTES and BITS based on the ops type
++    %ifidn TYPE, SWS_PIXEL_U8
++        %assign BYTES 1
++    %elifidn TYPE, SWS_PIXEL_U16
++        %assign BYTES 2
++    %else
++        %assign BYTES 4
++    %endif
++    %assign BITS (BYTES * 8)
++
++    ; Calculate block size helpers
++    %ifdef V2
++        %assign BLOCK_SIZE (mmsize * (1 + V2))
++    %else
++        %assign BLOCK_SIZE (mmsize)
++    %endif
++    %assign BLOCK_WIDTH (BLOCK_SIZE / BYTES)
++
++    ; Add the correct name mangling / suffix for decl_v2
++    %ifdef V2
++        %if V2
++            %define ADD_MUL(name) name %+ _m2
++        %else
++            %define ADD_MUL(name) name %+ _m1
++        %endif
++    %else
++        %define ADD_MUL(name) name
++    %endif
++
++    cglobal ADD_MUL(NAME), 0, 0, 0 ; already allocated by entry point
++    %1 %6 ; call the provided macro to generate the kernel body
++
++    %undef NAME
++    %undef UOP
++    %undef TYPE
++    %undef MASK
++    %undef X
++    %undef Y
++    %undef Z
++    %undef W
++    %undef COMPS
++    %undef BYTES
++    %undef BITS
++    %undef BLOCK_SIZE
++    %undef BLOCK_WIDTH
++    %undef ADD_MUL
++%endmacro
++
++; Declare a set of operations with a custom name suffix
++%macro decl_suffix 2+ ; suffix, func
++    %xdefine NAME_SUFFIX %1
++    %2
++    %undef NAME_SUFFIX
++%endmacro
++
++; Declare a set of operations with the high half enabled / disabled
++%macro decl_v2 2+ ; v2, func
++    %assign V2 %1
++    %2
++    %undef V2
++%endmacro
++
++;---------------------------------------------------------
++; Common names for the internal calling convention
++%define mx      m0
++%define my      m1
++%define mz      m2
++%define mw      m3
++
++%define xmx     xm0
++%define xmy     xm1
++%define xmz     xm2
++%define xmw     xm3
++
++%define ymx     ym0
++%define ymy     ym1
++%define ymz     ym2
++%define ymw     ym3
++
++%define mx2     m4
++%define my2     m5
++%define mz2     m6
++%define mw2     m7
++
++%define xmx2    xm4
++%define xmy2    xm5
++%define xmz2    xm6
++%define xmw2    xm7
++
++%define ymx2    ym4
++%define ymy2    ym5
++%define ymz2    ym6
++%define ymw2    ym7
++
++; Reserved in this order by the signature of SwsOpFunc
++%define execq   r0q
++%define implq   r1q
++%define bxd     r2d
++%define bxq     r2q
++%define yd      r3d
++%define yq      r3q
++
++; Extra registers for free use by kernels, not saved between ops
++%define tmp0q   r4q
++%define tmp1q   r5q
++%define tmp2q   r6q
++
++%define tmp0d   r4d
++%define tmp1d   r5d
++%define tmp2d   r6d
++
++%define tmp0w   r4w
++%define tmp1w   r5w
++%define tmp2w   r6w
++
++; Registers for plane pointers; put at the end (and in ascending plane order)
++; so that we can avoid reserving them when not necessary
++%define out0q   r7q
++%define  in0q   r8q
++%define out1q   r9q
++%define  in1q   r10q
++%define out2q   r11q
++%define  in2q   r12q
++%define out3q   r13q
++%define  in3q   r14q
++
++;---------------------------------------------------------
++; Common macros for linking together different kernels
++
++; Load the next operation kernel's address to a register
++%macro LOAD_CONT 1 ; reg
++    mov %1, [implq + SwsOpImpl.cont]
++%endmacro
++
++; Tail call into the next operation kernel, given that kernel's address
++%macro CONTINUE 1 ; reg
++    add implq, SwsOpImpl.next
++    jmp %1
++    annotate_function_size
++%endmacro
++
++; Convenience macro to load and continue to the next kernel in one step
++%macro CONTINUE 0
++    LOAD_CONT tmp0q
++    CONTINUE tmp0q
++%endmacro
++
++;---------------------------------------------------------
++; Miscellaneous helpers
++
++; Helper for inline conditionals; used to conditionally include single lines
++%macro IF 2+ ; cond, body
++    %if %1
++        %2
++    %endif
++%endmacro
++
++; Alternate name; for nested usage (to work around NASM limitations)
++%macro IF1 2+
++    %if %1
++        %2
++    %endif
++%endmacro
++
++%macro shl_log2 2 ; dst, amount
++    %if %2 == 64
++        shl %1, 6
++    %elif %2 == 32
++        shl %1, 5
++    %elif %2 == 16
++        shl %1, 4
++    %elif %2 == 8
++        shl %1, 3
++    %elif %2 == 4
++        shl %1, 2
++    %elif %2 == 2
++        shl %1, 1
++    %elif %2 == 1
++        ; no-op
++    %else
++        %error "Unsupported value for shl_log2"
++    %endif
++%endmacro
++
++%macro assert 1-2 ; cond, message
++    %if !(%1)
++        %if %0 > 1
++            %error %2
++        %else
++            %error Assertion failed: %1
++        %endif
++    %endif
++%endmacro
++
++%macro assert_idn 2-3 ; expr1, expr2, message
++    %ifnidn %1, %2
++        %if %0 > 2
++            %error %3
++        %else
++            %error Assertion failed: %1 == %2
++        %endif
++    %endif
++%endmacro
+diff -ruN tmp/ffmpeg-swscale-pipeline-asm/ladder/L2/libswscale/x86/ops_int.asm tmp/ffmpeg-swscale-pipeline-asm/ladder/L3/libswscale/x86/ops_int.asm
+--- a/libswscale/x86/ops_int.asm	1970-01-01 00:00:00.000000000 +0000
++++ b/libswscale/x86/ops_int.asm	2026-09-23 16:07:57.000000000 +0000
+@@ -0,0 +1,846 @@
++;******************************************************************************
++;* Copyright (c) 2025-2026 Niklas Haas
++;*
++;* This file is part of FFmpeg.
++;*
++;* FFmpeg is free software; you can redistribute it and/or
++;* modify it under the terms of the GNU Lesser General Public
++;* License as published by the Free Software Foundation; either
++;* version 2.1 of the License, or (at your option) any later version.
++;*
++;* FFmpeg is distributed in the hope that it will be useful,
++;* but WITHOUT ANY WARRANTY; without even the implied warranty of
++;* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++;* Lesser General Public License for more details.
++;*
++;* You should have received a copy of the GNU Lesser General Public
++;* License along with FFmpeg; if not, write to the Free Software
++;* Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++;******************************************************************************
++
++%include "ops_include.asm"
++
++SECTION_RODATA
++
++align 16
++read8_unpack2:  db   0,  2,  4,  6,  8, 10, 12, 14,  1,  3,  5,  7,  9, 11, 13, 15
++read8_unpack3:  db   0,  3,  6,  9,  1,  4,  7, 10,  2,  5,  8, 11, -1, -1, -1, -1
++read8_unpack4:  db   0,  4,  8, 12,  1,  5,  9, 13,  2,  6, 10, 14,  3,  7, 11, 15
++read16_unpack2: db   0,  1,  4,  5,  8,  9, 12, 13,  2,  3,  6,  7, 10, 11, 14, 15
++read16_unpack3: db   0,  1,  6,  7,  2,  3,  8,  9,  4,  5, 10, 11, -1, -1, -1, -1
++read16_unpack4: db   0,  1,  8,  9,  2,  3, 10, 11,  4,  5, 12, 13,  6,  7, 14, 15
++write8_pack2:   db   0,  8,  1,  9,  2, 10,  3, 11,  4, 12,  5, 13,  6, 14,  7, 15
++write8_pack3:   db   0,  4,  8,  1,  5,  9,  2,  6, 10,  3,  7, 11, -1, -1, -1, -1
++write16_pack3:  db   0,  1,  4,  5,  8,  9,  2,  3,  6,  7, 10, 11, -1, -1, -1, -1
++%define write8_pack4  read8_unpack4
++%define write16_pack4 read16_unpack2
++%define write16_pack2 read16_unpack4
++
++bits_mask:      db 128, 64, 32, 16,  8,  4,  2,  1,128, 64, 32, 16,  8,  4,  2,  1
++bits_reverse:   db   7,  6,  5,  4,  3,  2,  1,  0, 15, 14, 13, 12, 11, 10,  9,  8
++nibbles_pack:   times 8 dw 0x0110
++
++swap16:     db  1,  0,  3,  2,  5,  4,  7,  6,  9,  8, 11, 10, 13, 12, 15, 14
++swap32:     db  3,  2,  1,  0,  7,  6,  5,  4, 11, 10,  9,  8, 15, 14, 13, 12
++expand16:   db  0, 0, 2, 2, 4, 4, 6, 6, 8, 8, 10, 10, 12, 12, 14, 14
++expand32:   db  0, 0, 0, 0, 4, 4, 4, 4, 8, 8,  8,  8, 12, 12, 12, 12
++
++align 32
++bits_shuf: times 8 db 0
++           times 8 db 1
++           times 8 db 2
++           times 8 db 3
++
++mask1: times 32 db 0x01
++mask2: times 32 db 0x03
++mask3: times 32 db 0x07
++mask4: times 32 db 0x0F
++
++const1b  equ mask1
++const1w: times 16 dw 0x1
++
++SECTION .text
++
++;---------------------------------------------------------
++; Helper macros for BITS-dependent sized instructions
++
++%macro bitfn 2+
++    %if BITS == 8
++        %1%+b %2
++    %elif BITS == 16
++        %1%+w %2
++    %elif BITS == 32
++        %1%+d %2
++    %endif
++%endmacro
++
++%define psllx           bitfn psll,
++%define psrlx           bitfn psrl,
++%define pcmpeqx         bitfn pcmpeq,
++%define pmullx          bitfn pmull,
++%define vpbroadcastx    bitfn vpbroadcast,
++
++;---------------------------------------------------------
++; Planar reads / writes
++
++%macro READ_PLANAR 0
++IF X,   movu mx, [in0q]
++IF Y,   movu my, [in1q]
++IF Z,   movu mz, [in2q]
++IF W,   movu mw, [in3q]
++%if V2
++IF X,   movu mx2, [in0q + mmsize]
++IF Y,   movu my2, [in1q + mmsize]
++IF Z,   movu mz2, [in2q + mmsize]
++IF W,   movu mw2, [in3q + mmsize]
++%endif
++        LOAD_CONT tmp0q
++IF X,   add in0q, BLOCK_SIZE
++IF Y,   add in1q, BLOCK_SIZE
++IF Z,   add in2q, BLOCK_SIZE
++IF W,   add in3q, BLOCK_SIZE
++        CONTINUE tmp0q
++%endmacro
++
++%macro READ_NIBBLE 0
++assert COMPS == 1
++        VBROADCASTI128 m12, [mask4]
++        LOAD_CONT tmp0q
++        pmovzxbw mx,  [in0q]
++IF V2,  pmovzxbw mx2, [in0q + (mmsize >> 1)]
++        add in0q, BLOCK_WIDTH >> 1
++        psllw m8, mx, 8     ; { 00 AB 00 CD ... }
++        psrlw mx, 4         ; { 0A 00 0C 00 ... }
++        pand m8, m12        ; { 00 0B 00 0D ... }
++        por mx, m8          ; { 0A 0B 0C 0D ... }
++%if V2
++        psllw m9, mx2, 8
++        psrlw mx2, 4
++        pand m9, m12
++        por mx2, m9
++%endif
++        CONTINUE tmp0q
++%endmacro
++
++%macro WRITE_NIBBLE 0
++assert COMPS == 1
++        VBROADCASTI128 m12, [nibbles_pack]
++        pmaddubsw mx, m12
++        packuswb mx, mx
++%if V2
++        pmaddubsw mx2, m12
++        packuswb mx2, mx2
++%endif
++%if cpuflag(avx2)
++        vpermq mx, mx, q3120
++IF V2,  vpermq mx2, mx2, q3120
++%endif
++        movu [out0q], xmx
++IF V2,  movu [out0q + (mmsize >> 1)], xmx2
++        add out0q, BLOCK_WIDTH >> 1
++        RET
++%endmacro
++
++%macro READ_BIT 0
++assert COMPS == 1
++%if cpuflag(avx2)
++        vpbroadcastd mx,  [in0q]
++IF V2,  vpbroadcastd mx2, [in0q + 4]
++%else
++        movd mx, [in0q]
++IF V2,  movd mx2, [in0q + 2]
++%endif
++        mova m8, [bits_shuf]
++        VBROADCASTI128 m9,  [bits_mask]
++        VBROADCASTI128 m10, [const1b]
++        LOAD_CONT tmp0q
++        add in0q, BLOCK_WIDTH >> 3
++        pshufb mx,  m8
++IF V2,  pshufb mx2, m8
++        pand mx,  m9
++IF V2,  pand mx2, m9
++        pcmpeqb mx,  m9
++IF V2,  pcmpeqb mx2, m9
++        pand mx,  m10
++IF V2,  pand mx2, m10
++        CONTINUE tmp0q
++%endmacro
++
++%macro WRITE_BIT 0
++assert COMPS == 1
++        VBROADCASTI128 m8, [bits_reverse]
++        psllw mx,  7
++IF V2,  psllw mx2, 7
++        pshufb mx,  m8
++IF V2,  pshufb mx2, m8
++        pmovmskb tmp0d, mx
++IF V2,  pmovmskb tmp1d, mx2
++%if mmsize >= 32
++        mov [out0q], tmp0d
++IF V2,  mov [out0q + (mmsize >> 3)], tmp1d
++%else
++        mov [out0q], tmp0w
++IF V2,  mov [out0q + (mmsize >> 3)], tmp1w
++%endif
++        add out0q, BLOCK_WIDTH >> 3
++        RET
++%endmacro
++
++%macro WRITE_PLANAR 0
++IF X,   movu [out0q], mx
++IF Y,   movu [out1q], my
++IF Z,   movu [out2q], mz
++IF W,   movu [out3q], mw
++%if V2
++IF X,   movu [out0q + mmsize], mx2
++IF Y,   movu [out1q + mmsize], my2
++IF Z,   movu [out2q + mmsize], mz2
++IF W,   movu [out3q + mmsize], mw2
++%endif
++IF X,   add out0q, BLOCK_WIDTH
++IF Y,   add out1q, BLOCK_WIDTH
++IF Z,   add out2q, BLOCK_WIDTH
++IF W,   add out3q, BLOCK_WIDTH
++        RET
++%endmacro
++
++;---------------------------------------------------------
++; Packed reads, packing and unpacking
++
++%macro read_packed2 0
++        movu m8,  [in0q + 0 * mmsize]
++        movu m9,  [in0q + 1 * mmsize]
++IF V2,  movu m10, [in0q + 2 * mmsize]
++IF V2,  movu m11, [in0q + 3 * mmsize]
++    %if BITS == 32
++        shufps m8, m8, q3120
++        shufps m9, m9, q3120
++IF V2,  shufps m10, m10, q3120
++IF V2,  shufps m11, m11, q3120
++    %else
++        pshufb m8, m12              ; { X0 Y0 | X1 Y1 }
++        pshufb m9, m12              ; { X2 Y2 | X3 Y3 }
++IF V2,  pshufb m10, m12
++IF V2,  pshufb m11, m12
++    %endif
++        unpcklpd mx, m8, m9         ; { X0 X2 | X1 X3 }
++        unpckhpd my, m8, m9         ; { Y0 Y2 | Y1 Y3 }
++IF V2,  unpcklpd mx2, m10, m11
++IF V2,  unpckhpd my2, m10, m11
++    %if cpuflag(avx2)
++        vpermq mx, mx, q3120       ; { X0 X1 | X2 X3 }
++        vpermq my, my, q3120       ; { Y0 Y1 | Y2 Y3 }
++IF V2,  vpermq mx2, mx2, q3120
++IF V2,  vpermq my2, my2, q3120
++    %endif
++%endmacro
++
++%macro read_packed34 5 ; x, y, z, w, addr
++        movu xm8,  [%5 + 0  * COMPS]
++        movu xm9,  [%5 + 4  * COMPS]
++        movu xm10, [%5 + 8  * COMPS]
++        movu xm11, [%5 + 12 * COMPS]
++    %if cpuflag(avx2)
++        vinserti128 m8,  m8,  [%5 + 16 * COMPS], 1
++        vinserti128 m9,  m9,  [%5 + 20 * COMPS], 1
++        vinserti128 m10, m10, [%5 + 24 * COMPS], 1
++        vinserti128 m11, m11, [%5 + 28 * COMPS], 1
++    %endif
++    %if BITS == 32
++        mova %1, m8
++        mova %2, m9
++        mova %3, m10
++        mova %4, m11
++    %else
++        pshufb %1, m8,  m12         ; { X0 Y0 Z0 W0 | X4 Y4 Z4 W4 }
++        pshufb %2, m9,  m12         ; { X1 Y1 Z1 W1 | X5 Y5 Z5 W5 }
++        pshufb %3, m10, m12         ; { X2 Y2 Z2 W2 | X6 Y6 Z6 W6 }
++        pshufb %4, m11, m12         ; { X3 Y3 Z3 W3 | X7 Y7 Z7 W7 }
++    %endif
++        punpckldq m8,  %1, %2       ; { X0 X1 Y0 Y1 | X4 X5 Y4 Y5 }
++        punpckldq m9,  %3, %4       ; { X2 X3 Y2 Y3 | X6 X7 Y6 Y7 }
++        punpckhdq m10, %1, %2       ; { Z0 Z1 W0 W1 | Z4 Z5 W4 W5 }
++        punpckhdq m11, %3, %4       ; { Z2 Z3 W2 W3 | Z6 Z7 W6 W7 }
++        punpcklqdq %1, m8, m9       ; { X0 X1 X2 X3 | X4 X5 X6 X7 }
++        punpckhqdq %2, m8, m9       ; { Y0 Y1 Y2 Y3 | Y4 Y5 Y6 Y7 }
++        punpcklqdq %3, m10, m11     ; { Z0 Z1 Z2 Z3 | Z4 Z5 Z6 Z7 }
++IF W,   punpckhqdq %4, m10, m11     ; { W0 W1 W2 W3 | W4 W5 W6 W7 }
++%endmacro
++
++%macro READ_PACKED 0
++    %if BITS < 32
++        VBROADCASTI128 m12, [ read %+ BITS %+ _unpack %+ COMPS ]
++    %endif
++        LOAD_CONT tmp0q
++    %if COMPS == 2
++        read_packed2
++    %else
++        read_packed34 mx,  my,  mz,  mw,  in0q
++IF1 V2, read_packed34 mx2, my2, mz2, mw2, in0q + mmsize * COMPS
++    %endif
++        add in0q, BLOCK_SIZE * COMPS
++        CONTINUE tmp0q
++%endmacro
++
++%macro read_pal8 6 ; x, y, z, w, palette, index
++%if cpuflag(avx2)
++        pmovzxbd %1, [%6 + 0]
++        pmovzxbd %2, [%6 + 8]
++        pmovzxbd %3, [%6 + 16]
++        pmovzxbd %4, [%6 + 24]
++        vperm2i128 m8,  %1, %3, q0200
++        vperm2i128 m9,  %1, %3, q0301
++        vperm2i128 m10, %2, %4, q0200
++        vperm2i128 m11, %2, %4, q0301
++        pcmpeqb m14, m14
++        pcmpeqb m15, m15
++        vpgatherdd %1, [%5 + 4 * m8], m14
++        vpgatherdd %2, [%5 + 4 * m9], m15
++        pcmpeqb m14, m14
++        pcmpeqb m15, m15
++        vpgatherdd %3, [%5 + 4 * m10], m14
++        vpgatherdd %4, [%5 + 4 * m11], m15
++        pshufb %1, m12
++        pshufb %2, m12
++        pshufb %3, m12
++        pshufb %4, m12
++        punpckldq m8,  %1, %2
++        punpckldq m9,  %3, %4
++        punpckhdq m10, %1, %2
++        punpckhdq m11, %3, %4
++        punpcklqdq %1, m8, m9
++        punpckhqdq %2, m8, m9
++        punpcklqdq %3, m10, m11
++        punpckhqdq %4, m10, m11
++%else ; !cpuflag(avx2)
++    %assign i 0
++    %rep 16
++        movzx tmp1d, byte [%6 + i]
++        pinsrb %1, [%5 + 4 * tmp1q + 0], i
++        pinsrb %2, [%5 + 4 * tmp1q + 1], i
++        pinsrb %3, [%5 + 4 * tmp1q + 2], i
++        pinsrb %4, [%5 + 4 * tmp1q + 3], i
++    %assign i i+1
++    %endrep
++%endif
++%endmacro
++
++%macro READ_PALETTE 0
++assert COMPS == 4
++assert BITS  == 8
++    %if cpuflag(avx2)
++        VBROADCASTI128 m12, [read8_unpack4]
++    %endif
++        LOAD_CONT tmp0q
++        read_pal8 mx,  my,  mz,  mw,  in1q, in0q
++IF1 V2, read_pal8 mx2, my2, mz2, mw2, in1q, in0q + mmsize
++        add in0q, BLOCK_SIZE
++        CONTINUE tmp0q
++%endmacro
++
++%macro write_packed2 0
++    %if cpuflag(avx2)
++        vpermq mx, mx, q3120       ; { X0 X2 | X1 X3 }
++        vpermq my, my, q3120       ; { Y0 Y2 | Y1 Y3 }
++IF V2,  vpermq mx2, mx2, q3120
++IF V2,  vpermq my2, my2, q3120
++    %endif
++        unpcklpd m8, mx, my        ; { X0 Y0 | X1 Y1 }
++        unpckhpd m9, mx, my        ; { X2 Y2 | X3 Y3 }
++IF V2,  unpcklpd m10, mx2, my2
++IF V2,  unpckhpd m11, mx2, my2
++    %if BITS == 32
++        shufps m8, m8, q3120
++        shufps m9, m9, q3120
++IF V2,  shufps m10, m10, q3120
++IF V2,  shufps m11, m11, q3120
++    %else
++        pshufb m8, m12
++        pshufb m9, m12
++IF V2,  pshufb m10, m12
++IF V2,  pshufb m11, m12
++    %endif
++        movu [out0q + 0 * mmsize], m8
++        movu [out0q + 1 * mmsize], m9
++IF V2,  movu [out0q + 2 * mmsize], m10
++IF V2,  movu [out0q + 3 * mmsize], m11
++%endmacro
++
++%macro write_packed34 5 ; x, y, z, w, addr
++        punpckldq m8,  %1, %2       ; { X0 Y0 X1 Y1 | X4 Y4 X5 Y5 }
++        punpckldq m9,  %3, %4       ; { Z0 W0 Z1 W1 | Z4 W4 Z5 W5 }
++        punpckhdq m10, %1, %2       ; { X2 Y2 X3 Y3 | X6 Y6 X7 Y7 }
++        punpckhdq m11, %3, %4       ; { Z2 W2 Z3 W3 | Z6 W6 Z7 W7 }
++        punpcklqdq %1, m8, m9       ; { X0 Y0 Z0 W0 | X4 Y4 Z4 W4 }
++        punpckhqdq %2, m8, m9       ; { X1 Y1 Z1 W1 | X5 Y5 Z5 W5 }
++        punpcklqdq %3, m10, m11     ; { X2 Y2 Z2 W2 | X6 Y6 Z6 W6 }
++        punpckhqdq %4, m10, m11     ; { X3 Y3 Z3 W3 | X7 Y7 Z7 W7 }
++    %if BITS == 32
++        mova m8,  %1
++        mova m9,  %2
++        mova m10, %3
++        mova m11, %4
++    %else
++        pshufb m8,  %1, m12
++        pshufb m9,  %2, m12
++        pshufb m10, %3, m12
++        pshufb m11, %4, m12
++    %endif
++        movu [%5 +  0 * COMPS], xm8
++        movu [%5 +  4 * COMPS], xm9
++        movu [%5 +  8 * COMPS], xm10
++        movu [%5 + 12 * COMPS], xm11
++    %if cpuflag(avx2)
++        vextracti128 [%5 + 16 * COMPS], m8,  1
++        vextracti128 [%5 + 20 * COMPS], m9,  1
++        vextracti128 [%5 + 24 * COMPS], m10, 1
++        vextracti128 [%5 + 28 * COMPS], m11, 1
++    %endif
++%endmacro
++
++%macro WRITE_PACKED 0
++    %if BITS < 32
++        VBROADCASTI128 m12, [ write %+ BITS %+ _pack %+ COMPS ]
++    %endif
++        LOAD_CONT tmp0q
++    %if COMPS == 2
++        write_packed2
++    %else
++        write_packed34 mx,  my,  mz,  mw,  out0q
++IF1 V2, write_packed34 mx2, my2, mz2, mw2, out0q + mmsize * COMPS
++    %endif
++        add out0q, BLOCK_SIZE * COMPS
++        RET
++%endmacro
++
++%macro PACK 4 ; x, y, z, w
++        ; pslld works for all sizes because the input should not overflow
++IF %2,  pslld mx, %4+%3+%2
++IF %3,  pslld my, %4+%3
++IF %4,  pslld mz, %4
++IF Y,   por mx, my
++IF Z,   por mx, mz
++IF W,   por mx, mw
++    %if V2
++IF %2,  pslld mx2, %4+%3+%2
++IF %3,  pslld my2, %4+%3
++IF %4,  pslld mz2, %4
++IF Y,   por mx2, my2
++IF Z,   por mx2, mz2
++IF W,   por mx2, mw2
++    %endif
++        CONTINUE
++%endmacro
++
++%macro UNPACK 4 ; x, y, z, w
++        LOAD_CONT tmp0q
++%if BITS == 8
++        assert MASK == SWS_COMP_ELEMS(3)
++        pand mz, mx, [mask%3]
++        psrld my, mx, %3
++        psrld mx, %3+%2
++        pand my, [mask%2]
++        pand mx, [mask%1]
++    %if V2
++        pand mz2, mx2, [mask%3]
++        psrld my2, mx2, %3
++        psrld mx2, %3+%2
++        pand my2, [mask%2]
++        pand mx2, [mask%1]
++    %endif
++%else
++        ; clear high bits by shifting left
++IF W,   psllx mw, mx, BITS - (%4)
++IF Z,   psllx mz, mx, BITS - (%4+%3)
++IF Y,   psllx my, mx, BITS - (%4+%3+%2)
++        psrlx mx, %2+%3+%4
++IF Y,   psrlx my, BITS - %2
++IF Z,   psrlx mz, BITS - %3
++IF W,   psrlx mw, BITS - %4
++    %if V2
++IF W,   psllx mw2, mx2, BITS - (%4)
++IF Z,   psllx mz2, mx2, BITS - (%4+%3)
++IF Y,   psllx my2, mx2, BITS - (%4+%3+%2)
++        psrlx mx2, %2+%3+%4
++IF Y,   psrlx my2, BITS - %2
++IF Z,   psrlx mz2, BITS - %3
++IF W,   psrlx mw2, BITS - %4
++    %endif
++%endif
++        CONTINUE tmp0q
++%endmacro
++
++;---------------------------------------------------------
++; Pixel type conversions
++
++%macro cast8to16 4 ; reg, reg2, xreg, xreg2
++IF V2,  vextracti128 %4, %1, 1
++        pmovzxbw %1, %3
++IF V2,  pmovzxbw %2, %4
++%endmacro
++
++%macro cast16to8 4 ; reg, reg2, xreg, xreg2
++%if V2
++        packuswb %1, %2
++        vpermq %1, %1, q3120
++%else
++        vextracti128  %4, %1, 1
++        packuswb %3, %4
++%endif
++%endmacro
++
++%macro cast8to32 4 ; reg, reg2, xreg, xreg2
++        psrldq %4, %3, 8
++        pmovzxbd %1, %3
++        pmovzxbd %2, %4
++%endmacro
++
++%macro cast32to8 4 ; reg, reg2, xreg, xreg2
++        packusdw %1, %2
++        vextracti128 %4, %1, 1
++        packuswb %3, %4
++        vpshufd %3, %3, q3120
++%endmacro
++
++%macro cast16to32 4 ; reg, reg2, xreg, xreg2
++        vextracti128 %4, %1, 1
++        pmovzxwd %1, %3
++        pmovzxwd %2, %4
++%endmacro
++
++%macro cast32to16 4 ; reg, reg2, xreg, xreg2
++        packusdw %1, %2
++        vpermq %1, %1, q3120
++%endmacro
++
++%macro CAST_TO 0
++%ifidn UOP, SWS_UOP_TO_U8
++    %assign BITS_TO 8
++%elifidn UOP, SWS_UOP_TO_U16
++    %assign BITS_TO 16
++%else
++    %assign BITS_TO 32
++%endif
++
++        LOAD_CONT tmp0q
++%ifidn TYPE, SWS_PIXEL_F32
++IF X,   cvttps2dq mx, mx
++IF Y,   cvttps2dq my, my
++IF Z,   cvttps2dq mz, mz
++IF W,   cvttps2dq mw, mw
++IF X,   cvttps2dq mx2, mx2
++IF Y,   cvttps2dq my2, my2
++IF Z,   cvttps2dq mz2, mz2
++IF W,   cvttps2dq mw2, mw2
++%endif
++%if BITS != BITS_TO
++        ; integer size conversion
++IF1 X,  cast %+ BITS %+ to %+ BITS_TO mx, mx2, xmx, xmx2
++IF1 Y,  cast %+ BITS %+ to %+ BITS_TO my, my2, xmy, xmy2
++IF1 Z,  cast %+ BITS %+ to %+ BITS_TO mz, mz2, xmz, xmz2
++IF1 W,  cast %+ BITS %+ to %+ BITS_TO mw, mw2, xmw, xmw2
++    %if cpuflag(avx2) && (BITS > BITS_TO && !V2 || BITS >= BITS_TO * 4)
++        ; clear upper bits after reducing the register size
++        vzeroupper ; TMP
++    %endif
++%endif
++%ifidn UOP, SWS_UOP_TO_F32
++IF X,   vcvtdq2ps mx, mx
++IF Y,   vcvtdq2ps my, my
++IF Z,   vcvtdq2ps mz, mz
++IF W,   vcvtdq2ps mw, mw
++IF X,   vcvtdq2ps mx2, mx2
++IF Y,   vcvtdq2ps my2, my2
++IF Z,   vcvtdq2ps mz2, mz2
++IF W,   vcvtdq2ps mw2, mw2
++%endif
++        CONTINUE tmp0q
++%endmacro
++
++;---------------------------------------------------------
++; Moving, copying and clearing
++
++%macro MOVE 13 ; num, dst0..dst5, src0..src5
++%assign NUM_MOVES %1
++%define DST %2
++%define SRC %8
++
++        LOAD_CONT tmp0q
++%rep NUM_MOVES
++        %assign dstidx %2 < 0 ? 8 : %2
++        %assign srcidx %8 < 0 ? 8 : %8
++        mova m %+ dstidx, m %+ srcidx
++    %if V2
++        %assign dstidx dstidx + 4
++        %assign srcidx srcidx + 4
++        mova m %+ dstidx, m %+ srcidx
++    %endif
++%rotate 1
++%endrep
++        CONTINUE tmp0q
++%endmacro
++
++%macro clear 3 ; idx, reg, reg2
++%if SWS_COMP_TEST(ZERO_MASK, %1)
++        pxor %2, %2
++%elif SWS_COMP_TEST(ONE_MASK, %1)
++        pcmpeqb %2, %2
++%elif cpuflag(avx)
++        vpbroadcastd %2, [implq + SwsOpImpl.priv + 4 * %1]
++%else
++        movd %2, [implq + SwsOpImpl.priv + 4 * %1]
++        pshufd %2, %2, 0
++%endif
++IF V2,  mova %3, %2
++%endmacro
++
++%macro CLEAR 2
++%assign ONE_MASK  %1
++%assign ZERO_MASK %2
++IF1 X,  clear 0, mx, mx2
++IF1 Y,  clear 1, my, my2
++IF1 Z,  clear 2, mz, mz2
++IF1 W,  clear 3, mw, mw2
++        CONTINUE
++%endmacro
++
++;---------------------------------------------------------
++; Bit manipulation
++
++%macro SWAP_BYTES 0
++        VBROADCASTI128 m8, [swap %+ BITS]
++IF X,   pshufb mx, m8
++IF Y,   pshufb my, m8
++IF Z,   pshufb mz, m8
++IF W,   pshufb mw, m8
++%if V2
++IF X,   pshufb mx2, m8
++IF Y,   pshufb my2, m8
++IF Z,   pshufb mz2, m8
++IF W,   pshufb mw2, m8
++%endif
++        CONTINUE
++%endmacro
++
++%macro EXPAND_BIT 0
++%if BITS == 8
++        VBROADCASTI128 m8, [const1b]
++%elif BITS == 16
++        VBROADCASTI128 m8, [const1w]
++%else
++        assert 0, EXPAND_BIT is not implemented for 32-bit types
++%endif
++IF X,   pcmpeqx mx, m8
++IF Y,   pcmpeqx my, m8
++IF Z,   pcmpeqx mz, m8
++IF W,   pcmpeqx mw, m8
++%if V2
++IF X,   pcmpeqx mx2, m8
++IF Y,   pcmpeqx my2, m8
++IF Z,   pcmpeqx mz2, m8
++IF W,   pcmpeqx mw2, m8
++%endif
++        CONTINUE
++%endmacro
++
++%macro EXPAND_BYTE 0
++        assert BITS == 8
++%ifidn UOP, SWS_UOP_EXPAND_PAIR
++        %assign BITS_TO BITS * 2
++%elifidn UOP, SWS_UOP_EXPAND_QUAD
++        %assign BITS_TO BITS * 4
++%endif
++        VBROADCASTI128 m8, [expand %+ BITS_TO]
++        LOAD_CONT tmp0q
++IF1 X,  cast8to %+ BITS_TO mx, mx2, xmx, xmx2
++IF1 Y,  cast8to %+ BITS_TO my, my2, xmy, xmy2
++IF1 Z,  cast8to %+ BITS_TO mz, mz2, xmz, xmz2
++IF1 W,  cast8to %+ BITS_TO mw, mw2, xmw, xmw2
++IF X,   pshufb mx, m8
++IF Y,   pshufb my, m8
++IF Z,   pshufb mz, m8
++IF W,   pshufb mw, m8
++    %if V2
++IF X,   pshufb mx2, m8
++IF Y,   pshufb my2, m8
++IF Z,   pshufb mz2, m8
++IF W,   pshufb mw2, m8
++    %endif
++        CONTINUE tmp0q
++%endmacro
++
++%macro LSHIFT 1 ; shift
++        LOAD_CONT tmp0q
++IF X,   psllx mx, %1
++IF Y,   psllx my, %1
++IF Z,   psllx mz, %1
++IF W,   psllx mw, %1
++%if V2
++IF X,   psllx mx2, %1
++IF Y,   psllx my2, %1
++IF Z,   psllx mz2, %1
++IF W,   psllx mw2, %1
++%endif
++        CONTINUE tmp0q
++%endmacro
++
++%macro RSHIFT 1 ; shift
++        LOAD_CONT tmp0q
++IF X,   psrlx mx, %1
++IF Y,   psrlx my, %1
++IF Z,   psrlx mz, %1
++IF W,   psrlx mw, %1
++%if V2
++IF X,   psrlx mx2, %1
++IF Y,   psrlx my2, %1
++IF Z,   psrlx mz2, %1
++IF W,   psrlx mw2, %1
++%endif
++        CONTINUE tmp0q
++%endmacro
++
++;---------------------------------------------------------
++; Arithmetic operations
++
++%macro pmull4 6 ; suffix, x, y, z, w, k
++IF X,   pmull%1 %2, %6
++IF Y,   pmull%1 %3, %6
++IF Z,   pmull%1 %4, %6
++IF W,   pmull%1 %5, %6
++%endmacro
++
++%macro scale8 5 ; mx, my, mz, mw, k
++IF X,   mova m8,  %1
++IF Y,   mova m9,  %2
++IF Z,   mova m10, %3
++IF W,   mova m11, %4
++IF X,   punpcklbw %1,  m15
++IF Y,   punpcklbw %2,  m15
++IF Z,   punpcklbw %3,  m15
++IF W,   punpcklbw %4,  m15
++IF X,   punpckhbw m8,  m15
++IF Y,   punpckhbw m9,  m15
++IF Z,   punpckhbw m10, m15
++IF W,   punpckhbw m11, m15
++        pmull4 w, %1, %2, %3,  %4,  m12
++        pmull4 w, m8, m9, m10, m11, m12
++IF X,   packuswb %1, m8
++IF Y,   packuswb %2, m9
++IF Z,   packuswb %3, m10
++IF W,   packuswb %4, m11
++%endmacro
++
++%macro SCALE 0
++        LOAD_CONT tmp0q
++%if BITS == 8
++%if cpuflag(avx2)
++        vpbroadcastw m12, [implq + SwsOpImpl.priv]
++%else
++        movd xm12, [implq + SwsOpImpl.priv]
++        SPLATW m12, xm12, 0
++%endif
++        pxor m15, m15
++        scale8 mx,  my,  mz,  mw,  m12
++IF1 V2, scale8 mx2, my2, mz2, mw2, m12
++%else
++        vpbroadcastx m12, [implq + SwsOpImpl.priv]
++        pmull4 x, mx,  my,  mz,  mw,  m12
++IF1 V2, pmull4 x, mx2, my2, mz2, mw2, m12
++%endif
++        CONTINUE tmp0q
++%endmacro
++
++%macro ADD 0
++assert 0, SWS_UOP_ADD is not implemented for integer types
++%endmacro
++
++%macro MIN 0
++assert 0, SWS_UOP_MIN is not implemented for integer types
++%endmacro
++
++%macro MAX 0
++assert 0, SWS_UOP_MAX is not implemented for integer types
++%endmacro
++
++%macro LINEAR_FMA 0-*
++assert 0, SWS_UOP_LINEAR_FMA is not implemented for integer types
++%endmacro
++
++%macro DITHER 0-*
++assert 0, SWS_UOP_DITHER is not implemented for integer types
++%endmacro
++
++;---------------------------------------------------------
++; Instantiate above macros to generate all uop kernels
++
++%macro decl_ops 1 ; type
++    DECL_%1_READ_PACKED     (READ_PACKED)
++    DECL_%1_READ_NIBBLE     (READ_NIBBLE)
++    DECL_%1_READ_BIT        (READ_BIT)
++    DECL_%1_READ_PALETTE    (READ_PALETTE)
++    DECL_%1_WRITE_PACKED    (WRITE_PACKED)
++    DECL_%1_WRITE_NIBBLE    (WRITE_NIBBLE)
++    DECL_%1_WRITE_BIT       (WRITE_BIT)
++    DECL_%1_MOVE            (MOVE)
++    DECL_%1_SWAP_BYTES      (SWAP_BYTES)
++    DECL_%1_EXPAND_BIT      (EXPAND_BIT)
++    DECL_%1_SCALE           (SCALE)
++    DECL_%1_ADD             (ADD)
++    DECL_%1_MIN             (MIN)
++    DECL_%1_MAX             (MAX)
++    DECL_%1_UNPACK          (UNPACK)
++    DECL_%1_PACK            (PACK)
++    DECL_%1_LSHIFT          (LSHIFT)
++    DECL_%1_RSHIFT          (RSHIFT)
++    DECL_%1_LINEAR_FMA      (LINEAR_FMA)
++    DECL_%1_DITHER          (DITHER)
++%endmacro
++
++%macro decl_type_invariant 0
++    DECL_U8_READ_PLANAR     (READ_PLANAR)
++    DECL_U8_WRITE_PLANAR    (WRITE_PLANAR)
++    DECL_U8_CLEAR           (CLEAR)
++%endmacro
++
++%macro decl_cast_u16 0
++    DECL_U8_TO_U16          (CAST_TO)
++    DECL_U16_TO_U8          (CAST_TO)
++    DECL_U8_EXPAND_PAIR     (EXPAND_BYTE)
++%endmacro
++
++%macro decl_cast_u32 0
++    DECL_U8_TO_U32          (CAST_TO)
++    DECL_U32_TO_U8          (CAST_TO)
++    DECL_U16_TO_U32         (CAST_TO)
++    DECL_U32_TO_U16         (CAST_TO)
++    DECL_U8_EXPAND_QUAD     (EXPAND_BYTE)
++%endmacro
++
++%macro decl_cast_f32 0
++    DECL_U8_TO_F32          (CAST_TO)
++    DECL_F32_TO_U8          (CAST_TO)
++    DECL_U16_TO_F32         (CAST_TO)
++    DECL_F32_TO_U16         (CAST_TO)
++    DECL_U32_TO_F32         (CAST_TO)
++    DECL_F32_TO_U32         (CAST_TO)
++%endmacro
++
++INIT_XMM sse4
++decl_v2 0, decl_ops U8
++decl_v2 1, decl_ops U8
++decl_v2 0, decl_type_invariant
++decl_v2 1, decl_type_invariant
++
++INIT_YMM avx2
++decl_v2 0, decl_ops U8
++decl_v2 1, decl_ops U8
++decl_v2 0, decl_ops U16
++decl_v2 1, decl_ops U16
++decl_v2 0, decl_type_invariant
++decl_v2 1, decl_type_invariant
++decl_v2 0, decl_cast_u16
++decl_v2 1, decl_cast_u16
++
++decl_v2 1, decl_ops U32
++decl_v2 1, decl_cast_u32
++decl_v2 1, decl_cast_f32
+diff -ruN tmp/ffmpeg-swscale-pipeline-asm/ladder/L2/libswscale/x86/uops_macros.asm.h tmp/ffmpeg-swscale-pipeline-asm/ladder/L3/libswscale/x86/uops_macros.asm.h
+--- a/libswscale/x86/uops_macros.asm.h	1970-01-01 00:00:00.000000000 +0000
++++ b/libswscale/x86/uops_macros.asm.h	2026-09-23 16:07:57.000000000 +0000
+@@ -0,0 +1,89 @@
++/**
++ * Copyright (C) 2025 Niklas Haas
++ *
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with FFmpeg; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++ */
++
++/**
++ * WARNING: This file is preprocessed by the C compiler to generate the NASM
++ * source file uops_macros.gen.asm. It must *NOT* include any headers that
++ * may inadvertently declare any C syntax. The following header only declares
++ * further macros, and is therefore safe.
++ */
++#include "../uops_macros.h"
++
++/**
++ * NASM expects one statement per source line, but the C preprocessor expands
++ * multi-line macros into a single line. This NASM macro allows us to work
++ * around that by expanding its arguments into multiple lines.
++ */
++%macro MULTILINE 0-*
++ %rep %0
++    %1
++  %rotate 1
++ %endrep
++%endmacro
++
++/* Used to suppress "trailing empty parameter" warnings */
++%macro dummy 0
++%endmacro
++
++#define DECL_OP_MACRO(...) {DECL_OP MACRO __VA_ARGS__},
++#define DEF_MACRO(UOP, TYPE)                            \
++    %define DECL_##TYPE##_##UOP(MACRO)                  \
++    MULTILINE SWS_FOR_##TYPE##_##UOP(DECL_OP_MACRO)     \
++    dummy
++
++#define DEF_ALL_MACROS(TYPE)                \
++    MULTILINE                               \
++    {DEF_MACRO(READ_BIT,            TYPE)}, \
++    {DEF_MACRO(READ_NIBBLE,         TYPE)}, \
++    {DEF_MACRO(READ_PACKED,         TYPE)}, \
++    {DEF_MACRO(READ_PLANAR,         TYPE)}, \
++    {DEF_MACRO(READ_PLANAR_FH,      TYPE)}, \
++    {DEF_MACRO(READ_PLANAR_FV,      TYPE)}, \
++    {DEF_MACRO(READ_PLANAR_FV_FMA,  TYPE)}, \
++    {DEF_MACRO(READ_PALETTE,        TYPE)}, \
++    {DEF_MACRO(WRITE_BIT,           TYPE)}, \
++    {DEF_MACRO(WRITE_NIBBLE,        TYPE)}, \
++    {DEF_MACRO(WRITE_PACKED,        TYPE)}, \
++    {DEF_MACRO(WRITE_PLANAR,        TYPE)}, \
++    {DEF_MACRO(MOVE,                TYPE)}, \
++    {DEF_MACRO(SWAP_BYTES,          TYPE)}, \
++    {DEF_MACRO(EXPAND_BIT,          TYPE)}, \
++    {DEF_MACRO(EXPAND_PAIR,         TYPE)}, \
++    {DEF_MACRO(EXPAND_QUAD,         TYPE)}, \
++    {DEF_MACRO(TO_U8,               TYPE)}, \
++    {DEF_MACRO(TO_U16,              TYPE)}, \
++    {DEF_MACRO(TO_U32,              TYPE)}, \
++    {DEF_MACRO(TO_F32,              TYPE)}, \
++    {DEF_MACRO(SCALE,               TYPE)}, \
++    {DEF_MACRO(LINEAR_FMA,          TYPE)}, \
++    {DEF_MACRO(ADD,                 TYPE)}, \
++    {DEF_MACRO(MIN,                 TYPE)}, \
++    {DEF_MACRO(MAX,                 TYPE)}, \
++    {DEF_MACRO(UNPACK,              TYPE)}, \
++    {DEF_MACRO(PACK,                TYPE)}, \
++    {DEF_MACRO(LSHIFT,              TYPE)}, \
++    {DEF_MACRO(RSHIFT,              TYPE)}, \
++    {DEF_MACRO(CLEAR,               TYPE)}, \
++    {DEF_MACRO(DITHER,              TYPE)}
++
++DEF_ALL_MACROS(U8)
++DEF_ALL_MACROS(U16)
++DEF_ALL_MACROS(U32)
++DEF_ALL_MACROS(F32)

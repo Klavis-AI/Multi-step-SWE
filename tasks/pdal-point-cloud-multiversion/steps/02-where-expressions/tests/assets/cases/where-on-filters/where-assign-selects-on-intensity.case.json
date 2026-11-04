@@ -1,0 +1,51 @@
+{
+ "doc": "stages/filter_opts.rst: 'where -- An expression that limits points passed to a filter.  Points that don't pass the expression skip the stage but are available to subsequent stages in a pipeline. [Default: no filtering]'",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"assignment\": \"Classification[:]=7\", \"where\": \"Intensity < 10\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": 1000
+   },
+   "dims": {
+    "Classification": {
+     "unique": [
+      1,
+      2,
+      7
+     ],
+     "count_equal": {
+      "7": 10,
+      "1": 495,
+      "2": 495
+     }
+    },
+    "Intensity": {
+     "min": 0,
+     "max": 999
+    }
+   }
+  }
+ ]
+}

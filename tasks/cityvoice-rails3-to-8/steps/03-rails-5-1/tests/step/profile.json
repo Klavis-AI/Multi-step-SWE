@@ -1,0 +1,485 @@
+{
+  "step": "03-rails-5-1",
+  "_comment": [
+    "Step 3's requirements, and the only place they live.  `score.py` is the",
+    "arithmetic and `evidence.py` is the join; neither knows what this step is",
+    "about.  Every path below is a probe's own key, unrenamed, so a gate can be",
+    "checked against the report it reads by eye.",
+    "",
+    "This step is the first that does not move the interpreter, and that changes",
+    "the shape of the profile.  The tree it is handed -- step 02's answer, Rails",
+    "5.0.7.2 on Ruby 2.4.10 -- boots, eager loads, passes its own 495-example",
+    "suite, raises no deprecation and has every 5.0 framework default adopted,",
+    "because that is exactly what step 02 asked for.  A gate for any of those",
+    "would be a gate the handed-on tree already passes: a free point that",
+    "measures nothing and raises the floor by its own weight (the run that found",
+    "one on step 02 is NOTES-authoring.md section 7.10).",
+    "",
+    "So every one of them is a GUARD instead.  `score.py` gives a guard no weight",
+    "and zeroes the whole gates family when one fails, which costs the handed-on",
+    "tree nothing -- its gate fraction is already zero -- while making 'the",
+    "application still works' a stronger statement than any weighted gate could:",
+    "a candidate who reaches 5.1 by breaking the suite, the boot or the",
+    "deprecation budget scores this step's gates at zero rather than at",
+    "twenty-five twenty-sevenths.  The instruction says so in prose, extending",
+    "step 02's `Integrity` paragraph, so the cliff is stated and not a trap.",
+    "",
+    "Every weighted gate below was evaluated against both calibration trees",
+    "before it was written down, by booting each of them under this payload's own",
+    "`bootprobe.rb`.  The readings are kept in build/probe03/fixtures/ and the",
+    "table is NOTES-authoring.md section 8.2.",
+    "",
+    "  gate                        handed on (build/gold/02)                 golden",
+    "  rails_version               '5.0.7.2'                                 '5.1.7'",
+    "  no_framework_defaults_file  ['config/initializers/new_framew...']     []",
+    "  asset_strict_helper         false                                     true",
+    "  asset_strict_error          false                                     true",
+    "  form_with                   0                                         2",
+    "  no_form_for                 2                                         0",
+    "  encrypted_secrets           false                                     true",
+    "  read_encrypted_secrets      null                                      true",
+    "  encrypted_key_shipped       false                                     true",
+    "  no_plaintext_secrets        true                                      false",
+    "  parameterized_mailer        false                                     true",
+    "  no_string_conditions        ['Answer if: ...' x3]                     []",
+    "  schema_pins_primary_key     false (framework default is narrow)      true",
+    "  ---- guards (no weight) ----",
+    "  ruby_runtime                '2.4.10'                                  '2.4.10'",
+    "  boots                       true                                      true",
+    "  env_boots                   []                                        []",
+    "  eager_load                  true                                      true",
+    "  eager_load_outside_app      []                                        []",
+    "  application_record          'ApplicationRecord'                       'ApplicationRecord'",
+    "  no_direct_base              []                                        []",
+    "  versioned_migrations        0                                         0",
+    "  belongs_to_required         true                                      true",
+    "  framework_defaults          []                                        []",
+    "  own_deprecations            0                                         0",
+    "  suite_deprecations          []                                        []",
+    "  env_deprecations            []                                        []",
+    "  own_suite                   true                                      true",
+    "  suite_size                  495                                       495",
+    "  no_suppression              0                                         0",
+    "  parses                      []                                        []",
+    "  tests_intact                []                                        []",
+    "  tests_not_gutted            []                                        []",
+    "  tree_intact                 []                                        []",
+    "  tests_not_hollowed          309                                       309",
+    "  tests_not_hollow_files      []                                        []",
+    "  tests_not_emptied           []                                        []",
+    "  db_config_from_example      []                                        []",
+    "",
+    "The weights are 0.50/0.50 and not step 01's and step 02's 0.55/0.45, and",
+    "that is arithmetic rather than taste.  Every weighted gate fails on the",
+    "handed-on tree, so its reward is exactly `w_behaviour` times its behaviour",
+    "fraction, and that fraction is 363/386 = 0.9404 because a behaviour-",
+    "preserving migration is supposed to leave almost everything standing.  At",
+    "0.55 the floor is 0.5172, over build-process item 6's 0.5; at 0.50 it is",
+    "0.4702, under it.  Both halves stay above `score.py`'s 0.30 minimum.  The",
+    "measurement is build/runs/item4-03-delta51.log and the write-up is",
+    "NOTES-authoring.md section 8.2.",
+    "",
+    "`form_with` is read as at-least-one rather than at-least-two on purpose.",
+    "The repository has two `form_for` calls and one of them is in a partial",
+    "nothing renders (`app/views/locations/_subscribe_form.html.erb`, no",
+    "reference anywhere in the tree), so deleting that file and converting the",
+    "live one is as good an answer as converting both.  What is not an answer is",
+    "deleting both: `no_form_for` alone is satisfied by a tree with no forms at",
+    "all, which is why the pair is scored and not the negative half on its own.",
+    "",
+    "`schema_pins_primary_key` is conjunctive for the same reason",
+    "`asset_strict_helper` is.  The property it wants -- load and migrate build",
+    "the same width of primary key -- holds on the handed-on tree for free,",
+    "because 5.0's adapter defaults an unnamed key to `serial`.  It only becomes",
+    "a question on a framework that defaults to `bigserial`, so the reading is",
+    "that default AND the widths the tree's own schema dump actually built,",
+    "taken from the database `db:schema:load` made moments earlier.  A tree that",
+    "reaches 5.1 and leaves `db/schema.rb` as Rails 4.2 dumped it reads true on",
+    "the first half and false on the second, which is the realistic failure this",
+    "gate is for.  NOTES-authoring.md section 8.3 has the measurement."
+  ],
+  "weights": {
+    "behaviour": 0.5,
+    "gates": 0.5
+  },
+  "gates": [
+    {
+      "id": "rails_version",
+      "weight": 3,
+      "desc": "Rails 5.1 is the framework that boots, not 5.0 and not 5.2",
+      "check": {
+        "kind": "regex",
+        "path": "bootprobe.probes.versions.rails",
+        "pattern": "^5\\.1\\."
+      }
+    },
+    {
+      "id": "load_defaults_5_1",
+      "weight": 3,
+      "desc": "the application declares the 5.1 framework defaults, with `config.load_defaults 5.1`, and the release it names is that one. This is the one requirement in this step with no runtime reading available: `Rails::Application::Configuration#load_defaults` on 5.1 (railties-5.1.7, `lib/rails/application/configuration.rb`) is a `case` over its argument that flips switches and records nothing, and the `loaded_config_version` reader that would answer it afterwards arrives in 5.2. So it is read where it is written -- a call in the parsed source whose argument is the literal 5.1 (the float and the string spellings alike, because Rails calls `to_s` on it), not a mention in a comment or a string, and not an indirection through a constant this reading cannot follow. The effects the declaration is supposed to have are gated separately below, so declaring it and then turning one back off does not pass. One reading and not two: `load_defaults 5.0` and no declaration at all both fail this one gate and cost the same three points, which is what keeps a near miss from scoring below a skip",
+      "check": {
+        "kind": "at_least",
+        "path": "scan.counts.load_defaults_5_1",
+        "n": 1
+      }
+    },
+    {
+      "id": "no_framework_defaults_file",
+      "weight": 2,
+      "desc": "the hand-written new-framework-defaults initializer is gone -- 5.1 introduces `config.load_defaults`, which is the framework's own replacement for that file, and one of the seven assignments the file carries (`ActiveSupport.halt_callback_chains_on_return_false =`) is itself deprecated on 5.1, so keeping it is a deprecation raised from the application's own configuration. The reading is the list of files under `config/initializers` whose NAME is the generated one (`new_framework_defaults*`); the file's contents are followed separately by the gate below, which is the reading a rename has to get past",
+      "check": {
+        "kind": "empty",
+        "path": "bootprobe.probes.framework_defaults_files"
+      }
+    },
+    {
+      "id": "no_framework_defaults_switches",
+      "weight": 1,
+      "desc": "and its contents have not simply moved somewhere else: none of the seven switches that file lists is assigned by hand anywhere in the tree. `config.load_defaults 5.1` is a declaration of the whole set at once, so a tree that declares it and also keeps `...active_record.belongs_to_required_by_default = true` in an initializer under some other name has kept the file rather than adopted the defaults -- and one of the seven assignments is deprecated on 5.1 wherever it is written. The list is that file's seven and no others: `assets.unknown_asset_fallback` is a switch 5.1 introduces and the 5.0 file never listed, so writing it by hand moves nothing out of that file and is not read here -- whether the fallback is actually off is the pair of runtime gates below. The reading is an assignment in the parsed source and not a mention, so the comment in `config/application.rb` that names the switches the declaration covers is not a finding",
+      "check": {
+        "kind": "at_most",
+        "path": "scan.counts.framework_defaults_switch",
+        "n": 0
+      }
+    },
+    {
+      "id": "asset_strict_helper",
+      "weight": 3,
+      "desc": "the asset pipeline no longer falls back to the public folder for a name it does not know, AND this application's own audio-URL helper still answers the public path for one, without raising and without warning. Every question this application plays over the phone is reached through `VoiceFeedbackHelper#voice_file_path`, whose argument is a question's short name and has never been a pipeline asset, so the two halves have to be read together: with the fallback on, that call answers and (from 5.1) deprecates; with it off, the same call raises `Sprockets::Rails::Helper::AssetNotFound` unless the caller asks for the public path explicitly. The reading is one boot-time probe of the helper itself against a name that is deliberately not an asset, so a tree that satisfies the setting and leaves the helper raising is named here",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.probes.audio.helper_strict"
+      }
+    },
+    {
+      "id": "asset_strict_error",
+      "weight": 2,
+      "desc": "and so does the other audio path, `TwilioSessionError#voice_file`, whose argument is the error's own message -- the same reading taken of the second call site, because the two are separate code and a tree can fix one and leave the other raising at the moment a call goes wrong",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.probes.audio.error_strict"
+      }
+    },
+    {
+      "id": "form_with",
+      "weight": 3,
+      "desc": "the form this application serves is built with `form_with`, the builder 5.1 introduces to unify `form_for` and `form_tag` -- at least one call survives in the tree, so the requirement cannot be met by removing the form",
+      "check": {
+        "kind": "at_least",
+        "path": "scan.counts.form_with",
+        "n": 1
+      }
+    },
+    {
+      "id": "no_form_for",
+      "weight": 2,
+      "desc": "and no `form_for` is left anywhere, including in the partial nothing renders -- a `form_for` in a file the next step's author will read as live is the half of this change that the recording cannot see. The reading counts calls in compiled ERB as well as in Ruby, so a builder called from a template is counted the same as one called from a helper",
+      "check": {
+        "kind": "at_most",
+        "path": "scan.counts.form_for",
+        "n": 0
+      }
+    },
+    {
+      "id": "encrypted_secrets",
+      "weight": 3,
+      "desc": "the secret the booted application signs with comes from the encrypted secrets store 5.1 introduces: the reading decrypts `config/secrets.yml.enc` with the application's own key, reads the environment's `secret_key_base` out of it, and compares it with the value `Rails.application.secrets` actually answers -- so a tree that adds an encrypted file the application does not read fails here rather than passes",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.probes.secrets.effective_from_encrypted"
+      }
+    },
+    {
+      "id": "read_encrypted_secrets",
+      "weight": 2,
+      "desc": "and the application asks for it: `config.read_encrypted_secrets` is on in the booted application. It is off by default even on 5.1, and it is read at boot in every environment, so it belongs in `config/application.rb` rather than in one environment's file -- development and test read their own `secret_key_base` from the same store",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.probes.secrets.read_encrypted_secrets"
+      }
+    },
+    {
+      "id": "encrypted_key_shipped",
+      "weight": 1,
+      "desc": "and the key that decrypts it is in the tree as `config/secrets.yml.key`. The surroundings this application runs in are fixed and do not set `RAILS_MASTER_KEY`, so a key supplied only through the environment is a key the application cannot get; the file is part of the tree the same way `config/database.yml.example` is",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.probes.secrets.encrypted_key_file_present"
+      }
+    },
+    {
+      "id": "no_plaintext_secrets",
+      "weight": 2,
+      "desc": "and the key is not still lying around in the clear -- anywhere in the tree, under any name. `config/secrets.yml` is the file step 01 created, carrying the same 128-character key in development and test; the reading is every file in the tree that is either named `config/secrets.yml*` (other than the `.enc` and the `.key` that belong there) or mentions `secret_key_base` while also carrying a 64-character run of hex, so moving the old file to `config/secrets.yml.bak` or leaving a copy under `spec/` is named here rather than passed. It is a reading of the tree and not of the framework's own `config/secrets` path, because 5.1 widens that glob to `secrets.yml{,.enc}` and therefore answers `present` for a tree that has only the encrypted file",
+      "check": {
+        "kind": "empty",
+        "path": "bootprobe.probes.secrets.plaintext_secret_files"
+      }
+    },
+    {
+      "id": "parameterized_mailer",
+      "weight": 2,
+      "desc": "the application's mailer takes its subject through Action Mailer 5.1's parameterization -- `NotificationMailer.with(...)` and `params[...]` rather than positional arguments -- and every action the mailer class itself declares does. The reading is the arity of the actions whose owner is the mailer class, so a view helper that reaches `action_methods` through an `include` is not counted against it, and a tree that parameterizes one action and leaves the other positional is named here",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.probes.mailers.all_parameterized"
+      }
+    },
+    {
+      "id": "no_positional_mailer_calls",
+      "weight": 2,
+      "desc": "and every caller moved with it: no `NotificationMailer.confirmation_email(...)` or `.weekly_activity(...)` is left in the tree. The runtime reading above is of the mailer class, and a tree can parameterize the class while leaving the two callers and the two specs passing their arguments positionally -- on 5.1 that raises nothing, the action simply receives no parameters and the mail goes out addressed to nobody. The reading is a call to one of the two action names on the mailer class in the parsed source",
+      "check": {
+        "kind": "at_most",
+        "path": "scan.counts.mailer_positional",
+        "n": 0
+      }
+    },
+    {
+      "id": "no_string_conditions",
+      "weight": 2,
+      "desc": "no validation is conditioned on a String to be evaluated in context -- 5.1 deprecates that at class-definition time, so this application deprecates three times before it serves anything. The reading asks each model's own `validators` for the `:if`/`:unless` options the framework holds, so a condition declared in a concern or through `send` is counted the same as one written in place",
+      "check": {
+        "kind": "empty",
+        "path": "bootprobe.probes.models.string_conditions"
+      }
+    },
+    {
+      "id": "schema_pins_primary_key",
+      "weight": 2,
+      "desc": "the database this application builds by loading its own `db/schema.rb` and the database its own migrations build from empty have the same tables, with the same primary keys, and those keys are still the 32-bit ones this application's tables have today -- on a framework whose own default for an unnamed key has become the 64-bit one. Both databases are built inside the scored run, the second after everything else has been measured, and the reading names the tables the two disagree about, the tables only one of them has, and separately any key whose width it does not recognise at all, which is a finding rather than a pass. The dump alone would not do: a tree that hand-edits `db/schema.rb` would then answer for migrations that build something else. The framework's own default is part of the conjunction because on a release that still defaults to the narrow key the two constructions agree for free, and a requirement the handed-on tree already meets measures nothing",
+      "check": {
+        "kind": "is_true",
+        "path": "pkdrift.pinned"
+      }
+    }
+  ],
+  "guards": [
+    {
+      "id": "ruby_runtime",
+      "desc": "the application still runs on Ruby 2.4 -- this step does not move the interpreter, and a tree that moves it is not the tree the next step is written against",
+      "check": {
+        "kind": "regex",
+        "path": "bootprobe.ruby",
+        "pattern": "^2\\.4\\."
+      }
+    },
+    {
+      "id": "boots",
+      "desc": "the application boots in RAILS_ENV=production -- carried forward from step 02, as a guard rather than a gate because the tree this step is handed already does it",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.booted"
+      }
+    },
+    {
+      "id": "env_boots",
+      "desc": "and in the `development` and `test` environments too, each in a process of its own",
+      "check": {
+        "kind": "empty",
+        "path": "envboot.failed"
+      }
+    },
+    {
+      "id": "eager_load",
+      "desc": "and with eager loading on, every file under the eager-load paths loading without raising",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.probes.eager_load.ok"
+      }
+    },
+    {
+      "id": "eager_load_outside_app",
+      "desc": "and every constant the application keeps outside `app/` is still defined once a production process has finished eager loading",
+      "check": {
+        "kind": "empty",
+        "path": "bootprobe.probes.eager_load.undefined_outside_app"
+      }
+    },
+    {
+      "id": "application_record",
+      "desc": "the models still descend from `ApplicationRecord`",
+      "check": {
+        "kind": "equals",
+        "path": "bootprobe.probes.models.application_record",
+        "to": "ApplicationRecord"
+      }
+    },
+    {
+      "id": "no_direct_base",
+      "desc": "and none of them has been pointed back past it at `ActiveRecord::Base`",
+      "check": {
+        "kind": "empty",
+        "path": "bootprobe.probes.models.stray_base_subclasses"
+      }
+    },
+    {
+      "id": "versioned_migrations",
+      "desc": "every migration still declares the schema version it was written against",
+      "check": {
+        "kind": "at_most",
+        "path": "scan.counts.unversioned_migration",
+        "n": 0
+      }
+    },
+    {
+      "id": "migrations_still_4_2",
+      "desc": "and it is still the version they were actually written against: none of the 43 declares anything other than `[4.2]`. `ActiveRecord::Migration[4.2]` is what makes `create_table` build a 32-bit primary key on 5.1, so re-stamping the files `[5.1]` would make the schema dump and the migrations agree with each other at the wrong width -- it would satisfy `schema_pins_primary_key`'s second half by putting its first half out of reach. A guard rather than a gate because step 02 is where those versions were written, so the handed-on tree already passes it",
+      "check": {
+        "kind": "at_most",
+        "path": "scan.counts.misversioned_migration",
+        "n": 0
+      }
+    },
+    {
+      "id": "belongs_to_optional_named",
+      "desc": "and the one association this application creates before its parent is known still says so on the association itself -- `Call#location` is written when the call arrives and its location is not known until the caller keys a location code. Step 02 scored this; here it is a guard, because the tree this step is handed already has it and a gate it passes for free would only raise the floor. It is carried forward at all because the gate above reads the application-wide default and nothing else: a tree that switched the default off would fail that gate, but a tree that left it on and marked every association optional would pass it, and this is the reading that notices",
+      "check": {
+        "kind": "equals",
+        "path": "bootprobe.probes.models.belongs_to.Call#location",
+        "to": false
+      }
+    },
+    {
+      "id": "belongs_to_not_all_optional",
+      "desc": "and no other association was marked optional to get there -- `optional: true` on every `belongs_to` in the tree leaves the application-wide default switched on, passes both readings above, and gives up exactly the constraint the default was switched on for. The repository has six `belongs_to` and one of them is the create-before-parent case, so the count of optional ones is at most that one",
+      "check": {
+        "kind": "at_most",
+        "path": "bootprobe.probes.models.belongs_to_optional_count",
+        "n": 1
+      }
+    },
+    {
+      "id": "belongs_to_required",
+      "desc": "`belongs_to` associations are still required by default",
+      "check": {
+        "kind": "is_true",
+        "path": "bootprobe.probes.framework_defaults.belongs_to_required_by_default"
+      }
+    },
+    {
+      "id": "framework_defaults",
+      "desc": "and the five 5.0 framework defaults step 02 adopted are all still at their adopted values -- the reading is the list of the ones that are not, so the evidence names them; `config.load_defaults 5.1` sets all five on its way past 5.0, so this asks nothing extra of a tree that has done the work",
+      "check": {
+        "kind": "empty",
+        "path": "bootprobe.probes.framework_defaults.not_adopted"
+      }
+    },
+    {
+      "id": "own_deprecations",
+      "desc": "driving the application raises no deprecation warning from its own code -- the budget step 02 set, now against 5.1's list rather than 5.0's. Warnings raised from inside a third-party gem's own source are out of scope; anything the application itself triggers, including from its own configuration, is in scope",
+      "check": {
+        "kind": "at_most",
+        "path": "depdrive.own_count",
+        "n": 0
+      }
+    },
+    {
+      "id": "suite_deprecations",
+      "desc": "and running the spec suite raises none from a file under spec/ -- taken by a collector prepended to `ActiveSupport::Deprecation` inside the suite's own process, so silencing the warnings does not remove them from it",
+      "check": {
+        "kind": "empty",
+        "path": "rspec.suite_deprecation_sites"
+      }
+    },
+    {
+      "id": "env_deprecations",
+      "desc": "and booting the named environments raises none from a file under `config/environments/`",
+      "check": {
+        "kind": "empty",
+        "path": "envboot.env_file_deprecations"
+      }
+    },
+    {
+      "id": "own_suite",
+      "desc": "the application's own spec suite runs to completion against the tree as handed on, and every example in it passes",
+      "check": {
+        "kind": "is_true",
+        "path": "rspec.ok"
+      }
+    },
+    {
+      "id": "suite_size",
+      "desc": "and it still makes substantially every expectation it was handed: at least 495 examples",
+      "check": {
+        "kind": "at_least",
+        "path": "rspec.examples",
+        "n": 495
+      }
+    },
+    {
+      "id": "no_suppression",
+      "desc": "no comment in the source directs a tool to ignore a finding (rubocop:disable, brakeman:ignore, :nocov: and the rest) -- a tree that silenced the checks is not measured by them",
+      "check": {
+        "kind": "at_most",
+        "path": "scan.counts.suppression",
+        "n": 0
+      }
+    },
+    {
+      "id": "parses",
+      "desc": "every Ruby and ERB file in the tree parses under this step's interpreter -- a file the scanner cannot read is a file none of the source gates can see, so their counts would be lower bounds reported as answers",
+      "check": {
+        "kind": "empty",
+        "path": "scan.parse_errors"
+      }
+    },
+    {
+      "id": "tests_intact",
+      "desc": "every file the repository shipped under spec/ is still there (78 of them, listed in pristine.json) -- deleting the application's own tests is not a way to have no findings in them",
+      "check": {
+        "kind": "empty",
+        "path": "scan.missing_tests"
+      }
+    },
+    {
+      "id": "tests_not_gutted",
+      "desc": "every spec file the repository shipped still declares at least one example -- keeping the path and emptying the file is not a way to have no findings in it",
+      "check": {
+        "kind": "empty",
+        "path": "scan.gutted_tests"
+      }
+    },
+    {
+      "id": "tree_intact",
+      "desc": "the application is still there: every file the repository shipped under app/models, app/controllers, app/helpers, lib and db/migrate is still at its path (98 of them, listed in pristine.json) -- the migration removes what the framework removed, not the application's own code",
+      "check": {
+        "kind": "empty",
+        "path": "scan.missing_core"
+      }
+    },
+    {
+      "id": "tests_not_hollowed",
+      "desc": "the shipped spec files still contain at least 220 distinct assertion lines -- the suite handed on to this step has 309, while a suite whose examples have been replaced by a tautology has one; keeping the paths, the declarations and the example count while asserting nothing is not a way to pass the suite",
+      "check": {
+        "kind": "at_least",
+        "path": "scan.assertion_lines",
+        "n": 220
+      }
+    },
+    {
+      "id": "tests_not_hollow_files",
+      "desc": "no spec file the repository shipped has been left declaring examples that assert nothing. The count above is a floor over the union of the tree's distinct assertion lines, and a union has a shape it cannot see: one file carrying every surviving assertion and fifty carrying none reaches the same number as fifty files that each kept their own. Every shipped spec file that is still present and still declares an example has at least one assertion line of its own",
+      "check": {
+        "kind": "empty",
+        "path": "scan.hollow_tests"
+      }
+    },
+    {
+      "id": "tests_not_emptied",
+      "desc": "and every file the suite ships that had content of its own still has some -- the 27 shipped factories, fixtures, helpers and Teaspoon files are judged by existence alone by the three guards above, and `> spec/factories.rb` keeps the path, keeps the file count and removes every object the suite builds on. The reading is the shipped test files that had a non-blank, non-comment line in the baseline and have none now",
+      "check": {
+        "kind": "empty",
+        "path": "scan.emptied_tests"
+      }
+    },
+    {
+      "id": "db_config_from_example",
+      "desc": "the tree hands on config/database.yml.example and does not hand on config/database.yml -- the instruction says the configuration is produced from the example, and a tree that ships its own database.yml is scored against a database configuration the recording never used",
+      "check": {
+        "kind": "empty",
+        "path": "handoff.db_config_problems"
+      }
+    }
+  ]
+}

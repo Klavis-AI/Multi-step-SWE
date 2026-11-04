@@ -1,0 +1,10 @@
+SET password_encryption = 'md5';
+CREATE ROLE q2_sal_role LOGIN PASSWORD 'q2_sal_secret';
+SELECT substring(rolpassword from 1 for 3) FROM pg_authid WHERE rolname = 'q2_sal_role';
+SET password_encryption = 'scram-sha-256';
+ALTER ROLE q2_sal_role PASSWORD 'q2_sal_secret2';
+SELECT substring(rolpassword from 1 for 14) FROM pg_authid WHERE rolname = 'q2_sal_role';
+ALTER ROLE q2_sal_role PASSWORD NULL;
+SELECT rolpassword IS NULL FROM pg_authid WHERE rolname = 'q2_sal_role';
+DROP ROLE q2_sal_role;
+RESET password_encryption;

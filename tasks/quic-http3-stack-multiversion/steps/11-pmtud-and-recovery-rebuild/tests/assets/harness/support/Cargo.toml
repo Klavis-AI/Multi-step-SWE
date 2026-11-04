@@ -1,0 +1,41 @@
+# Verifier-owned support crate for the quiche multi-version benchmark.
+#
+# It is a member of the harness workspace one directory up, and nothing else:
+# it is copied into the verifier image together with that workspace and never
+# on its own.
+#
+# Dependency policy: pure Rust only. Nothing here may pull in a C toolchain
+# (no ring/boring/openssl) and nothing here may depend on the crate under
+# test (quiche). The whole point of this crate is to be an *independent*
+# second implementation of QUIC packet protection, so that a failure to
+# decrypt a candidate's packet is evidence about the candidate.
+
+[package]
+name = "quiche-verifier-support"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+description = "Independent QUIC packet-protection and packet-parsing support for the quiche multiversion verifier"
+
+
+[dependencies]
+# AES-ECB for header protection (RFC 9001 5.4.3). `aes-gcm` happens to
+# re-export this crate, but header protection is not an AEAD operation and
+# relying on a re-export would hide that dependency.
+aes = "0.8"
+# AEAD_AES_128_GCM / AEAD_AES_256_GCM packet protection. `getrandom` is off:
+# this crate never generates keys, it only derives and applies them.
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+# Raw ChaCha20 keystream for ChaCha-based header protection (RFC 9001 5.4.4).
+chacha20 = "0.9"
+# AEAD_CHACHA20_POLY1305 packet protection.
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+# HKDF-Extract / HKDF-Expand for the QUIC key schedule (RFC 9001 5.1, 5.2).
+hkdf = "0.12"
+sha2 = "0.10"
+
+[dev-dependencies]
+# Test-only: decoding the RFC 9001 Appendix A vectors.
+hex = "0.4"
+serde_json = "1"

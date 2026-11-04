@@ -1,0 +1,73 @@
+# arch: aarch64
+# R_AARCH64_ABS64 in .data must store the final 64-bit address of the target,
+# addend included, so a pointer initialiser is usable at runtime.
+rt_obj rt.o
+cat > d.s <<'S'
+        .section .rodata
+        .globl msg
+msg:    .asciz "via-abs64"
+        .data
+        .globl msgptr
+        .p2align 3
+msgptr: .quad msg
+        .globl selfptr
+selfptr:
+        .quad selfptr + 8
+        .section .note.GNU-stack,"",@progbits
+S
+cat > m.c <<'C'
+#include "rt.h"
+extern char *msgptr; extern char msg[]; extern unsigned long selfptr;
+int entry(void) {
+    print(msgptr); print("\n");
+    putdec(msgptr == msg); print("\n");
+    putdec((long)(selfptr - (unsigned long)&selfptr));
+    return 0;
+}
+C
+as_obj d.o d.s; cc_obj m.o m.c
+relocs d.o > d.rel
+grep -q 'R_AARCH64_ABS64' d.rel || die "input lacks ABS64: $(cat d.rel)"
+link_ok out rt.o m.o d.o
+relocs out > out.rel
+! grep -q 'R_AARCH64_RELATIVE' out.rel || die "a static executable got dynamic relocations"
+run_expect out "via-abs64
+1
+8" 0
+
+# --- the same data, in a shared object ---------------------------------------
+# The static half above asserts that no dynamic relocation is invented. The
+# dynamic half asserts the converse half of spec/07 S10: the same pointer
+# initialiser, when the target cannot be preempted, becomes exactly one
+# R_AARCH64_RELATIVE, and a GOT-mediated reference to a preemptible data
+# symbol becomes exactly one R_AARCH64_GLOB_DAT naming it.  R_AARCH64_JUMP_SLOT
+# is deliberately not asserted: the reference always binds eagerly, and
+# spec/05 S8 states that no case requires a JUMP_SLOT to be present.
+cat > dyn.s <<'S'
+        .section .rodata
+lmsg:   .asciz "via-relative"
+        .data
+        .globl dynptr
+        .p2align 3
+dynptr: .quad lmsg
+        .text
+        .globl get_dynptr
+get_dynptr:
+        adrp    x0, :got:dynptr
+        ldr     x0, [x0, #:got_lo12:dynptr]
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj dyn.o dyn.s
+link_ok libdyn.so -shared dyn.o
+relocs libdyn.so > dyn.rel
+want "one GLOB_DAT for the preemptible data symbol" \
+     "$(grep -cE 'R_AARCH64_GLOB_DAT +[0-9a-f]+ dynptr' dyn.rel)" "1"
+want "one RELATIVE for the non-preemptible initialiser" \
+     "$(grep -c 'R_AARCH64_RELATIVE' dyn.rel)" "1"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

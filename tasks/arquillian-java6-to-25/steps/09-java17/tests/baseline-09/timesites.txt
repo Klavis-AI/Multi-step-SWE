@@ -1,0 +1,67 @@
+# Step 05 -- C-4's frozen population: the five System.currentTimeMillis() call
+# sites, in four <file>#<method> buckets, and how many each bucket holds.
+#
+# This is the step's SMALLEST leg and it is weighted accordingly. It is here
+# because java.time is half of what "the Java 8 library" means and a step that
+# skipped it would be teaching the wrong thing -- not because the tree has a
+# date-handling problem. It does not: measured on the step-04 golden there is
+# not one java.util.Date, Calendar, GregorianCalendar, DateFormat or
+# SimpleDateFormat anywhere in the tree -- 0 files in src/main and 0 in the
+# whole repository, by name.
+#
+# The gate says so too, and that is the reading that matters, because the gate
+# is what grades. SourceScan's millis[...] list is the DEPARTURE bucket for the
+# whole leg: System.currentTimeMillis, System.nanoTime, and any call on one of
+# the five LEGACY_TIME_TYPES all land in it. millis.size=5 with all five
+# spelled `System.currentTimeMillis` is therefore the measurement that there is
+# nothing else to depart from. (Constructor calls -- `new Date()` -- are not
+# MethodInvocationTree and would not land there, which is why the grep above is
+# recorded beside it rather than instead of it.)
+#
+# WHAT MOVES AND WHAT DOES NOT. TestResult.start and .end are `long` behind
+# published `getStart()`/`getEnd()`, and WireFixture.java:284-285 records both
+# across the wire. The FIELD TYPES DO NOT MOVE -- that is B-6 and family A
+# both. What moves is how the value is obtained, and in one bucket how a
+# timeout is expressed:
+#
+#   TestResult#<init>:95              this.start = System.currentTimeMillis()
+#                                  -> Instant.now().toEpochMilli()
+#   LocalTestExecuter#execute:76      result.setEnd(System.currentTimeMillis())
+#   JMXMethodExecutor#invoke:74       result.setEnd(System.currentTimeMillis())
+#                                  -> the same, via Instant
+#   ServletMethodExecutor#execute:79  long timeoutTime = currentTimeMillis() + 1000
+#                            :81      while (timeoutTime > currentTimeMillis())
+#                                  -> Instant deadline = Instant.now().plus(Duration.ofSeconds(1))
+#                                     while (Instant.now().isBefore(deadline))
+#
+# The ServletMethodExecutor bucket is the honest half of the leg -- a deadline
+# expressed as a deadline rather than as arithmetic on a primitive -- and is
+# the reason the bucket count carries the site count with it: a candidate who
+# converts the loop CONDITION and leaves the loop BOUND as millis arithmetic
+# has done one of that bucket's two sites, and the gate can see the difference.
+#
+# The other three are Instant.now().toEpochMilli() and are not much more than a
+# spelling. They are still worth a gate, because C-5 reads java.time off the
+# published constant pools and these are the only references that put it there.
+#
+# TIMEOUT SEMANTICS DO NOT CHANGE. Duration.ofSeconds(1) is 1000 ms and
+# Instant.now() has at least millisecond resolution on every JDK this ladder
+# grades on, so the migrated loop waits for the same interval. It is NOT
+# monotonic -- neither was the original -- so this is a faithful translation
+# and not an improvement; see trap 10 in INSTRUCTIONS.md for why a gate that
+# validates against wall-clock is the thing to avoid, and note that nothing in
+# this leg's EXPECTATION is a time.
+#
+# BUCKETS, NOT LINES, for the same reason as C-1 and C-2: the line moves.
+#
+# How C-4 reads this file:
+#   departure  buckets with no millis record left, and the per-bucket site
+#              count is what must be cleared -- not one of two
+#   arrival     buckets holding a jtime record (a member of java.time.* resolved
+#              through its element, so a local class named Instant is not one)
+#
+# Format: <path>#<method> <number of currentTimeMillis sites at the baseline>
+impl-base/src/main/java/org/jboss/arquillian/impl/execution/LocalTestExecuter.java#execute 1
+protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXMethodExecutor.java#invoke 1
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java#execute 2
+spi/src/main/java/org/jboss/arquillian/spi/TestResult.java#<init> 1

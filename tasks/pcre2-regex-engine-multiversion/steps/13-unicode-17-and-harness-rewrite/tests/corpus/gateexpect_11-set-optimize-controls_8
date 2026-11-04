@@ -1,0 +1,99 @@
+# pcre2_set_optimize() lets a caller turn individual compile-time
+# optimisations on and off; pcre2test exposes optimization_full,
+# optimization_none, auto_possess, dotstar_anchor and start_optimize, each
+# with an _off form.  ChangeLog 10.45 item 32; pcre2api.3, "PCRE2 CONTEXTS";
+# pcre2pattern.3, "Disabling start-up optimizations".
+
+# The set of enabled optimisations is reported by the info modifier.
+/^quay.*Z/info
+Capture group count = 0
+Compile options: <none>
+Overall options: anchored
+First code unit = 'q'
+Last code unit = 'Z'
+Subject length lower bound = 5
+
+/^quay.*Z/info,optimization_none
+Capture group count = 0
+Compile options: <none>
+Overall options: anchored
+Optimizations: <none>
+
+/^quay.*Z/info,optimization_full
+Capture group count = 0
+Compile options: <none>
+Overall options: anchored
+First code unit = 'q'
+Last code unit = 'Z'
+Subject length lower bound = 5
+
+/^quay.*Z/info,auto_possess_off
+Capture group count = 0
+Compile options: <none>
+Overall options: anchored
+Optimizations: dotstar_anchor,start_optimize
+First code unit = 'q'
+Last code unit = 'Z'
+Subject length lower bound = 5
+
+/^quay.*Z/info,dotstar_anchor_off,start_optimize_off
+Capture group count = 0
+Compile options: <none>
+Overall options: anchored
+Optimizations: auto_possess
+
+# Turning the dot-star anchor off removes the start-of-line deduction.
+/.*wharf/info
+Capture group count = 0
+First code unit at start or follows newline
+Last code unit = 'f'
+Subject length lower bound = 5
+
+/.*wharf/info,dotstar_anchor_off
+Capture group count = 0
+Optimizations: auto_possess,start_optimize
+Last code unit = 'f'
+Subject length lower bound = 5
+
+# Turning the start-of-match optimisation off changes the result whenever a
+# backtracking verb depends on where matching was attempted.
+/(*COMMIT)ZZ/
+    yZZ
+ 0: ZZ
+
+/(*COMMIT)ZZ/start_optimize_off
+    yZZ
+No match
+
+/(*COMMIT)ZZ/optimization_none
+    yZZ
+No match
+
+# Auto-possessification is visible through a callout trace.
+/(?=b+)b+Q/auto_callout
+    bbbc
+No match
+
+/(?=b+)b+Q/auto_callout,start_optimize_off
+    bbbc
+--->bbbc
+ +0 ^        (?=
+ +3 ^        b+
+ +5 ^  ^     )
+ +6 ^        b+
+ +8 ^  ^     Q
+ +0  ^       (?=
+ +3  ^       b+
+ +5  ^ ^     )
+ +6  ^       b+
+ +8  ^ ^     Q
+ +0   ^      (?=
+ +3   ^      b+
+ +5   ^^     )
+ +6   ^      b+
+ +8   ^^     Q
+ +0    ^     (?=
+ +3    ^     b+
+ +0     ^    (?=
+ +3     ^    b+
+No match

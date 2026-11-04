@@ -1,0 +1,37 @@
+# arch: aarch64
+# An imported symbol marked STO_AARCH64_VARIANT_PCS must make the linker emit
+# DT_AARCH64_VARIANT_PCS, so the dynamic loader knows not to use a lazy PLT
+# resolver that clobbers the extended registers.
+cat > v.s <<'S'
+        .text
+        .globl vfunc
+        .type vfunc, %function
+        .variant_pcs vfunc
+vfunc:  mov w0, #7
+        ret
+        .globl plainfunc
+        .type plainfunc, %function
+plainfunc:
+        mov w0, #1
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj v.o v.s
+want_has "the input marks vfunc VARIANT_PCS" "$(symbols v.o)" 'VARIANT_PCS.* vfunc'
+link_ok libv.so -shared --no-gc-sections v.o
+want_has "the marking survives into .dynsym" "$(dynsyms libv.so)" 'VARIANT_PCS.* vfunc'
+
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int vfunc(void);
+int entry(void) { return vfunc(); }
+C
+cc_obj m.o m.c
+link_ok out --no-gc-sections -pie -dynamic-linker /lib/ld.so rt.o m.o libv.so
+d=$(dynamic out)
+want_has "libv.so is NEEDED" "$d" 'NEEDED.*libv\.so'
+want_has "DT_AARCH64_VARIANT_PCS is present" "$d" 'AARCH64_VARIANT_PCS'
+want "e_type is DYN" "$(hdr out | awk '/^ *Type:/{print $2}')" "DYN"
+
+asserts_at_least 5

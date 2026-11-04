@@ -1,0 +1,46 @@
+# arch: x86_64
+# R_X86_64_REX_GOTPCRELX may be relaxed away or kept, but either way the
+# value the code ends up with must be the symbol's final address.
+rt_obj rt.o
+cat > t.s <<'S'
+        .data
+        .globl  xvar
+xvar:   .quad   0x1357
+        .section .note.GNU-stack,"",@progbits
+S
+cat > r.s <<'S'
+        .text
+        .globl  addr_of_xvar
+addr_of_xvar:
+        movq    xvar@GOTPCREL(%rip), %rax
+        ret
+        .globl  deref_xvar
+deref_xvar:
+        movq    xvar@GOTPCREL(%rip), %rax
+        movq    (%rax), %rax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj t.o t.s; as_obj r.o r.s
+want_has "input has R_X86_64_REX_GOTPCRELX" "$(relocs r.o)" "R_X86_64_REX_GOTPCRELX +[0-9a-f]+ +xvar -"
+cat > m.c <<'C'
+#include "rt.h"
+extern unsigned long xvar;
+unsigned long *addr_of_xvar(void); unsigned long deref_xvar(void);
+int entry(void) {
+  int ok = 0;
+  if (addr_of_xvar() == &xvar) ok |= 1;
+  if (deref_xvar() == 0x1357UL) ok |= 2;
+  putdec(ok); print("\n");
+  return ok;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o t.o r.o m.o
+run_expect out "3" 3
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 1

@@ -1,0 +1,146 @@
+# Copyright 2019 New Vector Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+openapi: 3.1.0
+info:
+  title: Matrix Client-Server Capabilities API
+  version: 1.0.0
+paths:
+  /capabilities:
+    get:
+      summary: Gets information about the server's capabilities.
+      description: |-
+        Gets information about the server's supported feature set
+        and other relevant capabilities.
+      operationId: getCapabilities
+      security:
+        - accessTokenQuery: []
+        - accessTokenBearer: []
+      responses:
+        "200":
+          description: The capabilities of the server.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - capabilities
+                properties:
+                  capabilities:
+                    type: object
+                    title: Capabilities
+                    description: |-
+                      The custom capabilities the server supports, using the
+                      Java package naming convention.
+                    additionalProperties:
+                      description: |-
+                        Application-dependent keys using the
+                        [Common Namespaced Identifier Grammar](/appendices/#common-namespaced-identifier-grammar).
+                    properties:
+                      m.change_password:
+                        $ref: '#/components/schemas/booleanCapability'
+                        description: Capability to indicate if the user can change their password.
+                      m.room_versions:
+                        type: object
+                        description: The room versions the server supports.
+                        title: RoomVersionsCapability
+                        properties:
+                          default:
+                            type: string
+                            description: The default room version the server is using for new rooms.
+                            example: "1"
+                          available:
+                            type: object
+                            description: A detailed description of the room versions the server supports.
+                            additionalProperties:
+                              type: string
+                              title: RoomVersionStability
+                              enum:
+                                - stable
+                                - unstable
+                              description: The stability of the room version.
+                        required:
+                          - default
+                          - available
+                      m.set_displayname:
+                        $ref: '#/components/schemas/booleanCapability'
+                        description: Capability to indicate if the user can change their display name.
+                      m.set_avatar_url:
+                        $ref: '#/components/schemas/booleanCapability'
+                        description: Capability to indicate if the user can change their avatar.
+                      m.3pid_changes:
+                        $ref: '#/components/schemas/booleanCapability'
+                        description: Capability to indicate if the user can change 3PID associations
+                          on their account.
+                      m.get_login_token:
+                        $ref: '#/components/schemas/booleanCapability'
+                        description: Capability to indicate if the user can generate tokens to log further
+                          clients into their account.
+              examples:
+                response:
+                  value: {
+                    "capabilities": {
+                      "m.change_password": {
+                        "enabled": false
+                      },
+                      "m.room_versions": {
+                        "default": "1",
+                        "available": {
+                          "1": "stable",
+                          "2": "stable",
+                          "3": "unstable",
+                          "test-version": "unstable"
+                        }
+                      },
+                      "com.example.custom.ratelimit": {
+                        "max_requests_per_hour": 600
+                      }
+                    }
+                  }
+        "429":
+          description: This request was rate-limited.
+          content:
+            application/json:
+              schema:
+                $ref: definitions/errors/rate_limited.yaml
+      tags:
+        - Capabilities
+servers:
+  - url: "{protocol}://{hostname}{basePath}"
+    variables:
+      protocol:
+        enum:
+          - http
+          - https
+        default: https
+      hostname:
+        default: localhost:8008
+      basePath:
+        default: /_matrix/client/v3
+components:
+  securitySchemes:
+    accessTokenQuery:
+      $ref: definitions/security.yaml#/accessTokenQuery
+    accessTokenBearer:
+      $ref: definitions/security.yaml#/accessTokenBearer
+  schemas:
+    booleanCapability:
+      type: object
+      title: BooleanCapability
+      properties:
+        enabled:
+          type: boolean
+          description: True if the user can perform the action, false otherwise.
+          example: false
+      required:
+        - enabled

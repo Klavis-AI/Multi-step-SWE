@@ -1,0 +1,737 @@
+diff --git a/mlkem/src/native/x86_64/meta.h b/mlkem/src/native/x86_64/meta.h
+index 0400fc3..6259908 100644
+--- a/mlkem/src/native/x86_64/meta.h
++++ b/mlkem/src/native/x86_64/meta.h
+@@ -20,11 +20,14 @@
+ #define MLK_USE_NATIVE_POLY_MULCACHE_COMPUTE
+ #define MLK_USE_NATIVE_POLY_TOBYTES
+ #define MLK_USE_NATIVE_POLY_FROMBYTES
++#define MLK_USE_NATIVE_POLY_COMPRESS_D4
++#define MLK_USE_NATIVE_POLY_COMPRESS_D5
+ 
+ #if !defined(__ASSEMBLER__)
+ #include "../../common.h"
+ #include "../api.h"
+ #include "src/arith_native_x86_64.h"
++#include "src/compress_consts.h"
+ 
+ static MLK_INLINE void mlk_poly_permute_bitrev_to_custom(int16_t data[MLKEM_N])
+ {
+@@ -198,12 +201,14 @@ MLK_MUST_CHECK_RETURN_VALUE
+ static MLK_INLINE int mlk_poly_compress_d4_native(
+     uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_D4], const int16_t a[MLKEM_N])
+ {
+-  /* No optimized implementation for this target is present. */
+-  (void)r;
+-  (void)a;
+-  return MLK_NATIVE_FUNC_FALLBACK;
+-}
++  if (!mlk_sys_check_capability(MLK_SYS_CAP_X86_64_AVX2))
++  {
++    return MLK_NATIVE_FUNC_FALLBACK;
++  }
+ 
++  mlk_poly_compress_d4_avx2_asm(r, a, mlk_compress_d4_data);
++  return MLK_NATIVE_FUNC_SUCCESS;
++}
+ 
+ MLK_MUST_CHECK_RETURN_VALUE
+ static MLK_INLINE int mlk_poly_compress_d10_native(
+@@ -250,12 +255,14 @@ MLK_MUST_CHECK_RETURN_VALUE
+ static MLK_INLINE int mlk_poly_compress_d5_native(
+     uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_D5], const int16_t a[MLKEM_N])
+ {
+-  /* No optimized implementation for this target is present. */
+-  (void)r;
+-  (void)a;
+-  return MLK_NATIVE_FUNC_FALLBACK;
+-}
++  if (!mlk_sys_check_capability(MLK_SYS_CAP_X86_64_AVX2))
++  {
++    return MLK_NATIVE_FUNC_FALLBACK;
++  }
+ 
++  mlk_poly_compress_d5_avx2_asm(r, a, mlk_compress_d5_data);
++  return MLK_NATIVE_FUNC_SUCCESS;
++}
+ 
+ MLK_MUST_CHECK_RETURN_VALUE
+ static MLK_INLINE int mlk_poly_compress_d11_native(
+diff --git a/mlkem/src/native/x86_64/src/arith_native_x86_64.h b/mlkem/src/native/x86_64/src/arith_native_x86_64.h
+index a04dfe8..573fae0 100644
+--- a/mlkem/src/native/x86_64/src/arith_native_x86_64.h
++++ b/mlkem/src/native/x86_64/src/arith_native_x86_64.h
+@@ -191,4 +191,36 @@ __contract__(
+   ensures(array_abs_bound(r, 0, MLKEM_N, MLKEM_Q))
+ );
+ 
++#define mlk_poly_compress_d4_avx2_asm MLK_NAMESPACE(poly_compress_d4_avx2_asm)
++MLK_SYSV_ABI
++void mlk_poly_compress_d4_avx2_asm(uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_D4],
++                                   const int16_t *MLK_RESTRICT a,
++                                   const uint8_t *data)
++/* This must be kept in sync with the HOL-Light specification in
++ * proofs/hol_light/x86_64/proofs/mlkem_poly_compress_d4_avx2_asm.ml.
++ */
++__contract__(
++  requires(memory_no_alias(r, MLKEM_POLYCOMPRESSEDBYTES_D4))
++  requires(memory_no_alias(a, sizeof(int16_t) * MLKEM_N))
++  requires(array_bound(a, 0, MLKEM_N, 0, MLKEM_Q))
++  requires(data == mlk_compress_d4_data)
++  assigns(memory_slice(r, MLKEM_POLYCOMPRESSEDBYTES_D4))
++);
++
++#define mlk_poly_compress_d5_avx2_asm MLK_NAMESPACE(poly_compress_d5_avx2_asm)
++MLK_SYSV_ABI
++void mlk_poly_compress_d5_avx2_asm(uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_D5],
++                                   const int16_t *MLK_RESTRICT a,
++                                   const uint8_t *data)
++/* This must be kept in sync with the HOL-Light specification in
++ * proofs/hol_light/x86_64/proofs/mlkem_poly_compress_d5_avx2_asm.ml.
++ */
++__contract__(
++  requires(memory_no_alias(r, MLKEM_POLYCOMPRESSEDBYTES_D5))
++  requires(memory_no_alias(a, sizeof(int16_t) * MLKEM_N))
++  requires(array_bound(a, 0, MLKEM_N, 0, MLKEM_Q))
++  requires(data == mlk_compress_d5_data)
++  assigns(memory_slice(r, MLKEM_POLYCOMPRESSEDBYTES_D5))
++);
++
+ #endif /* !MLK_NATIVE_X86_64_SRC_ARITH_NATIVE_X86_64_H */
+diff --git a/b/mlkem/src/native/x86_64/src/compress_consts.c b/mlkem/src/native/x86_64/src/compress_consts.c
+new file mode 100644
+index 0000000..1645fca
+--- /dev/null
++++ b/mlkem/src/native/x86_64/src/compress_consts.c
+@@ -0,0 +1,115 @@
++/*
++ * Copyright (c) The mlkem-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/*
++ * WARNING: This file is auto-generated from scripts/autogen
++ *          in the mlkem-native repository.
++ *          Do not modify it directly.
++ */
++
++#include "../../../common.h"
++
++#if defined(MLK_ARITH_BACKEND_X86_64_DEFAULT) && \
++    (!defined(MLK_CONFIG_NO_ENCAPS_API) || !defined(MLK_CONFIG_NO_DECAPS_API))
++
++#include "compress_consts.h"
++
++#if !defined(MLK_CONFIG_MULTILEVEL_NO_SHARED) &&                   \
++    (defined(MLK_CONFIG_MULTILEVEL_WITH_SHARED) || MLKEM_K == 2 || \
++     MLKEM_K == 3)
++
++MLK_ALIGN MLK_INTERNAL_DATA_DEFINITION const uint8_t
++    mlk_compress_d4_data[32] = {
++        0, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 5, 0, 0, 0,
++        2, 0, 0, 0, 6, 0, 0, 0, 3, 0, 0, 0, 7, 0, 0, 0, /* permdidx */
++};
++
++#if !defined(MLK_CONFIG_NO_DECAPS_API)
++MLK_ALIGN MLK_INTERNAL_DATA_DEFINITION const uint8_t
++    mlk_decompress_d4_data[32] = {
++        0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3,
++        4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, /* shufbidx */
++};
++#endif /* !MLK_CONFIG_NO_DECAPS_API */
++
++MLK_ALIGN MLK_INTERNAL_DATA_DEFINITION const uint8_t
++    mlk_compress_d10_data[32] = {
++        0,   1,   2,   3,   4,   8, 9,  10, 11, 12,  255,
++        255, 255, 255, 255, 255, 9, 10, 11, 12, 255, 255,
++        255, 255, 255, 255, 0,   1, 2,  3,  4,  8, /* shufbidx */
++};
++
++#if !defined(MLK_CONFIG_NO_DECAPS_API)
++MLK_ALIGN MLK_INTERNAL_DATA_DEFINITION const uint8_t
++    mlk_decompress_d10_data[32] = {
++        0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 6, 7, 7, 8,  8,  9,
++        2, 3, 3, 4, 4, 5, 5, 6, 7, 8, 8, 9, 9, 10, 10, 11, /* shufbidx */
++};
++#endif /* !MLK_CONFIG_NO_DECAPS_API */
++
++#endif /* !MLK_CONFIG_MULTILEVEL_NO_SHARED &&                                 \
++          (MLK_CONFIG_MULTILEVEL_WITH_SHARED || MLKEM_K == 2 || MLKEM_K == 3) \
++        */
++
++#if !defined(MLK_CONFIG_MULTILEVEL_NO_SHARED) && \
++    (defined(MLK_CONFIG_MULTILEVEL_WITH_SHARED) || MLKEM_K == 4)
++
++MLK_ALIGN MLK_INTERNAL_DATA_DEFINITION const uint8_t
++    mlk_compress_d5_data[32] = {
++        0, 1,  2,  3,  4,   255, 255, 255, 255, 255, 8,
++        9, 10, 11, 12, 255, 9,   10,  11,  12,  255, 0,
++        1, 2,  3,  4,  255, 255, 255, 255, 255, 8, /* shufbidx */
++};
++
++#if !defined(MLK_CONFIG_NO_DECAPS_API)
++/* shufbidx[0:32], mask[32:64], shift[64:96] */
++MLK_ALIGN MLK_INTERNAL_DATA_DEFINITION const uint8_t
++    mlk_decompress_d5_data[96] = {
++        0,   0, 0,   1, 1,   1,  1,   2,  2,   3, 3,   3, 3,   4, 4,   4, 5,  5,
++        5,   6, 6,   6, 6,   7,  7,   8,  8,   8, 8,   9, 9,   9, /* shufbidx */
++        31,  0, 224, 3, 124, 0,  128, 15, 240, 1, 62,  0, 192, 7, 248, 0, 31, 0,
++        224, 3, 124, 0, 128, 15, 240, 1,  62,  0, 192, 7, 248, 0, /* mask */
++        0,   4, 32,  0, 0,   1,  8,   0,  64,  0, 0,   2, 16,  0, 128, 0, 0,  4,
++        32,  0, 0,   1, 8,   0,  64,  0,  0,   2, 16,  0, 128, 0, /* shift */
++};
++#endif /* !MLK_CONFIG_NO_DECAPS_API */
++
++/* srlvqidx[0:32], shufbidx[32:64] */
++MLK_ALIGN MLK_INTERNAL_DATA_DEFINITION const uint8_t
++    mlk_compress_d11_data[64] =
++        {
++            10,  0,   0,   0,   0,   0,  0, 0, 30, 0, 0,
++            0,   0,   0,   0,   0,   10, 0, 0, 0,  0, 0,
++            0,   0,   30,  0,   0,   0,  0, 0, 0,  0, /* srlvqidx */
++            0,   1,   2,   3,   4,   5,  6, 7, 8,  9, 10,
++            255, 255, 255, 255, 255, 5,  6, 7, 8,  9, 10,
++            255, 255, 255, 255, 0,   0,  1, 2, 3,  4, /* shufbidx */
++};
++
++#if !defined(MLK_CONFIG_NO_DECAPS_API)
++/* shufbidx[0:32], srlvdidx[32:64], srlvqidx[64:96], shift[96:128] */
++MLK_ALIGN MLK_INTERNAL_DATA_DEFINITION const uint8_t
++    mlk_decompress_d11_data[128] = {
++        0,  1, 1, 2, 2, 3, 4,  5, 5, 6, 6, 7,  8,  9,  9,  10,
++        3,  4, 4, 5, 5, 6, 7,  8, 8, 9, 9, 10, 11, 12, 12, 13, /* shufbidx */
++        0,  0, 0, 0, 1, 0, 0,  0, 0, 0, 0, 0,  0,  0,  0,  0,
++        0,  0, 0, 0, 1, 0, 0,  0, 0, 0, 0, 0,  0,  0,  0,  0, /* srlvdidx */
++        0,  0, 0, 0, 0, 0, 0,  0, 2, 0, 0, 0,  0,  0,  0,  0,
++        0,  0, 0, 0, 0, 0, 0,  0, 2, 0, 0, 0,  0,  0,  0,  0, /* srlvqidx */
++        32, 0, 4, 0, 1, 0, 32, 0, 8, 0, 1, 0,  32, 0,  4,  0,
++        32, 0, 4, 0, 1, 0, 32, 0, 8, 0, 1, 0,  32, 0,  4,  0, /* shift */
++};
++#endif /* !MLK_CONFIG_NO_DECAPS_API */
++
++#endif /* !MLK_CONFIG_MULTILEVEL_NO_SHARED && \
++          (MLK_CONFIG_MULTILEVEL_WITH_SHARED || MLKEM_K == 4) */
++
++#else /* MLK_ARITH_BACKEND_X86_64_DEFAULT && (!MLK_CONFIG_NO_ENCAPS_API || \
++         !MLK_CONFIG_NO_DECAPS_API) */
++
++MLK_EMPTY_CU(avx2_compress_consts)
++
++#endif /* !(MLK_ARITH_BACKEND_X86_64_DEFAULT && (!MLK_CONFIG_NO_ENCAPS_API || \
++          !MLK_CONFIG_NO_DECAPS_API)) */
+diff --git a/b/mlkem/src/native/x86_64/src/compress_consts.h b/mlkem/src/native/x86_64/src/compress_consts.h
+new file mode 100644
+index 0000000..79182b0
+--- /dev/null
++++ b/mlkem/src/native/x86_64/src/compress_consts.h
+@@ -0,0 +1,53 @@
++/*
++ * Copyright (c) The mlkem-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/*
++ * WARNING: This file is auto-generated from scripts/autogen
++ *          in the mlkem-native repository.
++ *          Do not modify it directly.
++ */
++
++#ifndef MLK_NATIVE_X86_64_SRC_COMPRESS_CONSTS_H
++#define MLK_NATIVE_X86_64_SRC_COMPRESS_CONSTS_H
++
++#include "../../../common.h"
++
++#ifndef __ASSEMBLER__
++
++#define mlk_compress_d4_data MLK_NAMESPACE(compress_d4_data)
++MLK_INTERNAL_DATA_DECLARATION const uint8_t mlk_compress_d4_data[32];
++
++#if !defined(MLK_CONFIG_NO_DECAPS_API)
++#define mlk_decompress_d4_data MLK_NAMESPACE(decompress_d4_data)
++MLK_INTERNAL_DATA_DECLARATION const uint8_t mlk_decompress_d4_data[32];
++#endif
++
++#define mlk_compress_d10_data MLK_NAMESPACE(compress_d10_data)
++MLK_INTERNAL_DATA_DECLARATION const uint8_t mlk_compress_d10_data[32];
++
++#if !defined(MLK_CONFIG_NO_DECAPS_API)
++#define mlk_decompress_d10_data MLK_NAMESPACE(decompress_d10_data)
++MLK_INTERNAL_DATA_DECLARATION const uint8_t mlk_decompress_d10_data[32];
++#endif
++
++#define mlk_compress_d5_data MLK_NAMESPACE(compress_d5_data)
++MLK_INTERNAL_DATA_DECLARATION const uint8_t mlk_compress_d5_data[32];
++
++#if !defined(MLK_CONFIG_NO_DECAPS_API)
++#define mlk_decompress_d5_data MLK_NAMESPACE(decompress_d5_data)
++MLK_INTERNAL_DATA_DECLARATION const uint8_t mlk_decompress_d5_data[96];
++#endif
++
++#define mlk_compress_d11_data MLK_NAMESPACE(compress_d11_data)
++MLK_INTERNAL_DATA_DECLARATION const uint8_t mlk_compress_d11_data[64];
++
++#if !defined(MLK_CONFIG_NO_DECAPS_API)
++#define mlk_decompress_d11_data MLK_NAMESPACE(decompress_d11_data)
++MLK_INTERNAL_DATA_DECLARATION const uint8_t mlk_decompress_d11_data[128];
++#endif
++
++#endif /* !__ASSEMBLER__ */
++
++#endif /* !MLK_NATIVE_X86_64_SRC_COMPRESS_CONSTS_H */
+diff --git a/b/mlkem/src/native/x86_64/src/mlkem_poly_compress_d4_avx2_asm.S b/mlkem/src/native/x86_64/src/mlkem_poly_compress_d4_avx2_asm.S
+new file mode 100644
+index 0000000..428fda5
+--- /dev/null
++++ b/mlkem/src/native/x86_64/src/mlkem_poly_compress_d4_avx2_asm.S
+@@ -0,0 +1,194 @@
++/*
++ * Copyright (c) The mlkem-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Kyber optimized AVX2 implementation
++ *   Bos, Ducas, Kiltz, Lepoint, Lyubashevsky, Schanck, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/kyber/tree/main/avx2
++ */
++
++/*
++ * This file is derived from the public domain
++ * AVX2 Kyber implementation @[REF_AVX2].
++ */
++
++/*************************************************
++ * Name:        mlk_poly_compress_d4_avx2_asm
++ *
++ * Description: Compression of a polynomial to 4 bits per coefficient.
++ *
++ * Arguments:   - uint8_t *r:       pointer to output byte array
++ *                                  (of length MLKEM_POLYCOMPRESSEDBYTES_D4)
++ *              - const int16_t *a: pointer to input polynomial
++ *              - const uint8_t *data: pointer to permdidx constant
++ **************************************************/
++
++#include "../../../common.h"
++#if defined(MLK_ARITH_BACKEND_X86_64_DEFAULT) && \
++    !defined(MLK_CONFIG_MULTILEVEL_NO_SHARED) && \
++    (!defined(MLK_CONFIG_NO_ENCAPS_API) || \
++     !defined(MLK_CONFIG_NO_DECAPS_API)) && \
++    (defined(MLK_CONFIG_MULTILEVEL_WITH_SHARED) || MLKEM_K == 2 || MLKEM_K == 3)
++/*yaml
++  Name: poly_compress_d4_avx2_asm
++  Description: x86_64 AVX2 polynomial compression (d=4)
++  Signature: void mlk_poly_compress_d4_avx2_asm(uint8_t *r, const int16_t *a, const uint8_t *data)
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 128
++      permissions: write-only
++      c_parameter: uint8_t *r
++      description: Output compressed polynomial
++    rsi:
++      type: buffer
++      size_bytes: 512
++      permissions: read-only
++      c_parameter: const int16_t *a
++      description: Input polynomial (256 x int16_t)
++    rdx:
++      type: buffer
++      size_bytes: 32
++      permissions: read-only
++      c_parameter: const uint8_t *data
++      description: Precomputed compression constants
++*/
++
++
++/*
++ * WARNING: This file is auto-derived from the mlkem-native source file
++ *   dev/x86_64/src/mlkem_poly_compress_d4_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLK_ASM_NAMESPACE(poly_compress_d4_avx2_asm)
++MLK_ASM_FN_SYMBOL(poly_compress_d4_avx2_asm)
++
++        .cfi_startproc
++        movl $0x4ebf4ebf, %eax       # imm = 0x4EBF4EBF
++        vmovd %eax, %xmm0
++        vpbroadcastd %xmm0, %ymm0
++        movl $0x2000200, %eax        # imm = 0x2000200
++        vmovd %eax, %xmm1
++        vpbroadcastd %xmm1, %ymm1
++        movl $0xf000f, %eax          # imm = 0xF000F
++        vmovd %eax, %xmm2
++        vpbroadcastd %xmm2, %ymm2
++        movl $0x10011001, %eax       # imm = 0x10011001
++        vmovd %eax, %xmm3
++        vpbroadcastd %xmm3, %ymm3
++        vmovdqa (%rdx), %ymm4
++        vmovdqa (%rsi), %ymm5
++        vmovdqa 0x20(%rsi), %ymm6
++        vmovdqa 0x40(%rsi), %ymm7
++        vmovdqa 0x60(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm5, %ymm5
++        vpmulhw %ymm0, %ymm6, %ymm6
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm5, %ymm5
++        vpmulhrsw %ymm1, %ymm6, %ymm6
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm5, %ymm5
++        vpand %ymm2, %ymm6, %ymm6
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm6, %ymm5, %ymm5
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm5, %ymm5
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpackuswb %ymm7, %ymm5, %ymm5
++        vpermd %ymm5, %ymm4, %ymm5
++        vmovdqu %ymm5, (%rdi)
++        vmovdqa 0x80(%rsi), %ymm5
++        vmovdqa 0xa0(%rsi), %ymm6
++        vmovdqa 0xc0(%rsi), %ymm7
++        vmovdqa 0xe0(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm5, %ymm5
++        vpmulhw %ymm0, %ymm6, %ymm6
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm5, %ymm5
++        vpmulhrsw %ymm1, %ymm6, %ymm6
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm5, %ymm5
++        vpand %ymm2, %ymm6, %ymm6
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm6, %ymm5, %ymm5
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm5, %ymm5
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpackuswb %ymm7, %ymm5, %ymm5
++        vpermd %ymm5, %ymm4, %ymm5
++        vmovdqu %ymm5, 0x20(%rdi)
++        vmovdqa 0x100(%rsi), %ymm5
++        vmovdqa 0x120(%rsi), %ymm6
++        vmovdqa 0x140(%rsi), %ymm7
++        vmovdqa 0x160(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm5, %ymm5
++        vpmulhw %ymm0, %ymm6, %ymm6
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm5, %ymm5
++        vpmulhrsw %ymm1, %ymm6, %ymm6
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm5, %ymm5
++        vpand %ymm2, %ymm6, %ymm6
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm6, %ymm5, %ymm5
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm5, %ymm5
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpackuswb %ymm7, %ymm5, %ymm5
++        vpermd %ymm5, %ymm4, %ymm5
++        vmovdqu %ymm5, 0x40(%rdi)
++        vmovdqa 0x180(%rsi), %ymm5
++        vmovdqa 0x1a0(%rsi), %ymm6
++        vmovdqa 0x1c0(%rsi), %ymm7
++        vmovdqa 0x1e0(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm5, %ymm5
++        vpmulhw %ymm0, %ymm6, %ymm6
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm5, %ymm5
++        vpmulhrsw %ymm1, %ymm6, %ymm6
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm5, %ymm5
++        vpand %ymm2, %ymm6, %ymm6
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm6, %ymm5, %ymm5
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm5, %ymm5
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpackuswb %ymm7, %ymm5, %ymm5
++        vpermd %ymm5, %ymm4, %ymm5
++        vmovdqu %ymm5, 0x60(%rdi)
++        retq
++        .cfi_endproc
++
++MLK_ASM_FN_SIZE(poly_compress_d4_avx2_asm)
++
++#endif /* MLK_ARITH_BACKEND_X86_64_DEFAULT && !MLK_CONFIG_MULTILEVEL_NO_SHARED \
++          && (!MLK_CONFIG_NO_ENCAPS_API || !MLK_CONFIG_NO_DECAPS_API) && \
++          (MLK_CONFIG_MULTILEVEL_WITH_SHARED || MLKEM_K == 2 || MLKEM_K == 3) \
++        */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif
+diff --git a/b/mlkem/src/native/x86_64/src/mlkem_poly_compress_d5_avx2_asm.S b/mlkem/src/native/x86_64/src/mlkem_poly_compress_d5_avx2_asm.S
+new file mode 100644
+index 0000000..41e3c67
+--- /dev/null
++++ b/mlkem/src/native/x86_64/src/mlkem_poly_compress_d5_avx2_asm.S
+@@ -0,0 +1,251 @@
++/*
++ * Copyright (c) The mlkem-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Kyber optimized AVX2 implementation
++ *   Bos, Ducas, Kiltz, Lepoint, Lyubashevsky, Schanck, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/kyber/tree/main/avx2
++ */
++
++/*
++ * This file is derived from the public domain
++ * AVX2 Kyber implementation @[REF_AVX2].
++ */
++
++/*************************************************
++ * Name:        mlk_poly_compress_d5_avx2_asm
++ *
++ * Description: Compression of a polynomial to 5 bits per coefficient.
++ *
++ * Arguments:   - uint8_t *r:       pointer to output byte array
++ *                                  (of length MLKEM_POLYCOMPRESSEDBYTES_D5)
++ *              - const int16_t *a: pointer to input polynomial
++ *              - const uint8_t *data: pointer to shufbidx constant
++ **************************************************/
++
++#include "../../../common.h"
++#if defined(MLK_ARITH_BACKEND_X86_64_DEFAULT) && \
++    !defined(MLK_CONFIG_MULTILEVEL_NO_SHARED) && \
++    (!defined(MLK_CONFIG_NO_ENCAPS_API) || \
++     !defined(MLK_CONFIG_NO_DECAPS_API)) && \
++    (defined(MLK_CONFIG_MULTILEVEL_WITH_SHARED) || MLKEM_K == 4)
++/*yaml
++  Name: poly_compress_d5_avx2_asm
++  Description: x86_64 AVX2 polynomial compression (d=5)
++  Signature: void mlk_poly_compress_d5_avx2_asm(uint8_t *r, const int16_t *a, const uint8_t *data)
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 160
++      permissions: write-only
++      c_parameter: uint8_t *r
++      description: Output compressed polynomial
++    rsi:
++      type: buffer
++      size_bytes: 512
++      permissions: read-only
++      c_parameter: const int16_t *a
++      description: Input polynomial (256 x int16_t)
++    rdx:
++      type: buffer
++      size_bytes: 32
++      permissions: read-only
++      c_parameter: const uint8_t *data
++      description: Precomputed compression constants
++*/
++
++
++/*
++ * WARNING: This file is auto-derived from the mlkem-native source file
++ *   dev/x86_64/src/mlkem_poly_compress_d5_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLK_ASM_NAMESPACE(poly_compress_d5_avx2_asm)
++MLK_ASM_FN_SYMBOL(poly_compress_d5_avx2_asm)
++
++        .cfi_startproc
++        movl $0x4ebf4ebf, %eax       # imm = 0x4EBF4EBF
++        vmovd %eax, %xmm0
++        vpbroadcastd %xmm0, %ymm0
++        movl $0x4000400, %eax        # imm = 0x4000400
++        vmovd %eax, %xmm1
++        vpbroadcastd %xmm1, %ymm1
++        movl $0x1f001f, %eax         # imm = 0x1F001F
++        vmovd %eax, %xmm2
++        vpbroadcastd %xmm2, %ymm2
++        movl $0x20012001, %eax       # imm = 0x20012001
++        vmovd %eax, %xmm3
++        vpbroadcastd %xmm3, %ymm3
++        movl $0x4000001, %eax        # imm = 0x4000001
++        vmovd %eax, %xmm4
++        vpbroadcastd %xmm4, %ymm4
++        movl $0xc, %eax
++        vmovq %rax, %xmm5
++        vpbroadcastq %xmm5, %ymm5
++        vmovdqa (%rdx), %ymm6
++        vmovdqa (%rsi), %ymm7
++        vmovdqa 0x20(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpmaddwd %ymm4, %ymm7, %ymm7
++        vpsllvd %ymm5, %ymm7, %ymm7
++        vpsrlvq %ymm5, %ymm7, %ymm7
++        vpshufb %ymm6, %ymm7, %ymm7
++        vextracti128 $0x1, %ymm7, %xmm8
++        vpblendvb %xmm6, %xmm8, %xmm7, %xmm7
++        vmovdqu %xmm7, (%rdi)
++        vmovd %xmm8, 0x10(%rdi)
++        vmovdqa 0x40(%rsi), %ymm7
++        vmovdqa 0x60(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpmaddwd %ymm4, %ymm7, %ymm7
++        vpsllvd %ymm5, %ymm7, %ymm7
++        vpsrlvq %ymm5, %ymm7, %ymm7
++        vpshufb %ymm6, %ymm7, %ymm7
++        vextracti128 $0x1, %ymm7, %xmm8
++        vpblendvb %xmm6, %xmm8, %xmm7, %xmm7
++        vmovdqu %xmm7, 0x14(%rdi)
++        vmovd %xmm8, 0x24(%rdi)
++        vmovdqa 0x80(%rsi), %ymm7
++        vmovdqa 0xa0(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpmaddwd %ymm4, %ymm7, %ymm7
++        vpsllvd %ymm5, %ymm7, %ymm7
++        vpsrlvq %ymm5, %ymm7, %ymm7
++        vpshufb %ymm6, %ymm7, %ymm7
++        vextracti128 $0x1, %ymm7, %xmm8
++        vpblendvb %xmm6, %xmm8, %xmm7, %xmm7
++        vmovdqu %xmm7, 0x28(%rdi)
++        vmovd %xmm8, 0x38(%rdi)
++        vmovdqa 0xc0(%rsi), %ymm7
++        vmovdqa 0xe0(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpmaddwd %ymm4, %ymm7, %ymm7
++        vpsllvd %ymm5, %ymm7, %ymm7
++        vpsrlvq %ymm5, %ymm7, %ymm7
++        vpshufb %ymm6, %ymm7, %ymm7
++        vextracti128 $0x1, %ymm7, %xmm8
++        vpblendvb %xmm6, %xmm8, %xmm7, %xmm7
++        vmovdqu %xmm7, 0x3c(%rdi)
++        vmovd %xmm8, 0x4c(%rdi)
++        vmovdqa 0x100(%rsi), %ymm7
++        vmovdqa 0x120(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpmaddwd %ymm4, %ymm7, %ymm7
++        vpsllvd %ymm5, %ymm7, %ymm7
++        vpsrlvq %ymm5, %ymm7, %ymm7
++        vpshufb %ymm6, %ymm7, %ymm7
++        vextracti128 $0x1, %ymm7, %xmm8
++        vpblendvb %xmm6, %xmm8, %xmm7, %xmm7
++        vmovdqu %xmm7, 0x50(%rdi)
++        vmovd %xmm8, 0x60(%rdi)
++        vmovdqa 0x140(%rsi), %ymm7
++        vmovdqa 0x160(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpmaddwd %ymm4, %ymm7, %ymm7
++        vpsllvd %ymm5, %ymm7, %ymm7
++        vpsrlvq %ymm5, %ymm7, %ymm7
++        vpshufb %ymm6, %ymm7, %ymm7
++        vextracti128 $0x1, %ymm7, %xmm8
++        vpblendvb %xmm6, %xmm8, %xmm7, %xmm7
++        vmovdqu %xmm7, 0x64(%rdi)
++        vmovd %xmm8, 0x74(%rdi)
++        vmovdqa 0x180(%rsi), %ymm7
++        vmovdqa 0x1a0(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpmaddwd %ymm4, %ymm7, %ymm7
++        vpsllvd %ymm5, %ymm7, %ymm7
++        vpsrlvq %ymm5, %ymm7, %ymm7
++        vpshufb %ymm6, %ymm7, %ymm7
++        vextracti128 $0x1, %ymm7, %xmm8
++        vpblendvb %xmm6, %xmm8, %xmm7, %xmm7
++        vmovdqu %xmm7, 0x78(%rdi)
++        vmovd %xmm8, 0x88(%rdi)
++        vmovdqa 0x1c0(%rsi), %ymm7
++        vmovdqa 0x1e0(%rsi), %ymm8
++        vpmulhw %ymm0, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm8, %ymm8
++        vpmulhrsw %ymm1, %ymm7, %ymm7
++        vpmulhrsw %ymm1, %ymm8, %ymm8
++        vpand %ymm2, %ymm7, %ymm7
++        vpand %ymm2, %ymm8, %ymm8
++        vpackuswb %ymm8, %ymm7, %ymm7
++        vpmaddubsw %ymm3, %ymm7, %ymm7
++        vpmaddwd %ymm4, %ymm7, %ymm7
++        vpsllvd %ymm5, %ymm7, %ymm7
++        vpsrlvq %ymm5, %ymm7, %ymm7
++        vpshufb %ymm6, %ymm7, %ymm7
++        vextracti128 $0x1, %ymm7, %xmm8
++        vpblendvb %xmm6, %xmm8, %xmm7, %xmm7
++        vmovdqu %xmm7, 0x8c(%rdi)
++        vmovd %xmm8, 0x9c(%rdi)
++        retq
++        .cfi_endproc
++
++MLK_ASM_FN_SIZE(poly_compress_d5_avx2_asm)
++
++#endif /* MLK_ARITH_BACKEND_X86_64_DEFAULT && !MLK_CONFIG_MULTILEVEL_NO_SHARED \
++          && (!MLK_CONFIG_NO_ENCAPS_API || !MLK_CONFIG_NO_DECAPS_API) && \
++          (MLK_CONFIG_MULTILEVEL_WITH_SHARED || MLKEM_K == 4) */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif

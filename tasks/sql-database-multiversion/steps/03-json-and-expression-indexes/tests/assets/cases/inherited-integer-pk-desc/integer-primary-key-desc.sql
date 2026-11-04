@@ -1,0 +1,11 @@
+CREATE TABLE a1(x INTEGER PRIMARY KEY ASC, y);
+CREATE TABLE a2(x INTEGER, y, PRIMARY KEY(x DESC));
+CREATE TABLE a3(x INTEGER PRIMARY KEY DESC, y);
+INSERT INTO a1 VALUES(4,'p');
+INSERT INTO a2 VALUES(4,'p');
+INSERT INTO a3 VALUES(4,'p');
+SELECT x = rowid FROM a1;
+SELECT x = rowid FROM a2;
+SELECT x = rowid FROM a3;
+SELECT count(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = 'a1';
+SELECT count(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = 'a3';

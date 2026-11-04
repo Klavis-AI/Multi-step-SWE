@@ -1,0 +1,43 @@
+# From 10.38, \K inside a lookaround assertion is a compile error by default.
+/(?=pq\K)rs/
+Failed: error 199 at offset 10: \K is not allowed in lookarounds (but see PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK)
+    pqrs
+
+/(?<=\Kpq)rs/
+Failed: error 199 at offset 11: \K is not allowed in lookarounds (but see PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK)
+    pqrs
+
+/(?!pq\Kz)rs/
+Failed: error 199 at offset 11: \K is not allowed in lookarounds (but see PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK)
+    rs
+
+/(?<!\Kpq)rs/
+Failed: error 199 at offset 11: \K is not allowed in lookarounds (but see PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK)
+    zzrs
+
+/(*pla:a\Kb)/
+Failed: error 199 at offset 11: \K is not allowed in lookarounds (but see PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK)
+    ab
+
+/(*naplb:a\Kb)cd/
+Failed: error 199 at offset 15: \K is not allowed in lookarounds (but see PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK)
+    abcd
+
+# It is an error however deeply the \K is buried inside the assertion.
+/x(?:y(?=z\Kq))/
+Failed: error 199 at offset 14: \K is not allowed in lookarounds (but see PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK)
+    xyzq
+
+/(?=(?:a|b(?:c\K))d)/
+Failed: error 199 at offset 19: \K is not allowed in lookarounds (but see PCRE2_EXTRA_ALLOW_LOOKAROUND_BSK)
+    bcd
+
+# \K outside an assertion is untouched, and does not disturb captures.
+/(foo)\Kbar/
+    foobar
+ 0: bar
+ 1: foo
+
+/^pq\Krs/
+    pqrs
+ 0: rs

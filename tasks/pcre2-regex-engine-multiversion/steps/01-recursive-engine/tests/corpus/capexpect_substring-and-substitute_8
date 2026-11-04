@@ -1,0 +1,79 @@
+# Substring extraction and pcre2_substitute().
+/^(?<who>\w+)-the-(?<what>\w+)$/
+    Basil-the-badger\=copy=who,copy=2,get=what,get=1
+ 0: Basil-the-badger
+ 1: Basil
+ 2: badger
+ 2C badger (6)
+  C Basil (5) who (group 1)
+ 1G Basil (5)
+  G badger (6) what (group 2)
+    Basil-the-badger\=getall
+ 0: Basil-the-badger
+ 1: Basil
+ 2: badger
+ 0L Basil-the-badger
+ 1L Basil
+ 2L badger
+    Basil-the-badger\=allcaptures
+ 0: Basil-the-badger
+ 1: Basil
+ 2: badger
+
+/^(\w+)(?:-(\w+))?$/
+    stoat\=allcaptures
+ 0: stoat
+ 1: stoat
+ 2: <unset>
+    stoat-weasel\=getall
+ 0: stoat-weasel
+ 1: stoat
+ 2: weasel
+ 0L stoat-weasel
+ 1L stoat
+ 2L weasel
+
+/(?J)^(?<tag>a\w+)|(?<tag>b\w+)$/
+    bobcat\=get=tag,copy=tag
+ 0: bobcat
+ 1: <unset>
+ 2: bobcat
+  C bobcat (6) tag (non-unique)
+  G bobcat (6) tag (non-unique)
+
+/^\w+$/
+    heron\=copy=3
+ 0: heron
+Copy substring 3 failed (-49): unknown substring
+    heron\=get=nosuch
+ 0: heron
+Number not found for group 'nosuch'
+Get substring 'nosuch' failed (-49): unknown substring
+
+/badger/replace=otter
+    a-badger-here
+ 1: a-otter-here
+    a-badger-and-a-badger\=global
+ 2: a-otter-and-a-otter
+
+/(\w+)@(\w+)/replace=$2.at.$1
+    fox@den
+ 1: den.at.fox
+
+/(?<user>\w+)@(?<host>\w+)/replace=<${user}/${host}>
+    vole@burrow
+ 1: <vole/burrow>
+
+/a(b)c/replace=+$1$0$1+
+    =abc=
+ 1: =+babcb+=
+
+/e/replace=E
+    weasel\=global,replace=[8]E
+ 2: wEasEl
+    weasel\=global,replace=[6]E
+Failed: error -48: no more memory
+
+/x/replace=$q
+    axb
+Failed: error -49: unknown substring

@@ -1,0 +1,7 @@
+print(os.date("!%Y-%m-%d %H:%M:%S", 0))
+print(os.date("!%Y-%m-%d", 1234567890))
+local t = os.date("!*t", 1234567890)
+print(t.year, t.month, t.day, t.hour, t.min, t.sec, t.wday, t.yday, t.isdst)
+print(os.time{year = 2000, month = 1, day = 1, hour = 12, min = 0, sec = 0} > 0)
+print(os.difftime(100, 50))
+print(type(os.clock()))

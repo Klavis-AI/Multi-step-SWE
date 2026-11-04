@@ -1,0 +1,50 @@
+# arch: x86_64
+# R_X86_64_PLT32 on a call and on a tail jump reaches the callee in a static
+# link, where L collapses to S, and the displacement is still S+A-P.
+rt_obj rt.o
+cat > c.s <<'S'
+        .text
+        .globl  callee
+callee: mov     $42, %eax
+        ret
+        .globl  callee2
+callee2:
+        mov     $58, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+cat > r.s <<'S'
+        .text
+        .globl  via_call
+via_call:
+        push    %rax
+        call    callee
+        pop     %rcx
+        ret
+        .globl  via_jmp
+via_jmp:
+        jmp     callee2
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj c.o c.s; as_obj r.o r.s
+ri=$(relocs r.o)
+want_has "call uses R_X86_64_PLT32" "$ri" "R_X86_64_PLT32 +[0-9a-f]+ +callee -"
+want_has "jmp uses R_X86_64_PLT32"  "$ri" "R_X86_64_PLT32 +[0-9a-f]+ +callee2 -"
+cat > m.c <<'C'
+#include "rt.h"
+int via_call(void); int via_jmp(void);
+int entry(void) {
+  int r = via_call() + via_jmp();
+  putdec(r); print("\n");
+  return r == 100 ? 0 : 1;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o c.o r.o m.o
+run_expect out "100" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

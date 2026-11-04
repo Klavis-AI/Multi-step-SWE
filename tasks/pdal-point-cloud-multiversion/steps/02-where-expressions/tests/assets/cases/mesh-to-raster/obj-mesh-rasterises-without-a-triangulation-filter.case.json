@@ -1,0 +1,61 @@
+{
+ "doc": "stages/readers.obj.rst: 'This reader constructs a mesh from the faces specified in the OBJ file, ignoring vertices that are not associated with any face.' and stages/filters.faceraster.rst: 'Each raster cell is given a value that is an interpolation of the known values of containing triangle.  If the raster cell center is outside of the triangulation, it is assigned the nodata_ value.  Use `writers.raster` to write the output.'",
+ "files": {
+  "m.obj": {
+   "text": "# a square made of two triangles, plus one vertex on no face\nv 0.0 0.0 0.0\nv 4.0 0.0 4.0\nv 0.0 4.0 0.0\nv 4.0 4.0 4.0\nv 9.0 9.0 9.0\nf 1 2 3\nf 2 4 3\n"
+  },
+  "w.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.obj\", \"filename\": \"m.obj\"}, {\"type\": \"filters.faceraster\", \"resolution\": 1, \"origin_x\": 0.5, \"origin_y\": 0.5, \"width\": 4, \"height\": 4}, {\"type\": \"writers.raster\", \"filename\": \"r.tif\", \"data_type\": \"double\"}]}"
+  },
+  "r.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.gdal\", \"filename\": \"r.tif\", \"header\": \"Z\"}, {\"type\": \"writers.las\", \"filename\": \"r.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "w.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "r.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "r.las",
+   "header": {
+    "point_count": 16
+   },
+   "dims": {
+    "Z": {
+     "unique": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "sum": {
+      "approx": 40,
+      "tol": 0.01
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,482 @@
+{
+ "step": "04",
+ "requireLockfile": true,
+ "devConsole": true,
+ "comment": [
+  "Step 4 gate spec: React 16.14 -> React 18, rendered through a root, with",
+  "StrictMode on.",
+  "",
+  "What the step is about. Three steps of work have left a function-component",
+  "application on Redux Toolkit and react-router 6 that still boots the way a",
+  "2017 application boots: one ReactDOM.render call in src/components/app.js",
+  "against react 16.14 and react-dom 16.14. React 18's root API is the whole",
+  "subject - createRoot, and the StrictMode that only becomes useful once the",
+  "root exists, because it is the root that turns StrictMode's second pass on.",
+  "",
+  "Why StrictMode is part of this step and not a later one. StrictMode is the",
+  "instrument that finds what React 19 will not run: an effect whose cleanup",
+  "cannot survive being called, a lifecycle that is not idempotent, a legacy",
+  "context reader. Turning it on at the same time as the root is what makes the",
+  "next two steps possible; turning it on later would mean discovering this",
+  "step's own defects in that later step.",
+  "",
+  "Why the console count is measured in a second build. Every warning React emits",
+  "about the things it is about to stop supporting is development-only code. The",
+  "production build the 210 scenarios replay has all of it compiled out, so",
+  "nothing in that replay can see any of it, and a step whose subject is",
+  "StrictMode has to start the application a second way. runner/devconsole.sh",
+  "builds the tree once more with NODE_ENV=development - the candidate's own",
+  "`npm run build`, in the other configuration - serves it on its own port, and",
+  "visits seventeen addresses counting console errors and uncaught exceptions.",
+  "Nothing there is compared against a recording: the behavior family is the",
+  "production build's business and this is a count.",
+  "",
+  "What that count actually finds in this tree, measured rather than predicted.",
+  "Nine of the ten compare-by-seller screens initialise their chart inside an",
+  "`if (sellersAndTime.length > 1)` and dispose it unconditionally in the",
+  "cleanup, on a ref that starts as the empty string. Arriving at one of those",
+  "screens with no pair chosen therefore mounts without a chart, and StrictMode's",
+  "immediate cleanup calls `''.dispose()`. Ninety errors across the seventeen",
+  "addresses, all nine of them the same sentence. That is the whole finding: the",
+  "other fifty-nine addresses in the application are silent. It is a defect this",
+  "repository has always had - it is what leaving one of those screens without",
+  "choosing a pair always did - and StrictMode is what makes it visible on a",
+  "mount.",
+  "",
+  "Why StrictMode is read off the root's render call and not off the tree. The",
+  "presence of a `<StrictMode>` element somewhere in a module the build compiles",
+  "is not the property this step states, and the difference is the whole of the",
+  "step: a sibling `<StrictMode><div /></StrictMode>` next to the provider is one",
+  "line, wraps nothing, double-invokes nothing, and leaves the nine effects this",
+  "step exists to fix exactly as they were - while taking strict-mode-present's 3",
+  "and clearing the strict-mode-on guard on the 6-weight console count, whose",
+  "zero would then be a measurement of an application running without the",
+  "instrument. So the gate is `strict-mode-root`: the element is counted only",
+  "where it is the outermost JSX the root is handed - createRoot(el).render(...)",
+  "directly, or through a name bound to a root in the same file - with the root",
+  "resolved through its react-dom/client import rather than by the name",
+  "`createRoot`, which is a word a candidate can declare. `create-root` is",
+  "resolved the same way and for the same reason. The older `strict-mode` gate",
+  "still records presence and is not scored here.",
+  "",
+  "Why the dev-run guards are load-bearing rather than decorative. A development",
+  "run that never started, never rendered, never reached the API, or was not a",
+  "development build at all reports zero errors, and zero errors is what a pass",
+  "looks like. So `errors` is only read once the record says all seventeen",
+  "addresses were visited, all seventeen rendered an application rather than an",
+  "empty index.html, the page asked the mock API for something, and the served",
+  "JavaScript contains a string that only React's development build contains.",
+  "The last of those is the one that matters most: a build that pins NODE_ENV to",
+  "production regardless of the environment would produce a production bundle",
+  "here, and a production bundle reports none of the warnings this check exists",
+  "to count.",
+  "",
+  "The icons, and why they are in this step. react-icons 2 reaches its icons",
+  "through `react-icons/lib/fa/...`, and every one of those modules renders",
+  "through react-icon-base 2.1.0 - the one package left in this tree that reads",
+  "legacy context. Legacy context still works in React 18 and does not work in",
+  "React 19, so the package has to go at the step that turns StrictMode on rather",
+  "than at the step that upgrades to 19, which is the step that would otherwise",
+  "discover it. react-icons 5 imports from a pack subpath - `react-icons/fa` -",
+  "and renders the same SVG with the same className, so nothing the scenarios",
+  "compare moves. Two icons are renamed in the interval (FaBarChart ->",
+  "FaChartBar, FaExchange -> FaExchangeAlt) and the snapshots would show it if",
+  "the rename were got wrong.",
+  "",
+  "Why the deep-import ceiling matches `react-icons/lib/` and not `react-icons/`.",
+  "Version 5's own imports are subpaths of the same package. A ceiling on every",
+  "subpath would count a correct migration as the thing it retired. `lib/` is the",
+  "shape only the retired major has, and it is the shape that reaches",
+  "react-icon-base.",
+  "",
+  "Why react and react-dom are pinned to major 18 rather than to 18-or-later.",
+  "This line has a step for React 19 and a step for the compiler after it. A tree",
+  "that arrives at step 5 already on 19 has not done step 5's work early, it has",
+  "skipped step 4's: concurrent features are what 18 is for, and this step is the",
+  "waypoint they are measured from.",
+  "",
+  "Why every ceiling is an absolute 0 and never a delta - the step-2 and step-3",
+  "argument, unchanged. The tree a step-4 candidate starts from is whatever it",
+  "left behind at step 3, and that is not one tree.",
+  "",
+  "Why the two kept-checks are scored `scope: reachable`. The step-1 spec states",
+  "the rule the whole line follows: removals are asked of the whole repository,",
+  "because a surviving class in a file nothing imports is still a surviving",
+  "class, and positive evidence is asked only of the code that runs, because a",
+  "file nothing builds is no evidence of anything. data-layer-kept and",
+  "data-router-kept are positive evidence - they say the layer and the route",
+  "table are still load-bearing after the entry point moved - and they were the",
+  "only scored minimums in the four steps asked repository-wide. That is the",
+  "same hole strict-mode-root closed one paragraph up, in a cheaper place: a",
+  "candidate that moved every screen off the generated hooks keeps this check by",
+  "leaving one orphaned module with twenty call sites in it, which is the",
+  "opposite of what the check is named for. Measured on the reference: 47 of the",
+  "48 sites are in modules the build compiles (cycleAndActive.js is imported by",
+  "nothing - the same file step 2's spec names for the same reason), and",
+  "router-data-api reads 3 either way, so neither floor moves and the golden is",
+  "unchanged.",
+  "",
+  "The floor. A step-4 candidate that does nothing arrives with a tree that",
+  "builds, serves and reproduces all 210 scenarios, because a router migration",
+  "that is finished still behaves like the application. Of the seventeen checks",
+  "here it passes two - the build tool is still Vite and every file still parses -",
+  "and those two are the two that are not claims about this migration but the",
+  "conditions under which reading the tree means anything at all. Everything else",
+  "is either an absence that the untouched tree does not have (a ReactDOM.render",
+  "call, sixty react-icons/lib imports, an installed react-icon-base) or a",
+  "presence guarded on that absence. 2 of 40 puts the untouched predecessor at",
+  "0.477500, under build-process item 6's 0.5 bar.",
+  "",
+  "Why code-split-kept rides along, guarded. It is the one thing this step could",
+  "plausibly break by accident: the icons change touches forty-six files' import",
+  "lists, and a candidate that reaches for a bundler setting while doing it can",
+  "collapse the route chunks without the scenarios noticing - they replay a site",
+  "that behaves identically either way. Guarded on the render call being gone,",
+  "so the untouched tree is not paid for a split it inherited."
+ ],
+ "guard": [
+  {
+   "id": "site-is-live",
+   "why": "The tree still builds, serves and behaves like the application, so that what the gates measure is a migration of it rather than its absence.",
+   "kind": "json-flag",
+   "file": "/logs/verifier/behavior.json",
+   "field": "passed",
+   "min": 10,
+   "unmet": "the built site did not reproduce the application, so there is no migrated application to credit: the tree did not build, did not serve, or reproduced almost none of the behavior it must preserve"
+  },
+  {
+   "id": "built-from-source",
+   "why": "The site that is served is built from this repository's own source, so that the behavior the one family reproduces and the code the other family reads are the same program.",
+   "kind": "built-from-source",
+   "minModules": 1,
+   "unmet": "the site that was served is not built from this tree: what the build compiled and what the tree contains are different code, so the behavior it reproduced is no evidence about the tree the gates read"
+  }
+ ],
+ "checks": [
+  {
+   "id": "legacy-render-gone",
+   "why": "Nothing calls react-dom's legacy entry points any more: no ReactDOM.render, no hydrate, no unstable_renderSubtreeIntoContainer. React 18 keeps them working and warns; React 19 removes them, and a tree that still mounts through one is not rendering through a root.",
+   "kind": "ast-max",
+   "gate": "legacy-render",
+   "max": 0,
+   "baseline": 1,
+   "weight": 4
+  },
+  {
+   "id": "create-root-present",
+   "why": "The application mounts through a root created from react-dom/client: the root is what React 18 renders into, and it is what makes StrictMode's second pass, the concurrent scheduler and everything the next two steps are about available at all.",
+   "kind": "ast-min",
+   "gate": "create-root",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "The root is credited for replacing the legacy render call, so that call has to be gone; a createRoot beside a surviving ReactDOM.render is a second entry point rather than a migration.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so a root beside it has replaced nothing"
+    }
+   ],
+   "weight": 4
+  },
+  {
+   "id": "strict-mode-present",
+   "why": "StrictMode is what the root renders, so the application is inside it. It costs the production build nothing and is what makes the development run report the things React 19 will stop running - but only of the tree it actually wraps, which is why this reads the root's own render call rather than the presence of the element anywhere in a compiled module.",
+   "kind": "ast-min",
+   "gate": "strict-mode-root",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "StrictMode's second pass is a property of the root; under the legacy render call it is a component that changes nothing, so it is credited once the root is what mounts the tree.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so StrictMode inside it does not double-invoke anything"
+    },
+    {
+     "id": "every-root-render-wrapped",
+     "why": "StrictMode is around the tree that mounts, not around a second one beside it. The floor beside this guard says at least one root render is wrapped; this says none is left unwrapped, and the two together are the sentence the step writes - the element handed to the root's render is StrictMode. On its own the floor is taken by a decoy: a throwaway createRoot rendering <StrictMode><div /></StrictMode>, or a first root.render overwritten by a second, leaves the application mounted the ordinary way while a wrapped render exists in the file. A ceiling of one root is not the same claim, because the overwrite shape has one root and two renders.",
+     "kind": "ast-max",
+     "gate": "root-render-unwrapped",
+     "max": 0,
+     "scope": "reachable",
+     "unmet": "a root in the code the build compiles renders something that is not StrictMode, so part of this application is mounted without the instrument this step turns on"
+    }
+   ],
+   "weight": 3
+  },
+  {
+   "id": "strict-console-clean",
+   "why": "The application run in development with StrictMode on reports no console errors and no uncaught exceptions across the seventeen addresses the driver visits. This is the check the rest of the step exists to make meaningful: turning StrictMode on and leaving what it finds unfixed is not a migration to React 18, it is an announcement of one.",
+   "kind": "json-flag",
+   "file": "/logs/verifier/strict.json",
+   "field": "errors",
+   "max": 0,
+   "baseline": 90,
+   "guard": [
+    {
+     "id": "dev-run-complete",
+     "why": "Every address was visited. A run that stopped early reports fewer errors for a reason that is not the tree.",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "addresses",
+     "min": 17,
+     "unmet": "the development run did not visit the addresses it measures, so its error count is not a measurement of this tree: the development build did not run, did not serve, or the driver did not finish"
+    },
+    {
+     "id": "dev-run-rendered",
+     "why": "Every address rendered an application rather than the empty index.html around it. A page that renders nothing reports nothing.",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "rendered",
+     "min": 17,
+     "unmet": "the development build served a page that did not render the application, so a console with nothing in it says nothing about StrictMode"
+    },
+    {
+     "id": "dev-run-screens",
+     "why": "Each address rendered the screen that address is for, rather than the page around it. The guard above separates an application from an empty index.html; it does not separate this application from some other page of it, and the separation matters here because the second build is made with NODE_ENV=development - so a branch that stands the nine screens under measurement down is live in that build and dead in the one the behavior suite replays. Every visit is therefore asked for evidence the production build already leaves at the same address: the no-such-route page only where no route matches, and the pair of panels each compare-by-seller screen draws. This is the guard that makes the run a run of these components rather than of the shell around them.",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "intact",
+     "min": 17,
+     "unmet": "an address rendered something other than the screen it is for, so the components whose second mount pass this check counts were never on the page and a console with nothing in it is not a reading of them"
+    },
+    {
+     "id": "dev-run-reached-api",
+     "why": "The development run asked the mock API for data, so the components under measurement got as far as their effects.",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "apiPaths",
+     "min": 5,
+     "unmet": "the development run never reached the API, so the effects whose second pass this check measures did not run"
+    },
+    {
+     "id": "dev-build-is-development",
+     "why": "The second build really is a development build. React's warnings are development-only code, so a production bundle here would report a clean console whatever the tree does.",
+     "kind": "json-flag",
+     "file": "/logs/verifier/strict.json",
+     "field": "devReact",
+     "equals": true,
+     "unmet": "the second build did not produce a development build of React, so it could not have reported a development-only warning and its silence is not evidence"
+    },
+    {
+     "id": "strict-mode-on",
+     "why": "The run exercised StrictMode, which means StrictMode was around the tree the root mounted and not merely somewhere in the bundle. A StrictMode that wraps nothing double-invokes nothing, so the console it leaves quiet is the console of an application running without the instrument - and that is the one silence the other four guards cannot tell from a pass.",
+     "kind": "ast-min",
+     "gate": "strict-mode-root",
+     "min": 1,
+     "scope": "reachable",
+     "unmet": "the root does not render StrictMode, so the application was mounted without it and a development run with nothing to report is a run of the application without the instrument"
+    },
+    {
+     "id": "every-root-render-wrapped",
+     "why": "StrictMode is around the tree that mounts, not around a second one beside it. The floor beside this guard says at least one root render is wrapped; this says none is left unwrapped, and the two together are the sentence the step writes - the element handed to the root's render is StrictMode. On its own the floor is taken by a decoy: a throwaway createRoot rendering <StrictMode><div /></StrictMode>, or a first root.render overwritten by a second, leaves the application mounted the ordinary way while a wrapped render exists in the file. A ceiling of one root is not the same claim, because the overwrite shape has one root and two renders.",
+     "kind": "ast-max",
+     "gate": "root-render-unwrapped",
+     "max": 0,
+     "scope": "reachable",
+     "unmet": "a root in the code the build compiles renders something that is not StrictMode, so part of this application is mounted without the instrument this step turns on"
+    },
+    {
+     "id": "console-not-replaced",
+     "why": "The count is a reading of what the application reported, not of what was left able to report. A module that assigns over console.error - or console.warn, or console.assert - removes the larger of the two channels the development driver listens on from what any tree can be measured by. No correct migration of this repository reassigns them, so this costs a tree that did the work nothing.",
+     "kind": "ast-max",
+     "gate": "console-suppressions",
+     "max": 0,
+     "scope": "reachable",
+     "unmet": "a module the build compiles writes over a console method, so the development run counted a console the tree had replaced rather than the one it reported to"
+    }
+   ],
+   "weight": 6
+  },
+  {
+   "id": "react-18",
+   "why": "The React that is installed is version 18 - not 16 beside it, not two majors at once, and not 19, which is a later step in this line and whose own migration is measured from this one.",
+   "kind": "dep-version",
+   "package": "react",
+   "major": 18,
+   "weight": 3
+  },
+  {
+   "id": "react-dom-18",
+   "why": "The renderer is on the same major as React. react-dom/client only exists from 18, and a react-dom left behind on 16 is the package the root API is missing from.",
+   "kind": "dep-version",
+   "package": "react-dom",
+   "major": 18,
+   "weight": 3
+  },
+  {
+   "id": "legacy-context-reader-gone",
+   "why": "react-icon-base is not in the installed tree. It is the last package here that reads React's legacy context - the API React 19 removes - and it is reached only through react-icons 2's per-icon modules, so it leaves when they do.",
+   "kind": "dep-absent",
+   "package": "react-icon-base",
+   "weight": 3
+  },
+  {
+   "id": "react-icons-v2-import-gone",
+   "why": "No module imports an icon through react-icons 2's per-icon path. That path is what reaches react-icon-base; version 5's own imports are pack subpaths and are not counted here.",
+   "kind": "ast-max",
+   "gate": "react-icons-deep-import",
+   "max": 0,
+   "baseline": 56,
+   "weight": 3
+  },
+  {
+   "id": "react-icons-current",
+   "why": "The icon package that is installed is a major whose components are ordinary function components with no legacy context in them.",
+   "kind": "dep-version",
+   "package": "react-icons",
+   "minMajor": 5,
+   "weight": 2
+  },
+  {
+   "id": "code-split-kept",
+   "why": "The application still loads its route components on demand: the built page reaches many JavaScript chunks rather than one. This step rewrites forty-six files' import lists and moves the entry point, and neither of those is a reason for the route split to end.",
+   "kind": "min-chunks",
+   "min": 30,
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "The split is credited for surviving this step, so this step has to have happened; an untouched tree still reaches its chunks and has carried nothing across.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so the chunks the built page reaches are the ones it arrived with"
+    }
+   ],
+   "weight": 2
+  },
+  {
+   "id": "classes-stay-gone",
+   "kind": "ast-max",
+   "weight": 1,
+   "why": "No component goes back to being a class. Step 1 made every one of them a function and this step rewrites forty-six files' import lists and moves the entry point; a class reintroduced along the way is a regression this step is the one in a position to notice.",
+   "gate": "class-components",
+   "max": 0,
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "The constraint is credited for surviving this step, so this step has to have happened; the tree step 4 starts from already satisfies it and has carried nothing across.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so nothing has been carried across this step yet"
+    }
+   ]
+  },
+  {
+   "id": "route-fetching-absent",
+   "kind": "ast-max",
+   "weight": 1,
+   "why": "No route fetches for itself: step 2 put every request behind one data layer and step 3 kept it there while adopting the router whose loaders would take it back out. A root and a StrictMode are no reason to move it, so the constraint is re-read here rather than left to the step that established it.",
+   "gate": "route-loader",
+   "max": 0,
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "The constraint is credited for surviving this step, so this step has to have happened; the tree step 4 starts from already satisfies it and has carried nothing across.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so nothing has been carried across this step yet"
+    }
+   ]
+  },
+  {
+   "id": "data-layer-owns-fetching",
+   "kind": "ast-max",
+   "weight": 1,
+   "why": "And nothing reaches the server beside that layer - not through the browser's fetch, an XMLHttpRequest or an HTTP client package. The other half of the same sentence, read as a ceiling.",
+   "gate": "raw-fetch",
+   "max": 0,
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "The constraint is credited for surviving this step, so this step has to have happened; the tree step 4 starts from already satisfies it and has carried nothing across.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so nothing has been carried across this step yet"
+    }
+   ]
+  },
+  {
+   "id": "data-layer-kept",
+   "kind": "ast-min",
+   "weight": 1,
+   "why": "The data layer this step inherits is still how the running application gets its data, rather than a remnant beside something else. StrictMode's second pass runs every effect twice, and a candidate that found that inconvenient could quiet it by moving reads out of the layer's own hooks; this is what says the layer is still load-bearing.",
+   "gate": "rtk-query-hooks",
+   "min": 30,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "The constraint is credited for surviving this step, so this step has to have happened; the tree step 4 starts from already satisfies it and has carried nothing across.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so nothing has been carried across this step yet"
+    }
+   ]
+  },
+  {
+   "id": "data-router-kept",
+   "kind": "ast-min",
+   "weight": 1,
+   "why": "The route table is still a description handed to a router rather than an element tree that is rendered. Moving the entry point is the one edit in this step that touches the file the router is created in, so this is where a router quietly unwound would show.",
+   "gate": "router-data-api",
+   "min": 1,
+   "scope": "reachable",
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "The constraint is credited for surviving this step, so this step has to have happened; the tree step 4 starts from already satisfies it and has carried nothing across.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so nothing has been carried across this step yet"
+    }
+   ]
+  },
+  {
+   "id": "vite-declared",
+   "why": "The build tool this step inherits is not replaced along the way: the project's declared build tool is still Vite.",
+   "kind": "dep-declared",
+   "package": "vite",
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. react-dom's legacy render call is gone, as for the other inherited checks of this step.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    }
+   ],
+   "weight": 1
+  },
+  {
+   "id": "parses",
+   "why": "Every file in the repository can be parsed by a current JavaScript parser.",
+   "kind": "parse-errors",
+   "max": 0,
+   "baseline": 1,
+   "binary": true,
+   "guard": [
+    {
+     "id": "legacy-render-going",
+     "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. react-dom's legacy render call is gone, as for the other inherited checks of this step.",
+     "kind": "ast-max",
+     "gate": "legacy-render",
+     "max": 0,
+     "unmet": "the tree still mounts through react-dom's legacy render call, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+    }
+   ],
+   "weight": 1
+  }
+ ]
+}

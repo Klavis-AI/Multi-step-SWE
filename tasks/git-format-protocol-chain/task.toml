@@ -1,0 +1,113 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# The collected /app is how the candidate reaches the verifier. No `exclude`
+# list: Harbor's exclusion path gzips the transfer archive, and the Kubernetes
+# exec stream decodes it as UTF-8, which destroys compressed bytes. The plain
+# path tars without compression, so a text-only workspace arrives intact — and
+# the verifier deletes any build output and rebuilds from the candidate's own
+# sources anyway.
+artifacts = [
+  { source = "/app", destination = "workspace" },
+]
+
+[task]
+name = "harbor/git-format-protocol-chain"
+version = "1.0.0"
+description = "Eight-step PHP git implementation across git's format and protocol chain: the object model and index v2, packfiles and the v0/v1 transports, protocol v2 with partial clone and bundle URIs, index v3/v4 and sparse checkout, commit-graph/multi-pack-index/bitmaps, the reftable backend, the SHA-256 object format, and repository format version 1 with its extensions — graded with git's own t/ suite, bidirectional interop against pinned real git builds, and fsck parity on a repository corpus."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["git", "object-database", "packfile", "wire-protocol", "reftable", "sha256", "php", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["git", "file-formats", "wire-protocol", "php", "multi-step", "interop"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-object-core"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-pack-transport"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-protocol-v2"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-index-sparse"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-commit-graph"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-reftable"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-sha256"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-repositoryformat"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

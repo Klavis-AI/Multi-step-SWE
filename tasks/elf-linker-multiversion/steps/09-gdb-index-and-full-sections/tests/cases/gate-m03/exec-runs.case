@@ -1,0 +1,28 @@
+# arch: aarch64
+# The AArch64 backend must produce a runnable static ET_EXEC for EM_AARCH64,
+# with the entry point at _start and the whole thing executing under qemu.
+# NOTE: inspection output is dumped to a file and grepped there, so that no
+# assertion rides on the exit status of a pipeline ending in `grep -q`.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("aarch64-ok\n"); return 7; }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o
+hdr out > h.txt
+want "e_type"  "$(awk '/^ *Type:/{print $2}' h.txt)"  "EXEC"
+want "e_class" "$(awk '/^ *Class:/{print $2}' h.txt)" "ELF64"
+grep -qE 'Machine: +AArch64' h.txt || die "e_machine is not AArch64: $(grep -i machine h.txt)"
+# e_flags has no defined bits in the AArch64 LP64 ABI and MUST be written as 0
+# (spec/07-aarch64-relocations.md S12.1).
+want "e_flags" "$(awk '/^ *Flags:/{print $2}' h.txt)" "0x0"
+start=$(sym_value out _start)
+[ -n "$start" ] || die "_start has no value in the output"
+want "e_entry == _start" "$(( $(awk '/Entry point address:/{print $NF}' h.txt) ))" "$((0x$start))"
+run_expect out "aarch64-ok" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. Four `want`s run here; run_expect and
+# the bare `grep ... || die` do not bump the counter.
+asserts_at_least 4

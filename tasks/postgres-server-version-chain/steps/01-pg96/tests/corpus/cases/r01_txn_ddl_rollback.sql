@@ -1,0 +1,6 @@
+BEGIN;
+CREATE TABLE tr(i int);
+INSERT INTO tr VALUES (1);
+SELECT count(*) FROM tr;
+ROLLBACK;
+SELECT count(*) FROM tr;

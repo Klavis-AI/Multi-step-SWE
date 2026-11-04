@@ -1,0 +1,38 @@
+# arch: x86_64
+# The .eh_frame_hdr binary-search table lists every FDE's initial location
+# exactly once, sorted ascending, so a personality routine can bisect it.
+rt_obj rt.o
+for n in a b c d e; do
+  cat > $n.c <<C
+#include "rt.h"
+int f$n(void) { print("$n"); return 1; }
+C
+  cc_obj $n.o $n.c -fasynchronous-unwind-tables
+done
+cat > m.c <<'C'
+int fa(void); int fb(void); int fc(void); int fd(void); int fe(void);
+int entry(void) { return fa() + fb() + fc() + fd() + fe(); }
+C
+cc_obj m.o m.c -fasynchronous-unwind-tables
+link_ok out rt.o e.o c.o a.o d.o b.o m.o --eh-frame-hdr
+fde_pcs=$($OBJDUMP --dwarf=frames out \
+          | sed -n 's/^[0-9a-f]* [0-9a-f]* [0-9a-f]* FDE .*pc=0*\([0-9a-f]*\)\.\.\..*/\1/p')
+hp=$($READELF --unwind out | sed -n '1,/^\.eh_frame section/p')
+tbl=$(printf '%s\n' "$hp" | sed -n 's/.*initial_location: 0x0*\([0-9a-f]*\).*/\1/p')
+[ -n "$tbl" ] || die ".eh_frame_hdr has no search table entries"
+want "table is sorted by initial location" \
+     "$(printf '%s\n' "$tbl" | tr '\n' ' ')" \
+     "$(printf '%s\n' "$tbl" | LC_ALL=C sort | tr '\n' ' ')"
+want "no duplicate initial locations" \
+     "$(printf '%s\n' "$tbl" | LC_ALL=C sort -u | grep -c .)" \
+     "$(printf '%s\n' "$tbl" | grep -c .)"
+want "table covers exactly the FDEs in .eh_frame" \
+     "$(printf '%s\n' "$tbl" | LC_ALL=C sort | tr '\n' ' ')" \
+     "$(printf '%s\n' "$fde_pcs" | LC_ALL=C sort | tr '\n' ' ')"
+run_expect out "abcde" 5
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

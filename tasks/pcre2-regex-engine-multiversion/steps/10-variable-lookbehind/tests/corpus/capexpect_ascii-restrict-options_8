@@ -1,0 +1,55 @@
+# (?aD), (?aS), (?aW), (?aP) and (?aT) set the ASCII restrictions from inside
+# a pattern and the (?-a...) forms clear them; (?aP) implies (?aT).
+# ChangeLog 10.43 items 9b and 36; pcre2pattern.3, "INTERNAL OPTION SETTING".
+
+/^(?aW)\w+$/utf,ucp
+    caf\x{e9}
+No match
+    cafes
+ 0: cafes
+
+/^\w(?-aW)\w$/utf,ucp,ascii_bsw
+    x\x{e9}
+ 0: x\x{e9}
+    \x{e9}x
+No match
+
+/^(?aD)\d\d$/utf,ucp
+    \x{966}\x{967}
+No match
+    58
+ 0: 58
+
+/^\d(?-aD)\d$/utf,ucp,ascii_bsd
+    7\x{967}
+ 0: 7\x{967}
+    \x{967}7
+No match
+
+/^(?aS)\s\s$/utf,ucp
+    \x{a0}\x{a0}
+No match
+    \x{09}\x{20}
+ 0: \x{09} 
+
+/^(?aP)[[:alpha:]][[:xdigit:]]$/utf,ucp
+    \x{e9}c
+No match
+    zc
+ 0: zc
+    z\x{ff23}
+No match
+
+# (?-aP) clears the restriction on the POSIX classes including [:xdigit:].
+/^[[:alpha:]](?-aP)[[:xdigit:]]$/utf,ucp,ascii_posix
+    z\x{ff23}
+ 0: z\x{ff23}
+    \x{e9}c
+No match
+
+# (?aT) restricts only [:digit:] and [:xdigit:].
+/^(?aT)[[:xdigit:]][[:alpha:]]$/utf,ucp
+    \x{ff23}z
+No match
+    c\x{e9}
+ 0: c\x{e9}

@@ -1,0 +1,4108 @@
+diff --git a/src/Simd/SimdAvx2Hog.cpp b/src/Simd/SimdAvx2Hog.cpp
+new file mode 100644
+index 0000000..550acfe
+--- /dev/null
++++ b/src/Simd/SimdAvx2Hog.cpp
+@@ -0,0 +1,923 @@
++/*
++* Simd Library (http://ermig1979.github.io/Simd).
++*
++* Copyright (c) 2011-2024 Yermalayeu Ihar.
++*
++* Permission is hereby granted, free of charge, to any person obtaining a copy
++* of this software and associated documentation files (the "Software"), to deal
++* in the Software without restriction, including without limitation the rights
++* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++* copies of the Software, and to permit persons to whom the Software is
++* furnished to do so, subject to the following conditions:
++*
++* The above copyright notice and this permission notice shall be included in
++* all copies or substantial portions of the Software.
++*
++* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++* SOFTWARE.
++*/
++#include "Simd/SimdStore.h"
++#include "Simd/SimdBase.h"
++#include "Simd/SimdArray.h"
++#include "Simd/SimdUnpack.h"
++
++namespace Simd
++{
++#ifdef SIMD_AVX2_ENABLE    
++    namespace Avx2
++    {
++        namespace
++        {
++            struct Buffer
++            {
++                const int size;
++                __m256 * cos, *sin;
++                __m256i * pos, *neg;
++                int * index;
++                float * value;
++
++                Buffer(size_t width, size_t quantization)
++                    : size((int)quantization / 2)
++                {
++                    width = AlignHi(width, A / sizeof(float));
++                    _p = Allocate(width*(sizeof(int) + sizeof(float)) + (sizeof(__m256i) + sizeof(__m256)) * 2 * size);
++                    index = (int*)_p - 1;
++                    value = (float*)index + width;
++                    cos = (__m256*)(value + width + 1);
++                    sin = cos + size;
++                    pos = (__m256i*)(sin + size);
++                    neg = pos + size;
++                    for (int i = 0; i < size; ++i)
++                    {
++                        cos[i] = _mm256_set1_ps((float)::cos(i*M_PI / size));
++                        sin[i] = _mm256_set1_ps((float)::sin(i*M_PI / size));
++                        pos[i] = _mm256_set1_epi32(i);
++                        neg[i] = _mm256_set1_epi32(size + i);
++                    }
++                }
++
++                ~Buffer()
++                {
++                    Free(_p);
++                }
++
++            private:
++                void *_p;
++            };
++        }
++
++        template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m256 & dx, const __m256 & dy, Buffer & buffer, size_t col)
++        {
++            __m256 bestDot = _mm256_setzero_ps();
++            __m256i bestIndex = _mm256_setzero_si256();
++            for (int i = 0; i < buffer.size; ++i)
++            {
++                __m256 dot = _mm256_fmadd_ps(dx, buffer.cos[i], _mm256_mul_ps(dy, buffer.sin[i]));
++                __m256 mask = _mm256_cmp_ps(dot, bestDot, _CMP_GT_OS);
++                bestDot = _mm256_max_ps(dot, bestDot);
++                bestIndex = _mm256_blendv_epi8(bestIndex, buffer.pos[i], _mm256_castps_si256(mask));
++
++                dot = _mm256_sub_ps(_mm256_setzero_ps(), dot);
++                mask = _mm256_cmp_ps(dot, bestDot, _CMP_GT_OS);
++                bestDot = _mm256_max_ps(dot, bestDot);
++                bestIndex = _mm256_blendv_epi8(bestIndex, buffer.neg[i], _mm256_castps_si256(mask));
++            }
++            Store<align>((__m256i*)(buffer.index + col), bestIndex);
++            Store<align>(buffer.value + col, Sqrt<0>(_mm256_fmadd_ps(dx, dx, _mm256_mul_ps(dy, dy))));
++        }
++
++        template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m256i & t, const __m256i & l, const __m256i & r, const __m256i & b, Buffer & buffer, size_t col)
++        {
++            HogDirectionHistograms<align>(
++                _mm256_cvtepi32_ps(_mm256_sub_epi32(_mm256_unpacklo_epi16(r, K_ZERO), _mm256_unpacklo_epi16(l, K_ZERO))),
++                _mm256_cvtepi32_ps(_mm256_sub_epi32(_mm256_unpacklo_epi16(b, K_ZERO), _mm256_unpacklo_epi16(t, K_ZERO))),
++                buffer, col + 0);
++            HogDirectionHistograms<align>(
++                _mm256_cvtepi32_ps(_mm256_sub_epi32(_mm256_unpackhi_epi16(r, K_ZERO), _mm256_unpackhi_epi16(l, K_ZERO))),
++                _mm256_cvtepi32_ps(_mm256_sub_epi32(_mm256_unpackhi_epi16(b, K_ZERO), _mm256_unpackhi_epi16(t, K_ZERO))),
++                buffer, col + 8);
++        }
++
++        template <bool align> SIMD_INLINE void HogDirectionHistograms(const uint8_t * src, size_t stride, Buffer & buffer, size_t col)
++        {
++            const uint8_t * s = src + col;
++            __m256i t = LoadPermuted<false>((__m256i*)(s - stride));
++            __m256i l = LoadPermuted<false>((__m256i*)(s - 1));
++            __m256i r = LoadPermuted<false>((__m256i*)(s + 1));
++            __m256i b = LoadPermuted<false>((__m256i*)(s + stride));
++            HogDirectionHistograms<align>(PermutedUnpackLoU8(t), PermutedUnpackLoU8(l), PermutedUnpackLoU8(r), PermutedUnpackLoU8(b), buffer, col + 0);
++            HogDirectionHistograms<align>(PermutedUnpackHiU8(t), PermutedUnpackHiU8(l), PermutedUnpackHiU8(r), PermutedUnpackHiU8(b), buffer, col + 16);
++        }
++
++        namespace Custom_8x8_18
++        {
++            struct Buffer
++            {
++                __m256i pos[5];
++                __m256 cos[5], sin[5];
++                __m128 kx[8], ky[8];
++
++                int * index;
++                float * value;
++                __m128 * hist;
++                size_t hs;
++
++                Buffer(size_t width)
++                {
++                    width = AlignHi(width, A / sizeof(float));
++                    hs = (width / 8 + 1) * 18 * sizeof(__m128);
++                    _p = Allocate(width*(sizeof(int) + sizeof(float)) + hs);
++                    index = (int*)_p - 1;
++                    value = (float*)index + width;
++                    hist = (__m128*)(value + width + 1);
++
++                    for (int i = 0; i < 5; ++i)
++                    {
++                        cos[i] = _mm256_set1_ps((float)::cos(i*M_PI / 9));
++                        sin[i] = _mm256_set1_ps((float)::sin(i*M_PI / 9));
++                        pos[i] = _mm256_set1_epi32(i);
++                    }
++                    for (int i = 0; i < 8; ++i)
++                    {
++                        float k0 = float((15 - i * 2) / 16.0f);
++                        float k1 = 1.0f - k0;
++                        kx[i] = _mm_setr_ps(k0, k1, k0, k1);
++                        ky[i] = _mm_setr_ps(k0, k0, k1, k1);
++                    }
++                    ClearHist();
++                }
++
++                ~Buffer()
++                {
++                    Free(_p);
++                }
++
++                void ClearHist()
++                {
++                    memset(hist, 0, hs);
++                }
++
++            private:
++                void *_p;
++            };
++
++            const __m256i K32_1 = SIMD_MM256_SET1_EPI32(1);
++            const __m256i K32_9 = SIMD_MM256_SET1_EPI32(9);
++            const __m256i K32_18 = SIMD_MM256_SET1_EPI32(18);
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m256 & dx, const __m256 & dy, Buffer & buffer, size_t col)
++            {
++                __m256 _0 = _mm256_set1_ps(-0.0f);
++                __m256 adx = _mm256_andnot_ps(_0, dx);
++                __m256 ady = _mm256_andnot_ps(_0, dy);
++                __m256 bestDot = _mm256_fmadd_ps(adx, buffer.cos[0], _mm256_mul_ps(ady, buffer.sin[0]));
++                __m256i bestIndex = buffer.pos[0];
++                for (int i = 1; i < 5; ++i)
++                {
++                    __m256 dot = _mm256_fmadd_ps(adx, buffer.cos[i], _mm256_mul_ps(ady, buffer.sin[i]));
++                    __m256 mask = _mm256_cmp_ps(dot, bestDot, _CMP_GT_OS);
++                    bestDot = _mm256_max_ps(dot, bestDot);
++                    bestIndex = _mm256_blendv_epi8(bestIndex, buffer.pos[i], _mm256_castps_si256(mask));
++                }
++                __m256i maskDx = _mm256_castps_si256(_mm256_cmp_ps(dx, _mm256_setzero_ps(), _CMP_LT_OS));
++                bestIndex = _mm256_blendv_epi8(bestIndex, _mm256_sub_epi32(K32_9, bestIndex), maskDx);
++
++                __m256i maskDy = _mm256_castps_si256(_mm256_cmp_ps(dy, _mm256_setzero_ps(), _CMP_LT_OS));
++                __m256i corr = _mm256_and_si256(_mm256_castps_si256(_mm256_cmp_ps(adx, _mm256_setzero_ps(), _CMP_EQ_OS)), K32_1);
++                bestIndex = _mm256_blendv_epi8(bestIndex, _mm256_sub_epi32(K32_18, _mm256_add_epi32(bestIndex, corr)), maskDy);
++
++                bestIndex = _mm256_andnot_si256(_mm256_cmpeq_epi32(bestIndex, K32_18), bestIndex);
++
++                Store<align>((__m256i*)(buffer.index + col), bestIndex);
++                Store<align>(buffer.value + col, Sqrt<0>(_mm256_fmadd_ps(adx, adx, _mm256_mul_ps(ady, ady))));
++            }
++
++            template <int part> SIMD_INLINE __m256 CovertDifference(const __m128i & a, const __m128i & b)
++            {
++                return _mm256_cvtepi32_ps(_mm256_cvtepi16_epi32(Sse41::SubUnpackedU8<part>(a, b)));
++            }
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const uint8_t * src, size_t stride, Buffer & buffer, size_t col)
++            {
++                const uint8_t * s = src + col;
++                __m128i t = Sse41::Load<false>((__m128i*)(s - stride));
++                __m128i l = Sse41::Load<false>((__m128i*)(s - 1));
++                __m128i r = Sse41::Load<false>((__m128i*)(s + 1));
++                __m128i b = Sse41::Load<false>((__m128i*)(s + stride));
++                HogDirectionHistograms<align>(CovertDifference<0>(r, l), CovertDifference<0>(b, t), buffer, col + 0);
++                HogDirectionHistograms<align>(CovertDifference<1>(r, l), CovertDifference<1>(b, t), buffer, col + 8);
++            }
++
++            void AddRowToBuffer(const uint8_t * src, size_t stride, Buffer & buffer, size_t row, size_t width, size_t aligned)
++            {
++                const uint8_t * s = src + stride * row;
++                for (size_t col = 1; col < aligned; col += HA)
++                    HogDirectionHistograms<true>(s, stride, buffer, col);
++                HogDirectionHistograms<false>(s, stride, buffer, width - 1 - HA);
++
++                __m128 ky = buffer.ky[(row + 4) & 7];
++                __m128 * hist = buffer.hist;
++                size_t cellEnd = width / 8;
++
++                for (size_t col = 1; col < 4; ++col)
++                {
++                    int index = buffer.index[col];
++                    __m128 value = _mm_set1_ps(buffer.value[col]);
++                    __m128 kx = buffer.kx[(col + 4) & 7];
++                    hist[index] = _mm_fmadd_ps(_mm_mul_ps(ky, kx), value, hist[index]);
++                }
++                hist += 18;
++
++                for (size_t cell = 1, col = 4; cell < cellEnd; ++cell)
++                {
++                    for (size_t i = 0; i < 8; ++i, ++col)
++                    {
++                        int index = buffer.index[col];
++                        __m128 value = _mm_set1_ps(buffer.value[col]);
++                        __m128 kx = buffer.kx[i];
++                        hist[index] = _mm_fmadd_ps(_mm_mul_ps(ky, kx), value, hist[index]);
++                    }
++                    hist += 18;
++                }
++
++                for (size_t col = width - 4; col < width - 1; ++col)
++                {
++                    int index = buffer.index[col];
++                    __m128 value = _mm_set1_ps(buffer.value[col]);
++                    __m128 kx = buffer.kx[(col + 4) & 7];
++                    hist[index] = _mm_fmadd_ps(_mm_mul_ps(ky, kx), value, hist[index]);
++                }
++            }
++
++            void AddToHistogram(Buffer & buffer, size_t row, size_t width, size_t height, float * histograms)
++            {
++                typedef float f18_t[18];
++
++                float * src = (float*)buffer.hist;
++                f18_t * h0 = (f18_t*)histograms + row * width - width - 1;
++                f18_t * h1 = h0 + width;
++
++                if (row == 0)
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                        h1[1][i] += src[i * 4 + 3];
++                    h1++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        for (size_t i = 0; i < 18; ++i)
++                        {
++                            h1[0][i] += src[i * 4 + 2];
++                            h1[1][i] += src[i * 4 + 3];
++                        }
++                        h1++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                        h1[0][i] += src[i * 4 + 2];
++                }
++                else if (row == height)
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                        h0[1][i] += src[i * 4 + 1];
++                    h0++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        for (size_t i = 0; i < 18; ++i)
++                        {
++                            h0[0][i] += src[i * 4 + 0];
++                            h0[1][i] += src[i * 4 + 1];
++                        }
++                        h0++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                        h0[0][i] += src[i * 4 + 0];
++                }
++                else
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                    {
++                        h0[1][i] += src[i * 4 + 1];
++                        h1[1][i] += src[i * 4 + 3];
++                    }
++                    h0++;
++                    h1++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        for (size_t i = 0; i < 16; i += F)
++                        {
++                            const float * s = src + i * 4;
++                            __m256 a0 = Load<true>(s + 0x00, s + 0x10);
++                            __m256 a1 = Load<true>(s + 0x04, s + 0x14);
++                            __m256 a2 = Load<true>(s + 0x08, s + 0x18);
++                            __m256 a3 = Load<true>(s + 0x0C, s + 0x1C);
++                            __m256 b0 = _mm256_unpacklo_ps(a0, a2);
++                            __m256 b1 = _mm256_unpackhi_ps(a0, a2);
++                            __m256 b2 = _mm256_unpacklo_ps(a1, a3);
++                            __m256 b3 = _mm256_unpackhi_ps(a1, a3);
++                            Store<false>(h0[0] + i, _mm256_add_ps(Load<false>(h0[0] + i), _mm256_unpacklo_ps(b0, b2)));
++                            Store<false>(h0[1] + i, _mm256_add_ps(Load<false>(h0[1] + i), _mm256_unpackhi_ps(b0, b2)));
++                            Store<false>(h1[0] + i, _mm256_add_ps(Load<false>(h1[0] + i), _mm256_unpacklo_ps(b1, b3)));
++                            Store<false>(h1[1] + i, _mm256_add_ps(Load<false>(h1[1] + i), _mm256_unpackhi_ps(b1, b3)));
++                        }
++                        for (size_t i = 16; i < 18; ++i)
++                        {
++                            h0[0][i] += src[i * 4 + 0];
++                            h0[1][i] += src[i * 4 + 1];
++                            h1[0][i] += src[i * 4 + 2];
++                            h1[1][i] += src[i * 4 + 3];
++                        }
++                        h0++;
++                        h1++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                    {
++                        h0[0][i] += src[i * 4 + 0];
++                        h1[0][i] += src[i * 4 + 2];
++                    }
++                }
++                buffer.ClearHist();
++            }
++
++            void HogDirectionHistograms(const uint8_t * src, size_t stride, size_t width, size_t height, float * histograms)
++            {
++                const size_t quantization = 18;
++
++                size_t sizeX = width / 8, sizeY = height / 8;
++
++                memset(histograms, 0, quantization*sizeX*sizeY * sizeof(float));
++
++                Buffer buffer(width);
++
++                size_t aligned = AlignLo(width - 2, HA) + 1;
++
++                for (size_t row = 1; row < 4; ++row)
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                AddToHistogram(buffer, 0, sizeX, sizeY, histograms);
++                for (size_t row = 4, cell = 1; row < height - 4; ++row)
++                {
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                    if ((row & 7) == 3)
++                        AddToHistogram(buffer, cell++, sizeX, sizeY, histograms);
++                }
++                for (size_t row = height - 4; row < height - 1; ++row)
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                AddToHistogram(buffer, sizeY, sizeX, sizeY, histograms);
++            }
++        }
++
++        void HogDirectionHistograms(const uint8_t * src, size_t stride, size_t width, size_t height,
++            size_t cellX, size_t cellY, size_t quantization, float * histograms)
++        {
++            assert(width%cellX == 0 && height%cellY == 0 && quantization % 2 == 0);
++            assert(width >= A + 2);
++
++            if (cellX == 8 && cellY == 8 && quantization == 18)
++                Custom_8x8_18::HogDirectionHistograms(src, stride, width, height, histograms);
++            else
++            {
++                memset(histograms, 0, quantization*(width / cellX)*(height / cellY) * sizeof(float));
++
++                Buffer buffer(width, quantization);
++
++                size_t alignedWidth = AlignLo(width - 2, A) + 1;
++
++                for (size_t row = 1; row < height - 1; ++row)
++                {
++                    const uint8_t * s = src + stride * row;
++                    for (size_t col = 1; col < alignedWidth; col += A)
++                        HogDirectionHistograms<true>(s, stride, buffer, col);
++                    HogDirectionHistograms<false>(s, stride, buffer, width - 1 - A);
++                    Base::AddRowToHistograms(buffer.index, buffer.value, row, width, height, cellX, cellY, quantization, histograms);
++                }
++            }
++        }
++
++        class HogFeatureExtractor
++        {
++            static const size_t C = 8;
++            static const size_t Q = 9;
++            static const size_t Q2 = 18;
++
++            typedef Array<int> Array32i;
++            typedef Array<float> Array32f;
++
++            size_t _sx, _sy, _hs;
++
++            __m256i _pos[5];
++            __m256 _cos[5], _sin[5];
++            __m128 _kx[8], _ky[8];
++            __m256i _Q, _Q2;
++
++            Array32i _index;
++            Array32f _value;
++            Array32f _buffer;
++            Array32f _histogram;
++            Array32f _norm;
++
++            void Init(size_t w, size_t h)
++            {
++                _sx = w / C;
++                _hs = _sx + 2;
++                _sy = h / C;
++                for (int i = 0; i < 5; ++i)
++                {
++                    _cos[i] = _mm256_set1_ps((float)::cos(i*M_PI / Q));
++                    _sin[i] = _mm256_set1_ps((float)::sin(i*M_PI / Q));
++                    _pos[i] = _mm256_set1_epi32(i);
++                }
++                for (int i = 0; i < C; ++i)
++                {
++                    float k0 = float((15 - i * 2) / 16.0f);
++                    float k1 = 1.0f - k0;
++                    _kx[i] = _mm_setr_ps(k0, k1, k0, k1);
++                    _ky[i] = _mm_setr_ps(k0, k0, k1, k1);
++                }
++                _Q = _mm256_set1_epi32(Q);
++                _Q2 = _mm256_set1_epi32(Q2);
++
++                _index.Resize(w);
++                _value.Resize(w);
++                _buffer.Resize((_sx + 1) * 4 * Q2);
++                _histogram.Resize((_sx + 2)*(_sy + 2)*Q2);
++                _norm.Resize((_sx + 2)*(_sy + 2));
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram(const __m256 & dx, const __m256 & dy, size_t col)
++            {
++                __m256 _0 = _mm256_set1_ps(-0.0f);
++                __m256 adx = _mm256_andnot_ps(_0, dx);
++                __m256 ady = _mm256_andnot_ps(_0, dy);
++                __m256 bestDot = _mm256_fmadd_ps(adx, _cos[0], _mm256_mul_ps(ady, _sin[0]));
++                __m256i bestIndex = _pos[0];
++                for (int i = 1; i < 5; ++i)
++                {
++                    __m256 dot = _mm256_fmadd_ps(adx, _cos[i], _mm256_mul_ps(ady, _sin[i]));
++                    __m256 mask = _mm256_cmp_ps(dot, bestDot, _CMP_GT_OS);
++                    bestDot = _mm256_max_ps(dot, bestDot);
++                    bestIndex = _mm256_blendv_epi8(bestIndex, _pos[i], _mm256_castps_si256(mask));
++                }
++                __m256i maskDx = _mm256_castps_si256(_mm256_cmp_ps(dx, _mm256_setzero_ps(), _CMP_LT_OS));
++                bestIndex = _mm256_blendv_epi8(bestIndex, _mm256_sub_epi32(_Q, bestIndex), maskDx);
++
++                __m256i maskDy = _mm256_castps_si256(_mm256_cmp_ps(dy, _mm256_setzero_ps(), _CMP_LT_OS));
++                __m256i corr = _mm256_and_si256(_mm256_castps_si256(_mm256_cmp_ps(adx, _mm256_setzero_ps(), _CMP_EQ_OS)), K32_00000001);
++                bestIndex = _mm256_blendv_epi8(bestIndex, _mm256_sub_epi32(_Q2, _mm256_add_epi32(bestIndex, corr)), maskDy);
++
++                bestIndex = _mm256_andnot_si256(_mm256_cmpeq_epi32(bestIndex, _Q2), bestIndex);
++
++                Store<align>((__m256i*)(_index.data + col), bestIndex);
++                Store<align>(_value.data + col, Sqrt<0>(_mm256_fmadd_ps(adx, adx, _mm256_mul_ps(ady, ady))));
++            }
++
++            template <int part> SIMD_INLINE __m256 ConvertDifference(const __m128i & a, const __m128i & b)
++            {
++                return _mm256_cvtepi32_ps(_mm256_cvtepi16_epi32(Sse41::SubUnpackedU8<part>(a, b)));
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram(const uint8_t * src, size_t stride, size_t col)
++            {
++                const uint8_t * s = src + col;
++                __m128i t = Sse41::Load<false>((__m128i*)(s - stride));
++                __m128i l = Sse41::Load<false>((__m128i*)(s - 1));
++                __m128i r = Sse41::Load<false>((__m128i*)(s + 1));
++                __m128i b = Sse41::Load<false>((__m128i*)(s + stride));
++                GetHistogram<align>(ConvertDifference<0>(r, l), ConvertDifference<0>(b, t), col + 0);
++                GetHistogram<align>(ConvertDifference<1>(r, l), ConvertDifference<1>(b, t), col + 8);
++            }
++
++            void AddRowToBuffer(const uint8_t * src, size_t stride, size_t row, size_t width, size_t aligned)
++            {
++                const uint8_t * s = src + stride * row;
++                GetHistogram<false>(s, stride, 1);
++                for (size_t col = HA; col < aligned; col += HA)
++                    GetHistogram<false>(s, stride, col);
++                GetHistogram<false>(s, stride, width - 1 - HA);
++
++                __m128 ky = _ky[(row + 4) & 7];
++                __m128 * buffer = (__m128*)_buffer.data;
++                for (size_t col = 1, n = C, i = 5; col < width - 1; i = 0, n = Simd::Min<size_t>(C, width - col - 1))
++                {
++                    for (; i < n; ++i, ++col)
++                    {
++                        int index = _index[col];
++                        __m128 value = _mm_set1_ps(_value[col]);
++                        buffer[index] = _mm_fmadd_ps(_mm_mul_ps(ky, _kx[i]), value, buffer[index]);
++                    }
++                    buffer += Q2;
++                }
++            }
++
++            void AddToHistogram(size_t row, size_t width, size_t height)
++            {
++                typedef float f18_t[18];
++
++                float * src = _buffer.data;
++                f18_t * h0 = (f18_t*)_histogram.data + row * _hs;
++                f18_t * h1 = h0 + _hs;
++
++                for (size_t cell = 0; cell <= width; ++cell)
++                {
++                    for (size_t i = 0; i < 16; i += F)
++                    {
++                        const float * s = src + i * 4;
++                        __m256 a0 = Load<true>(s + 0x00, s + 0x10);
++                        __m256 a1 = Load<true>(s + 0x04, s + 0x14);
++                        __m256 a2 = Load<true>(s + 0x08, s + 0x18);
++                        __m256 a3 = Load<true>(s + 0x0C, s + 0x1C);
++                        __m256 b0 = _mm256_unpacklo_ps(a0, a2);
++                        __m256 b1 = _mm256_unpackhi_ps(a0, a2);
++                        __m256 b2 = _mm256_unpacklo_ps(a1, a3);
++                        __m256 b3 = _mm256_unpackhi_ps(a1, a3);
++                        Store<false>(h0[0] + i, _mm256_add_ps(Load<false>(h0[0] + i), _mm256_unpacklo_ps(b0, b2)));
++                        Store<false>(h0[1] + i, _mm256_add_ps(Load<false>(h0[1] + i), _mm256_unpackhi_ps(b0, b2)));
++                        Store<false>(h1[0] + i, _mm256_add_ps(Load<false>(h1[0] + i), _mm256_unpacklo_ps(b1, b3)));
++                        Store<false>(h1[1] + i, _mm256_add_ps(Load<false>(h1[1] + i), _mm256_unpackhi_ps(b1, b3)));
++                    }
++                    __m128 * ps = (__m128*)src;
++                    __m128 s0 = _mm_add_ps(_mm_unpacklo_ps(ps[16], ps[17]), Sse41::Load(h0[0] + 16, h0[1] + 16));
++                    __m128 s1 = _mm_add_ps(_mm_unpackhi_ps(ps[16], ps[17]), Sse41::Load(h1[0] + 16, h1[1] + 16));
++                    Sse41::StoreHalf<0>(h0[0] + 16, s0);
++                    Sse41::StoreHalf<1>(h0[1] + 16, s0);
++                    Sse41::StoreHalf<0>(h1[0] + 16, s1);
++                    Sse41::StoreHalf<1>(h1[1] + 16, s1);
++                    h0++;
++                    h1++;
++                    src += 72;
++                }
++                _buffer.Clear();
++            }
++
++            void EstimateHistogram(const uint8_t * src, size_t stride, size_t width, size_t height)
++            {
++                _histogram.Clear();
++
++                size_t aligned = AlignHi(width - 1, HA) - HA;
++
++                _buffer.Clear();
++                for (size_t row = 1; row < 4; ++row)
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                AddToHistogram(0, _sx, _sy);
++                for (size_t row = 4, cell = 1; row < height - 4; ++row)
++                {
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                    if ((row & 7) == 3)
++                        AddToHistogram(cell++, _sx, _sy);
++                }
++                for (size_t row = height - 4; row < height - 1; ++row)
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                AddToHistogram(_sy, _sx, _sy);
++            }
++
++            SIMD_INLINE float GetNorm(const float * src)
++            {
++                __m256 norm = _mm256_add_ps(_mm256_loadu_ps(src), _mm256_loadu_ps(src + Q));
++                norm = _mm256_mul_ps(norm, norm);
++                norm = _mm256_hadd_ps(norm, norm);
++                norm = _mm256_hadd_ps(norm, norm);
++                float buf[8];
++                _mm256_storeu_ps(buf, norm);
++                return buf[0] + buf[4] + Simd::Square(src[Q - 1] + src[Q2 - 1]);
++            }
++
++            void EstimateNorm()
++            {
++                _norm.Clear();
++                for (size_t y = 0, i = 0; y < _sy; y++)
++                {
++                    const float * h = _histogram.data + ((y + 1)*_hs + 1)*Q2;
++                    float * n = _norm.data + (y + 1)*_hs + 1;
++                    for (size_t x = 0; x < _sx; x++, i++)
++                        n[x] = GetNorm(h + x * Q2);
++                }
++            }
++
++            void ExtractFeatures(float * features)
++            {
++                __m128 _02 = _mm_set1_ps(0.2f);
++                __m128 _05 = _mm_set1_ps(0.5f);
++                __m128 _02357 = _mm_set1_ps(0.2357f);
++                __m128 eps = _mm_set1_ps(0.0001f);
++                for (size_t y = 0; y < _sy; y++)
++                {
++                    float * ph = _histogram.data + ((y + 1)*_hs + 1)*Q2;
++                    for (size_t x = 0; x < _sx; x++)
++                    {
++                        float * dst = features + (y*_sx + x) * 31;
++
++                        float * p0 = _norm.data + y * _hs + x;
++                        float * p1 = p0 + _hs;
++                        float * p2 = p1 + _hs;
++
++                        __m128 n = _mm_setr_ps(
++                            p1[1] + p1[2] + p2[1] + p2[2],
++                            p0[1] + p0[2] + p1[1] + p1[2],
++                            p1[0] + p1[1] + p2[0] + p2[1],
++                            p0[0] + p0[1] + p1[0] + p1[1]);
++
++                        n = _mm_rsqrt_ps(_mm_add_ps(n, eps));
++
++                        __m128 t = _mm_setzero_ps();
++
++                        float * src = ph + x * Q2;
++                        for (int o = 0; o < 16; o += 4)
++                        {
++                            __m128 s = _mm_loadu_ps(src);
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<0>(s), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<1>(s), n), _02);
++                            __m128 h2 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<2>(s), n), _02);
++                            __m128 h3 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<3>(s), n), _02);
++                            t = _mm_add_ps(t, _mm_add_ps(_mm_add_ps(h0, h1), _mm_add_ps(h2, h3)));
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(_mm_hadd_ps(h0, h1), _mm_hadd_ps(h2, h3))));
++                            dst += 4;
++                            src += 4;
++                        }
++                        {
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(_mm_set1_ps(*src++), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(_mm_set1_ps(*src++), n), _02);
++                            t = _mm_add_ps(t, _mm_add_ps(h0, h1));
++                            __m128 h = _mm_hadd_ps(h0, h1);
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(h, h)));
++                            dst += 2;
++                        }
++
++                        src = ph + x * Q2;
++                        for (int o = 0; o < 8; o += 4)
++                        {
++                            __m128 s = _mm_add_ps(_mm_loadu_ps(src), _mm_loadu_ps(src + Q));
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<0>(s), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<1>(s), n), _02);
++                            __m128 h2 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<2>(s), n), _02);
++                            __m128 h3 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<3>(s), n), _02);
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(_mm_hadd_ps(h0, h1), _mm_hadd_ps(h2, h3))));
++                            dst += 4;
++                            src += 4;
++                        }
++                        {
++                            __m128 s = _mm_set1_ps(src[0] + src[Q]);
++                            __m128 h = _mm_min_ps(_mm_mul_ps(s, n), _02);
++                            h = _mm_dp_ps(_05, h, 0xF1);
++                            _mm_store_ss(dst++, h);
++                        }
++                        _mm_storeu_ps(dst, _mm_mul_ps(t, _02357));
++                    }
++                }
++            }
++
++        public:
++
++            void Run(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
++            {
++                Init(width, height);
++
++                EstimateHistogram(src, stride, width, height);
++
++                EstimateNorm();
++
++                ExtractFeatures(features);
++            }
++        };
++
++        void HogExtractFeatures(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
++        {
++            assert(width % 8 == 0 && height % 8 == 0 && width >= 16 && height >= 16);
++            assert(width >= HA + 2);
++
++            HogFeatureExtractor extractor;
++            extractor.Run(src, stride, width, height, features);
++        }
++
++        SIMD_INLINE void HogDeinterleave(const float * src, size_t count, float ** dst, size_t offset, size_t i)
++        {
++            src += i;
++            __m256 a0 = Load<false>(src + 0 * count, src + 4 * count);
++            __m256 a1 = Load<false>(src + 1 * count, src + 5 * count);
++            __m256 a2 = Load<false>(src + 2 * count, src + 6 * count);
++            __m256 a3 = Load<false>(src + 3 * count, src + 7 * count);
++            __m256 b0 = _mm256_unpacklo_ps(a0, a2);
++            __m256 b1 = _mm256_unpackhi_ps(a0, a2);
++            __m256 b2 = _mm256_unpacklo_ps(a1, a3);
++            __m256 b3 = _mm256_unpackhi_ps(a1, a3);
++            Store<false>(dst[i + 0] + offset, _mm256_unpacklo_ps(b0, b2));
++            Store<false>(dst[i + 1] + offset, _mm256_unpackhi_ps(b0, b2));
++            Store<false>(dst[i + 2] + offset, _mm256_unpacklo_ps(b1, b3));
++            Store<false>(dst[i + 3] + offset, _mm256_unpackhi_ps(b1, b3));
++        }
++
++        void HogDeinterleave(const float * src, size_t srcStride, size_t width, size_t height, size_t count, float ** dst, size_t dstStride)
++        {
++            assert(width >= F && count >= Sse41::F);
++
++            size_t alignedCount = AlignLo(count, Sse41::F);
++            size_t alignedWidth = AlignLo(width, F);
++
++            for (size_t row = 0; row < height; ++row)
++            {
++                size_t rowOffset = row * dstStride;
++                for (size_t col = 0; col < alignedWidth; col += F)
++                {
++                    const float * s = src + count * col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < alignedCount; i += Sse41::F)
++                        HogDeinterleave(s, count, dst, offset, i);
++                    if (alignedCount != count)
++                        HogDeinterleave(s, count, dst, offset, count - Sse41::F);
++                }
++                if (alignedWidth != width)
++                {
++                    size_t col = width - F;
++                    const float * s = src + count * col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < alignedCount; i += Sse41::F)
++                        HogDeinterleave(s, count, dst, offset, i);
++                    if (alignedCount != count)
++                        HogDeinterleave(s, count, dst, offset, count - Sse41::F);
++                }
++                src += srcStride;
++            }
++        }
++
++        namespace HogSeparableFilter_Detail
++        {
++            template <int add, bool end> SIMD_INLINE void Set(float * dst, const __m256 & value, const __m256 & mask)
++            {
++                Store<false>(dst, value);
++            }
++
++            template <> SIMD_INLINE void Set<1, false>(float * dst, const __m256 & value, const __m256 & mask)
++            {
++                Store<false>(dst, _mm256_add_ps(Load<false>(dst), value));
++            }
++
++            template <> SIMD_INLINE void Set<1, true>(float * dst, const __m256 & value, const __m256 & mask)
++            {
++                Store<false>(dst, _mm256_add_ps(Load<false>(dst), _mm256_and_ps(value, mask)));
++            }
++        }
++
++        class HogSeparableFilter
++        {
++            size_t _w, _h, _s;
++            Array32f _buffer;
++            Array256f _filter;
++
++            void Init(size_t w, size_t h, size_t rs, size_t cs)
++            {
++                _w = w - rs + 1;
++                _s = AlignHi(_w, F);
++                _h = h - cs + 1;
++                _buffer.Resize(_s*h);
++            }
++
++            template <bool align> SIMD_INLINE void FilterRows(const float * src, const __m256 * filter, size_t size, float * dst)
++            {
++                __m256 sum = _mm256_setzero_ps();
++                for (size_t i = 0; i < size; ++i)
++                    sum = _mm256_fmadd_ps(Load<false>(src + i), filter[i], sum);
++                Store<align>(dst, sum);
++            }
++
++            void FilterRows(const float * src, size_t srcStride, size_t width, size_t height, const float * filter, size_t size, float * dst, size_t dstStride)
++            {
++                _filter.Resize(size);
++                for (size_t i = 0; i < size; ++i)
++                    _filter[i] = _mm256_set1_ps(filter[i]);
++
++                size_t alignedWidth = AlignLo(width, F);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < alignedWidth; col += F)
++                        FilterRows<true>(src + col, _filter.data, size, dst + col);
++                    if (alignedWidth != width)
++                        FilterRows<false>(src + width - F, _filter.data, size, dst + width - F);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++            template <bool align> SIMD_INLINE void FilterRows_10(const float * src, const __m256 * filter, float * dst)
++            {
++                __m256  src0 = Load<false>(src + 0);
++                __m256  src4 = Load<false>(src + 4);
++                __m256  src8 = Load<false>(src + 8);
++                __m256 sum0 = _mm256_mul_ps(src0, filter[0]);
++                __m256 sum1 = _mm256_mul_ps(Alignr<1>(src0, src4), filter[1]);
++                sum0 = _mm256_fmadd_ps(Alignr<2>(src0, src4), filter[2], sum0);
++                sum1 = _mm256_fmadd_ps(Alignr<3>(src0, src4), filter[3], sum1);
++                sum0 = _mm256_fmadd_ps(src4, filter[4], sum0);
++                sum1 = _mm256_fmadd_ps(Alignr<1>(src4, src8), filter[5], sum1);
++                sum0 = _mm256_fmadd_ps(Alignr<2>(src4, src8), filter[6], sum0);
++                sum1 = _mm256_fmadd_ps(Alignr<3>(src4, src8), filter[7], sum1);
++                sum0 = _mm256_fmadd_ps(src8, filter[8], sum0);
++                sum1 = _mm256_fmadd_ps(Load<false>(src + 9), filter[9], sum1);
++                Store<align>(dst, _mm256_add_ps(sum0, sum1));
++            }
++
++            void FilterRows_10(const float * src, size_t srcStride, size_t width, size_t height, const float * filter, float * dst, size_t dstStride)
++            {
++                __m256 _filter[10];
++                for (size_t i = 0; i < 10; ++i)
++                    _filter[i] = _mm256_set1_ps(filter[i]);
++
++                size_t alignedWidth = AlignLo(width, F);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < alignedWidth; col += F)
++                        FilterRows_10<true>(src + col, _filter, dst + col);
++                    if (alignedWidth != width)
++                        FilterRows_10<false>(src + width - F, _filter, dst + width - F);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++            template <int add, bool end> SIMD_INLINE void FilterCols(const float * src, size_t stride, const __m256 * filter, size_t size, float * dst, const __m256 & mask)
++            {
++                __m256 sum = _mm256_setzero_ps();
++                for (size_t i = 0; i < size; ++i, src += stride)
++                    sum = _mm256_fmadd_ps(Load<!end>(src), filter[i], sum);
++                HogSeparableFilter_Detail::Set<add, end>(dst, sum, mask);
++            }
++
++            template <int add, bool end> SIMD_INLINE void FilterCols4x(const float * src, size_t stride, const __m256 * filter, size_t size, float * dst, const __m256 & mask)
++            {
++                __m256 sums[4] = { _mm256_setzero_ps(), _mm256_setzero_ps(), _mm256_setzero_ps(), _mm256_setzero_ps() };
++                for (size_t i = 0; i < size; ++i, src += stride)
++                {
++                    __m256 f = filter[i];
++                    sums[0] = _mm256_fmadd_ps(Load<!end>(src + 0 * F), f, sums[0]);
++                    sums[1] = _mm256_fmadd_ps(Load<!end>(src + 1 * F), f, sums[1]);
++                    sums[2] = _mm256_fmadd_ps(Load<!end>(src + 2 * F), f, sums[2]);
++                    sums[3] = _mm256_fmadd_ps(Load<!end>(src + 3 * F), f, sums[3]);
++                }
++                HogSeparableFilter_Detail::Set<add, end>(dst + 0 * F, sums[0], mask);
++                HogSeparableFilter_Detail::Set<add, end>(dst + 1 * F, sums[1], mask);
++                HogSeparableFilter_Detail::Set<add, end>(dst + 2 * F, sums[2], mask);
++                HogSeparableFilter_Detail::Set<add, end>(dst + 3 * F, sums[3], mask);
++            }
++
++            template <int add> void FilterCols(const float * src, size_t srcStride, size_t width, size_t height, const float * filter, size_t size, float * dst, size_t dstStride)
++            {
++                _filter.Resize(size);
++                for (size_t i = 0; i < size; ++i)
++                    _filter[i] = _mm256_set1_ps(filter[i]);
++
++                size_t fullAlignedWidth = AlignLo(width, QF);
++                size_t partialAlignedWidth = AlignLo(width, F);
++                __m256 tailMask = RightNotZero32f(width - partialAlignedWidth);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    size_t col = 0;
++                    for (; col < fullAlignedWidth; col += QF)
++                        FilterCols4x<add, false>(src + col, srcStride, _filter.data, size, dst + col, tailMask);
++                    for (; col < partialAlignedWidth; col += F)
++                        FilterCols<add, false>(src + col, srcStride, _filter.data, size, dst + col, tailMask);
++                    if (partialAlignedWidth != width)
++                        FilterCols<add, true>(src + width - F, srcStride, _filter.data, size, dst + width - F, tailMask);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++        public:
++
++            void Run(const float * src, size_t srcStride, size_t width, size_t height,
++                const float * rowFilter, size_t rowSize, const float * colFilter, size_t colSize, float * dst, size_t dstStride, int add)
++            {
++                Init(width, height, rowSize, colSize);
++
++                if (colSize == 10)
++                    FilterRows_10(src, srcStride, _w, height, rowFilter, _buffer.data, _s);
++                else
++                    FilterRows(src, srcStride, _w, height, rowFilter, rowSize, _buffer.data, _s);
++
++                if (add)
++                    FilterCols<1>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++                else
++                    FilterCols<0>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++            }
++        };
++
++        void HogFilterSeparable(const float * src, size_t srcStride, size_t width, size_t height,
++            const float * rowFilter, size_t rowSize, const float * colFilter, size_t colSize, float * dst, size_t dstStride, int add)
++        {
++            assert(width >= F + rowSize - 1 && height >= colSize - 1);
++
++            HogSeparableFilter filter;
++            filter.Run(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++        }
++    }
++#endif
++}
+diff --git a/src/Simd/SimdAvx512bwHog.cpp b/src/Simd/SimdAvx512bwHog.cpp
+new file mode 100644
+index 0000000..5b62645
+--- /dev/null
++++ b/src/Simd/SimdAvx512bwHog.cpp
+@@ -0,0 +1,898 @@
++/*
++* Simd Library (http://ermig1979.github.io/Simd).
++*
++* Copyright (c) 2011-2022 Yermalayeu Ihar.
++*
++* Permission is hereby granted, free of charge, to any person obtaining a copy
++* of this software and associated documentation files (the "Software"), to deal
++* in the Software without restriction, including without limitation the rights
++* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++* copies of the Software, and to permit persons to whom the Software is
++* furnished to do so, subject to the following conditions:
++*
++* The above copyright notice and this permission notice shall be included in
++* all copies or substantial portions of the Software.
++*
++* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++* SOFTWARE.
++*/
++#include "Simd/SimdStore.h"
++#include "Simd/SimdBase.h"
++#include "Simd/SimdArray.h"
++#include "Simd/SimdUnpack.h"
++
++namespace Simd
++{
++#ifdef SIMD_AVX512BW_ENABLE    
++    namespace Avx512bw
++    {
++        namespace
++        {
++            struct Buffer
++            {
++                const int size;
++                __m512 * cos, *sin;
++                __m512i * pos, *neg;
++                int * index;
++                float * value;
++
++                Buffer(size_t width, size_t quantization)
++                    : size((int)quantization / 2)
++                {
++                    width = AlignHi(width, A / sizeof(float));
++                    _p = Allocate(width*(sizeof(int) + sizeof(float)) + (sizeof(__m512i) + sizeof(__m512)) * 2 * size);
++                    index = (int*)_p - 1;
++                    value = (float*)index + width;
++                    cos = (__m512*)(value + width + 1);
++                    sin = cos + size;
++                    pos = (__m512i*)(sin + size);
++                    neg = pos + size;
++                    for (int i = 0; i < size; ++i)
++                    {
++                        cos[i] = _mm512_set1_ps((float)::cos(i*M_PI / size));
++                        sin[i] = _mm512_set1_ps((float)::sin(i*M_PI / size));
++                        pos[i] = _mm512_set1_epi32(i);
++                        neg[i] = _mm512_set1_epi32(size + i);
++                    }
++                }
++
++                ~Buffer()
++                {
++                    Free(_p);
++                }
++
++            private:
++                void *_p;
++            };
++        }
++
++        template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m512 & dx, const __m512 & dy, Buffer & buffer, size_t col)
++        {
++            __m512 bestDot = _mm512_setzero_ps();
++            __m512i bestIndex = _mm512_setzero_si512();
++            for (int i = 0; i < buffer.size; ++i)
++            {
++                __m512 dot = _mm512_fmadd_ps(dx, buffer.cos[i], _mm512_mul_ps(dy, buffer.sin[i]));
++                bestIndex = _mm512_mask_blend_epi32(_mm512_cmp_ps_mask(dot, bestDot, _CMP_GT_OS), bestIndex, buffer.pos[i]);
++                bestDot = _mm512_max_ps(dot, bestDot);
++
++                dot = _mm512_sub_ps(_mm512_setzero_ps(), dot);
++                bestIndex = _mm512_mask_blend_epi32(_mm512_cmp_ps_mask(dot, bestDot, _CMP_GT_OS), bestIndex, buffer.neg[i]);
++                bestDot = _mm512_max_ps(dot, bestDot);
++            }
++            Store<align>(buffer.index + col, bestIndex);
++            Store<align>(buffer.value + col, _mm512_sqrt_ps(_mm512_fmadd_ps(dx, dx, _mm512_mul_ps(dy, dy))));
++        }
++
++        template <int part> SIMD_INLINE __m512 CovertDifference(const __m256i & a, const __m256i & b)
++        {
++            return _mm512_cvtepi32_ps(_mm512_cvtepi16_epi32(Avx2::SubUnpackedU8<part>(a, b)));
++        }
++
++        template <bool align> SIMD_INLINE void HogDirectionHistograms(const uint8_t * src, size_t stride, Buffer & buffer, size_t col)
++        {
++            const uint8_t * s = src + col;
++            __m256i t = Avx2::LoadPermuted<false>((__m256i*)(s - stride));
++            __m256i l = Avx2::LoadPermuted<false>((__m256i*)(s - 1));
++            __m256i r = Avx2::LoadPermuted<false>((__m256i*)(s + 1));
++            __m256i b = Avx2::LoadPermuted<false>((__m256i*)(s + stride));
++            HogDirectionHistograms<align>(CovertDifference<0>(r, l), CovertDifference<0>(b, t), buffer, col + 0);
++            HogDirectionHistograms<align>(CovertDifference<1>(r, l), CovertDifference<1>(b, t), buffer, col + F);
++        }
++
++        namespace Custom_8x8_18
++        {
++            struct Buffer
++            {
++                __m512i pos[5];
++                __m512 cos[5], sin[5];
++                __m128 kx[8], ky[8];
++
++                int * index;
++                float * value;
++                __m128 * hist;
++                size_t hs;
++
++                Buffer(size_t width)
++                {
++                    width = AlignHi(width, A / sizeof(float));
++                    hs = (width / 8 + 1) * 18 * sizeof(__m128);
++                    _p = Allocate(width*(sizeof(int) + sizeof(float)) + hs);
++                    index = (int*)_p - 1;
++                    value = (float*)index + width;
++                    hist = (__m128*)(value + width + 1);
++
++                    for (int i = 0; i < 5; ++i)
++                    {
++                        cos[i] = _mm512_set1_ps((float)::cos(i*M_PI / 9));
++                        sin[i] = _mm512_set1_ps((float)::sin(i*M_PI / 9));
++                        pos[i] = _mm512_set1_epi32(i);
++                    }
++                    for (int i = 0; i < 8; ++i)
++                    {
++                        float k0 = float((15 - i * 2) / 16.0f);
++                        float k1 = 1.0f - k0;
++                        kx[i] = _mm_setr_ps(k0, k1, k0, k1);
++                        ky[i] = _mm_setr_ps(k0, k0, k1, k1);
++                    }
++                    ClearHist();
++                }
++
++                ~Buffer()
++                {
++                    Free(_p);
++                }
++
++                void ClearHist()
++                {
++                    memset(hist, 0, hs);
++                }
++
++            private:
++                void *_p;
++            };
++
++            const __m512i K32_9 = SIMD_MM512_SET1_EPI32(9);
++            const __m512i K32_18 = SIMD_MM512_SET1_EPI32(18);
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m512 & dx, const __m512 & dy, Buffer & buffer, size_t col)
++            {
++                __m512 _0 = _mm512_set1_ps(-0.0f);
++                __m512 adx = _mm512_andnot_ps(_0, dx);
++                __m512 ady = _mm512_andnot_ps(_0, dy);
++                __m512 bestDot = _mm512_fmadd_ps(adx, buffer.cos[0], _mm512_mul_ps(ady, buffer.sin[0]));
++                __m512i bestIndex = buffer.pos[0];
++                for (int i = 1; i < 5; ++i)
++                {
++                    __m512 dot = _mm512_fmadd_ps(adx, buffer.cos[i], _mm512_mul_ps(ady, buffer.sin[i]));
++                    bestIndex = _mm512_mask_blend_epi32(_mm512_cmp_ps_mask(dot, bestDot, _CMP_GT_OS), bestIndex, buffer.pos[i]);
++                    bestDot = _mm512_max_ps(dot, bestDot);
++                }
++                bestIndex = _mm512_mask_sub_epi32(bestIndex, _mm512_cmp_ps_mask(dx, _0, _CMP_LT_OS), K32_9, bestIndex);
++
++                __m512i corr = _mm512_maskz_set1_epi32(_mm512_cmp_ps_mask(adx, _mm512_setzero_ps(), _CMP_EQ_OS), 1);
++                bestIndex = _mm512_mask_sub_epi32(bestIndex, _mm512_cmp_ps_mask(dy, _0, _CMP_LT_OS), K32_18, _mm512_add_epi32(bestIndex, corr));
++
++                bestIndex = _mm512_mask_set1_epi32(bestIndex, _mm512_cmpeq_epi32_mask(bestIndex, K32_18), 0);
++
++                Store<align>(buffer.index + col, bestIndex);
++                Store<align>(buffer.value + col, _mm512_sqrt_ps(_mm512_fmadd_ps(adx, adx, _mm512_mul_ps(ady, ady))));
++            }
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const uint8_t * src, size_t stride, Buffer & buffer, size_t col)
++            {
++                const uint8_t * s = src + col;
++                __m256i t = Avx2::LoadPermuted<false>((__m256i*)(s - stride));
++                __m256i l = Avx2::LoadPermuted<false>((__m256i*)(s - 1));
++                __m256i r = Avx2::LoadPermuted<false>((__m256i*)(s + 1));
++                __m256i b = Avx2::LoadPermuted<false>((__m256i*)(s + stride));
++                HogDirectionHistograms<align>(CovertDifference<0>(r, l), CovertDifference<0>(b, t), buffer, col + 0);
++                HogDirectionHistograms<align>(CovertDifference<1>(r, l), CovertDifference<1>(b, t), buffer, col + F);
++            }
++
++            void AddRowToBuffer(const uint8_t * src, size_t stride, Buffer & buffer, size_t row, size_t width, size_t aligned)
++            {
++                const uint8_t * s = src + stride * row;
++                for (size_t col = 1; col < aligned; col += HA)
++                    HogDirectionHistograms<true>(s, stride, buffer, col);
++                HogDirectionHistograms<false>(s, stride, buffer, width - 1 - HA);
++
++                __m128 ky = buffer.ky[(row + 4) & 7];
++                __m128 * hist = buffer.hist;
++                size_t cellEnd = width / 8;
++
++                for (size_t col = 1; col < 4; ++col)
++                {
++                    int index = buffer.index[col];
++                    __m128 value = _mm_set1_ps(buffer.value[col]);
++                    __m128 kx = buffer.kx[(col + 4) & 7];
++                    hist[index] = _mm_fmadd_ps(_mm_mul_ps(ky, kx), value, hist[index]);
++                }
++                hist += 18;
++
++                for (size_t cell = 1, col = 4; cell < cellEnd; ++cell)
++                {
++                    for (size_t i = 0; i < 8; ++i, ++col)
++                    {
++                        int index = buffer.index[col];
++                        __m128 value = _mm_set1_ps(buffer.value[col]);
++                        __m128 kx = buffer.kx[i];
++                        hist[index] = _mm_fmadd_ps(_mm_mul_ps(ky, kx), value, hist[index]);
++                    }
++                    hist += 18;
++                }
++
++                for (size_t col = width - 4; col < width - 1; ++col)
++                {
++                    int index = buffer.index[col];
++                    __m128 value = _mm_set1_ps(buffer.value[col]);
++                    __m128 kx = buffer.kx[(col + 4) & 7];
++                    hist[index] = _mm_fmadd_ps(_mm_mul_ps(ky, kx), value, hist[index]);
++                }
++            }
++
++            void AddToHistogram(Buffer & buffer, size_t row, size_t width, size_t height, float * histograms)
++            {
++                typedef float f18_t[18];
++
++                float * src = (float*)buffer.hist;
++                f18_t * h0 = (f18_t*)histograms + row * width - width - 1;
++                f18_t * h1 = h0 + width;
++
++                if (row == 0)
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                        h1[1][i] += src[i * 4 + 3];
++                    h1++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        for (size_t i = 0; i < 18; ++i)
++                        {
++                            h1[0][i] += src[i * 4 + 2];
++                            h1[1][i] += src[i * 4 + 3];
++                        }
++                        h1++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                        h1[0][i] += src[i * 4 + 2];
++                }
++                else if (row == height)
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                        h0[1][i] += src[i * 4 + 1];
++                    h0++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        for (size_t i = 0; i < 18; ++i)
++                        {
++                            h0[0][i] += src[i * 4 + 0];
++                            h0[1][i] += src[i * 4 + 1];
++                        }
++                        h0++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                        h0[0][i] += src[i * 4 + 0];
++                }
++                else
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                    {
++                        h0[1][i] += src[i * 4 + 1];
++                        h1[1][i] += src[i * 4 + 3];
++                    }
++                    h0++;
++                    h1++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        __m512 a0 = Load<true>(src + 0x00, src + 0x10, src + 0x20, src + 0x30);
++                        __m512 a1 = Load<true>(src + 0x04, src + 0x14, src + 0x24, src + 0x34);
++                        __m512 a2 = Load<true>(src + 0x08, src + 0x18, src + 0x28, src + 0x38);
++                        __m512 a3 = Load<true>(src + 0x0C, src + 0x1C, src + 0x2C, src + 0x3C);
++                        __m512 b0 = _mm512_unpacklo_ps(a0, a2);
++                        __m512 b1 = _mm512_unpackhi_ps(a0, a2);
++                        __m512 b2 = _mm512_unpacklo_ps(a1, a3);
++                        __m512 b3 = _mm512_unpackhi_ps(a1, a3);
++                        Store<false>(h0[0], _mm512_add_ps(Load<false>(h0[0]), _mm512_unpacklo_ps(b0, b2)));
++                        Store<false>(h0[1], _mm512_add_ps(Load<false>(h0[1]), _mm512_unpackhi_ps(b0, b2)));
++                        Store<false>(h1[0], _mm512_add_ps(Load<false>(h1[0]), _mm512_unpacklo_ps(b1, b3)));
++                        Store<false>(h1[1], _mm512_add_ps(Load<false>(h1[1]), _mm512_unpackhi_ps(b1, b3)));
++                        for (size_t i = 16; i < 18; ++i)
++                        {
++                            h0[0][i] += src[i * 4 + 0];
++                            h0[1][i] += src[i * 4 + 1];
++                            h1[0][i] += src[i * 4 + 2];
++                            h1[1][i] += src[i * 4 + 3];
++                        }
++                        h0++;
++                        h1++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                    {
++                        h0[0][i] += src[i * 4 + 0];
++                        h1[0][i] += src[i * 4 + 2];
++                    }
++                }
++                buffer.ClearHist();
++            }
++
++            void HogDirectionHistograms(const uint8_t * src, size_t stride, size_t width, size_t height, float * histograms)
++            {
++                const size_t quantization = 18;
++
++                size_t sizeX = width / 8, sizeY = height / 8;
++
++                memset(histograms, 0, quantization*sizeX*sizeY * sizeof(float));
++
++                Buffer buffer(width);
++
++                size_t aligned = AlignLo(width - 2, HA) + 1;
++
++                for (size_t row = 1; row < 4; ++row)
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                AddToHistogram(buffer, 0, sizeX, sizeY, histograms);
++                for (size_t row = 4, cell = 1; row < height - 4; ++row)
++                {
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                    if ((row & 7) == 3)
++                        AddToHistogram(buffer, cell++, sizeX, sizeY, histograms);
++                }
++                for (size_t row = height - 4; row < height - 1; ++row)
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                AddToHistogram(buffer, sizeY, sizeX, sizeY, histograms);
++            }
++        }
++
++        void HogDirectionHistograms(const uint8_t * src, size_t stride, size_t width, size_t height,
++            size_t cellX, size_t cellY, size_t quantization, float * histograms)
++        {
++            assert(width%cellX == 0 && height%cellY == 0 && quantization % 2 == 0);
++            assert(width >= HA + 2);
++
++            if (cellX == 8 && cellY == 8 && quantization == 18)
++                Custom_8x8_18::HogDirectionHistograms(src, stride, width, height, histograms);
++            else
++            {
++                memset(histograms, 0, quantization*(width / cellX)*(height / cellY) * sizeof(float));
++
++                Buffer buffer(width, quantization);
++
++                size_t alignedWidth = AlignLo(width - 2, HA) + 1;
++
++                for (size_t row = 1; row < height - 1; ++row)
++                {
++                    const uint8_t * s = src + stride * row;
++                    for (size_t col = 1; col < alignedWidth; col += HA)
++                        HogDirectionHistograms<true>(s, stride, buffer, col);
++                    HogDirectionHistograms<false>(s, stride, buffer, width - 1 - HA);
++                    Base::AddRowToHistograms(buffer.index, buffer.value, row, width, height, cellX, cellY, quantization, histograms);
++                }
++            }
++        }
++
++        class HogFeatureExtractor
++        {
++            static const size_t C = 8;
++            static const size_t Q = 9;
++            static const size_t Q2 = 18;
++
++            typedef Array<int> Array32i;
++            typedef Array<float> Array32f;
++
++            size_t _sx, _sy, _hs;
++
++            __m512i _pos[5];
++            __m512 _cos[5], _sin[5];
++            __m128 _kx[8], _ky[8];
++            __m512i _Q, _Q2;
++
++            Array32i _index;
++            Array32f _value;
++            Array32f _buffer;
++            Array32f _histogram;
++            Array32f _norm;
++
++            void Init(size_t w, size_t h)
++            {
++                _sx = w / C;
++                _hs = _sx + 2;
++                _sy = h / C;
++                for (int i = 0; i < 5; ++i)
++                {
++                    _cos[i] = _mm512_set1_ps((float)::cos(i*M_PI / Q));
++                    _sin[i] = _mm512_set1_ps((float)::sin(i*M_PI / Q));
++                    _pos[i] = _mm512_set1_epi32(i);
++                }
++                for (int i = 0; i < C; ++i)
++                {
++                    float k0 = float((15 - i * 2) / 16.0f);
++                    float k1 = 1.0f - k0;
++                    _kx[i] = _mm_setr_ps(k0, k1, k0, k1);
++                    _ky[i] = _mm_setr_ps(k0, k0, k1, k1);
++                }
++                _Q = _mm512_set1_epi32(Q);
++                _Q2 = _mm512_set1_epi32(Q2);
++
++                _index.Resize(w);
++                _value.Resize(w);
++                _buffer.Resize((_sx + 1) * 4 * Q2);
++                _histogram.Resize((_sx + 2)*(_sy + 2)*Q2);
++                _norm.Resize((_sx + 2)*(_sy + 2));
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram(const __m512 & dx, const __m512 & dy, size_t col)
++            {
++                __m512 _0 = _mm512_set1_ps(-0.0f);
++                __m512 adx = _mm512_andnot_ps(_0, dx);
++                __m512 ady = _mm512_andnot_ps(_0, dy);
++                __m512 bestDot = _mm512_fmadd_ps(adx, _cos[0], _mm512_mul_ps(ady, _sin[0]));
++                __m512i bestIndex = _pos[0];
++                for (int i = 1; i < 5; ++i)
++                {
++                    __m512 dot = _mm512_fmadd_ps(adx, _cos[i], _mm512_mul_ps(ady, _sin[i]));
++                    bestIndex = _mm512_mask_blend_epi32(_mm512_cmp_ps_mask(dot, bestDot, _CMP_GT_OS), bestIndex, _pos[i]);
++                    bestDot = _mm512_max_ps(dot, bestDot);
++                }
++                bestIndex = _mm512_mask_sub_epi32(bestIndex, _mm512_cmp_ps_mask(dx, _0, _CMP_LT_OS), _Q, bestIndex);
++
++                __m512i corr = _mm512_maskz_set1_epi32(_mm512_cmp_ps_mask(adx, _mm512_setzero_ps(), _CMP_EQ_OS), 1);
++                bestIndex = _mm512_mask_sub_epi32(bestIndex, _mm512_cmp_ps_mask(dy, _0, _CMP_LT_OS), _Q2, _mm512_add_epi32(bestIndex, corr));
++
++                bestIndex = _mm512_mask_set1_epi32(bestIndex, _mm512_cmpeq_epi32_mask(bestIndex, _Q2), 0);
++
++                Store<align>(_index.data + col, bestIndex);
++                Store<align>(_value.data + col, _mm512_sqrt_ps(_mm512_fmadd_ps(adx, adx, _mm512_mul_ps(ady, ady))));
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram(const uint8_t * src, size_t stride, size_t col)
++            {
++                const uint8_t * s = src + col;
++                __m256i t = Avx2::LoadPermuted<false>((__m256i*)(s - stride));
++                __m256i l = Avx2::LoadPermuted<false>((__m256i*)(s - 1));
++                __m256i r = Avx2::LoadPermuted<false>((__m256i*)(s + 1));
++                __m256i b = Avx2::LoadPermuted<false>((__m256i*)(s + stride));
++                GetHistogram<align>(CovertDifference<0>(r, l), CovertDifference<0>(b, t), col + 0);
++                GetHistogram<align>(CovertDifference<1>(r, l), CovertDifference<1>(b, t), col + F);
++            }
++
++            void AddRowToBuffer(const uint8_t * src, size_t stride, size_t row, size_t width, size_t aligned)
++            {
++                const uint8_t * s = src + stride * row;
++                GetHistogram<false>(s, stride, 1);
++                for (size_t col = HA; col < aligned; col += HA)
++                    GetHistogram<false>(s, stride, col);
++                GetHistogram<false>(s, stride, width - 1 - HA);
++
++                __m128 ky = _ky[(row + 4) & 7];
++                __m128 * buffer = (__m128*)_buffer.data;
++                for (size_t col = 1, n = C, i = 5; col < width - 1; i = 0, n = Simd::Min<size_t>(C, width - col - 1))
++                {
++                    for (; i < n; ++i, ++col)
++                    {
++                        int index = _index[col];
++                        __m128 value = _mm_set1_ps(_value[col]);
++                        buffer[index] = _mm_fmadd_ps(_mm_mul_ps(ky, _kx[i]), value, buffer[index]);
++                    }
++                    buffer += Q2;
++                }
++            }
++
++            void AddToHistogram(size_t row, size_t width, size_t height)
++            {
++                typedef float f18_t[18];
++
++                float * src = _buffer.data;
++                f18_t * h0 = (f18_t*)_histogram.data + row * _hs;
++                f18_t * h1 = h0 + _hs;
++
++                for (size_t cell = 0; cell <= width; ++cell)
++                {
++                    __m512 a0 = Load<true>(src + 0x00, src + 0x10, src + 0x20, src + 0x30);
++                    __m512 a1 = Load<true>(src + 0x04, src + 0x14, src + 0x24, src + 0x34);
++                    __m512 a2 = Load<true>(src + 0x08, src + 0x18, src + 0x28, src + 0x38);
++                    __m512 a3 = Load<true>(src + 0x0C, src + 0x1C, src + 0x2C, src + 0x3C);
++                    __m512 b0 = _mm512_unpacklo_ps(a0, a2);
++                    __m512 b1 = _mm512_unpackhi_ps(a0, a2);
++                    __m512 b2 = _mm512_unpacklo_ps(a1, a3);
++                    __m512 b3 = _mm512_unpackhi_ps(a1, a3);
++                    Store<false>(h0[0], _mm512_add_ps(Load<false>(h0[0]), _mm512_unpacklo_ps(b0, b2)));
++                    Store<false>(h0[1], _mm512_add_ps(Load<false>(h0[1]), _mm512_unpackhi_ps(b0, b2)));
++                    Store<false>(h1[0], _mm512_add_ps(Load<false>(h1[0]), _mm512_unpacklo_ps(b1, b3)));
++                    Store<false>(h1[1], _mm512_add_ps(Load<false>(h1[1]), _mm512_unpackhi_ps(b1, b3)));
++#if defined(_MSC_VER)
++                    for (size_t i = 16; i < 18; ++i)
++                    {
++                        h0[0][i] += src[i * 4 + 0];
++                        h0[1][i] += src[i * 4 + 1];
++                        h1[0][i] += src[i * 4 + 2];
++                        h1[1][i] += src[i * 4 + 3];
++                    }
++#else
++                    __m128 * ps = (__m128*)src;
++                    __m128 s0 = _mm_add_ps(_mm_unpacklo_ps(ps[16], ps[17]), Sse41::Load(h0[0] + 16, h0[1] + 16));
++                    __m128 s1 = _mm_add_ps(_mm_unpackhi_ps(ps[16], ps[17]), Sse41::Load(h1[0] + 16, h1[1] + 16));
++                    Sse41::StoreHalf<0>(h0[0] + 16, s0);
++                    Sse41::StoreHalf<1>(h0[1] + 16, s0);
++                    Sse41::StoreHalf<0>(h1[0] + 16, s1);
++                    Sse41::StoreHalf<1>(h1[1] + 16, s1);
++#endif
++                    h0++;
++                    h1++;
++                    src += 72;
++                }
++                _buffer.Clear();
++            }
++
++            void EstimateHistogram(const uint8_t * src, size_t stride, size_t width, size_t height)
++            {
++                _histogram.Clear();
++
++                size_t aligned = AlignHi(width - 1, HA) - HA;
++
++                _buffer.Clear();
++                for (size_t row = 1; row < 4; ++row)
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                AddToHistogram(0, _sx, _sy);
++                for (size_t row = 4, cell = 1; row < height - 4; ++row)
++                {
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                    if ((row & 7) == 3)
++                        AddToHistogram(cell++, _sx, _sy);
++                }
++                for (size_t row = height - 4; row < height - 1; ++row)
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                AddToHistogram(_sy, _sx, _sy);
++            }
++
++            SIMD_INLINE float GetNorm(const float * src)
++            {
++                __m256 norm = _mm256_add_ps(_mm256_loadu_ps(src), _mm256_loadu_ps(src + Q));
++                norm = _mm256_mul_ps(norm, norm);
++                norm = _mm256_hadd_ps(norm, norm);
++                norm = _mm256_hadd_ps(norm, norm);
++                float buf[8];
++                _mm256_storeu_ps(buf, norm);
++                return buf[0] + buf[4] + Simd::Square(src[Q - 1] + src[Q2 - 1]);
++            }
++
++            void EstimateNorm()
++            {
++                _norm.Clear();
++                for (size_t y = 0, i = 0; y < _sy; y++)
++                {
++                    const float * h = _histogram.data + ((y + 1)*_hs + 1)*Q2;
++                    float * n = _norm.data + (y + 1)*_hs + 1;
++                    for (size_t x = 0; x < _sx; x++, i++)
++                        n[x] = GetNorm(h + x * Q2);
++                }
++            }
++
++            void ExtractFeatures(float * features)
++            {
++                __m128 _02 = _mm_set1_ps(0.2f);
++                __m128 _05 = _mm_set1_ps(0.5f);
++                __m128 _02357 = _mm_set1_ps(0.2357f);
++                __m128 eps = _mm_set1_ps(0.0001f);
++                for (size_t y = 0; y < _sy; y++)
++                {
++                    float * ph = _histogram.data + ((y + 1)*_hs + 1)*Q2;
++                    for (size_t x = 0; x < _sx; x++)
++                    {
++                        float * dst = features + (y*_sx + x) * 31;
++
++                        float * p0 = _norm.data + y * _hs + x;
++                        float * p1 = p0 + _hs;
++                        float * p2 = p1 + _hs;
++
++                        __m128 n = _mm_setr_ps(
++                            p1[1] + p1[2] + p2[1] + p2[2],
++                            p0[1] + p0[2] + p1[1] + p1[2],
++                            p1[0] + p1[1] + p2[0] + p2[1],
++                            p0[0] + p0[1] + p1[0] + p1[1]);
++
++                        n = _mm_rsqrt_ps(_mm_add_ps(n, eps));
++
++                        __m128 t = _mm_setzero_ps();
++
++                        float * src = ph + x * Q2;
++                        for (int o = 0; o < 16; o += 4)
++                        {
++                            __m128 s = _mm_loadu_ps(src);
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<0>(s), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<1>(s), n), _02);
++                            __m128 h2 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<2>(s), n), _02);
++                            __m128 h3 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<3>(s), n), _02);
++                            t = _mm_add_ps(t, _mm_add_ps(_mm_add_ps(h0, h1), _mm_add_ps(h2, h3)));
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(_mm_hadd_ps(h0, h1), _mm_hadd_ps(h2, h3))));
++                            dst += 4;
++                            src += 4;
++                        }
++                        {
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(_mm_set1_ps(*src++), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(_mm_set1_ps(*src++), n), _02);
++                            t = _mm_add_ps(t, _mm_add_ps(h0, h1));
++                            __m128 h = _mm_hadd_ps(h0, h1);
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(h, h)));
++                            dst += 2;
++                        }
++
++                        src = ph + x * Q2;
++                        for (int o = 0; o < 8; o += 4)
++                        {
++                            __m128 s = _mm_add_ps(_mm_loadu_ps(src), _mm_loadu_ps(src + Q));
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<0>(s), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<1>(s), n), _02);
++                            __m128 h2 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<2>(s), n), _02);
++                            __m128 h3 = _mm_min_ps(_mm_mul_ps(Sse41::Broadcast<3>(s), n), _02);
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(_mm_hadd_ps(h0, h1), _mm_hadd_ps(h2, h3))));
++                            dst += 4;
++                            src += 4;
++                        }
++                        {
++                            __m128 s = _mm_set1_ps(src[0] + src[Q]);
++                            __m128 h = _mm_min_ps(_mm_mul_ps(s, n), _02);
++                            h = _mm_dp_ps(_05, h, 0xF1);
++                            _mm_store_ss(dst++, h);
++                        }
++                        _mm_storeu_ps(dst, _mm_mul_ps(t, _02357));
++                    }
++                }
++            }
++
++        public:
++
++            void Run(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
++            {
++                Init(width, height);
++
++                EstimateHistogram(src, stride, width, height);
++
++                EstimateNorm();
++
++                ExtractFeatures(features);
++            }
++        };
++
++        void HogExtractFeatures(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
++        {
++            assert(width % 8 == 0 && height % 8 == 0 && width >= 16 && height >= 16);
++            assert(width >= HA + 2);
++
++            HogFeatureExtractor extractor;
++            extractor.Run(src, stride, width, height, features);
++        }
++
++        SIMD_INLINE void HogDeinterleave(const float * src, size_t count, float ** dst, size_t offset, size_t i)
++        {
++            src += i;
++            __m512 a0 = Load<false>(src + 0x0 * count, src + 0x4 * count, src + 0x8 * count, src + 0xC * count);
++            __m512 a1 = Load<false>(src + 0x1 * count, src + 0x5 * count, src + 0x9 * count, src + 0xD * count);
++            __m512 a2 = Load<false>(src + 0x2 * count, src + 0x6 * count, src + 0xA * count, src + 0xE * count);
++            __m512 a3 = Load<false>(src + 0x3 * count, src + 0x7 * count, src + 0xB * count, src + 0xF * count);
++            __m512 b0 = _mm512_unpacklo_ps(a0, a2);
++            __m512 b1 = _mm512_unpackhi_ps(a0, a2);
++            __m512 b2 = _mm512_unpacklo_ps(a1, a3);
++            __m512 b3 = _mm512_unpackhi_ps(a1, a3);
++            Store<false>(dst[i + 0] + offset, _mm512_unpacklo_ps(b0, b2));
++            Store<false>(dst[i + 1] + offset, _mm512_unpackhi_ps(b0, b2));
++            Store<false>(dst[i + 2] + offset, _mm512_unpacklo_ps(b1, b3));
++            Store<false>(dst[i + 3] + offset, _mm512_unpackhi_ps(b1, b3));
++        }
++
++        void HogDeinterleave(const float * src, size_t srcStride, size_t width, size_t height, size_t count, float ** dst, size_t dstStride)
++        {
++            assert(width >= F && count >= Sse41::F);
++
++            size_t alignedCount = AlignLo(count, Sse41::F);
++            size_t alignedWidth = AlignLo(width, F);
++
++            for (size_t row = 0; row < height; ++row)
++            {
++                size_t rowOffset = row * dstStride;
++                for (size_t col = 0; col < alignedWidth; col += F)
++                {
++                    const float * s = src + count * col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < alignedCount; i += Sse41::F)
++                        HogDeinterleave(s, count, dst, offset, i);
++                    if (alignedCount != count)
++                        HogDeinterleave(s, count, dst, offset, count - Sse41::F);
++                }
++                if (alignedWidth != width)
++                {
++                    size_t col = width - F;
++                    const float * s = src + count * col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < alignedCount; i += Sse41::F)
++                        HogDeinterleave(s, count, dst, offset, i);
++                    if (alignedCount != count)
++                        HogDeinterleave(s, count, dst, offset, count - Sse41::F);
++                }
++                src += srcStride;
++            }
++        }
++
++        namespace HogSeparableFilter_Detail
++        {
++            template <int add, bool mask> SIMD_INLINE void Set(float * dst, const __m512 & value, __mmask16 tail = -1)
++            {
++                Store<false, mask>(dst, value, tail);
++            }
++
++            template <> SIMD_INLINE void Set<1, false>(float * dst, const __m512 & value, __mmask16 tail)
++            {
++                Store<false>(dst, _mm512_add_ps(Load<false>(dst), value));
++            }
++
++            template <> SIMD_INLINE void Set<1, true>(float * dst, const __m512 & value, __mmask16 tail)
++            {
++                Store<false, true>(dst, _mm512_add_ps((Load<false, true>(dst, tail)), value), tail);
++            }
++        }
++
++        class HogSeparableFilter
++        {
++            size_t _w, _h, _s;
++            Array32f _buffer;
++            Array512f _filter;
++
++            SIMD_INLINE void Init(size_t w, size_t h, size_t rs, size_t cs)
++            {
++                _w = w - rs + 1;
++                _s = AlignHi(_w, F);
++                _h = h - cs + 1;
++                _buffer.Resize(_s*h);
++            }
++
++            template <bool align> SIMD_INLINE void FilterRows(const float * src, const __m512 * filter, size_t size, float * dst)
++            {
++                __m512 sum = _mm512_setzero_ps();
++                for (size_t i = 0; i < size; ++i)
++                    sum = _mm512_fmadd_ps(Load<false>(src + i), filter[i], sum);
++                Store<align>(dst, sum);
++            }
++
++            void FilterRows(const float * src, size_t srcStride, size_t width, size_t height, const float * filter, size_t size, float * dst, size_t dstStride)
++            {
++                _filter.Resize(size);
++                for (size_t i = 0; i < size; ++i)
++                    _filter[i] = _mm512_set1_ps(filter[i]);
++
++                size_t alignedWidth = AlignLo(width, F);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < alignedWidth; col += F)
++                        FilterRows<true>(src + col, _filter.data, size, dst + col);
++                    if (alignedWidth != width)
++                        FilterRows<false>(src + width - F, _filter.data, size, dst + width - F);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++            template <bool align> SIMD_INLINE void FilterRows_10(const float * src, const __m512 * filter, float * dst)
++            {
++                __m512  src0 = Load<false>(src + 0);
++                __m512  srcf = Load<false>(src + F);
++                __m512 sum0 = _mm512_mul_ps(Alignr<0>(src0, srcf), filter[0]);
++                __m512 sum1 = _mm512_mul_ps(Alignr<1>(src0, srcf), filter[1]);
++                sum0 = _mm512_fmadd_ps(Alignr<2>(src0, srcf), filter[2], sum0);
++                sum1 = _mm512_fmadd_ps(Alignr<3>(src0, srcf), filter[3], sum1);
++                sum0 = _mm512_fmadd_ps(Alignr<4>(src0, srcf), filter[4], sum0);
++                sum1 = _mm512_fmadd_ps(Alignr<5>(src0, srcf), filter[5], sum1);
++                sum0 = _mm512_fmadd_ps(Alignr<6>(src0, srcf), filter[6], sum0);
++                sum1 = _mm512_fmadd_ps(Alignr<7>(src0, srcf), filter[7], sum1);
++                sum0 = _mm512_fmadd_ps(Alignr<8>(src0, srcf), filter[8], sum0);
++                sum1 = _mm512_fmadd_ps(Alignr<9>(src0, srcf), filter[9], sum1);
++                Store<align>(dst, _mm512_add_ps(sum0, sum1));
++            }
++
++            void FilterRows_10(const float * src, size_t srcStride, size_t width, size_t height, const float * filter, float * dst, size_t dstStride)
++            {
++                __m512 _filter[10];
++                for (size_t i = 0; i < 10; ++i)
++                    _filter[i] = _mm512_set1_ps(filter[i]);
++
++                size_t alignedWidth = AlignLo(width, F);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < alignedWidth; col += F)
++                        FilterRows_10<true>(src + col, _filter, dst + col);
++                    if (alignedWidth != width)
++                        FilterRows_10<false>(src + width - F, _filter, dst + width - F);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++            template <int add, bool mask> SIMD_INLINE void FilterCols(const float * src, size_t stride, const __m512 * filter, size_t size, float * dst, __mmask16 tail = -1)
++            {
++                __m512 sum = _mm512_setzero_ps();
++                for (size_t i = 0; i < size; ++i, src += stride)
++                    sum = _mm512_fmadd_ps((Load<true, mask>(src, tail)), filter[i], sum);
++                HogSeparableFilter_Detail::Set<add, mask>(dst, sum, tail);
++            }
++
++            template <int add> void SIMD_INLINE FilterCols4x(const float * src, size_t stride, const __m512 * filter, size_t size, float * dst)
++            {
++                __m512 sums[4] = { _mm512_setzero_ps(), _mm512_setzero_ps(), _mm512_setzero_ps(), _mm512_setzero_ps() };
++                for (size_t i = 0; i < size; ++i, src += stride)
++                {
++                    __m512 f = filter[i];
++                    sums[0] = _mm512_fmadd_ps(Load<true>(src + 0 * F), f, sums[0]);
++                    sums[1] = _mm512_fmadd_ps(Load<true>(src + 1 * F), f, sums[1]);
++                    sums[2] = _mm512_fmadd_ps(Load<true>(src + 2 * F), f, sums[2]);
++                    sums[3] = _mm512_fmadd_ps(Load<true>(src + 3 * F), f, sums[3]);
++                }
++                HogSeparableFilter_Detail::Set<add, false>(dst + 0 * F, sums[0]);
++                HogSeparableFilter_Detail::Set<add, false>(dst + 1 * F, sums[1]);
++                HogSeparableFilter_Detail::Set<add, false>(dst + 2 * F, sums[2]);
++                HogSeparableFilter_Detail::Set<add, false>(dst + 3 * F, sums[3]);
++            }
++
++            template <int add> void FilterCols(const float * src, size_t srcStride, size_t width, size_t height, const float * filter, size_t size, float * dst, size_t dstStride)
++            {
++                _filter.Resize(size);
++                for (size_t i = 0; i < size; ++i)
++                    _filter[i] = _mm512_set1_ps(filter[i]);
++
++                size_t fullAlignedWidth = AlignLo(width, QF);
++                size_t alignedWidth = AlignLo(width, F);
++                __mmask16 tailMask = TailMask16(width - alignedWidth);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    size_t col = 0;
++                    for (; col < fullAlignedWidth; col += QF)
++                        FilterCols4x<add>(src + col, srcStride, _filter.data, size, dst + col);
++                    for (; col < alignedWidth; col += F)
++                        FilterCols<add, false>(src + col, srcStride, _filter.data, size, dst + col);
++                    if (col < width)
++                        FilterCols<add, true>(src + col, srcStride, _filter.data, size, dst + col, tailMask);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++        public:
++
++            void Run(const float * src, size_t srcStride, size_t width, size_t height,
++                const float * rowFilter, size_t rowSize, const float * colFilter, size_t colSize, float * dst, size_t dstStride, int add)
++            {
++                Init(width, height, rowSize, colSize);
++
++                if (colSize == 10)
++                    FilterRows_10(src, srcStride, _w, height, rowFilter, _buffer.data, _s);
++                else
++                    FilterRows(src, srcStride, _w, height, rowFilter, rowSize, _buffer.data, _s);
++
++                if (add)
++                    FilterCols<1>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++                else
++                    FilterCols<0>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++            }
++        };
++
++        void HogFilterSeparable(const float * src, size_t srcStride, size_t width, size_t height,
++            const float * rowFilter, size_t rowSize, const float * colFilter, size_t colSize, float * dst, size_t dstStride, int add)
++        {
++            assert(width >= F + rowSize - 1 && height >= colSize - 1);
++
++            HogSeparableFilter filter;
++            filter.Run(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++        }
++    }
++#endif
++}
+diff --git a/src/Simd/SimdLib.cpp b/src/Simd/SimdLib.cpp
+index 604f015..88bcb09 100644
+--- a/src/Simd/SimdLib.cpp
++++ b/src/Simd/SimdLib.cpp
+@@ -2532,18 +2532,93 @@ SIMD_API void SimdHogDirectionHistograms(const uint8_t * src, size_t stride, siz
+                                          size_t cellX, size_t cellY, size_t quantization, float * histograms)
+ {
+     SIMD_EMPTY();
++#ifdef SIMD_AVX512BW_ENABLE
++    if (Avx512bw::Enable && width >= Avx512bw::HA + 2)
++        Avx512bw::HogDirectionHistograms(src, stride, width, height, cellX, cellY, quantization, histograms);
++    else
++#endif
++#ifdef SIMD_AVX2_ENABLE
++    if(Avx2::Enable && width >= Avx2::A + 2)
++        Avx2::HogDirectionHistograms(src, stride, width, height, cellX, cellY, quantization, histograms);
++    else
++#endif
++#ifdef SIMD_SSE41_ENABLE
++    if (Sse41::Enable && width >= Sse41::A + 2)
++        Sse41::HogDirectionHistograms(src, stride, width, height, cellX, cellY, quantization, histograms);
++    else
++#endif
++#ifdef SIMD_SVE2_ENABLE
++    if (Sve2::Enable && width >= 3)
++        Sve2::HogDirectionHistograms(src, stride, width, height, cellX, cellY, quantization, histograms);
++    else
++#endif
++#ifdef SIMD_NEON_ENABLE
++    if (Neon::Enable && width >= Neon::A + 2)
++        Neon::HogDirectionHistograms(src, stride, width, height, cellX, cellY, quantization, histograms);
++    else
++#endif
+         Base::HogDirectionHistograms(src, stride, width, height, cellX, cellY, quantization, histograms);
+ }
+ 
+ SIMD_API void SimdHogExtractFeatures(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
+ {
+     SIMD_EMPTY();
++#ifdef SIMD_AVX512BW_ENABLE
++    if (Avx512bw::Enable && width >= Avx512bw::HA + 2)
++        Avx512bw::HogExtractFeatures(src, stride, width, height, features);
++    else
++#endif
++#ifdef SIMD_AVX2_ENABLE
++    if (Avx2::Enable && width >= Avx2::HA + 2)
++        Avx2::HogExtractFeatures(src, stride, width, height, features);
++    else
++#endif
++#ifdef SIMD_SSE41_ENABLE
++    if (Sse41::Enable && width >= Sse41::A + 2)
++        Sse41::HogExtractFeatures(src, stride, width, height, features);
++    else
++#endif
++#ifdef SIMD_SVE2_ENABLE
++    if (Sve2::Enable && width >= 3)
++        Sve2::HogExtractFeatures(src, stride, width, height, features);
++    else
++#endif
++#ifdef SIMD_NEON_ENABLE
++    if (Neon::Enable && width >= Neon::A + 2)
++        Neon::HogExtractFeatures(src, stride, width, height, features);
++    else
++#endif
+         Base::HogExtractFeatures(src, stride, width, height, features);
+ }
+ 
+ SIMD_API void SimdHogDeinterleave(const float * src, size_t srcStride, size_t width, size_t height, size_t count, float ** dst, size_t dstStride)
+ {
+     SIMD_EMPTY();
++#ifdef SIMD_AVX512BW_ENABLE
++    if (Avx512bw::Enable && width >= Avx512bw::F && count >= Sse41::F)
++        Avx512bw::HogDeinterleave(src, srcStride, width, height, count, dst, dstStride);
++    else
++#endif
++#ifdef SIMD_AVX2_ENABLE
++    if (Avx2::Enable && width >= Avx2::F && count >= Sse41::F)
++        Avx2::HogDeinterleave(src, srcStride, width, height, count, dst, dstStride);
++    else
++#endif
++#ifdef SIMD_SSE41_ENABLE
++    if (Sse41::Enable && width >= Sse41::F && count >= Sse41::F)
++        Sse41::HogDeinterleave(src, srcStride, width, height, count, dst, dstStride);
++    else
++#endif
++#ifdef SIMD_SVE2_ENABLE
++    if (Sve2::Enable && width >= svcntw())
++        Sve2::HogDeinterleave(src, srcStride, width, height, count, dst, dstStride);
++    else
++#endif
++#ifdef SIMD_NEON_ENABLE
++    if (Neon::Enable && width >= Neon::F && count >= Neon::F)
++        Neon::HogDeinterleave(src, srcStride, width, height, count, dst, dstStride);
++    else
++#endif
+         Base::HogDeinterleave(src, srcStride, width, height, count, dst, dstStride);
+ }
+ 
+@@ -2551,6 +2626,31 @@ SIMD_API void SimdHogFilterSeparable(const float * src, size_t srcStride, size_t
+     const float * rowFilter, size_t rowSize, const float * colFilter, size_t colSize, float * dst, size_t dstStride, int add)
+ {
+     SIMD_EMPTY();
++#ifdef SIMD_AVX512BW_ENABLE
++    if (Avx512bw::Enable && width >= Avx512bw::F + rowSize - 1)
++        Avx512bw::HogFilterSeparable(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++    else
++#endif
++#ifdef SIMD_AVX2_ENABLE
++    if (Avx2::Enable && width >= Avx2::F + rowSize - 1)
++        Avx2::HogFilterSeparable(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++    else
++#endif
++#ifdef SIMD_SSE41_ENABLE
++    if (Sse41::Enable && width >= Sse41::F + rowSize - 1)
++        Sse41::HogFilterSeparable(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++    else
++#endif
++#ifdef SIMD_SVE2_ENABLE
++    if (Sve2::Enable && width >= svcntw() + rowSize - 1)
++        Sve2::HogFilterSeparable(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++    else
++#endif
++#ifdef SIMD_NEON_ENABLE
++    if (Neon::Enable && width >= Neon::F + rowSize - 1)
++        Neon::HogFilterSeparable(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++    else
++#endif
+         Base::HogFilterSeparable(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
+ }
+ 
+diff --git a/src/Simd/SimdNeonHog.cpp b/src/Simd/SimdNeonHog.cpp
+new file mode 100644
+index 0000000..bf5efaa
+--- /dev/null
++++ b/src/Simd/SimdNeonHog.cpp
+@@ -0,0 +1,577 @@
++/*
++* Simd Library (http://ermig1979.github.io/Simd).
++*
++* Copyright (c) 2011-2023 Yermalayeu Ihar.
++*
++* Permission is hereby granted, free of charge, to any person obtaining a copy
++* of this software and associated documentation files (the "Software"), to deal
++* in the Software without restriction, including without limitation the rights
++* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++* copies of the Software, and to permit persons to whom the Software is
++* furnished to do so, subject to the following conditions:
++*
++* The above copyright notice and this permission notice shall be included in
++* all copies or substantial portions of the Software.
++*
++* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++* SOFTWARE.
++*/
++#include "Simd/SimdArray.h"
++#include "Simd/SimdStore.h"
++#include "Simd/SimdBase.h"
++#include "Simd/SimdSet.h"
++#include "Simd/SimdExtract.h"
++
++namespace Simd
++{
++#ifdef SIMD_NEON_ENABLE    
++    namespace Neon
++    {
++        SIMD_INLINE void HogDeinterleave(const float * src, size_t count, float ** dst, size_t offset, size_t i)
++        {
++            src += i;
++            float32x4x2_t a01 = vzipq_f32(Load<false>(src + 0 * count), Load<false>(src + 2 * count));
++            float32x4x2_t a23 = vzipq_f32(Load<false>(src + 1 * count), Load<false>(src + 3 * count));
++            float32x4x2_t b01 = vzipq_f32(a01.val[0], a23.val[0]);
++            float32x4x2_t b23 = vzipq_f32(a01.val[1], a23.val[1]);
++            Store<false>(dst[i + 0] + offset, b01.val[0]);
++            Store<false>(dst[i + 1] + offset, b01.val[1]);
++            Store<false>(dst[i + 2] + offset, b23.val[0]);
++            Store<false>(dst[i + 3] + offset, b23.val[1]);
++        }
++
++        void HogDeinterleave(const float * src, size_t srcStride, size_t width, size_t height, size_t count, float ** dst, size_t dstStride)
++        {
++            assert(width >= F && count >= F);
++
++            size_t alignedCount = AlignLo(count, F);
++            size_t alignedWidth = AlignLo(width, F);
++
++            for (size_t row = 0; row < height; ++row)
++            {
++                size_t rowOffset = row*dstStride;
++                for (size_t col = 0; col < alignedWidth; col += F)
++                {
++                    const float * s = src + count*col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < alignedCount; i += F)
++                        HogDeinterleave(s, count, dst, offset, i);
++                    if (alignedCount != count)
++                        HogDeinterleave(s, count, dst, offset, count - F);
++                }
++                if (alignedWidth != width)
++                {
++                    size_t col = width - F;
++                    const float * s = src + count*col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < alignedCount; i += F)
++                        HogDeinterleave(s, count, dst, offset, i);
++                    if (alignedCount != count)
++                        HogDeinterleave(s, count, dst, offset, count - F);
++                }
++                src += srcStride;
++            }
++        }
++
++        namespace
++        {
++            struct Buffer
++            {
++                const int size;
++                float32x4_t * cos, *sin;
++                int32x4_t * pos, *neg;
++                int * index;
++                float * value;
++
++                Buffer(size_t width, size_t quantization)
++                    : size((int)quantization / 2)
++                {
++                    width = AlignHi(width, A / sizeof(float));
++                    _p = Allocate(width*(sizeof(int) + sizeof(float)) + (sizeof(int32x4_t) + sizeof(float32x4_t)) * 2 * size);
++                    index = (int*)_p - 1;
++                    value = (float*)index + width;
++                    cos = (float32x4_t*)(value + width + 1);
++                    sin = cos + size;
++                    pos = (int32x4_t*)(sin + size);
++                    neg = pos + size;
++                    for (int i = 0; i < size; ++i)
++                    {
++                        cos[i] = vdupq_n_f32((float)::cos(i*M_PI / size));
++                        sin[i] = vdupq_n_f32((float)::sin(i*M_PI / size));
++                        pos[i] = vdupq_n_s32(i);
++                        neg[i] = vdupq_n_s32(size + i);
++                    }
++                }
++
++                ~Buffer()
++                {
++                    Free(_p);
++                }
++
++            private:
++                void *_p;
++            };
++        }
++
++        template <bool align> SIMD_INLINE void HogDirectionHistograms32(const float32x4_t & dx, const float32x4_t & dy, Buffer & buffer, size_t col)
++        {
++            float32x4_t bestDot = vdupq_n_f32(0);
++            int32x4_t bestIndex = vdupq_n_s32(0);
++            for (int i = 0; i < buffer.size; ++i)
++            {
++                float32x4_t dot = vaddq_f32(vmulq_f32(dx, buffer.cos[i]), vmulq_f32(dy, buffer.sin[i]));
++                uint32x4_t mask = vcgtq_f32(dot, bestDot);
++                bestDot = vmaxq_f32(dot, bestDot);
++                bestIndex = vbslq_s32(mask, buffer.pos[i], bestIndex);
++
++                dot = vnegq_f32(dot);
++                mask = vcgtq_f32(dot, bestDot);
++                bestDot = vmaxq_f32(dot, bestDot);
++                bestIndex = vbslq_s32(mask, buffer.neg[i], bestIndex);
++            }
++            Store<align>(buffer.index + col, bestIndex);
++            Store<align>(buffer.value + col, Sqrt<SIMD_NEON_RCP_ITER>(vaddq_f32(vmulq_f32(dx, dx), vmulq_f32(dy, dy))));
++        }
++
++        template <bool align> SIMD_INLINE void HogDirectionHistograms16(const int16x8_t & dx, const int16x8_t & dy, Buffer & buffer, size_t col)
++        {
++            HogDirectionHistograms32<align>(Int16ToFloat<0>(dx), Int16ToFloat<0>(dy), buffer, col + 0);
++            HogDirectionHistograms32<align>(Int16ToFloat<1>(dx), Int16ToFloat<1>(dy), buffer, col + 4);
++        }
++
++        template <bool align> SIMD_INLINE void HogDirectionHistograms(const uint8_t * src, size_t stride, Buffer & buffer, size_t col)
++        {
++            const uint8_t * s = src + col;
++            uint8x16_t t = Load<false>(s - stride);
++            uint8x16_t l = Load<false>(s - 1);
++            uint8x16_t r = Load<false>(s + 1);
++            uint8x16_t b = Load<false>(s + stride);
++            HogDirectionHistograms16<align>(Sub<0>(r, l), Sub<0>(b, t), buffer, col + 0);
++            HogDirectionHistograms16<align>(Sub<1>(r, l), Sub<1>(b, t), buffer, col + 8);
++        }
++
++        void HogDirectionHistograms(const uint8_t * src, size_t stride, size_t width, size_t height,
++            size_t cellX, size_t cellY, size_t quantization, float * histograms)
++        {
++            assert(width%cellX == 0 && height%cellY == 0 && quantization % 2 == 0);
++
++            Buffer buffer(width, quantization);
++
++            memset(histograms, 0, quantization*(width / cellX)*(height / cellY) * sizeof(float));
++
++            size_t alignedWidth = AlignLo(width - 2, A) + 1;
++
++            for (size_t row = 1; row < height - 1; ++row)
++            {
++                const uint8_t * s = src + stride*row;
++                for (size_t col = 1; col < alignedWidth; col += A)
++                    HogDirectionHistograms<true>(s, stride, buffer, col);
++                HogDirectionHistograms<false>(s, stride, buffer, width - 1 - A);
++                Base::AddRowToHistograms(buffer.index, buffer.value, row, width, height, cellX, cellY, quantization, histograms);
++            }
++        }
++
++        class HogFeatureExtractor
++        {
++            static const size_t C = 8;
++            static const size_t Q = 9;
++            static const size_t Q2 = 18;
++
++            typedef Array<int> Array32i;
++            typedef Array<float> Array32f;
++
++            size_t _sx, _sy, _hs;
++
++            int32x4_t _pos[5];
++            float32x4_t _cos[5], _sin[5];
++            float32x4_t _kx[8], _ky[8];
++            int32x4_t _Q, _Q2;
++
++            Array32i _index;
++            Array32f _value;
++            Array32f _buffer;
++            Array32f _histogram;
++            Array32f _norm;
++
++            void Init(size_t w, size_t h)
++            {
++                _sx = w / C;
++                _hs = _sx + 2;
++                _sy = h / C;
++                for (int i = 0; i < 5; ++i)
++                {
++                    _cos[i] = vdupq_n_f32((float)::cos(i*M_PI / Q));
++                    _sin[i] = vdupq_n_f32((float)::sin(i*M_PI / Q));
++                    _pos[i] = vdupq_n_s32(i);
++                }
++                for (int i = 0; i < C; ++i)
++                {
++                    float k0 = float((15 - i * 2) / 16.0f);
++                    float k1 = 1.0f - k0;
++                    _kx[i] = SetF32(k0, k1, k0, k1);
++                    _ky[i] = SetF32(k0, k0, k1, k1);
++                }
++                _Q = vdupq_n_s32(Q);
++                _Q2 = vdupq_n_s32(Q2);
++
++                _index.Resize(w);
++                _value.Resize(w);
++                _buffer.Resize((_sx + 1) * 4 * Q2);
++                _histogram.Resize((_sx + 2)*(_sy + 2)*Q2);
++                _norm.Resize((_sx + 2)*(_sy + 2));
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram32(const float32x4_t & dx, const float32x4_t & dy, size_t col)
++            {
++                float32x4_t _0 = vdupq_n_f32(0);
++                float32x4_t bestDot = _0;
++                int32x4_t bestIndex = vdupq_n_s32(0);
++                float32x4_t adx = vabsq_f32(dx);
++                float32x4_t ady = vabsq_f32(dy);
++                for (int i = 0; i < 5; ++i)
++                {
++                    float32x4_t dot = vmlaq_f32(vmulq_f32(adx, _cos[i]), ady, _sin[i]);
++                    uint32x4_t mask = vcgtq_f32(dot, bestDot);
++                    bestDot = vmaxq_f32(dot, bestDot);
++                    bestIndex = vbslq_s32(mask, _pos[i], bestIndex);
++                }
++                uint32x4_t maskDx = vcltq_f32(dx, _0);
++                bestIndex = vbslq_s32(maskDx, vsubq_s32(_Q, bestIndex), bestIndex);
++
++                uint32x4_t maskDy = vcltq_f32(dy, _0);
++                uint32x4_t corr = vandq_u32(vceqq_f32(adx, _0), K32_00000001);
++                bestIndex = vbslq_s32(maskDy, vsubq_s32(_Q2, vaddq_s32(bestIndex, (int32x4_t)corr)), bestIndex);
++
++                bestIndex = vbslq_s32(vceqq_s32(bestIndex, _Q2), (int32x4_t)K32_00000000, bestIndex);
++
++                Store<false>(_index.data + col, bestIndex); // fixed program crash.
++                Store<align>(_value.data + col, Sqrt<SIMD_NEON_RCP_ITER>(vmlaq_f32(vmulq_f32(adx, adx), ady, ady)));
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram16(const int16x8_t & dx, const int16x8_t & dy, size_t col)
++            {
++                GetHistogram32<align>(Int16ToFloat<0>(dx), Int16ToFloat<0>(dy), col + 0);
++                GetHistogram32<align>(Int16ToFloat<1>(dx), Int16ToFloat<1>(dy), col + 4);
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram(const uint8_t * src, size_t stride, size_t col)
++            {
++                const uint8_t * s = src + col;
++                uint8x16_t t = Load<false>(s - stride);
++                uint8x16_t l = Load<false>(s - 1);
++                uint8x16_t r = Load<false>(s + 1);
++                uint8x16_t b = Load<false>(s + stride);
++                GetHistogram16<align>(Sub<0>(r, l), Sub<0>(b, t), col + 0);
++                GetHistogram16<align>(Sub<1>(r, l), Sub<1>(b, t), col + 8);
++            }
++
++            void AddRowToBuffer(const uint8_t * src, size_t stride, size_t row, size_t width, size_t aligned)
++            {
++                const uint8_t * s = src + stride*row;
++                GetHistogram<false>(s, stride, 1);
++                for (size_t col = A; col < aligned; col += A)
++                    GetHistogram<true>(s, stride, col);
++                GetHistogram<false>(s, stride, width - 1 - A);
++
++                float32x4_t * buffer = (float32x4_t*)_buffer.data;
++                float32x4_t ky = _ky[(row + 4) & 7];
++                for (size_t col = 1, n = C, i = 5; col < width - 1; i = 0, n = Simd::Min<size_t>(C, width - col - 1))
++                {
++                    for (; i < n; ++i, ++col)
++                    {
++                        int index = _index[col];
++                        float32x4_t value = vdupq_n_f32(_value[col]);
++                        buffer[index] = vmlaq_f32(buffer[index], value, vmulq_f32(ky, _kx[i]));
++                    }
++                    buffer += Q2;
++                }
++            }
++
++            void AddToHistogram(size_t row, size_t width, size_t height)
++            {
++                typedef float f18_t[18];
++                const float * src = _buffer.data;
++                f18_t * h0 = (f18_t*)_histogram.data + row*_hs;
++                f18_t * h1 = h0 + _hs;
++                for (size_t cell = 0; cell <= width; ++cell)
++                {
++                    for (size_t i = 0; i < 16; i += 4)
++                    {
++                        float32x4x4_t s = Load4<true>(src + 4 * i);
++                        Store<false>(h0[0] + i, vaddq_f32(Load<false>(h0[0] + i), s.val[0]));
++                        Store<false>(h0[1] + i, vaddq_f32(Load<false>(h0[1] + i), s.val[1]));
++                        Store<false>(h1[0] + i, vaddq_f32(Load<false>(h1[0] + i), s.val[2]));
++                        Store<false>(h1[1] + i, vaddq_f32(Load<false>(h1[1] + i), s.val[3]));
++                    }
++                    float32x2x4_t s = LoadHalf4<true>(src + 64);
++                    Store<false>(h0[0] + 16, vadd_f32(LoadHalf<false>(h0[0] + 16), s.val[0]));
++                    Store<false>(h0[1] + 16, vadd_f32(LoadHalf<false>(h0[1] + 16), s.val[1]));
++                    Store<false>(h1[0] + 16, vadd_f32(LoadHalf<false>(h1[0] + 16), s.val[2]));
++                    Store<false>(h1[1] + 16, vadd_f32(LoadHalf<false>(h1[1] + 16), s.val[3]));
++                    h0++;
++                    h1++;
++                    src += 4 * Q2;
++                }
++                _buffer.Clear();
++            }
++
++            void EstimateHistogram(const uint8_t * src, size_t stride, size_t width, size_t height)
++            {
++                _histogram.Clear();
++
++                size_t aligned = AlignHi(width - 1, A) - A;
++
++                _buffer.Clear();
++                for (size_t row = 1; row < 4; ++row)
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                AddToHistogram(0, _sx, _sy);
++                for (size_t row = 4, cell = 1; row < height - 4; ++row)
++                {
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                    if ((row & 7) == 3)
++                        AddToHistogram(cell++, _sx, _sy);
++                }
++                for (size_t row = height - 4; row < height - 1; ++row)
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                AddToHistogram(_sy, _sx, _sy);
++            }
++
++            SIMD_INLINE float GetNorm(const float * src)
++            {
++                float32x4_t norm = vdupq_n_f32(0);
++                for (size_t i = 0; i < 8; i += 4)
++                {
++                    float32x4_t sum = vaddq_f32(Load<false>(src + i + 0), Load<false>(src + i + Q));
++                    norm = vmlaq_f32(norm, sum, sum);
++                }
++                return ExtractSum32f(norm) + Simd::Square(src[Q - 1] + src[Q2 - 1]);
++            }
++
++            void EstimateNorm()
++            {
++                _norm.Clear();
++                for (size_t y = 0, i = 0; y < _sy; y++)
++                {
++                    const float * h = _histogram.data + ((y + 1)*_hs + 1)*Q2;
++                    float * n = _norm.data + (y + 1)*_hs + 1;
++                    for (size_t x = 0; x < _sx; x++, i++)
++                        n[x] = GetNorm(h + x*Q2);
++                }
++            }
++
++            void ExtractFeatures(float * features)
++            {
++                float32x4_t _02 = vdupq_n_f32(0.2f);
++                float32x4_t _05 = vdupq_n_f32(0.5f);
++                float32x4_t _02357 = vdupq_n_f32(0.2357f);
++                float32x4_t eps = vdupq_n_f32(0.0001f);
++                for (size_t y = 0; y < _sy; y++)
++                {
++                    float * ph = _histogram.data + ((y + 1)*_hs + 1)*Q2;
++                    for (size_t x = 0; x < _sx; x++)
++                    {
++                        float * dst = features + (y*_sx + x) * 31;
++
++                        float * p0 = _norm.data + y*_hs + x;
++                        float * p1 = p0 + _hs;
++                        float * p2 = p1 + _hs;
++
++                        float32x4_t n = SetF32(
++                            p1[1] + p1[2] + p2[1] + p2[2],
++                            p0[1] + p0[2] + p1[1] + p1[2],
++                            p1[0] + p1[1] + p2[0] + p2[1],
++                            p0[0] + p0[1] + p1[0] + p1[1]);
++
++                        n = ReciprocalSqrt<SIMD_NEON_RCP_ITER>(vaddq_f32(n, eps));
++
++                        float32x4_t t = vdupq_n_f32(0);
++
++                        float * src = ph + x*Q2;
++                        for (int o = 0; o < 16; o += 4)
++                        {
++                            float32x4_t s = Load<false>(src);
++                            float32x4_t h0 = vminq_f32(vmulq_f32(Broadcast<0>(s), n), _02);
++                            float32x4_t h1 = vminq_f32(vmulq_f32(Broadcast<1>(s), n), _02);
++                            float32x4_t h2 = vminq_f32(vmulq_f32(Broadcast<2>(s), n), _02);
++                            float32x4_t h3 = vminq_f32(vmulq_f32(Broadcast<3>(s), n), _02);
++                            t = vaddq_f32(t, vaddq_f32(vaddq_f32(h0, h1), vaddq_f32(h2, h3)));
++                            Store<false>(dst, vmulq_f32(_05, Hadd32f(Hadd32f(h0, h1), Hadd32f(h2, h3))));
++                            dst += 4;
++                            src += 4;
++                        }
++                        {
++                            float32x4_t h0 = vminq_f32(vmulq_f32(vdupq_n_f32(*src++), n), _02);
++                            float32x4_t h1 = vminq_f32(vmulq_f32(vdupq_n_f32(*src++), n), _02);
++                            t = vaddq_f32(t, vaddq_f32(h0, h1));
++                            float32x4_t h = Hadd32f(h0, h1);
++                            Store<false>(dst, vmulq_f32(_05, Hadd32f(h, h)));
++                            dst += 2;
++                        }
++
++                        src = ph + x*Q2;
++                        for (int o = 0; o < 8; o += 4)
++                        {
++                            float32x4_t s = vaddq_f32(Load<false>(src), Load<false>(src + Q));
++                            float32x4_t h0 = vminq_f32(vmulq_f32(Broadcast<0>(s), n), _02);
++                            float32x4_t h1 = vminq_f32(vmulq_f32(Broadcast<1>(s), n), _02);
++                            float32x4_t h2 = vminq_f32(vmulq_f32(Broadcast<2>(s), n), _02);
++                            float32x4_t h3 = vminq_f32(vmulq_f32(Broadcast<3>(s), n), _02);
++                            Store<false>(dst, vmulq_f32(_05, Hadd32f(Hadd32f(h0, h1), Hadd32f(h2, h3))));
++                            dst += 4;
++                            src += 4;
++                        }
++                        {
++                            float32x4_t s = vdupq_n_f32(src[0] + src[Q]);
++                            float32x4_t h = vminq_f32(vmulq_f32(s, n), _02);
++                            h = vmulq_f32(_05, h);
++                            *dst++ = ExtractSum32f(h);
++                        }
++                        Store<false>(dst, vmulq_f32(t, _02357));
++                    }
++                }
++            }
++
++        public:
++
++            void Run(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
++            {
++                Init(width, height);
++
++                EstimateHistogram(src, stride, width, height);
++
++                EstimateNorm();
++
++                ExtractFeatures(features);
++            }
++        };
++
++        void HogExtractFeatures(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
++        {
++            assert(width % 8 == 0 && height % 8 == 0 && width >= 16 && height >= 16);
++
++            HogFeatureExtractor extractor;
++            extractor.Run(src, stride, width, height, features);
++        }
++
++        namespace HogSeparableFilter_Detail
++        {
++            template <int add, bool end> SIMD_INLINE void Set(float * dst, const float32x4_t & value, const float32x4_t & mask)
++            {
++                Store<false>(dst, value);
++            }
++
++            template <> SIMD_INLINE void Set<1, false>(float * dst, const float32x4_t & value, const float32x4_t & mask)
++            {
++                Store<false>(dst, vaddq_f32(Load<false>(dst), value));
++            }
++
++            template <> SIMD_INLINE void Set<1, true>(float * dst, const float32x4_t & value, const float32x4_t & mask)
++            {
++                Store<false>(dst, vaddq_f32(Load<false>(dst), And(value, mask)));
++            }
++        }
++
++        class HogSeparableFilter
++        {
++            typedef Array<float> Array32f;
++            typedef Array<float32x4_t> Array128f;
++
++            size_t _w, _h, _s;
++            Array32f _buffer;
++            Array128f _filter;
++
++            void Init(size_t w, size_t h, size_t rs, size_t cs)
++            {
++                _w = w - rs + 1;
++                _s = AlignHi(_w, F);
++                _h = h - cs + 1;
++                _buffer.Resize(_s*h);
++            }
++
++            template <bool align> void FilterRows(const float * src, const float32x4_t * filter, size_t size, float * dst)
++            {
++                float32x4_t sum = vdupq_n_f32(0);
++                for (size_t i = 0; i < size; ++i)
++                    sum = vmlaq_f32(sum, Load<false>(src + i), filter[i]);
++                Store<align>(dst, sum);
++            }
++
++            void FilterRows(const float * src, size_t srcStride, size_t width, size_t height, const float * filter, size_t size, float * dst, size_t dstStride)
++            {
++                _filter.Resize(size);
++                for (size_t i = 0; i < size; ++i)
++                    _filter[i] = vdupq_n_f32(filter[i]);
++
++                size_t alignedWidth = AlignLo(width, F);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < alignedWidth; col += F)
++                        FilterRows<true>(src + col, _filter.data, size, dst + col);
++                    if (alignedWidth != width)
++                        FilterRows<false>(src + width - F, _filter.data, size, dst + width - F);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++            template <int add, bool end> void FilterCols(const float * src, size_t stride, const float32x4_t * filter, size_t size, float * dst, const float32x4_t & mask)
++            {
++                float32x4_t sum = vdupq_n_f32(0);
++                for (size_t i = 0; i < size; ++i, src += stride)
++                    sum = vmlaq_f32(sum, Load<!end>(src), filter[i]);
++                HogSeparableFilter_Detail::Set<add, end>(dst, sum, mask);
++            }
++
++            template <int add> void FilterCols(const float * src, size_t srcStride, size_t width, size_t height, const float * filter, size_t size, float * dst, size_t dstStride)
++            {
++                _filter.Resize(size);
++                for (size_t i = 0; i < size; ++i)
++                    _filter[i] = vdupq_n_f32(filter[i]);
++
++                size_t alignedWidth = AlignLo(width, F);
++                float32x4_t tailMask = RightNotZero32f(width - alignedWidth);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < alignedWidth; col += F)
++                        FilterCols<add, false>(src + col, srcStride, _filter.data, size, dst + col, tailMask);
++                    if (alignedWidth != width)
++                        FilterCols<add, true>(src + width - F, srcStride, _filter.data, size, dst + width - F, tailMask);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++        public:
++
++            void Run(const float * src, size_t srcStride, size_t width, size_t height,
++                const float * rowFilter, size_t rowSize, const float * colFilter, size_t colSize, float * dst, size_t dstStride, int add)
++            {
++                Init(width, height, rowSize, colSize);
++
++                FilterRows(src, srcStride, _w, height, rowFilter, rowSize, _buffer.data, _s);
++
++                if (add)
++                    FilterCols<1>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++                else
++                    FilterCols<0>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++            }
++        };
++
++        void HogFilterSeparable(const float * src, size_t srcStride, size_t width, size_t height,
++            const float * rowFilter, size_t rowSize, const float * colFilter, size_t colSize, float * dst, size_t dstStride, int add)
++        {
++            assert(width >= F + rowSize - 1 && height >= colSize - 1);
++
++            HogSeparableFilter filter;
++            filter.Run(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++        }
++    }
++#endif// SIMD_NEON_ENABLE
++}
+diff --git a/src/Simd/SimdSse41Hog.cpp b/src/Simd/SimdSse41Hog.cpp
+new file mode 100644
+index 0000000..46dca95
+--- /dev/null
++++ b/src/Simd/SimdSse41Hog.cpp
+@@ -0,0 +1,870 @@
++/*
++* Simd Library (http://ermig1979.github.io/Simd).
++*
++* Copyright (c) 2011-2022 Yermalayeu Ihar.
++*
++* Permission is hereby granted, free of charge, to any person obtaining a copy
++* of this software and associated documentation files (the "Software"), to deal
++* in the Software without restriction, including without limitation the rights
++* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++* copies of the Software, and to permit persons to whom the Software is
++* furnished to do so, subject to the following conditions:
++*
++* The above copyright notice and this permission notice shall be included in
++* all copies or substantial portions of the Software.
++*
++* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++* SOFTWARE.
++*/
++#include "Simd/SimdStore.h"
++#include "Simd/SimdBase.h"
++#include "Simd/SimdArray.h"
++#include "Simd/SimdUnpack.h"
++
++namespace Simd
++{
++#ifdef SIMD_SSE41_ENABLE    
++    namespace Sse41
++    {
++        SIMD_INLINE void HogDeinterleave(const float* src, size_t count, float** dst, size_t offset, size_t i)
++        {
++            src += i;
++            __m128 a0 = Load<false>(src + 0 * count);
++            __m128 a1 = Load<false>(src + 1 * count);
++            __m128 a2 = Load<false>(src + 2 * count);
++            __m128 a3 = Load<false>(src + 3 * count);
++            __m128 b0 = _mm_unpacklo_ps(a0, a2);
++            __m128 b1 = _mm_unpackhi_ps(a0, a2);
++            __m128 b2 = _mm_unpacklo_ps(a1, a3);
++            __m128 b3 = _mm_unpackhi_ps(a1, a3);
++            Store<false>(dst[i + 0] + offset, _mm_unpacklo_ps(b0, b2));
++            Store<false>(dst[i + 1] + offset, _mm_unpackhi_ps(b0, b2));
++            Store<false>(dst[i + 2] + offset, _mm_unpacklo_ps(b1, b3));
++            Store<false>(dst[i + 3] + offset, _mm_unpackhi_ps(b1, b3));
++        }
++
++        void HogDeinterleave(const float* src, size_t srcStride, size_t width, size_t height, size_t count, float** dst, size_t dstStride)
++        {
++            assert(width >= F && count >= F);
++
++            size_t alignedCount = AlignLo(count, F);
++            size_t alignedWidth = AlignLo(width, F);
++
++            for (size_t row = 0; row < height; ++row)
++            {
++                size_t rowOffset = row * dstStride;
++                for (size_t col = 0; col < alignedWidth; col += F)
++                {
++                    const float* s = src + count * col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < alignedCount; i += F)
++                        HogDeinterleave(s, count, dst, offset, i);
++                    if (alignedCount != count)
++                        HogDeinterleave(s, count, dst, offset, count - F);
++                }
++                if (alignedWidth != width)
++                {
++                    size_t col = width - F;
++                    const float* s = src + count * col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < alignedCount; i += F)
++                        HogDeinterleave(s, count, dst, offset, i);
++                    if (alignedCount != count)
++                        HogDeinterleave(s, count, dst, offset, count - F);
++                }
++                src += srcStride;
++            }
++        }
++
++        //-----------------------------------------------------------------------------------------
++
++        namespace Common
++        {
++            struct Buffer
++            {
++                const int size;
++                __m128* cos, * sin;
++                __m128i* pos, * neg;
++                int* index;
++                float* value;
++
++                Buffer(size_t width, size_t quantization)
++                    : size((int)quantization / 2)
++                {
++                    width = AlignHi(width, A / sizeof(float));
++                    _p = Allocate(width * (sizeof(int) + sizeof(float)) + (sizeof(__m128i) + sizeof(__m128)) * 2 * size);
++                    index = (int*)_p - 1;
++                    value = (float*)index + width;
++                    cos = (__m128*)(value + width + 1);
++                    sin = cos + size;
++                    pos = (__m128i*)(sin + size);
++                    neg = pos + size;
++                    for (int i = 0; i < size; ++i)
++                    {
++                        cos[i] = _mm_set1_ps((float)::cos(i * M_PI / size));
++                        sin[i] = _mm_set1_ps((float)::sin(i * M_PI / size));
++                        pos[i] = _mm_set1_epi32(i);
++                        neg[i] = _mm_set1_epi32(size + i);
++                    }
++                }
++
++                ~Buffer()
++                {
++                    Free(_p);
++                }
++
++            private:
++                void* _p;
++            };
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m128& dx, const __m128& dy, Buffer& buffer, size_t col)
++            {
++                __m128 bestDot = _mm_setzero_ps();
++                __m128i bestIndex = _mm_setzero_si128();
++                for (int i = 0; i < buffer.size; ++i)
++                {
++                    __m128 dot = _mm_add_ps(_mm_mul_ps(dx, buffer.cos[i]), _mm_mul_ps(dy, buffer.sin[i]));
++                    __m128 mask = _mm_cmpgt_ps(dot, bestDot);
++                    bestDot = _mm_max_ps(dot, bestDot);
++                    bestIndex = Combine(_mm_castps_si128(mask), buffer.pos[i], bestIndex);
++
++                    dot = _mm_sub_ps(_mm_setzero_ps(), dot);
++                    mask = _mm_cmpgt_ps(dot, bestDot);
++                    bestDot = _mm_max_ps(dot, bestDot);
++                    bestIndex = Combine(_mm_castps_si128(mask), buffer.neg[i], bestIndex);
++                }
++                Store<align>((__m128i*)(buffer.index + col), bestIndex);
++                Store<align>(buffer.value + col, Sqrt<0>(_mm_add_ps(_mm_mul_ps(dx, dx), _mm_mul_ps(dy, dy))));
++            }
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m128i& t, const __m128i& l, const __m128i& r, const __m128i& b, Buffer& buffer, size_t col)
++            {
++                HogDirectionHistograms<align>(
++                    _mm_cvtepi32_ps(_mm_sub_epi32(_mm_unpacklo_epi16(r, K_ZERO), _mm_unpacklo_epi16(l, K_ZERO))),
++                    _mm_cvtepi32_ps(_mm_sub_epi32(_mm_unpacklo_epi16(b, K_ZERO), _mm_unpacklo_epi16(t, K_ZERO))),
++                    buffer, col + 0);
++                HogDirectionHistograms<align>(
++                    _mm_cvtepi32_ps(_mm_sub_epi32(_mm_unpackhi_epi16(r, K_ZERO), _mm_unpackhi_epi16(l, K_ZERO))),
++                    _mm_cvtepi32_ps(_mm_sub_epi32(_mm_unpackhi_epi16(b, K_ZERO), _mm_unpackhi_epi16(t, K_ZERO))),
++                    buffer, col + 4);
++            }
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const uint8_t* src, size_t stride, Buffer& buffer, size_t col)
++            {
++                const uint8_t* s = src + col;
++                __m128i t = Load<false>((__m128i*)(s - stride));
++                __m128i l = Load<false>((__m128i*)(s - 1));
++                __m128i r = Load<false>((__m128i*)(s + 1));
++                __m128i b = Load<false>((__m128i*)(s + stride));
++                HogDirectionHistograms<align>(_mm_unpacklo_epi8(t, K_ZERO), _mm_unpacklo_epi8(l, K_ZERO),
++                    _mm_unpacklo_epi8(r, K_ZERO), _mm_unpacklo_epi8(b, K_ZERO), buffer, col + 0);
++                HogDirectionHistograms<align>(_mm_unpackhi_epi8(t, K_ZERO), _mm_unpackhi_epi8(l, K_ZERO),
++                    _mm_unpackhi_epi8(r, K_ZERO), _mm_unpackhi_epi8(b, K_ZERO), buffer, col + 8);
++            }
++
++            void HogDirectionHistograms(const uint8_t* src, size_t stride, size_t width, size_t height,
++                size_t cellX, size_t cellY, size_t quantization, float* histograms)
++            {
++                assert(width % cellX == 0 && height % cellY == 0 && quantization % 2 == 0);
++                assert(width >= A + 2);
++
++                Buffer buffer(width, quantization);
++
++                memset(histograms, 0, quantization * (width / cellX) * (height / cellY) * sizeof(float));
++
++                size_t alignedWidth = AlignLo(width - 2, A) + 1;
++
++                for (size_t row = 1; row < height - 1; ++row)
++                {
++                    const uint8_t* s = src + stride * row;
++                    for (size_t col = 1; col < alignedWidth; col += A)
++                        HogDirectionHistograms<true>(s, stride, buffer, col);
++                    HogDirectionHistograms<false>(s, stride, buffer, width - 1 - A);
++                    Base::AddRowToHistograms(buffer.index, buffer.value, row, width, height, cellX, cellY, quantization, histograms);
++                }
++            }
++        }
++
++        namespace Custom_8x8_18
++        {
++            struct Buffer
++            {
++                __m128i pos[5];
++                __m128 cos[5], sin[5], kx[8], ky[8];
++
++                int * index;
++                float * value;
++                __m128 * hist;
++                size_t hs;
++
++                Buffer(size_t width)
++                {
++                    width = AlignHi(width, A / sizeof(float));
++                    hs = (width / 8 + 1) * 18 * sizeof(__m128);
++                    _p = Allocate(width*(sizeof(int) + sizeof(float)) + hs);
++                    index = (int*)_p - 1;
++                    value = (float*)index + width;
++                    hist = (__m128*)(value + width + 1);
++
++                    for (int i = 0; i < 5; ++i)
++                    {
++                        cos[i] = _mm_set1_ps((float)::cos(i*M_PI / 9));
++                        sin[i] = _mm_set1_ps((float)::sin(i*M_PI / 9));
++                        pos[i] = _mm_set1_epi32(i);
++                    }
++                    for (int i = 0; i < 8; ++i)
++                    {
++                        float k0 = float((15 - i * 2) / 16.0f);
++                        float k1 = 1.0f - k0;
++                        kx[i] = _mm_setr_ps(k0, k1, k0, k1);
++                        ky[i] = _mm_setr_ps(k0, k0, k1, k1);
++                    }
++                    ClearHist();
++                }
++
++                ~Buffer()
++                {
++                    Free(_p);
++                }
++
++                SIMD_INLINE void ClearHist()
++                {
++                    memset(hist, 0, hs);
++                }
++
++            private:
++                void *_p;
++            };
++
++            const __m128i K32_1 = SIMD_MM_SET1_EPI32(1);
++            const __m128i K32_9 = SIMD_MM_SET1_EPI32(9);
++            const __m128i K32_18 = SIMD_MM_SET1_EPI32(18);
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m128 & dx, const __m128 & dy, Buffer & buffer, size_t col)
++            {
++                __m128 _0 = _mm_set1_ps(-0.0f);
++                __m128 adx = _mm_andnot_ps(_0, dx);
++                __m128 ady = _mm_andnot_ps(_0, dy);
++                __m128 bestDot = _mm_add_ps(_mm_mul_ps(adx, buffer.cos[0]), _mm_mul_ps(ady, buffer.sin[0]));
++                __m128i bestIndex = buffer.pos[0];
++                for (int i = 1; i < 5; ++i)
++                {
++                    __m128 dot = _mm_add_ps(_mm_mul_ps(adx, buffer.cos[i]), _mm_mul_ps(ady, buffer.sin[i]));
++                    __m128 mask = _mm_cmpgt_ps(dot, bestDot);
++                    bestDot = _mm_max_ps(dot, bestDot);
++                    bestIndex = _mm_blendv_epi8(bestIndex, buffer.pos[i], _mm_castps_si128(mask));
++                }
++                __m128i maskDx = _mm_castps_si128(_mm_cmplt_ps(dx, _mm_setzero_ps()));
++                bestIndex = _mm_blendv_epi8(bestIndex, _mm_sub_epi32(K32_9, bestIndex), maskDx);
++
++                __m128i maskDy = _mm_castps_si128(_mm_cmplt_ps(dy, _mm_setzero_ps()));
++                __m128i corr = _mm_and_si128(_mm_castps_si128(_mm_cmpeq_ps(adx, _mm_setzero_ps())), K32_1);
++                bestIndex = _mm_blendv_epi8(bestIndex, _mm_sub_epi32(K32_18, _mm_add_epi32(bestIndex, corr)), maskDy);
++
++                bestIndex = _mm_andnot_si128(_mm_cmpeq_epi32(bestIndex, K32_18), bestIndex);
++
++                Store<align>((__m128i*)(buffer.index + col), bestIndex);
++                Store<align>(buffer.value + col, Sqrt<0>(_mm_add_ps(_mm_mul_ps(adx, adx), _mm_mul_ps(ady, ady))));
++            }
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const __m128i & dx, const __m128i & dy, Buffer & buffer, size_t col)
++            {
++                HogDirectionHistograms<align>(_mm_cvtepi32_ps(UnpackI16<0>(dx)), _mm_cvtepi32_ps(UnpackI16<0>(dy)), buffer, col + 0);
++                HogDirectionHistograms<align>(_mm_cvtepi32_ps(UnpackI16<1>(dx)), _mm_cvtepi32_ps(UnpackI16<1>(dy)), buffer, col + 4);
++            }
++
++            template <bool align> SIMD_INLINE void HogDirectionHistograms(const uint8_t * src, size_t stride, Buffer & buffer, size_t col)
++            {
++                const uint8_t * s = src + col;
++                __m128i t = Load<false>((__m128i*)(s - stride));
++                __m128i l = Load<false>((__m128i*)(s - 1));
++                __m128i r = Load<false>((__m128i*)(s + 1));
++                __m128i b = Load<false>((__m128i*)(s + stride));
++                HogDirectionHistograms<align>(SubUnpackedU8<0>(r, l), SubUnpackedU8<0>(b, t), buffer, col + 0);
++                HogDirectionHistograms<align>(SubUnpackedU8<1>(r, l), SubUnpackedU8<1>(b, t), buffer, col + 8);
++            }
++
++            void AddRowToBuffer(const uint8_t * src, size_t stride, Buffer & buffer, size_t row, size_t width, size_t aligned)
++            {
++                const uint8_t * s = src + stride * row;
++                for (size_t col = 1; col < aligned; col += A)
++                    HogDirectionHistograms<true>(s, stride, buffer, col);
++                HogDirectionHistograms<false>(s, stride, buffer, width - 1 - A);
++
++                __m128 ky = buffer.ky[(row + 4) & 7];
++                __m128 * hist = buffer.hist;
++                size_t cellEnd = width / 8;
++
++                for (size_t col = 1; col < 4; ++col)
++                {
++                    int index = buffer.index[col];
++                    __m128 value = _mm_set1_ps(buffer.value[col]);
++                    __m128 kx = buffer.kx[(col + 4) & 7];
++                    hist[index] = _mm_add_ps(hist[index], _mm_mul_ps(value, _mm_mul_ps(ky, kx)));
++                }
++                hist += 18;
++
++                for (size_t cell = 1, col = 4; cell < cellEnd; ++cell)
++                {
++                    for (size_t i = 0; i < 8; ++i, ++col)
++                    {
++                        int index = buffer.index[col];
++                        __m128 value = _mm_set1_ps(buffer.value[col]);
++                        __m128 kx = buffer.kx[i];
++                        hist[index] = _mm_add_ps(hist[index], _mm_mul_ps(value, _mm_mul_ps(ky, kx)));
++                    }
++                    hist += 18;
++                }
++
++                for (size_t col = width - 4; col < width - 1; ++col)
++                {
++                    int index = buffer.index[col];
++                    __m128 value = _mm_set1_ps(buffer.value[col]);
++                    __m128 kx = buffer.kx[(col + 4) & 7];
++                    hist[index] = _mm_add_ps(hist[index], _mm_mul_ps(value, _mm_mul_ps(ky, kx)));
++                }
++            }
++
++            void AddToHistogram(Buffer & buffer, size_t row, size_t width, size_t height, float * histograms)
++            {
++                typedef float f18_t[18];
++
++                float * src = (float*)buffer.hist;
++                f18_t * h0 = (f18_t*)histograms + row * width - width - 1;
++                f18_t * h1 = h0 + width;
++
++                if (row == 0)
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                        h1[1][i] += src[i * 4 + 3];
++                    h1++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        for (size_t i = 0; i < 18; ++i)
++                        {
++                            h1[0][i] += src[i * 4 + 2];
++                            h1[1][i] += src[i * 4 + 3];
++                        }
++                        h1++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                        h1[0][i] += src[i * 4 + 2];
++                }
++                else if (row == height)
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                        h0[1][i] += src[i * 4 + 1];
++                    h0++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        for (size_t i = 0; i < 18; ++i)
++                        {
++                            h0[0][i] += src[i * 4 + 0];
++                            h0[1][i] += src[i * 4 + 1];
++                        }
++                        h0++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                        h0[0][i] += src[i * 4 + 0];
++                }
++                else
++                {
++                    for (size_t i = 0; i < 18; ++i)
++                    {
++                        h0[1][i] += src[i * 4 + 1];
++                        h1[1][i] += src[i * 4 + 3];
++                    }
++                    h0++;
++                    h1++;
++                    src += 72;
++                    for (size_t cell = 1; cell < width; ++cell)
++                    {
++                        __m128 * ps = (__m128*)src;
++                        for (size_t i = 0; i < 16; i += 4)
++                        {
++                            __m128 s00 = _mm_unpacklo_ps(ps[i + 0], ps[i + 2]);
++                            __m128 s01 = _mm_unpacklo_ps(ps[i + 1], ps[i + 3]);
++                            __m128 s10 = _mm_unpackhi_ps(ps[i + 0], ps[i + 2]);
++                            __m128 s11 = _mm_unpackhi_ps(ps[i + 1], ps[i + 3]);
++
++                            _mm_storeu_ps(h0[0] + i, _mm_add_ps(_mm_loadu_ps(h0[0] + i), _mm_unpacklo_ps(s00, s01)));
++                            _mm_storeu_ps(h0[1] + i, _mm_add_ps(_mm_loadu_ps(h0[1] + i), _mm_unpackhi_ps(s00, s01)));
++                            _mm_storeu_ps(h1[0] + i, _mm_add_ps(_mm_loadu_ps(h1[0] + i), _mm_unpacklo_ps(s10, s11)));
++                            _mm_storeu_ps(h1[1] + i, _mm_add_ps(_mm_loadu_ps(h1[1] + i), _mm_unpackhi_ps(s10, s11)));
++                        }
++                        for (size_t i = 16; i < 18; ++i)
++                        {
++                            h0[0][i] += src[i * 4 + 0];
++                            h0[1][i] += src[i * 4 + 1];
++                            h1[0][i] += src[i * 4 + 2];
++                            h1[1][i] += src[i * 4 + 3];
++                        }
++                        h0++;
++                        h1++;
++                        src += 72;
++                    }
++                    for (size_t i = 0; i < 18; ++i)
++                    {
++                        h0[0][i] += src[i * 4 + 0];
++                        h1[0][i] += src[i * 4 + 2];
++                    }
++                }
++                buffer.ClearHist();
++            }
++
++            void HogDirectionHistograms(const uint8_t * src, size_t stride, size_t width, size_t height, float * histograms)
++            {
++                const size_t quantization = 18;
++
++                size_t sizeX = width / 8, sizeY = height / 8;
++
++                memset(histograms, 0, quantization*sizeX*sizeY * sizeof(float));
++
++                Buffer buffer(width);
++
++                size_t aligned = AlignLo(width - 2, A) + 1;
++
++                for (size_t row = 1; row < 4; ++row)
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                AddToHistogram(buffer, 0, sizeX, sizeY, histograms);
++                for (size_t row = 4, cell = 1; row < height - 4; ++row)
++                {
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                    if ((row & 7) == 3)
++                        AddToHistogram(buffer, cell++, sizeX, sizeY, histograms);
++                }
++                for (size_t row = height - 4; row < height - 1; ++row)
++                    AddRowToBuffer(src, stride, buffer, row, width, aligned);
++                AddToHistogram(buffer, sizeY, sizeX, sizeY, histograms);
++            }
++        }
++
++        void HogDirectionHistograms(const uint8_t * src, size_t stride, size_t width, size_t height,
++            size_t cellX, size_t cellY, size_t quantization, float * histograms)
++        {
++            assert(width%cellX == 0 && height%cellY == 0 && quantization % 2 == 0);
++            assert(width >= A + 2);
++
++            if (cellX == 8 && cellY == 8 && quantization == 18)
++                Custom_8x8_18::HogDirectionHistograms(src, stride, width, height, histograms);
++            else
++                Common::HogDirectionHistograms(src, stride, width, height, cellX, cellY, quantization, histograms);
++        }
++
++        //-----------------------------------------------------------------------------------------
++
++        class HogFeatureExtractor
++        {
++            static const size_t C = 8;
++            static const size_t Q = 9;
++            static const size_t Q2 = 18;
++
++            size_t _sx, _sy, _hs;
++
++            __m128i _pos[5];
++            __m128 _cos[5], _sin[5];
++            __m128 _kx[8], _ky[8];
++            __m128i _Q, _Q2;
++
++            Array32i _index;
++            Array32f _value;
++            Array32f _buffer;
++            Array32f _histogram;
++            Array32f _norm;
++
++            void Init(size_t w, size_t h)
++            {
++                _sx = w / C;
++                _hs = _sx + 2;
++                _sy = h / C;
++                for (int i = 0; i < 5; ++i)
++                {
++                    _cos[i] = _mm_set1_ps((float)::cos(i*M_PI / Q));
++                    _sin[i] = _mm_set1_ps((float)::sin(i*M_PI / Q));
++                    _pos[i] = _mm_set1_epi32(i);
++                }
++                for (int i = 0; i < C; ++i)
++                {
++                    float k0 = float((15 - i * 2) / 16.0f);
++                    float k1 = 1.0f - k0;
++                    _kx[i] = _mm_setr_ps(k0, k1, k0, k1);
++                    _ky[i] = _mm_setr_ps(k0, k0, k1, k1);
++                }
++                _Q = _mm_set1_epi32(Q);
++                _Q2 = _mm_set1_epi32(Q2);
++
++                _index.Resize(w);
++                _value.Resize(w);
++                _buffer.Resize((_sx + 1) * 4 * Q2);
++                _histogram.Resize((_sx + 2)*(_sy + 2)*Q2);
++                _norm.Resize((_sx + 2)*(_sy + 2));
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram(const __m128 & dx, const __m128 & dy, size_t col)
++            {
++                __m128 _0 = _mm_set1_ps(-0.0f);
++                __m128 adx = _mm_andnot_ps(_0, dx);
++                __m128 ady = _mm_andnot_ps(_0, dy);
++                __m128 bestDot = _mm_add_ps(_mm_mul_ps(adx, _cos[0]), _mm_mul_ps(ady, _sin[0]));
++                __m128i bestIndex = _pos[0];
++                for (int i = 1; i < 5; ++i)
++                {
++                    __m128 dot = _mm_add_ps(_mm_mul_ps(adx, _cos[i]), _mm_mul_ps(ady, _sin[i]));
++                    __m128 mask = _mm_cmpgt_ps(dot, bestDot);
++                    bestDot = _mm_max_ps(dot, bestDot);
++                    bestIndex = _mm_blendv_epi8(bestIndex, _pos[i], _mm_castps_si128(mask));
++                }
++                __m128i maskDx = _mm_castps_si128(_mm_cmplt_ps(dx, _mm_setzero_ps()));
++                bestIndex = _mm_blendv_epi8(bestIndex, _mm_sub_epi32(_Q, bestIndex), maskDx);
++
++                __m128i maskDy = _mm_castps_si128(_mm_cmplt_ps(dy, _mm_setzero_ps()));
++                __m128i corr = _mm_and_si128(_mm_castps_si128(_mm_cmpeq_ps(adx, _mm_setzero_ps())), K32_00000001);
++                bestIndex = _mm_blendv_epi8(bestIndex, _mm_sub_epi32(_Q2, _mm_add_epi32(bestIndex, corr)), maskDy);
++
++                bestIndex = _mm_andnot_si128(_mm_cmpeq_epi32(bestIndex, _Q2), bestIndex);
++
++                Store<align>((__m128i*)(_index.data + col), bestIndex);
++                Store<align>(_value.data + col, Sqrt<0>(_mm_add_ps(_mm_mul_ps(adx, adx), _mm_mul_ps(ady, ady))));
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram(const __m128i & dx, const __m128i & dy, size_t col)
++            {
++                GetHistogram<align>(_mm_cvtepi32_ps(UnpackI16<0>(dx)), _mm_cvtepi32_ps(UnpackI16<0>(dy)), col + 0);
++                GetHistogram<align>(_mm_cvtepi32_ps(UnpackI16<1>(dx)), _mm_cvtepi32_ps(UnpackI16<1>(dy)), col + 4);
++            }
++
++            template <bool align> SIMD_INLINE void GetHistogram(const uint8_t * src, size_t stride, size_t col)
++            {
++                const uint8_t * s = src + col;
++                __m128i t = Load<false>((__m128i*)(s - stride));
++                __m128i l = Load<false>((__m128i*)(s - 1));
++                __m128i r = Load<false>((__m128i*)(s + 1));
++                __m128i b = Load<false>((__m128i*)(s + stride));
++                GetHistogram<align>(SubUnpackedU8<0>(r, l), SubUnpackedU8<0>(b, t), col + 0);
++                GetHistogram<align>(SubUnpackedU8<1>(r, l), SubUnpackedU8<1>(b, t), col + 8);
++            }
++
++            void AddRowToBuffer(const uint8_t * src, size_t stride, size_t row, size_t width, size_t aligned)
++            {
++                const uint8_t * s = src + stride * row;
++                GetHistogram<false>(s, stride, 1);
++                for (size_t col = A; col < aligned; col += A)
++                    GetHistogram<true>(s, stride, col);
++                GetHistogram<false>(s, stride, width - 1 - A);
++
++                __m128 * buffer = (__m128*)_buffer.data;
++                __m128 ky = _ky[(row + 4) & 7];
++                for (size_t col = 1, n = C, i = 5; col < width - 1; i = 0, n = Simd::Min<size_t>(C, width - col - 1))
++                {
++                    for (; i < n; ++i, ++col)
++                    {
++                        int index = _index[col];
++                        __m128 value = _mm_set1_ps(_value[col]);
++                        buffer[index] = _mm_add_ps(buffer[index], _mm_mul_ps(value, _mm_mul_ps(ky, _kx[i])));
++                    }
++                    buffer += Q2;
++                }
++            }
++
++            void AddToHistogram(size_t row, size_t width, size_t height)
++            {
++                typedef float f18_t[18];
++                float * src = _buffer.data;
++                f18_t * h0 = (f18_t*)_histogram.data + row * _hs;
++                f18_t * h1 = h0 + _hs;
++                for (size_t cell = 0; cell <= width; ++cell)
++                {
++                    __m128 * ps = (__m128*)src;
++                    for (size_t i = 0; i < 16; i += 4)
++                    {
++                        __m128 s00 = _mm_unpacklo_ps(ps[i + 0], ps[i + 2]);
++                        __m128 s01 = _mm_unpacklo_ps(ps[i + 1], ps[i + 3]);
++                        __m128 s10 = _mm_unpackhi_ps(ps[i + 0], ps[i + 2]);
++                        __m128 s11 = _mm_unpackhi_ps(ps[i + 1], ps[i + 3]);
++
++                        _mm_storeu_ps(h0[0] + i, _mm_add_ps(_mm_loadu_ps(h0[0] + i), _mm_unpacklo_ps(s00, s01)));
++                        _mm_storeu_ps(h0[1] + i, _mm_add_ps(_mm_loadu_ps(h0[1] + i), _mm_unpackhi_ps(s00, s01)));
++                        _mm_storeu_ps(h1[0] + i, _mm_add_ps(_mm_loadu_ps(h1[0] + i), _mm_unpacklo_ps(s10, s11)));
++                        _mm_storeu_ps(h1[1] + i, _mm_add_ps(_mm_loadu_ps(h1[1] + i), _mm_unpackhi_ps(s10, s11)));
++                    }
++                    __m128 s0 = _mm_add_ps(_mm_unpacklo_ps(ps[16], ps[17]), Load(h0[0] + 16, h0[1] + 16));
++                    __m128 s1 = _mm_add_ps(_mm_unpackhi_ps(ps[16], ps[17]), Load(h1[0] + 16, h1[1] + 16));
++                    StoreHalf<0>(h0[0] + 16, s0);
++                    StoreHalf<1>(h0[1] + 16, s0);
++                    StoreHalf<0>(h1[0] + 16, s1);
++                    StoreHalf<1>(h1[1] + 16, s1);
++                    h0++;
++                    h1++;
++                    src += 4 * Q2;
++                }
++                _buffer.Clear();
++            }
++
++            void EstimateHistogram(const uint8_t * src, size_t stride, size_t width, size_t height)
++            {
++                _histogram.Clear();
++
++                size_t aligned = AlignHi(width - 1, A) - A;
++
++                _buffer.Clear();
++                for (size_t row = 1; row < 4; ++row)
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                AddToHistogram(0, _sx, _sy);
++                for (size_t row = 4, cell = 1; row < height - 4; ++row)
++                {
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                    if ((row & 7) == 3)
++                        AddToHistogram(cell++, _sx, _sy);
++                }
++                for (size_t row = height - 4; row < height - 1; ++row)
++                    AddRowToBuffer(src, stride, row, width, aligned);
++                AddToHistogram(_sy, _sx, _sy);
++            }
++
++            SIMD_INLINE float GetNorm(const float * src)
++            {
++                __m128 _norm = _mm_setzero_ps();
++                for (size_t i = 0; i < 8; i += 4)
++                {
++                    __m128 sum = _mm_add_ps(_mm_loadu_ps(src + i + 0), _mm_loadu_ps(src + i + Q));
++                    _norm = _mm_add_ps(_norm, _mm_mul_ps(sum, sum));
++                }
++                _norm = _mm_hadd_ps(_norm, _norm);
++                _norm = _mm_hadd_ps(_norm, _norm);
++                float norm;
++                _mm_store_ss(&norm, _norm);
++                return norm + Simd::Square(src[Q - 1] + src[Q2 - 1]);
++            }
++
++            void EstimateNorm()
++            {
++                _norm.Clear();
++                for (size_t y = 0, i = 0; y < _sy; y++)
++                {
++                    const float * h = _histogram.data + ((y + 1)*_hs + 1)*Q2;
++                    float * n = _norm.data + (y + 1)*_hs + 1;
++                    for (size_t x = 0; x < _sx; x++, i++)
++                        n[x] = GetNorm(h + x * Q2);
++                }
++            }
++
++            void ExtractFeatures(float * features)
++            {
++                __m128 _02 = _mm_set1_ps(0.2f);
++                __m128 _05 = _mm_set1_ps(0.5f);
++                __m128 _02357 = _mm_set1_ps(0.2357f);
++                __m128 eps = _mm_set1_ps(0.0001f);
++                for (size_t y = 0; y < _sy; y++)
++                {
++                    float * ph = _histogram.data + ((y + 1)*_hs + 1)*Q2;
++                    for (size_t x = 0; x < _sx; x++)
++                    {
++                        float * dst = features + (y*_sx + x) * 31;
++
++                        float * p0 = _norm.data + y * _hs + x;
++                        float * p1 = p0 + _hs;
++                        float * p2 = p1 + _hs;
++
++                        __m128 n = _mm_setr_ps(
++                            p1[1] + p1[2] + p2[1] + p2[2],
++                            p0[1] + p0[2] + p1[1] + p1[2],
++                            p1[0] + p1[1] + p2[0] + p2[1],
++                            p0[0] + p0[1] + p1[0] + p1[1]);
++
++                        n = _mm_rsqrt_ps(_mm_add_ps(n, eps));
++
++                        __m128 t = _mm_setzero_ps();
++
++                        float * src = ph + x * Q2;
++                        for (int o = 0; o < 16; o += 4)
++                        {
++                            __m128 s = _mm_loadu_ps(src);
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(Broadcast<0>(s), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(Broadcast<1>(s), n), _02);
++                            __m128 h2 = _mm_min_ps(_mm_mul_ps(Broadcast<2>(s), n), _02);
++                            __m128 h3 = _mm_min_ps(_mm_mul_ps(Broadcast<3>(s), n), _02);
++                            t = _mm_add_ps(t, _mm_add_ps(_mm_add_ps(h0, h1), _mm_add_ps(h2, h3)));
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(_mm_hadd_ps(h0, h1), _mm_hadd_ps(h2, h3))));
++                            dst += 4;
++                            src += 4;
++                        }
++                        {
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(_mm_set1_ps(*src++), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(_mm_set1_ps(*src++), n), _02);
++                            t = _mm_add_ps(t, _mm_add_ps(h0, h1));
++                            __m128 h = _mm_hadd_ps(h0, h1);
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(h, h)));
++                            dst += 2;
++                        }
++
++                        src = ph + x * Q2;
++                        for (int o = 0; o < 8; o += 4)
++                        {
++                            __m128 s = _mm_add_ps(_mm_loadu_ps(src), _mm_loadu_ps(src + Q));
++                            __m128 h0 = _mm_min_ps(_mm_mul_ps(Broadcast<0>(s), n), _02);
++                            __m128 h1 = _mm_min_ps(_mm_mul_ps(Broadcast<1>(s), n), _02);
++                            __m128 h2 = _mm_min_ps(_mm_mul_ps(Broadcast<2>(s), n), _02);
++                            __m128 h3 = _mm_min_ps(_mm_mul_ps(Broadcast<3>(s), n), _02);
++                            _mm_storeu_ps(dst, _mm_mul_ps(_05, _mm_hadd_ps(_mm_hadd_ps(h0, h1), _mm_hadd_ps(h2, h3))));
++                            dst += 4;
++                            src += 4;
++                        }
++                        {
++                            __m128 s = _mm_set1_ps(src[0] + src[Q]);
++                            __m128 h = _mm_min_ps(_mm_mul_ps(s, n), _02);
++                            h = _mm_dp_ps(_05, h, 0xF1);
++                            _mm_store_ss(dst++, h);
++                        }
++                        _mm_storeu_ps(dst, _mm_mul_ps(t, _02357));
++                    }
++                }
++            }
++
++        public:
++
++            void Run(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
++            {
++                Init(width, height);
++
++                EstimateHistogram(src, stride, width, height);
++
++                EstimateNorm();
++
++                ExtractFeatures(features);
++            }
++        };
++
++        void HogExtractFeatures(const uint8_t * src, size_t stride, size_t width, size_t height, float * features)
++        {
++            assert(width % 8 == 0 && height % 8 == 0 && width >= 16 && height >= 16);
++            assert(width >= A + 2);
++
++            HogFeatureExtractor extractor;
++            extractor.Run(src, stride, width, height, features);
++        }
++
++        //-----------------------------------------------------------------------------------------
++
++        namespace HogSeparableFilter_Detail
++        {
++            template <int add, bool end> SIMD_INLINE void Set(float* dst, const __m128& value, const __m128& mask)
++            {
++                Store<false>(dst, value);
++            }
++
++            template <> SIMD_INLINE void Set<1, false>(float* dst, const __m128& value, const __m128& mask)
++            {
++                Store<false>(dst, _mm_add_ps(Load<false>(dst), value));
++            }
++
++            template <> SIMD_INLINE void Set<1, true>(float* dst, const __m128& value, const __m128& mask)
++            {
++                Store<false>(dst, _mm_add_ps(Load<false>(dst), _mm_and_ps(value, mask)));
++            }
++        }
++
++        class HogSeparableFilter
++        {
++            size_t _w, _h, _s;
++            Array32f _buffer;
++            Array128f _filter;
++
++            void Init(size_t w, size_t h, size_t rs, size_t cs)
++            {
++                _w = w - rs + 1;
++                _s = AlignHi(_w, F);
++                _h = h - cs + 1;
++                _buffer.Resize(_s * h);
++            }
++
++            template <bool align> SIMD_INLINE void FilterRows(const float* src, const __m128* filter, size_t size, float* dst)
++            {
++                __m128 sum = _mm_setzero_ps();
++                for (size_t i = 0; i < size; ++i)
++                    sum = _mm_add_ps(sum, _mm_mul_ps(Load<false>(src + i), filter[i]));
++                Store<align>(dst, sum);
++            }
++
++            void FilterRows(const float* src, size_t srcStride, size_t width, size_t height, const float* filter, size_t size, float* dst, size_t dstStride)
++            {
++                _filter.Resize(size);
++                for (size_t i = 0; i < size; ++i)
++                    _filter[i] = _mm_set1_ps(filter[i]);
++
++                size_t alignedWidth = AlignLo(width, F);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < alignedWidth; col += F)
++                        FilterRows<true>(src + col, _filter.data, size, dst + col);
++                    if (alignedWidth != width)
++                        FilterRows<false>(src + width - F, _filter.data, size, dst + width - F);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++            template <int add, bool end> SIMD_INLINE void FilterCols(const float* src, size_t stride, const __m128* filter, size_t size, float* dst, const __m128& mask)
++            {
++                __m128 sum = _mm_setzero_ps();
++                for (size_t i = 0; i < size; ++i, src += stride)
++                    sum = _mm_add_ps(sum, _mm_mul_ps(Load<!end>(src), filter[i]));
++                HogSeparableFilter_Detail::Set<add, end>(dst, sum, mask);
++            }
++
++            template <int add> void FilterCols(const float* src, size_t srcStride, size_t width, size_t height, const float* filter, size_t size, float* dst, size_t dstStride)
++            {
++                _filter.Resize(size);
++                for (size_t i = 0; i < size; ++i)
++                    _filter[i] = _mm_set1_ps(filter[i]);
++
++                size_t alignedWidth = AlignLo(width, F);
++                __m128 tailMask = RightNotZero32f(width - alignedWidth);
++
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < alignedWidth; col += F)
++                        FilterCols<add, false>(src + col, srcStride, _filter.data, size, dst + col, tailMask);
++                    if (alignedWidth != width)
++                        FilterCols<add, true>(src + width - F, srcStride, _filter.data, size, dst + width - F, tailMask);
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++        public:
++
++            void Run(const float* src, size_t srcStride, size_t width, size_t height,
++                const float* rowFilter, size_t rowSize, const float* colFilter, size_t colSize, float* dst, size_t dstStride, int add)
++            {
++                Init(width, height, rowSize, colSize);
++
++                FilterRows(src, srcStride, _w, height, rowFilter, rowSize, _buffer.data, _s);
++
++                if (add)
++                    FilterCols<1>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++                else
++                    FilterCols<0>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++            }
++        };
++
++        void HogFilterSeparable(const float* src, size_t srcStride, size_t width, size_t height,
++            const float* rowFilter, size_t rowSize, const float* colFilter, size_t colSize, float* dst, size_t dstStride, int add)
++        {
++            assert(width >= F + rowSize - 1 && height >= colSize - 1);
++
++            HogSeparableFilter filter;
++            filter.Run(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++        }
++    }
++#endif
++}
+diff --git a/src/Simd/SimdSve2Hog.cpp b/src/Simd/SimdSve2Hog.cpp
+new file mode 100644
+index 0000000..09629f8
+--- /dev/null
++++ b/src/Simd/SimdSve2Hog.cpp
+@@ -0,0 +1,545 @@
++/*
++* Simd Library (http://ermig1979.github.io/Simd).
++*
++* Copyright (c) 2011-2026 Yermalayeu Ihar.
++*
++* Permission is hereby granted, free of charge, to any person obtaining a copy
++* of this software and associated documentation files (the "Software"), to deal
++* in the Software without restriction, including without limitation the rights
++* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++* copies of the Software, and to permit persons to whom the Software is
++* furnished to do so, subject to the following conditions:
++*
++* The above copyright notice and this permission notice shall be included in
++* all copies or substantial portions of the Software.
++*
++* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++* SOFTWARE.
++*/
++#include "Simd/SimdArray.h"
++#include "Simd/SimdMemory.h"
++#include "Simd/SimdBase.h"
++
++namespace Simd
++{
++#ifdef SIMD_SVE2_ENABLE
++    namespace Sve2
++    {
++        namespace
++        {
++            struct Buffer
++            {
++                const int size;
++                float* cos;
++                float* sin;
++                int* index;
++                float* value;
++
++                Buffer(size_t width, size_t quantization)
++                    : size((int)quantization / 2)
++                {
++                    _p = Allocate(width * (sizeof(int) + sizeof(float)) + sizeof(float) * 2 * size);
++                    index = (int*)_p;
++                    value = (float*)index + width;
++                    cos = value + width;
++                    sin = cos + size;
++                    for (int i = 0; i < size; ++i)
++                    {
++                        cos[i] = (float)::cos(i * M_PI / size);
++                        sin[i] = (float)::sin(i * M_PI / size);
++                    }
++                }
++
++                ~Buffer()
++                {
++                    Free(_p);
++                }
++
++            private:
++                void* _p;
++            };
++        }
++
++        SIMD_INLINE svbool_t HogTailMask(size_t col, size_t end, const svuint32_t& offsets)
++        {
++            const svbool_t mask = svptrue_b32();
++            return svcmplt_n_u32(mask, svadd_n_u32_x(mask, offsets, (uint32_t)col), (uint32_t)end);
++        }
++
++        SIMD_INLINE void HogDirectionHistograms32(const svint32_t& dx, const svint32_t& dy, Buffer& buffer, size_t col, const svuint32_t& offsets, const svbool_t& mask)
++        {
++            svfloat32_t _dx = svcvt_f32_s32_x(mask, dx);
++            svfloat32_t _dy = svcvt_f32_s32_x(mask, dy);
++            svfloat32_t bestDot = svdup_n_f32(0.0f);
++            svint32_t bestIndex = svdup_n_s32(0);
++            for (int i = 0; i < buffer.size; ++i)
++            {
++                svfloat32_t dot = svmla_f32_x(mask, svmul_n_f32_x(mask, _dx, buffer.cos[i]), _dy, svdup_n_f32(buffer.sin[i]));
++                svbool_t positive = svcmpgt_f32(mask, dot, bestDot);
++                bestDot = svmax_f32_x(mask, dot, bestDot);
++                bestIndex = svsel_s32(positive, svdup_n_s32(i), bestIndex);
++
++                dot = svneg_f32_x(mask, dot);
++                svbool_t negative = svcmpgt_f32(mask, dot, bestDot);
++                bestDot = svmax_f32_x(mask, dot, bestDot);
++                bestIndex = svsel_s32(negative, svdup_n_s32(buffer.size + i), bestIndex);
++            }
++            svst1_scatter_u32index_s32(mask, buffer.index + col, offsets, bestIndex);
++            svst1_scatter_u32index_f32(mask, buffer.value + col, offsets, svsqrt_f32_x(mask, svmla_f32_x(mask, svmul_f32_x(mask, _dx, _dx), _dy, _dy)));
++        }
++
++        SIMD_INLINE void HogDirectionHistograms16(const svint16_t& dx, const svint16_t& dy, Buffer& buffer, size_t col, const svuint32_t& loOffsets, const svuint32_t& hiOffsets, const svbool_t& maskLo, const svbool_t& maskHi)
++        {
++            HogDirectionHistograms32(svmovlb_s32(dx), svmovlb_s32(dy), buffer, col, loOffsets, maskLo);
++            HogDirectionHistograms32(svmovlt_s32(dx), svmovlt_s32(dy), buffer, col, hiOffsets, maskHi);
++        }
++
++        SIMD_INLINE svint16_t HogDifferenceLo(const svuint8_t& a, const svuint8_t& b)
++        {
++            svbool_t mask = svptrue_b16();
++            return svsub_s16_x(mask, svreinterpret_s16_u16(svmovlb_u16(a)), svreinterpret_s16_u16(svmovlb_u16(b)));
++        }
++
++        SIMD_INLINE svint16_t HogDifferenceHi(const svuint8_t& a, const svuint8_t& b)
++        {
++            svbool_t mask = svptrue_b16();
++            return svsub_s16_x(mask, svreinterpret_s16_u16(svmovlt_u16(a)), svreinterpret_s16_u16(svmovlt_u16(b)));
++        }
++
++        SIMD_INLINE void HogDirectionHistograms(const uint8_t* src, size_t stride, Buffer& buffer, size_t col, size_t end)
++        {
++            const uint8_t* s = src + col;
++            svbool_t mask = svwhilelt_b8(col, end);
++            const svuint32_t offsets0 = svindex_u32(0, 4);
++            const svuint32_t offsets1 = svindex_u32(2, 4);
++            const svuint32_t offsets2 = svindex_u32(1, 4);
++            const svuint32_t offsets3 = svindex_u32(3, 4);
++            svuint8_t t = svld1_u8(mask, s - stride);
++            svuint8_t l = svld1_u8(mask, s - 1);
++            svuint8_t r = svld1_u8(mask, s + 1);
++            svuint8_t b = svld1_u8(mask, s + stride);
++            HogDirectionHistograms16(HogDifferenceLo(r, l), HogDifferenceLo(b, t), buffer, col, offsets0, offsets1, HogTailMask(col, end, offsets0), HogTailMask(col, end, offsets1));
++            HogDirectionHistograms16(HogDifferenceHi(r, l), HogDifferenceHi(b, t), buffer, col, offsets2, offsets3, HogTailMask(col, end, offsets2), HogTailMask(col, end, offsets3));
++        }
++
++        void HogDirectionHistograms(const uint8_t* src, size_t stride, size_t width, size_t height,
++            size_t cellX, size_t cellY, size_t quantization, float* histograms)
++        {
++            assert(width % cellX == 0 && height % cellY == 0 && quantization % 2 == 0);
++
++            Buffer buffer(width, quantization);
++
++            memset(histograms, 0, quantization * (width / cellX) * (height / cellY) * sizeof(float));
++
++            size_t A = svcntb(), end = width - 1;
++            for (size_t row = 1; row < height - 1; ++row)
++            {
++                const uint8_t* s = src + stride * row;
++                for (size_t col = 1; col < end; col += A)
++                    HogDirectionHistograms(s, stride, buffer, col, end);
++                Base::AddRowToHistograms(buffer.index, buffer.value, row, width, height, cellX, cellY, quantization, histograms);
++            }
++        }
++
++        class HogFeatureExtractor
++        {
++            static const size_t C = 8;
++            static const size_t Q = 9;
++            static const size_t Q2 = 18;
++
++            typedef Array<int> Array32i;
++            typedef Array<float> Array32f;
++
++            size_t _sx, _sy, _hs;
++
++            float _cos[5], _sin[5];
++            float _kx[C][4], _ky[C][4];
++
++            Array32i _index;
++            Array32f _value;
++            Array32f _buffer;
++            Array32f _histogram;
++            Array32f _norm;
++
++            void Init(size_t w, size_t h)
++            {
++                _sx = w / C;
++                _hs = _sx + 2;
++                _sy = h / C;
++                for (int i = 0; i < 5; ++i)
++                {
++                    _cos[i] = (float)::cos(i * M_PI / Q);
++                    _sin[i] = (float)::sin(i * M_PI / Q);
++                }
++                for (int i = 0; i < (int)C; ++i)
++                {
++                    float k0 = float((15 - i * 2) / 16.0f);
++                    float k1 = 1.0f - k0;
++                    _kx[i][0] = k0;
++                    _kx[i][1] = k1;
++                    _kx[i][2] = k0;
++                    _kx[i][3] = k1;
++                    _ky[i][0] = k0;
++                    _ky[i][1] = k0;
++                    _ky[i][2] = k1;
++                    _ky[i][3] = k1;
++                }
++
++                _index.Resize(w);
++                _value.Resize(w);
++                _buffer.Resize((_sx + 1) * 4 * Q2);
++                _histogram.Resize((_sx + 2) * (_sy + 2) * Q2);
++                _norm.Resize((_sx + 2) * (_sy + 2));
++            }
++
++            SIMD_INLINE void GetHistogram32(const svint32_t& dx, const svint32_t& dy, size_t col, const svuint32_t& offsets, const svbool_t& mask)
++            {
++                svfloat32_t _0 = svdup_n_f32(0.0f);
++                svfloat32_t _dx = svcvt_f32_s32_x(mask, dx);
++                svfloat32_t _dy = svcvt_f32_s32_x(mask, dy);
++                svfloat32_t adx = svabs_f32_x(mask, _dx);
++                svfloat32_t ady = svabs_f32_x(mask, _dy);
++                svfloat32_t bestDot = _0;
++                svint32_t bestIndex = svdup_n_s32(0);
++                for (int i = 0; i < 5; ++i)
++                {
++                    svfloat32_t dot = svmla_f32_x(mask, svmul_n_f32_x(mask, adx, _cos[i]), ady, svdup_n_f32(_sin[i]));
++                    svbool_t positive = svcmpgt_f32(mask, dot, bestDot);
++                    bestDot = svmax_f32_x(mask, dot, bestDot);
++                    bestIndex = svsel_s32(positive, svdup_n_s32(i), bestIndex);
++                }
++
++                svbool_t negativeDx = svcmplt_n_f32(mask, _dx, 0.0f);
++                bestIndex = svsel_s32(negativeDx, svsub_s32_x(mask, svdup_n_s32((int)Q), bestIndex), bestIndex);
++
++                svbool_t negativeDy = svcmplt_n_f32(mask, _dy, 0.0f);
++                svint32_t correction = svsel_s32(svcmpeq_n_f32(mask, adx, 0.0f), svdup_n_s32(1), svdup_n_s32(0));
++                bestIndex = svsel_s32(negativeDy, svsub_s32_x(mask, svdup_n_s32((int)Q2), svadd_s32_x(mask, bestIndex, correction)), bestIndex);
++                bestIndex = svsel_s32(svcmpeq_n_s32(mask, bestIndex, (int)Q2), svdup_n_s32(0), bestIndex);
++
++                svst1_scatter_u32index_s32(mask, _index.data + col, offsets, bestIndex);
++                svst1_scatter_u32index_f32(mask, _value.data + col, offsets, svsqrt_f32_x(mask, svmla_f32_x(mask, svmul_f32_x(mask, adx, adx), ady, ady)));
++            }
++
++            SIMD_INLINE void GetHistogram16(const svint16_t& dx, const svint16_t& dy, size_t col, const svuint32_t& loOffsets, const svuint32_t& hiOffsets, const svbool_t& maskLo, const svbool_t& maskHi)
++            {
++                GetHistogram32(svmovlb_s32(dx), svmovlb_s32(dy), col, loOffsets, maskLo);
++                GetHistogram32(svmovlt_s32(dx), svmovlt_s32(dy), col, hiOffsets, maskHi);
++            }
++
++            SIMD_INLINE void GetHistogram(const uint8_t* src, size_t stride, size_t col, size_t end)
++            {
++                const uint8_t* s = src + col;
++                svbool_t mask = svwhilelt_b8(col, end);
++                const svuint32_t offsets0 = svindex_u32(0, 4);
++                const svuint32_t offsets1 = svindex_u32(2, 4);
++                const svuint32_t offsets2 = svindex_u32(1, 4);
++                const svuint32_t offsets3 = svindex_u32(3, 4);
++                svuint8_t t = svld1_u8(mask, s - stride);
++                svuint8_t l = svld1_u8(mask, s - 1);
++                svuint8_t r = svld1_u8(mask, s + 1);
++                svuint8_t b = svld1_u8(mask, s + stride);
++                GetHistogram16(HogDifferenceLo(r, l), HogDifferenceLo(b, t), col, offsets0, offsets1, HogTailMask(col, end, offsets0), HogTailMask(col, end, offsets1));
++                GetHistogram16(HogDifferenceHi(r, l), HogDifferenceHi(b, t), col, offsets2, offsets3, HogTailMask(col, end, offsets2), HogTailMask(col, end, offsets3));
++            }
++
++            void AddRowToBuffer(const uint8_t* src, size_t stride, size_t row, size_t width)
++            {
++                const uint8_t* s = src + stride * row;
++                size_t A = svcntb(), end = width - 1;
++                for (size_t col = 1; col < end; col += A)
++                    GetHistogram(s, stride, col, end);
++
++                float* buffer = _buffer.data;
++                svbool_t mask = svwhilelt_b32(size_t(0), size_t(4));
++                svfloat32_t ky = svld1_f32(mask, _ky[(row + 4) & 7]);
++                for (size_t col = 1, n = C, i = 5; col < width - 1; i = 0, n = Simd::Min<size_t>(C, width - col - 1))
++                {
++                    for (; i < n; ++i, ++col)
++                    {
++                        int index = _index[col];
++                        float* dst = buffer + index * 4;
++                        svfloat32_t weight = svmul_f32_x(mask, ky, svld1_f32(mask, _kx[i]));
++                        svst1_f32(mask, dst, svmla_f32_x(mask, svld1_f32(mask, dst), weight, svdup_n_f32(_value[col])));
++                    }
++                    buffer += 4 * Q2;
++                }
++            }
++
++            void AddToHistogram(size_t row, size_t width, size_t height)
++            {
++                const float* src = _buffer.data;
++                float* h0 = _histogram.data + row * _hs * Q2;
++                float* h1 = h0 + _hs * Q2;
++                size_t F = svcntw();
++                for (size_t cell = 0; cell <= width; ++cell)
++                {
++                    for (size_t i = 0; i < Q2; i += F)
++                    {
++                        svbool_t mask = svwhilelt_b32(i, Q2);
++                        svuint32_t offsets = svadd_n_u32_x(mask, svmul_n_u32_x(mask, svindex_u32(0, 1), 4), (uint32_t)(4 * i));
++                        svfloat32_t s0 = svld1_gather_u32index_f32(mask, src, offsets);
++                        svfloat32_t s1 = svld1_gather_u32index_f32(mask, src + 1, offsets);
++                        svfloat32_t s2 = svld1_gather_u32index_f32(mask, src + 2, offsets);
++                        svfloat32_t s3 = svld1_gather_u32index_f32(mask, src + 3, offsets);
++                        svst1_f32(mask, h0 + i, svadd_f32_x(mask, svld1_f32(mask, h0 + i), s0));
++                        svst1_f32(mask, h0 + Q2 + i, svadd_f32_x(mask, svld1_f32(mask, h0 + Q2 + i), s1));
++                        svst1_f32(mask, h1 + i, svadd_f32_x(mask, svld1_f32(mask, h1 + i), s2));
++                        svst1_f32(mask, h1 + Q2 + i, svadd_f32_x(mask, svld1_f32(mask, h1 + Q2 + i), s3));
++                    }
++                    h0 += Q2;
++                    h1 += Q2;
++                    src += 4 * Q2;
++                }
++                _buffer.Clear();
++            }
++
++            void EstimateHistogram(const uint8_t* src, size_t stride, size_t width, size_t height)
++            {
++                _histogram.Clear();
++
++                _buffer.Clear();
++                for (size_t row = 1; row < 4; ++row)
++                    AddRowToBuffer(src, stride, row, width);
++                AddToHistogram(0, _sx, _sy);
++                for (size_t row = 4, cell = 1; row < height - 4; ++row)
++                {
++                    AddRowToBuffer(src, stride, row, width);
++                    if ((row & 7) == 3)
++                        AddToHistogram(cell++, _sx, _sy);
++                }
++                for (size_t row = height - 4; row < height - 1; ++row)
++                    AddRowToBuffer(src, stride, row, width);
++                AddToHistogram(_sy, _sx, _sy);
++            }
++
++            SIMD_INLINE float GetNorm(const float* src)
++            {
++                svfloat32_t norm = svdup_n_f32(0.0f);
++                size_t F = svcntw();
++                for (size_t i = 0; i < Q; i += F)
++                {
++                    svbool_t mask = svwhilelt_b32(i, Q);
++                    svfloat32_t sum = svadd_f32_x(mask, svld1_f32(mask, src + i), svld1_f32(mask, src + i + Q));
++                    norm = svmla_f32_m(mask, norm, sum, sum);
++                }
++                return svaddv_f32(svptrue_b32(), norm);
++            }
++
++            void EstimateNorm()
++            {
++                _norm.Clear();
++                for (size_t y = 0; y < _sy; y++)
++                {
++                    const float* h = _histogram.data + ((y + 1) * _hs + 1) * Q2;
++                    float* n = _norm.data + (y + 1) * _hs + 1;
++                    for (size_t x = 0; x < _sx; x++)
++                        n[x] = GetNorm(h + x * Q2);
++                }
++            }
++
++            void ExtractFeatures(float* features)
++            {
++                svbool_t mask = svwhilelt_b32(size_t(0), size_t(4));
++                svfloat32_t _02 = svdup_n_f32(0.2f);
++                svfloat32_t _05 = svdup_n_f32(0.5f);
++                svfloat32_t _02357 = svdup_n_f32(0.2357f);
++                svfloat32_t _1 = svdup_n_f32(1.0f);
++                svfloat32_t eps = svdup_n_f32(0.0001f);
++                float ns[4];
++                for (size_t y = 0; y < _sy; y++)
++                {
++                    const float* ph = _histogram.data + ((y + 1) * _hs + 1) * Q2;
++                    for (size_t x = 0; x < _sx; x++)
++                    {
++                        float* dst = features + (y * _sx + x) * 31;
++
++                        float* p0 = _norm.data + y * _hs + x;
++                        float* p1 = p0 + _hs;
++                        float* p2 = p1 + _hs;
++
++                        ns[0] = p1[1] + p1[2] + p2[1] + p2[2];
++                        ns[1] = p0[1] + p0[2] + p1[1] + p1[2];
++                        ns[2] = p1[0] + p1[1] + p2[0] + p2[1];
++                        ns[3] = p0[0] + p0[1] + p1[0] + p1[1];
++                        svfloat32_t n = svdiv_f32_x(mask, _1, svsqrt_f32_x(mask, svadd_f32_x(mask, svld1_f32(mask, ns), eps)));
++                        svfloat32_t t = svdup_n_f32(0.0f);
++
++                        const float* src = ph + x * Q2;
++                        for (int o = 0; o < (int)Q2; ++o)
++                        {
++                            svfloat32_t h = svmin_f32_x(mask, svmul_f32_x(mask, svdup_n_f32(src[o]), n), _02);
++                            dst[o] = 0.5f * svaddv_f32(mask, h);
++                            t = svadd_f32_x(mask, t, h);
++                        }
++                        dst += Q2;
++
++                        for (int o = 0; o < (int)Q; ++o)
++                        {
++                            svfloat32_t h = svmin_f32_x(mask, svmul_f32_x(mask, svdup_n_f32(src[o] + src[o + Q]), n), _02);
++                            dst[o] = 0.5f * svaddv_f32(mask, h);
++                        }
++                        dst += Q;
++
++                        svst1_f32(mask, dst, svmul_f32_x(mask, t, _02357));
++                    }
++                }
++            }
++
++        public:
++            void Run(const uint8_t* src, size_t stride, size_t width, size_t height, float* features)
++            {
++                Init(width, height);
++
++                EstimateHistogram(src, stride, width, height);
++
++                EstimateNorm();
++
++                ExtractFeatures(features);
++            }
++        };
++
++        void HogExtractFeatures(const uint8_t* src, size_t stride, size_t width, size_t height, float* features)
++        {
++            assert(width % 8 == 0 && height % 8 == 0 && width >= 16 && height >= 16);
++
++            HogFeatureExtractor extractor;
++            extractor.Run(src, stride, width, height, features);
++        }
++
++        SIMD_INLINE void HogDeinterleave(const float* src, const svuint32_t& offsets, const svbool_t& mask, float* dst)
++        {
++            svst1_f32(mask, dst, svld1_gather_u32index_f32(mask, src, offsets));
++        }
++
++        void HogDeinterleave(const float* src, size_t srcStride, size_t width, size_t height, size_t count, float** dst, size_t dstStride)
++        {
++            assert(width >= svcntw());
++
++            size_t F = svcntw(), alignedWidth = AlignLo(width, F);
++            const svbool_t body = svptrue_b32();
++            const svuint32_t offsets = svmul_n_u32_x(body, svindex_u32(0, 1), (uint32_t)count);
++
++            for (size_t row = 0; row < height; ++row)
++            {
++                size_t rowOffset = row * dstStride, col = 0;
++                for (; col < alignedWidth; col += F)
++                {
++                    const float* s = src + count * col;
++                    size_t offset = rowOffset + col;
++                    for (size_t i = 0; i < count; ++i)
++                        HogDeinterleave(s + i, offsets, body, dst[i] + offset);
++                }
++                if (col < width)
++                {
++                    const float* s = src + count * col;
++                    size_t offset = rowOffset + col;
++                    svbool_t tail = svwhilelt_b32(col, width);
++                    for (size_t i = 0; i < count; ++i)
++                        HogDeinterleave(s + i, offsets, tail, dst[i] + offset);
++                }
++                src += srcStride;
++            }
++        }
++
++        //-----------------------------------------------------------------------------------------
++
++        namespace HogSeparableFilter_Detail
++        {
++            template <int add> SIMD_INLINE void Set(float* dst, const svfloat32_t& value, const svbool_t& mask)
++            {
++                svst1_f32(mask, dst, value);
++            }
++
++            template <> SIMD_INLINE void Set<1>(float* dst, const svfloat32_t& value, const svbool_t& mask)
++            {
++                svst1_f32(mask, dst, svadd_f32_x(mask, svld1_f32(mask, dst), value));
++            }
++        }
++
++        class HogSeparableFilter
++        {
++            typedef Array<float> Array32f;
++
++            size_t _w, _h, _s;
++            Array32f _buffer;
++
++            void Init(size_t w, size_t h, size_t rs, size_t cs)
++            {
++                _w = w - rs + 1;
++                _s = AlignHiAny(_w, svcntw());
++                _h = h - cs + 1;
++                _buffer.Resize(_s * h);
++            }
++
++            SIMD_INLINE void FilterRows(const float* src, const float* filter, size_t size, float* dst, const svbool_t& mask)
++            {
++                svfloat32_t sum = svdup_n_f32(0.0f);
++                for (size_t i = 0; i < size; ++i)
++                    sum = svmla_f32_x(mask, sum, svld1_f32(mask, src + i), svdup_n_f32(filter[i]));
++                svst1_f32(mask, dst, sum);
++            }
++
++            void FilterRows(const float* src, size_t srcStride, size_t width, size_t height, const float* filter, size_t size, float* dst, size_t dstStride)
++            {
++                size_t F = svcntw();
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < width; col += F)
++                        FilterRows(src + col, filter, size, dst + col, svwhilelt_b32(col, width));
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++            template <int add> SIMD_INLINE void FilterCols(const float* src, size_t stride, const float* filter, size_t size, float* dst, const svbool_t& mask)
++            {
++                svfloat32_t sum = svdup_n_f32(0.0f);
++                for (size_t i = 0; i < size; ++i, src += stride)
++                    sum = svmla_f32_x(mask, sum, svld1_f32(mask, src), svdup_n_f32(filter[i]));
++                HogSeparableFilter_Detail::Set<add>(dst, sum, mask);
++            }
++
++            template <int add> void FilterCols(const float* src, size_t srcStride, size_t width, size_t height, const float* filter, size_t size, float* dst, size_t dstStride)
++            {
++                size_t F = svcntw();
++                for (size_t row = 0; row < height; ++row)
++                {
++                    for (size_t col = 0; col < width; col += F)
++                        FilterCols<add>(src + col, srcStride, filter, size, dst + col, svwhilelt_b32(col, width));
++                    src += srcStride;
++                    dst += dstStride;
++                }
++            }
++
++        public:
++            void Run(const float* src, size_t srcStride, size_t width, size_t height,
++                const float* rowFilter, size_t rowSize, const float* colFilter, size_t colSize, float* dst, size_t dstStride, int add)
++            {
++                Init(width, height, rowSize, colSize);
++
++                FilterRows(src, srcStride, _w, height, rowFilter, rowSize, _buffer.data, _s);
++
++                if (add)
++                    FilterCols<1>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++                else
++                    FilterCols<0>(_buffer.data, _s, _w, _h, colFilter, colSize, dst, dstStride);
++            }
++        };
++
++        void HogFilterSeparable(const float* src, size_t srcStride, size_t width, size_t height,
++            const float* rowFilter, size_t rowSize, const float* colFilter, size_t colSize, float* dst, size_t dstStride, int add)
++        {
++            assert(width >= rowSize - 1 && height >= colSize - 1);
++
++            HogSeparableFilter filter;
++            filter.Run(src, srcStride, width, height, rowFilter, rowSize, colFilter, colSize, dst, dstStride, add);
++        }
++    }
++#endif
++}
+diff --git a/src/Test/TestHog.cpp b/src/Test/TestHog.cpp
+index d8a58cc..62af977 100644
+--- a/src/Test/TestHog.cpp
++++ b/src/Test/TestHog.cpp
+@@ -102,10 +102,30 @@ namespace Test
+         if (TestBase(options))
+             result = result && HogDirectionHistogramsAutoTest(FUNC_HDH(Simd::Base::HogDirectionHistograms), FUNC_HDH(SimdHogDirectionHistograms));
+ 
++#ifdef SIMD_SSE41_ENABLE
++        if (Simd::Sse41::Enable && TestSse41(options) && W >= Simd::Sse41::A + 2)
++            result = result && HogDirectionHistogramsAutoTest(FUNC_HDH(Simd::Sse41::HogDirectionHistograms), FUNC_HDH(SimdHogDirectionHistograms));
++#endif 
++
++#ifdef SIMD_AVX2_ENABLE
++        if (Simd::Avx2::Enable && TestAvx2(options) && W >= Simd::Avx2::A + 2)
++            result = result && HogDirectionHistogramsAutoTest(FUNC_HDH(Simd::Avx2::HogDirectionHistograms), FUNC_HDH(SimdHogDirectionHistograms));
++#endif 
++
++#ifdef SIMD_AVX512BW_ENABLE
++        if (Simd::Avx512bw::Enable && TestAvx512bw(options) && W >= Simd::Avx512bw::HA + 2)
++            result = result && HogDirectionHistogramsAutoTest(FUNC_HDH(Simd::Avx512bw::HogDirectionHistograms), FUNC_HDH(SimdHogDirectionHistograms));
++#endif 
++
++#ifdef SIMD_SVE2_ENABLE
++        if (Simd::Sve2::Enable && TestSve2(options) && W >= svcntb() + 2)
++            result = result && HogDirectionHistogramsAutoTest(FUNC_HDH(Simd::Sve2::HogDirectionHistograms), FUNC_HDH(SimdHogDirectionHistograms));
++#endif
+ 
+-
+-
+-
++#ifdef SIMD_NEON_ENABLE
++        if (Simd::Neon::Enable && TestNeon(options) && W >= Simd::Neon::A + 2)
++            result = result && HogDirectionHistogramsAutoTest(FUNC_HDH(Simd::Neon::HogDirectionHistograms), FUNC_HDH(SimdHogDirectionHistograms));
++#endif
+ 
+         return result;
+     }
+@@ -172,10 +192,30 @@ namespace Test
+         if (TestBase(options))
+             result = result && HogExtractFeaturesAutoTest(FUNC_HEF(Simd::Base::HogExtractFeatures), FUNC_HEF(SimdHogExtractFeatures));
+ 
++#ifdef SIMD_SSE41_ENABLE
++        if (Simd::Sse41::Enable && TestSse41(options) && W >= Simd::Sse41::A + 2)
++            result = result && HogExtractFeaturesAutoTest(FUNC_HEF(Simd::Sse41::HogExtractFeatures), FUNC_HEF(SimdHogExtractFeatures));
++#endif 
+ 
++#ifdef SIMD_AVX2_ENABLE
++        if (Simd::Avx2::Enable && TestAvx2(options) && W >= Simd::Avx2::HA + 2)
++            result = result && HogExtractFeaturesAutoTest(FUNC_HEF(Simd::Avx2::HogExtractFeatures), FUNC_HEF(SimdHogExtractFeatures));
++#endif 
+ 
++#ifdef SIMD_AVX512BW_ENABLE
++        if (Simd::Avx512bw::Enable && TestAvx512bw(options) && W >= Simd::Avx512bw::HA + 2)
++            result = result && HogExtractFeaturesAutoTest(FUNC_HEF(Simd::Avx512bw::HogExtractFeatures), FUNC_HEF(SimdHogExtractFeatures));
++#endif 
+ 
++#ifdef SIMD_SVE2_ENABLE
++        if (Simd::Sve2::Enable && TestSve2(options) && W >= svcntb() + 2)
++            result = result && HogExtractFeaturesAutoTest(FUNC_HEF(Simd::Sve2::HogExtractFeatures), FUNC_HEF(SimdHogExtractFeatures));
++#endif
+ 
++#ifdef SIMD_NEON_ENABLE
++        if (Simd::Neon::Enable && TestNeon(options) && W >= Simd::Neon::A + 2)
++            result = result && HogExtractFeaturesAutoTest(FUNC_HEF(Simd::Neon::HogExtractFeatures), FUNC_HEF(SimdHogExtractFeatures));
++#endif 
+ 
+         return result;
+     }
+@@ -250,10 +290,30 @@ namespace Test
+         if (TestBase(options))
+             result = result && HogDeinterleaveAutoTest(FUNC_HD(Simd::Base::HogDeinterleave), FUNC_HD(SimdHogDeinterleave));
+ 
++#ifdef SIMD_SSE41_ENABLE
++        if (Simd::Sse41::Enable && TestSse41(options))
++            result = result && HogDeinterleaveAutoTest(FUNC_HD(Simd::Sse41::HogDeinterleave), FUNC_HD(SimdHogDeinterleave));
++#endif 
+ 
++#ifdef SIMD_AVX2_ENABLE
++        if (Simd::Avx2::Enable && TestAvx2(options))
++            result = result && HogDeinterleaveAutoTest(FUNC_HD(Simd::Avx2::HogDeinterleave), FUNC_HD(SimdHogDeinterleave));
++#endif 
+ 
++#ifdef SIMD_AVX512BW_ENABLE
++        if (Simd::Avx512bw::Enable && TestAvx512bw(options))
++            result = result && HogDeinterleaveAutoTest(FUNC_HD(Simd::Avx512bw::HogDeinterleave), FUNC_HD(SimdHogDeinterleave));
++#endif 
+ 
++#ifdef SIMD_SVE2_ENABLE
++        if (Simd::Sve2::Enable && TestSve2(options))
++            result = result && HogDeinterleaveAutoTest(FUNC_HD(Simd::Sve2::HogDeinterleave), FUNC_HD(SimdHogDeinterleave));
++#endif
+ 
++#ifdef SIMD_NEON_ENABLE
++        if (Simd::Neon::Enable && TestNeon(options))
++            result = result && HogDeinterleaveAutoTest(FUNC_HD(Simd::Neon::HogDeinterleave), FUNC_HD(SimdHogDeinterleave));
++#endif 
+ 
+         return result;
+     }
+@@ -334,10 +394,30 @@ namespace Test
+         if (TestBase(options))
+             result = result && HogFilterSeparableAutoTest(FUNC_HSF(Simd::Base::HogFilterSeparable), FUNC_HSF(SimdHogFilterSeparable));
+ 
+-
+-
+-
+-
++#ifdef SIMD_SSE41_ENABLE
++        if (Simd::Sse41::Enable && TestSse41(options))
++            result = result && HogFilterSeparableAutoTest(FUNC_HSF(Simd::Sse41::HogFilterSeparable), FUNC_HSF(SimdHogFilterSeparable));
++#endif 
++
++#ifdef SIMD_AVX2_ENABLE
++        if (Simd::Avx2::Enable && TestAvx2(options))
++            result = result && HogFilterSeparableAutoTest(FUNC_HSF(Simd::Avx2::HogFilterSeparable), FUNC_HSF(SimdHogFilterSeparable));
++#endif 
++
++#ifdef SIMD_AVX512BW_ENABLE
++        if (Simd::Avx512bw::Enable && TestAvx512bw(options))
++            result = result && HogFilterSeparableAutoTest(FUNC_HSF(Simd::Avx512bw::HogFilterSeparable), FUNC_HSF(SimdHogFilterSeparable));
++#endif 
++
++#ifdef SIMD_NEON_ENABLE
++        if (Simd::Neon::Enable && TestNeon(options))
++            result = result && HogFilterSeparableAutoTest(FUNC_HSF(Simd::Neon::HogFilterSeparable), FUNC_HSF(SimdHogFilterSeparable));
++#endif 
++
++#ifdef SIMD_SVE2_ENABLE
++        if (Simd::Sve2::Enable && TestSve2(options))
++            result = result && HogFilterSeparableAutoTest(FUNC_HSF(Simd::Sve2::HogFilterSeparable), FUNC_HSF(SimdHogFilterSeparable));
++#endif 
+ 
+         return result;
+     }

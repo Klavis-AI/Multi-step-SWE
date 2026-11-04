@@ -1,0 +1,53 @@
+{
+ "doc": "stages/filters.griddecimation.rst: 'The **grid decimation filter** transform only one point in each cells of a grid calculated from the points cloud and a resolution therm. The transformation is done by the value information. The selected point could be the highest or the lowest point on the cell.' and its Options block: output_type 'The type of points transform by the value information. The value should be ``\"max\"`` for transform the highest point, or ``\"min\"`` for the lowest.'; resolution 'The resolution of the cells in meter. [Default: 1.]'; value 'A list of :ref:`assignment expressions <Assignment Expressions>` to be applied to points. The list of values is evaluated in order. [Default: none]'.  The same sentence fixes the two legal values, so anything else ('median') is refused rather than silently treated as a default.  Run 0 is a positive control on the same stage with a legal `output_type`: it must succeed and keep all 1000 points, which is what makes run 1's refusal evidence about `output_type` rather than about a stage that is simply not registered. Without it a release that never implemented `filters.gridDecimation` passes the case for the wrong reason. Per PROFILE.md 7.3 the refusal is graded by its non-zero exit status and the absent output file only; no stderr wording is asserted.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "bad.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.gridDecimation\", \"resolution\": 2, \"output_type\": \"median\", \"value\": \"Classification=9\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]"
+  },
+  "ok.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.gridDecimation\", \"resolution\": 2, \"output_type\": \"min\", \"value\": \"Classification=9\"}, {\"type\": \"writers.las\", \"filename\": \"ok.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "ok.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "ok.las",
+   "header": {
+    "point_count": {
+     "equals": 1000
+    }
+   }
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "nonzero": true
+  },
+  {
+   "kind": "file_absent",
+   "file": "out.las"
+  }
+ ]
+}

@@ -1,0 +1,25 @@
+CREATE TABLE cb(i int PRIMARY KEY, j int NOT NULL CHECK (j>0), k int UNIQUE);
+INSERT INTO cb VALUES (1,1,1);
+INSERT INTO cb VALUES (1,2,2);
+ERROR:  duplicate key value violates unique constraint "cb_pkey"
+DETAIL:  Key (i)=(1) already exists.
+INSERT INTO cb VALUES (2,-1,3);
+ERROR:  new row for relation "cb" violates check constraint "cb_j_check"
+DETAIL:  Failing row contains (2, -1, 3).
+INSERT INTO cb VALUES (2,1,1);
+ERROR:  duplicate key value violates unique constraint "cb_k_key"
+DETAIL:  Key (k)=(1) already exists.
+INSERT INTO cb VALUES (3,NULL,4);
+ERROR:  null value in column "j" of relation "cb" violates not-null constraint
+DETAIL:  Failing row contains (3, null, 4).
+INSERT INTO cb VALUES (3,1,NULL);
+INSERT INTO cb VALUES (4,1,NULL);
+SELECT * FROM cb ORDER BY i;
+ i | j | k 
+---+---+---
+ 1 | 1 | 1
+ 3 | 1 |  
+ 4 | 1 |  
+(3 rows)
+
+DROP TABLE cb;

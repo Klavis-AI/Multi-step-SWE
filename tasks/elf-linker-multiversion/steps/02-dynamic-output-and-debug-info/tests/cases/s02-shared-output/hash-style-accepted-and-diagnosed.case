@@ -1,0 +1,41 @@
+# arch: x86_64
+# The dynamic-output option surface has to fail loudly as well as succeed.
+# --hash-style=gnu and --hash-style=both are the two styles this milestone
+# must accept, and both still have to produce .gnu.hash and DT_GNU_HASH; a
+# style name the linker does not know must end the link with a non-zero status
+# and a diagnostic that names the offending value.
+#
+# Only the status and the token are graded. The prefix, the phrasing and the
+# particular exit value all change between milestones (`Error: ` early,
+# `wild: error: ` later; `Unsupported` early, `Unknown` later), so asserting
+# any of them would be asserting the release rather than the contract.
+#
+# (caselib's has_*/want_has pipe a process into `grep -q`, which races with
+# SIGPIPE under `set -o pipefail`; wre below uses a here-string instead.)
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+dv()  { dynamic "$1" | sed -n "s/.*($2)[ \t]*//p" | sed -n 1p | awk '{print $1}'; }
+cat > h.c <<'C'
+int hs_data = 11;
+int hs_fn(int x) { return x + hs_data; }
+C
+cc_obj h.o h.c -fPIC
+for style in gnu both; do
+  link_ok "libhs-$style.so" -shared "--hash-style=$style" h.o
+  wre "--hash-style=$style still writes .gnu.hash" \
+      "$(sections "libhs-$style.so")" '[[:space:]]\.gnu\.hash[[:space:]]'
+  want "--hash-style=$style keeps DT_GNU_HASH on .gnu.hash" \
+       "$(( $(dv "libhs-$style.so" GNU_HASH) ))" \
+       "$(( 16#$(sec_addr "libhs-$style.so" .gnu.hash) ))"
+  DS=$(dynsyms "libhs-$style.so")
+  wre "--hash-style=$style still exports hs_fn" "$DS" 'GLOBAL DEFAULT +[0-9]+ hs_fn'
+done
+# A style name that is not a hash-table format at all is a diagnosed failure.
+link_fails libhs-bad.so -shared --hash-style=zzunknown h.o
+wre "the diagnostic names the rejected style" "$LINK_OUT" 'zzunknown'
+[ -s libhs-bad.so ] && die "a rejected --hash-style left an output file behind"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 7

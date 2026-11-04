@@ -1,0 +1,36 @@
+CREATE TABLE x07_33a(a int, b text);
+INSERT INTO x07_33a VALUES (1,'x'),(2,'y');
+CREATE ROLE x07_33r NOLOGIN;
+CREATE VIEW x07_33v WITH (security_invoker = true) AS SELECT * FROM x07_33a;
+CREATE VIEW x07_33w AS SELECT * FROM x07_33a;
+GRANT SELECT ON x07_33v, x07_33w TO x07_33r;
+SET ROLE x07_33r;
+SELECT count(*) FROM x07_33w;
+ count 
+-------
+     2
+(1 row)
+
+SELECT count(*) FROM x07_33v;
+ERROR:  permission denied for table x07_33a
+RESET ROLE;
+GRANT SELECT ON x07_33a TO x07_33r;
+SET ROLE x07_33r;
+SELECT count(*) FROM x07_33v;
+ count 
+-------
+     2
+(1 row)
+
+RESET ROLE;
+DROP VIEW IF EXISTS x07_33v;
+DROP VIEW IF EXISTS x07_33w;
+DROP TABLE IF EXISTS x07_33a;
+DROP OWNED BY x07_33r;
+DROP ROLE x07_33r;
+SELECT count(*) FROM pg_roles WHERE rolname = 'x07_33r';
+ count 
+-------
+     0
+(1 row)
+

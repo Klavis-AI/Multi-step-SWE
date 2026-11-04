@@ -1,0 +1,11 @@
+CREATE TABLE x07_05a(id int PRIMARY KEY, v int, s text);
+CREATE TABLE x07_05b(id int PRIMARY KEY, v int, act text);
+INSERT INTO x07_05a VALUES (1,10,'a'),(2,20,'b'),(3,30,'c');
+INSERT INTO x07_05b VALUES (1,100,'upd'),(2,200,'del'),(4,400,'ins'),(5,500,'skip');
+MERGE INTO x07_05a t USING x07_05b s ON t.id = s.id
+  WHEN MATCHED AND s.act = 'del' THEN DELETE
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN NOT MATCHED AND s.act = 'ins' THEN INSERT (id,v,s) VALUES (s.id, s.v, 'new')
+  WHEN NOT MATCHED THEN DO NOTHING;
+SELECT id, v, s FROM x07_05a ORDER BY id;
+DROP TABLE x07_05a, x07_05b;

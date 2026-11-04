@@ -1,0 +1,35 @@
+# arch: x86_64
+# A mutually recursive pair split across two archives inside
+# --start-group/--end-group is resolved: the group is iterated until no new
+# undefined symbol appears, whichever way round the archives are listed.
+rt_obj rt.o
+cat > p.c <<'C'
+#include "rt.h"
+int qq(int);
+int pp(int n) { if (n <= 0) return 0; print("p"); return 1 + qq(n - 1); }
+C
+cat > q.c <<'C'
+#include "rt.h"
+int pp(int);
+int qq(int n) { if (n <= 0) return 0; print("q"); return 1 + pp(n - 1); }
+C
+cat > m.c <<'C'
+int pp(int);
+int entry(void) { return pp(4); }
+C
+cc_obj p.o p.c; cc_obj q.o q.c; cc_obj m.o m.c
+mkar libp.a p.o; mkar libq.a q.o
+link_ok o1 rt.o m.o --start-group libp.a libq.a --end-group
+run_expect o1 "pqpq" 4
+link_ok o2 rt.o m.o --start-group libq.a libp.a --end-group
+run_expect o2 "pqpq" 4
+for o in o1 o2; do
+  want "$o: both halves of the cycle extracted" \
+       "$(symbols $o | awk '$8=="pp" || $8=="qq"' | grep -c .)" "2"
+done
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

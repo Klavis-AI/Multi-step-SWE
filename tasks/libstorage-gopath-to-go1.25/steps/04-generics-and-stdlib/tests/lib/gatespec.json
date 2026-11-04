@@ -1,0 +1,676 @@
+{
+ "gates": [
+  {
+   "go": "1.21",
+   "kind": "module",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 2,
+   "why": "Requirement 1. Everything this milestone asks for arrived by Go 1.21: type parameters in 1.18, and `slices`, `maps` and `cmp` in 1.21. The directive is exact rather than a minimum because it states the language semantics the whole tree is compiled and vetted under, and the subject of this step is the 1.21 library: the number to declare is the one requirement 1 names rather than the highest one the 1.25 toolchain would accept. A tree that declares the toolchain's own version has raised the rung past every construct the rest of this step is about without writing one of them. Read back out of the built binary as well as out of `go.mod`, so a declaration that disagrees with the build cannot pass. It is worth 2 rather than 1 because it is not only a declaration: it is what makes the three packages requirement 4 names resolve at all, and it is coupled to requirement 5 through the regression family. staticcheck reads a deprecation against the module's own language version; `io/ioutil` has been deprecated since Go 1.19; at `go 1.17` this tree reports no SA1019 and at `go 1.21` it reports ten, one per file. Measured in this image on this tree. Raising the rung without retiring `ioutil` is not a partial answer, it is a tree that takes this gate and loses the staticcheck bound."
+  },
+  {
+   "id": "schema-generated",
+   "kind": "files-absent",
+   "paths": [
+    "api/utils/schema/schema_generated.go"
+   ],
+   "weight": 2,
+   "why": "Requirement 2. The one generated artifact this repository carries in its own source tree: 540 lines of Go, 18 294 bytes, whose entire content is the 18 202-byte JSON schema document re-spelled as a string literal, produced from `libstorage.json` by a Makefile rule and checked in beside it. Naming the file is the endpoint. The probe below is the property, and it is the property that decides whether the literal came back somewhere else."
+  },
+  {
+   "import": "embed",
+   "kind": "import-present",
+   "min_packages": 1,
+   "weight": 1,
+   "why": "Requirement 2's second half. `//go:embed` is a compiler directive rather than a library call, and the only mark it leaves in the import graph is the `embed` package -- blank-imported when the target is a `string` or a `[]byte`, named when it is an `embed.FS`. Either way the graph sees it. A tree that deleted the generated file and pasted its literal into a hand-written one passes the gate above and fails this."
+  },
+  {
+   "dir": "schema",
+   "id": "probe:schema",
+   "kind": "probe",
+   "tests": [
+    "TestNoGoSourceCarriesTheSchemaAsALiteral",
+    "TestTheSchemaIsPulledInAtBuildTime"
+   ],
+   "weight": 4,
+   "why": "Requirement 2 as a property of the tree rather than as two file names. The first test walks every `.go` file in the repository looking for the document arriving as source, and asks three ways because it need not arrive in one piece: a single string literal at or past 4 096 bytes, a `+` chain of literals that sums past it, or one file whose pieces of at least 64 bytes sum past it. The third reading is stated over the file rather than over one top-level declaration because the declaration boundary is the one a paste can be moved across for nothing: five sibling constants of 4 000 bytes each, joined in a sixth declaration or by `strings.Join`, are no single literal, no `+` tree and no one declaration, and the file-scoped sum is what closes that split, which was found by reading this gate rather than by a tree that took it. The schema is 18 202 bytes and the largest other literal in this tree is 1 301, so the threshold is a gap rather than a line drawn close to anything; the 64-byte floor on the third reading is measured as well, because this repository has honest files carrying thousands of bytes of short strings and the largest of them totals 2 635 bytes once the short pieces are dropped -- `api/utils/schema/schema_test.go`, against the same 4 096. The second test finds every schema document on disk -- wherever they now live, recognised by parsing them -- and requires each one to be named by an embed pattern that `go/build` reports for the non-test package in its own directory or in a directory above it, which is the only way a data file becomes part of the build without being re-spelled as source. The patterns are read out of the build rather than out of the comment text of a `.go` file, because a `//go:embed` line is just as readable in a file the compiler never compiles -- `//go:build ignore`, a `mock` tag, another GOOS -- and `TestEmbedPatterns` is deliberately not consulted either: an embed that only exists for a package's own tests puts the document in the test binary rather than in the program that serves the API. Every rather than any: a tree that copies the document into the package that embeds it and leaves the original where it was has two documents to keep in step by hand, which is the defect this milestone retires, and only one of them is in the build. That tree was built and measured, and before this test read every copy it scored the whole of this family. Neither test names a directory, because where the document ends up is the candidate's decision and only one thing about it is forced: the root package cannot host the embed for `api/utils/schema` to read, since it reaches that package through `api/server` and the import back would be a cycle. A document in a subdirectory of the package that embeds it is a legitimate answer and passes, which is why the search walks upwards rather than looking only beside the file. Both tests fail on the tree this step starts from and on the independently solved tree the previous milestone produced."
+  },
+  {
+   "dir": "schema",
+   "id": "probe:schema-rule",
+   "kind": "probe",
+   "tests": [
+    "TestNoBuildRuleStillReadsTheSchemaDocument"
+   ],
+   "weight": 1,
+   "why": "Requirement 2's last sentence, and the half of it nothing else reads: the generated file is gone *and so is the rule that wrote it*. `files-absent:schema-generated` covers the file, and only the file. A tree that deletes the paste and leaves `api/utils/schema/Makefile` where it is has removed one copy of the document and kept the thing that writes it: the next person to run `make` in that directory has two documents again, agreeing on the day they are written and drifting afterwards, which is the defect this milestone retires rather than a step towards retiring it. The test finds the document by parsing it rather than by its name, then reads every `Makefile`, `makefile`, `GNUmakefile` and `.mk` fragment in the tree and fails one whose uncommented text names that document as a whole path element. A whole element rather than a substring because `test.mk` names the directory `./api/utils/schema` in its list of framework packages and has to go on doing so, and because a file called `mylibstorage.json` is not this one. It fails on the tree this step starts from, at `api/utils/schema/Makefile:8`, which is the only line in fourteen makefiles that names the document, and passes on a tree where that rule is gone. It also fails on a tree that has no document at all, because it locates the document by parsing rather than by name and has nothing left to look for: that is the measured behaviour of the tree that answers this requirement by pasting the schema into Go source and deleting the file, and it is the right outcome for a gate whose subject is a document the regression controls already require to exist exactly once. Weight 1 because it is the smaller half of an endpoint whose larger half is already paid twice over: 2 for the file's absence and 4 for the property that replaces it."
+  },
+  {
+   "baseline": 10,
+   "id": "dupscan",
+   "kind": "dupscan",
+   "min_group": 2,
+   "min_nodes": 12,
+   "tests": true,
+   "weight": 6,
+   "why": "Requirement 3, and the only gate in this family that measures the milestone's own claim rather than a consequence of it. The scanner type-checks the repository and reports declarations whose bodies are identical once the types they name are erased, grouped by the shape they share: ten declarations in three groups here. Six are the `Store` getters that assert a stored value to one type and return nil otherwise, which is `interface{}` as a container in exactly the shape the milestone names. Two are the vfs driver's JSON readers, `readVolume` and `readSnapshot`, identical but for the struct they decode into. Two are the sort wrappers requirement 4 also reaches. A type parameter removes the reason each group exists; a copied helper with one more type name in it does not, and reads here exactly as the original did. `-min-group 2` because a pair is a clone group -- the vfs readers are two, and requiring three would leave the largest group in the tree as the only one graded. `-min-nodes 12` because a body smaller than that is a forwarding one-liner, which is what the answer looks like rather than what the problem looks like: the six getters become six one-line methods over one generic function, and those six lines are identical but for a type and must not read as ten clones traded for six. Graded against the ten, so converting one group earns the share of the work it is. Ten on the tree this step starts from and ten on the independently solved tree the previous milestone produced -- those two trees disagree in thirty-two of their non-vendored files and agree on this number, which is what makes it a measurement of this step rather than of how the last one was answered."
+  },
+  {
+   "baseline": 2,
+   "direction": "up",
+   "field": "generic_decls",
+   "id": "count:generic-decls",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 3, counted as the declarations that carry a type parameter list -- functions and types, not methods, since a method's own signature cannot have one. Two is what the requirement implies rather than a transcription of how it was answered here: of the three clone groups it names, two want a generic function -- the six asserting getters in `api/utils/utils_store.go` and the two JSON readers under `drivers/storage/vfs/storage/` -- and the third, the pair in `api/utils/utils_sort.go`, is answered by `slices` and wants no declaration of its own at all. Any tree that writes one generic function for each of the first two groups reaches 2, whatever it calls them, wherever it puts them and however many type parameters it gives them, because the count is of declarations and not of parameters. The tree this step starts from has none. What this does not measure is the milestone. A generic declaration standing beside the clones it was meant to replace proves nothing about them, and dupscan at weight 6 is the gate that measures that. This one closes the case dupscan cannot speak to: a tree whose clone groups no longer group -- deleted, forwarded by hand, or reshaped until the scanner stops recognising them -- with no type parameter anywhere in it. Neither gate is sufficient on its own and each is worth what it tells apart."
+  },
+  {
+   "baseline": 3,
+   "direction": "down",
+   "field": "sort_adapters",
+   "id": "count:sort-adapters",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 4. Three types in this repository exist only to hand `sort.Sort` a `Len`/`Less`/`Swap` triple: `ByVolumeID` and `ByString` in `api/utils`, and the unexported `byString` in `api/types`. `slices.Sort` and `slices.SortFunc` take the slice and, where one is needed, the comparison; all three adapters and their nine methods stop having a reason to exist. Counted from the census, which is a filesystem walk over this repository's own source, so an adapter parked behind a build constraint would still count. Three on both trees this step could start from."
+  },
+  {
+   "baseline": 3,
+   "direction": "down",
+   "field": "sort_sort_calls",
+   "id": "count:sort-sort-calls",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 4 from the call side: three `sort.Sort` calls, one per adapter. It is separate from the count above because the two fail separately. Deleting the adapters and leaving the calls does not compile, so that half cannot be scored alone; and a tree that leaves the calls where they are has not started. What this gate does not read is the tree that converts the calls to `sort.Slice`, which takes a closure and needs no adapter: that tree retires all three types and all three `sort.Sort` calls, scores this gate and the one above in full, and is still on the package requirement 4 asks it to leave. It was built and measured. The gate that reads it is `import-absent` on `sort`, with the two `import-present` gates below, which is why that one is not the cheap restatement of these two that a baseline of two makes it look like."
+  },
+  {
+   "baseline": 2,
+   "import": "sort",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 4's endpoint, and the instruction states it in those words: when the milestone is done, no package in this repository imports `sort`. Two do today, `api/types` and `api/utils`, and with the three adapters and the three calls gone there is nothing left in this repository for it to do. It carries 2 rather than 1 because it is the only gate in this family that separates the answer requirement 4 asks for from the one next to it: a tree that rewrites the three calls as `sort.Slice` deletes all three adapter types, scores both counts above in full, and never imports `slices` or `cmp`. That tree was built and measured, and this gate and the two `import-present` gates below are the whole of what reads it. Graded rather than strict, because against a baseline of two the gradient and the property are nearly the same statement and a candidate half-way through the file should be scored half-way through it; unlike `io/ioutil` below there is no shim that empties this gate without doing the work, since a first-party package that re-exported `sort.Sort` would still need the adapter types the two counts above are watching."
+  },
+  {
+   "import": "slices",
+   "kind": "import-present",
+   "min_packages": 2,
+   "weight": 1,
+   "why": "Requirement 4's complement, and the reason it is two packages rather than one: `api/utils` sorts strings and volumes, `api/types` sorts the keys of its local-devices map, and a tree that converted the exported pair in `api/utils` and left the unexported adapter in `api/types` where it is would satisfy a count of one with a third of the clause undone. Graded proportionally, so converting one of the two earns half."
+  },
+  {
+   "baseline": 5,
+   "direction": "up",
+   "id": "count:maps-copy",
+   "kind": "count",
+   "scope": "own",
+   "selector": "maps.Copy",
+   "weight": 1,
+   "why": "Requirement 4's middle clause, counted as adoption rather than as removal, because there is nothing to retire: a map copied by `for k, v := range src { dst[k] = v }` imports nothing, so the only way to state the clause is the call that replaces the loop. Five loops in the packages this platform builds copy one map into another with no condition and no transformation: two in `api/context`, one in `api/server/httputils` and two in `api/server/handlers`. Five is the target because it is the number every tree that can arrive at this step is guaranteed to hold, and the gate is a floor rather than an equality (`direction: up`) because the true number is not a property of this step. `NewStoreWithVars` in `api/utils` has the shape and is not one of them -- it copies a `map[string]string` into a `map[string]interface{}`, `maps.Copy` requires the two maps to agree on their value type, and a candidate who rewrites that one hears it from the compiler rather than from this gate. Two more have the shape in `drivers/storage/mock/mock_driver.go`, which is behind the `mock` build tag and does not compile on this tree at all, and a tree that reaches this step by a different route can carry more: the blind run measured in section 4.4.9 started from a tree whose two error-rendering files held one each and finished with eight calls against this target of five. Counted per call, so it moves a site at a time."
+  },
+  {
+   "import": "maps",
+   "kind": "import-present",
+   "min_packages": 3,
+   "weight": 1,
+   "why": "The same clause read from the import graph: the five loops the sibling gate targets live in three packages, `api/context`, `api/server/httputils` and `api/server/handlers`, so three is the number of packages a tree that does the clause has to import `maps` into. Both readings are here because they fail differently -- the census is syntactic and would count a `maps.Copy` written in a file this platform does not build, which the graph cannot see, while the graph would show a package that imported `maps` and used it for something else, which the census would not count."
+  },
+  {
+   "import": "cmp",
+   "kind": "import-present",
+   "min_packages": 1,
+   "weight": 1,
+   "why": "Requirement 4's last named package. Two of the three sorts are over plain strings and `slices.Sort` handles them with no comparison at all; the third orders volumes by their `ID` field and needs one. `cmp.Compare` is what the standard library offers for ordering two values of a comparable type and returning the three-way result `slices.SortFunc` asks for, and requirement 4 names the package in those words. One package is enough: only `api/utils` sorts anything that is not a plain slice of strings. It is worth 1 of 31 because `strings.Compare` orders the same two values correctly, so a candidate who reaches for it has not made a mistake -- they have not done the thing requirement 4 names, and that is worth a gate and not a family."
+  },
+  {
+   "baseline": 6,
+   "import": "io/ioutil",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 5's endpoint. Six packages import `io/ioutil`. Everything in it has had a replacement in `os` or `io` since Go 1.16 and the package itself has been deprecated since 1.19; at the rung requirement 1 raises, staticcheck says so ten times, which is why this clause and that one have to be done together. Scored as the property rather than as progress towards it, for the same reason the previous milestone's library gate is: the cheapest tree that satisfies a proportional reading is the one requirement 5 rules out by name. Give the deprecated package a first-party name, point the ten files at that, and five of the six importers are gone for a rename that has retired nothing -- the deprecated package is still compiled into the repository and the deprecated functions are still the ones being called. That tree was built and measured: five sixths here, before this gate was made strict, for a tree the instruction tells a solver in so many words does not count. The gradient requirement 5 does deserve is the census next to this one, which moves a file at a time."
+  },
+  {
+   "baseline": 10,
+   "direction": "down",
+   "id": "count:ioutil-imports",
+   "import": "io/ioutil",
+   "kind": "count",
+   "scope": "own",
+   "weight": 1,
+   "why": "The same requirement counted over the source rather than over the build, and the finer of the two gradients: ten files import the package, and one of them is a test file that the graph above folds into its own package. Five functions are involved and three of the five do not simply move to the same name in `os` -- `ioutil.ReadAll` is `io.ReadAll`, and `ioutil.TempDir` and `ioutil.TempFile` became `os.MkdirTemp` and `os.CreateTemp`. `ReadFile` and `WriteFile` keep their names. That is the whole of the work and it is worth one gate of gradient behind the endpoint above."
+  }
+ ],
+ "module": "github.com/codedellemc/libstorage",
+ "probes": {
+  "cancellation": {
+   "hard_timeout": 240,
+   "timeout": "3m",
+   "why": "Five tests, 3.0 s together on the finished tree and 3.0 s on the tree this step starts from; the two controls account for nearly all of it, one of them deliberately waiting two seconds for a slow answer. Every failure path in the package is a bounded select, so the budget is there for a tree that will not start a server at all rather than for one that merely fails."
+  },
+  "deadlines": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Four tests, and each of the two graded ones now drives its key at two values in turn rather than at one, so the package starts six servers instead of four: 56.4 s together on the finished tree and 41.2 s on the tree this step starts from, where the two graded tests fail early. Neither is the number the budget has to clear. A tree that adds a draining stop and keeps the 2017 substring sniff deadlocks every close, and this package's teardown gives up on a stop after 30 s rather than joining the deadlock -- six servers, so three minutes of teardown on top of the waiting the tests do anyway: measured at 236.6 s on that tree, with all four assertions still reported correctly. The budget is set above that so a deadlock elsewhere in the tree costs this package time and not its answers."
+  },
+  "errstatus": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Six tests sharing one server, 1.07 s together on the finished tree and 1.07 s on the tree this step starts from, where the three graded tests fail on the first response they read. Neither is the number the budget has to clear. Every way this package can wait is bounded by the package itself: sixty seconds for a server that never finishes starting, fifteen for a request that is never answered, thirty for a stop that never returns. Twenty-one requests are issued in all, so the arithmetic worst case -- a server that answers every one of them just too slowly to count -- is 315 s of requests on top of a minute of start and half a minute of stop, and the budget sits above that. Bounding rather than waiting is deliberate: a tree whose server has been broken elsewhere should fail these assertions and say so, not take the package's other answers down with it."
+  },
+  "errwrap": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Six tests that construct errors and ask questions of them in process -- no server, no listener, no clock. 0.005 s together on the finished tree and 0.006 s on the tree this step starts from. The budget is two minutes because the only way this package can be slow is a tree that takes a long time to compile, and a compile is the one thing a test timeout should never be the first to notice."
+  },
+  "schema": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Five tests. Three of them walk the whole repository: one parses every `.go` file in it, one finds every schema document in it and asks `go/build` for the embed patterns of the directories above each one, from the document's own directory up to the repository root, and the third reads the fourteen makefiles it passes on the way. The other two parse the schema document and drive the validator. 0.103 s together on the tree this step starts from and 0.096 s on the finished one, measured five tests at a time. Seven hundredths of that is the literal walk, which is the only one that parses every `.go` file in the repository; the embed reader asks `go/build` rather than the parser and the other three are a hundredth of a second each. The budget is two minutes because the only way this package can be slow is a tree that takes a long time to compile, and a compile is the one thing a test timeout should never be the first to notice."
+  },
+  "shutdown": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Four tests, 40.6 s together on the finished tree and 4.2 s on the tree this step starts from, where every stop returns at once and every assertion fails the moment it is made. Neither is the number the budget has to clear. The worst measured case is the half-done tree that adds a draining stop and keeps the 2017 substring match, which deadlocks the close: there each test waits out its own ceiling and then pays a further 30 s of bounded teardown for a stop that was never going to return, 288.4 s in all, with all four failures still reported rather than lost with a killed binary. A tree that drains but sets no deadline is the other slow case, at 80.7 s. The budget sits well above the deadlocking tree because bounding the teardown exists precisely so that this package still answers on a tree whose close hangs, and a package timeout would take those answers away again."
+  },
+  "store": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Ten tests that construct a `types.Store` and read values back out of it in process -- no server, no listener, no clock. 0.014 s together on the tree this step starts from. Two minutes for the same reason as the package above: the compile, not the tests."
+  },
+  "surface": {
+   "hard_timeout": 360,
+   "timeout": "5m",
+   "why": "Two tests, each of which starts an embedded server and a client through `libstorage.New` and makes one request: 2.3 s together on the finished tree and 2.2 s on the tree this step starts from. The budget is sized for the two ways a tree can be slow here rather than wrong -- `libstorage.New` itself hanging, which the helper gives up on after 60 s, and a stop that never returns, which the teardown gives up on after 30 s. Measured against the deadlocking tree: 62.4 s, both assertions still reported."
+  }
+ },
+ "regression": [
+  {
+   "id": "build-all",
+   "kind": "build-all",
+   "weight": 1,
+   "why": "Requirement 8. Inherited and still a bound rather than a milestone: compiling is the thing this work may not cost. Type parameters move the cost of being wrong from run time to compile time, which is most of the argument for them and all of the reason this gate matters here -- a generic declaration that instantiates in five of its six call sites is a tree that does not build, and a declaration whose constraint is too loose does not fail where it was written."
+  },
+  {
+   "kind": "no-vendored-source",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 1,
+   "why": "Requirement 8. Computed from the import graph, so a dependency copied back into the repository under any directory name and rewired with a replace directive is still third-party source here. The same requirement has a second reading, because the graph cannot see a dependency whose source has been copied *into* the main module and given a first-party import path: every first-party file is also hashed, whitespace removed, against every .go file in the module cache the image ships, and a file that matches one of them is that dependency's source under another name. This milestone retires a standard library package and adopts three; vendoring a backport of any of them is the shape that answer would take."
+  },
+  {
+   "directives": [
+    "replace",
+    "exclude",
+    "ignore"
+   ],
+   "id": "gomod-directives",
+   "kind": "gomod-directives",
+   "weight": 1,
+   "why": "Requirement 8. `replace` would let a package be aliased back in under a name of the candidate's choosing; `ignore` would let a file that no longer compiles disappear from every `./...` pattern, including the import graph the gates above read."
+  },
+  {
+   "baseline": 0,
+   "kind": "gofmt",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 8. The tree this step starts from is `gofmt -s` clean -- 0 dirty files out of 162 -- so the baseline is zero and any excursion is new. Type parameter lists are new syntax with their own formatting, and the commonest way a hand-written generic declaration is left unformatted is the bracket it is written in."
+  },
+  {
+   "baseline": 0,
+   "kind": "vet",
+   "weight": 1,
+   "why": "Requirement 8, same shape: the tree this step starts from leaves `go vet ./...` silent, so the bound is silence. `vet` is also the tool that notices a `printf` verb that no longer matches what it is handed, which is how a message assembled out of a type parameter goes wrong."
+  },
+  {
+   "baseline": 0,
+   "checks": "SA1019",
+   "kind": "staticcheck",
+   "weight": 1,
+   "why": "Requirement 8's last clause, and in this milestone it is load-bearing rather than latent. The check class is SA1019, deprecated identifiers, and the baseline is zero -- measured 0 on the tree this step starts from and 0 on the finished one. Those two zeros are not the same zero. `io/ioutil` has been deprecated since Go 1.19, and staticcheck reads the deprecation against the module's own language version: at the `go 1.17` directive this step inherits it reports nothing, and at the `go 1.21` directive requirement 1 asks for it reports ten findings, one per file. Measured, in this image, on this tree. So requirement 1 and requirement 5 are one clause with two halves: raising the rung without retiring `ioutil` is not a partial answer, it is a tree that scores the rung and loses this bound."
+  },
+  {
+   "baseline": 0,
+   "field": "suppressions",
+   "id": "floor:suppressions",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6: silencing a tool is not fixing what it found. Zero today, and the bound is zero. `//lint:ignore SA1019` over an `io/ioutil` import is the specific thing this forecloses."
+  },
+  {
+   "baseline": 1,
+   "field": "skips",
+   "id": "floor:skips",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6. One `t.Skip` exists in the inherited corpus; a second is a test that stopped running."
+  },
+  {
+   "baseline": 97,
+   "field": "blank_discards",
+   "id": "floor:blank-discards",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6's last clause. 96 on the tree this step starts from and 97 on the finished one, and the bound is the finished number rather than the inherited one. That is the only census bound in this package that moves, and it moves for a measured reason: requirement 3 collapses six type switches into one generic function, and the one type assertion that replaces them is written comma-ok because the switch it replaces answered nil on the default arm rather than panicking. Six discards did not appear -- exactly one did, in the declaration that absorbed the six. Leaving the bound at 96 would have priced the milestone as a regression; the gate was calibrated against a reference tree and it read 97, which is how this was found rather than argued. What the bound still forbids is the other ninety-six becoming ninety-eight: shedding one is free, acquiring a second is not."
+  },
+  {
+   "baseline": 84,
+   "field": "test_funcs",
+   "id": "floor:test-funcs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6. The repository's own corpus. The `Store` getters requirement 3 reaches are asserted against by tests in `api/utils`, which makes deleting one an attractive way to finish."
+  },
+  {
+   "baseline": 111,
+   "field": "specs",
+   "id": "floor:specs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6. Ginkgo specs, counted separately from test functions because the integration suites are written in them."
+  },
+  {
+   "baseline": 503,
+   "field": "assertions",
+   "id": "floor:assertions",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6. A test function that survives with its body hollowed out keeps the two counts above still and moves this one."
+  },
+  {
+   "baseline": 16,
+   "field": "test_files",
+   "id": "floor:test-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6."
+  },
+  {
+   "baseline": 1,
+   "field": "constrained_test_files",
+   "id": "floor:constrained-test-files",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6 and requirement 8's last sentence. One test file is behind a build tag today (`drivers/storage/mock/tests`); a second is a suite that stopped running under a constraint rather than in the open."
+  },
+  {
+   "baseline": 125,
+   "field": "unconstrained_src_files",
+   "id": "floor:unconstrained-src-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "strict": true,
+   "weight": 3,
+   "why": "Requirement 8's last sentence, and the bound that keeps the import-graph gates honest: a file tagged out of the build vanishes from `go list -deps` just as thoroughly as a file whose import was retired. The bound is the smallest count a tree that does everything the instructions ask can hold here, not the reference's count: 125 at the start of step 1, plus the one unconstrained file step 2's twin merge leaves, minus the generated schema file requirement 2 of this step deletes. Steps 3 and 4 are free to add files (the reference adds one at each) and free not to, so a bound read off the reference (126) failed a correct tree that put step 3's code into an existing file (wave D, 2026-10-12). Strict, for the reason step 1 recorded: proportional scoring cannot deter a single excursion against a baseline this large."
+  },
+  {
+   "constraints": {
+    "api/utils/unix_windows.go": "windows;",
+    "api/utils/utils_unix.go": ";!windows",
+    "cli/lss/lss-darwin/lss-darwin_amd64.go": "amd64;",
+    "cli/lss/lss-darwin/lss-darwin_arm.go": "arm;",
+    "cli/lss/lss-darwin/lss-darwin_arm64.go": "arm64;",
+    "cli/lss/lss-linux/lss-linux_amd64.go": "amd64;",
+    "cli/lss/lss-linux/lss-linux_arm.go": "arm;",
+    "cli/lss/lss-linux/lss-linux_arm64.go": "arm64;",
+    "cli/lss/lss-windows/lss-windows_amd64.go": "amd64;",
+    "client/client_darwin.go": "darwin;",
+    "client/client_linux.go": "linux;",
+    "drivers/os/darwin/darwin.go": ";darwin",
+    "drivers/os/linux/linux.go": ";linux",
+    "drivers/os/linux/linux_mount.go": ";linux",
+    "drivers/storage/mock/executor/mock_executor.go": ";mock",
+    "drivers/storage/mock/mock_driver.go": ";mock",
+    "drivers/storage/mock/tests/mock_test.go": ";mock",
+    "imports/executors/executors.go": ";!vfs",
+    "imports/executors/executors_vfs.go": ";vfs",
+    "imports/storage/storage.go": ";!vfs",
+    "imports/storage/storage_vfs.go": ";vfs"
+   },
+   "id": "floor:build-constraints",
+   "kind": "constraint-set",
+   "scope": "own",
+   "weight": 3,
+   "why": "Requirement 8's last sentence, by identity rather than by count. The same twenty-one entries the previous milestone left behind, unchanged: this milestone has no reason to move any of them. Widening `//go:build darwin` or `//go:build mock` so work can be skipped, or narrowing one so it need not be done, both move this. Keys the candidate adds are not held against it, so this is a bound on loss."
+  },
+  {
+   "baseline": 0,
+   "field": "legacy_build_tags",
+   "id": "floor:legacy-build-tags",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 8. The `// +build` form was retired three milestones ago; a file re-acquiring one is that coming undone. Zero on both trees."
+  },
+  {
+   "baseline": 12,
+   "field": "converted_build_tags",
+   "id": "floor:converted-build-tags",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "The same bound from the other side: twelve files carry a `//go:build` line and no legacy twin, on the tree this step starts from and on the finished one alike. A constraint dropped rather than kept moves this below twelve; the constraint set above says which twelve."
+  },
+  {
+   "baseline": 4,
+   "id": "import-absent:x-net-context",
+   "import": "golang.org/x/net/context",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 7. The `golang.org/x/net/context` shim stays retired; the baseline is the four packages that reached it before it was, so the fall-off is measured on the same scale it was earned on."
+  },
+  {
+   "baseline": 1,
+   "id": "import-absent:ctxhttp",
+   "import": "golang.org/x/net/context/ctxhttp",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 7, the same bound on the subpackage."
+  },
+  {
+   "id": "import-present:context",
+   "import": "context",
+   "kind": "import-present",
+   "packages": [
+    "github.com/codedellemc/libstorage",
+    "github.com/codedellemc/libstorage/api/types",
+    "github.com/codedellemc/libstorage/api/context",
+    "github.com/codedellemc/libstorage/api/server",
+    "github.com/codedellemc/libstorage/client"
+   ],
+   "weight": 2,
+   "why": "Requirement 7. The standard library's `context` stays live in the five first-party packages that deal in a context type. This milestone rewrites import blocks in a dozen files; a sweep that reorganised them and broke the plumbing would fail this while the two absence bounds above stayed clean."
+  },
+  {
+   "id": "pre-go17-twin",
+   "kind": "files-absent",
+   "paths": [
+    "libstorage_go17.go",
+    "libstorage_pre_go17.go"
+   ],
+   "weight": 2,
+   "why": "Requirement 7. The pre-Go-1.7 twin stays gone; a file reintroduced under either name is a milestone coming undone."
+  },
+  {
+   "dir": "deadlines",
+   "id": "probe:deadlines",
+   "kind": "probe",
+   "tests": [
+    "TestReadTimeoutFollowsTheConfiguredValue",
+    "TestWriteTimeoutFollowsTheConfiguredValue"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. The server's configured read and write timeouts keep taking effect at the values they are configured with."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown",
+   "kind": "probe",
+   "tests": [
+    "TestStopWaitsForRequestsInFlight",
+    "TestStopClosesIdleConnections"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. Stopping the server still drains what it is serving and still closes its idle connections."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown-bound",
+   "kind": "probe",
+   "tests": [
+    "TestStopGivesUpOnAWedgedRequest"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. The drain is still bounded, so a request that never finishes still cannot keep the process alive forever. It is the half of that milestone most easily lost by accident, which is why it is carried separately here too."
+  },
+  {
+   "dir": "cancellation",
+   "id": "probe:cancellation",
+   "kind": "probe",
+   "tests": [
+    "TestCancelledContextStopsRequest",
+    "TestContextDeadlineStopsRequest",
+    "TestServerSeesTheCancellation",
+    "TestLiveContextCompletesRequest",
+    "TestLiveContextSurvivesASlowAnswer"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. A cancelled or expired context still stops an in-flight request promptly, and a live one still completes however long the answer takes."
+  },
+  {
+   "dir": "deadlines",
+   "id": "probe:deadlines-controls",
+   "kind": "probe",
+   "tests": [
+    "TestDefaultReadTimeoutLeavesItAlone",
+    "TestConfiguredTimeoutsStillServeAnOrdinaryRequest"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. A server on the documented defaults still does not cut off a slow client, and a server with the timeouts configured still serves an ordinary request."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown-controls",
+   "kind": "probe",
+   "tests": [
+    "TestStopReturnsPromptlyWithNothingInFlight"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. A server with nothing to drain still stops at once."
+  },
+  {
+   "dir": "surface",
+   "id": "probe:surface",
+   "kind": "probe",
+   "tests": [
+    "TestEmbeddedNewReturnsAConnectedClient",
+    "TestEmbeddedNewServesTheConfiguredService"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed, and the widest of the inherited bounds: the exported surface that deals in contexts is written out as ordinary code the compiler has to agree with, and the root package's `New` is driven end to end. A generic helper introduced in the wrong place changes an exported signature, and this is what notices."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap-controls",
+   "kind": "probe",
+   "tests": [
+    "TestErrorTextIsUnchanged",
+    "TestErrorsAreStillClassifiable"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. Fifteen error messages stay what they are and every error type the repository hands out stays recognisable as itself."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap-json",
+   "kind": "probe",
+   "tests": [
+    "TestErrorJSONIsUnchanged"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed, on the part of the error API that is least visible and cheapest to break: six marshalled shapes, field for field. Carried at the inherited price of 2 rather than at the 4 the milestone that introduced it gave it -- an inherited bound is worth what every other inherited bound is worth, and the family it sits in is half again as large as it was."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus-controls",
+   "kind": "probe",
+   "tests": [
+    "TestPlainErrorsKeepTheirStatus",
+    "TestErrorResponseBodiesAreUnchanged"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed from outside the process: the plain statuses the server produces, and both shapes an error response takes, field for field."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus-outcome",
+   "kind": "probe",
+   "tests": [
+    "TestAnErrorThatAnswersForTheOutcomeKeepsIt"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. An error that answers for an outcome keeps its own answer: a partly completed batch is still a server error whatever stopped it, asked at a cause that is a 400 in its own right and at one that is a 404. Carried at the inherited price of 2 rather than at the 6 the milestone that introduced it gave it, for the reason given on the gate above."
+  },
+  {
+   "baseline": 16,
+   "id": "import-absent:goof",
+   "import": "github.com/akutz/goof",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7. `github.com/akutz/goof` stays gone -- no package the repository compiles reaches it, by any route. Graded as the property rather than as progress towards it, the way the milestone that retired it graded it."
+  },
+  {
+   "baseline": 29,
+   "direction": "down",
+   "id": "count:goof-imports",
+   "import": "github.com/akutz/goof",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, counted over the source rather than over the build, because the build does not see all of it: three of the twenty-nine files that imported the library are behind build constraints this platform does not satisfy, and the import graph above reads clean whatever they say."
+  },
+  {
+   "baseline": 1,
+   "category": "string-cmp",
+   "id": "errscan:string-cmp",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7. No error is identified by comparing the text of `Error()`. One such comparison existed before that milestone and none does now."
+  },
+  {
+   "baseline": 5,
+   "category": "identity-cmp",
+   "id": "errscan:identity-cmp",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7. No error is identified by comparing the value in hand to a sentinel with `==`. Five such comparisons existed before that milestone."
+  },
+  {
+   "baseline": 2,
+   "category": "concrete-type-switch",
+   "id": "errscan:concrete-type-switch",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7. No error is identified by switching on the concrete type in front of it. This milestone rewrites six type switches in `api/utils` into one type-parameterised declaration, and the two the previous milestone retired are not among them -- these are `Store` getters over ordinary values, not over errors. The scanner reads the operand's type, so the distinction is the compiler's rather than the author's."
+  },
+  {
+   "baseline": 1,
+   "category": "concrete-type-assert",
+   "id": "errscan:concrete-type-assert",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7, the same rule for the single-type form. Requirement 3's rewrite replaces six type switches with type assertions; none of them is on an error, and this is the gate that says so."
+  },
+  {
+   "baseline": 4,
+   "category": "dropped-cause",
+   "id": "errscan:dropped-cause",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7. Where a call site renders an error into a new message, the cause still survives the rendering: four places do this and all four still keep what they rendered."
+  },
+  {
+   "baseline": 4,
+   "direction": "up",
+   "field": "wrap_verbs",
+   "id": "count:wrap-verbs",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, the syntactic mark a wrapped cause leaves -- `%w` and `%v` render an error identically, so nothing about the message distinguishes them. Four on the tree this step starts from, and a tree that reached zero here has unwound the previous milestone whatever else it did."
+  },
+  {
+   "baseline": 1,
+   "direction": "up",
+   "field": "unwrap_methods",
+   "id": "count:unwrap-methods",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, the same mark for the other way an error carries a cause: at least one type in this tree still exposes a stored one."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap",
+   "kind": "probe",
+   "tests": [
+    "TestBadFilterKeepsItsCause",
+    "TestBatchProcessKeepsItsCause",
+    "TestCauseKeepsItsTypeThroughAWrap"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. An error that was caused by another error still leads to it -- `errors.Is` by identity, `errors.As` by type, through two layers as well as one."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus",
+   "kind": "probe",
+   "tests": [
+    "TestAWrappedNotFoundIsStillANotFound",
+    "TestAWrappedBadRequestIsStillABadRequest",
+    "TestAWrappedUnauthorizedIsStillUnauthorized"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. The HTTP status an error is reported with still belongs to the error rather than to the value in hand, through a wrap that has no status of its own."
+  },
+  {
+   "dir": "store",
+   "id": "probe:store-coercion",
+   "kind": "probe",
+   "tests": [
+    "TestGetStringRendersNonStrings",
+    "TestGetBoolParsesStoredStrings",
+    "TestGetIntAndInt64ParseStoredStrings",
+    "TestPointerGettersDisagreeOnAParseFailure",
+    "TestPointerGettersReadThroughAStoredPointer",
+    "TestGetStringPtrShapes"
+   ],
+   "weight": 12,
+   "why": "Requirement 6, asked of the thing requirement 3 rewrites, and the reason requirement 3 can be stated as a clone group without becoming an invitation to sweep the file it lives in. `types.Store` has two families of getter and they are not the same function. Six of them assert -- `GetStore`, `GetStringSlice`, `GetIntSlice`, `GetBoolSlice`, `GetMap`, `GetInstanceID` -- and those six are the group requirement 3 names. The rest coerce, and each of these six tests pins one way in which they do: `GetString` renders whatever is stored through `%v`, so a stored `42` comes back as the string `42`; `GetBool`, `GetInt` and `GetInt64` parse a stored string; `GetBoolPtr` returns a non-nil pointer to false when the parse fails while `GetIntPtr` and `GetInt64Ptr` return nil, which is a disagreement between neighbours in the same file and exactly the kind of thing a uniform rewrite erases; the pointer getters read through a stored pointer; `GetStringPtr` hands back the very pointer it was given. One declaration -- `func Get[T any](s types.Store, k string) T { v, _ := s.Get(k).(T); return v }` -- applied to the whole file compiles, satisfies requirement 3's gate, and deletes all of that silently: the tree answers the empty string where it used to answer `42`. That is the cheapest wrong answer to this milestone and this is what costs it. Weighted at 12: deliberately the largest weight in this family, twice the next, and set there rather than at 6 because at 6 the tree that gives this answer and does everything else correctly scored 0.9277 while a tree that merely left requirement 4 half-answered scored 0.9214, which is the wrong way round and is the ordering this weight exists to fix. What 12 buys is small, and is meant to be. A regression weight scales a multiplier that lives in [0.6, 1.0], so the whole of this gate is worth 0.4 x 12/90 = 0.0533 of the reward at its very most, where a migrated weight of 12 would scale the 0.55 the body of the score is made of. The two are not commensurable and nothing here trades one against the other; 12 in this family is not 12 of the same thing. Nor is this gate carrying the defect alone. A getter that answers the empty string where the wire wants `42` is visible on the wire, and the behavior family already prices that part of it: the recorded suite falls to 0.8256 on that tree. This gate is for the rest, which is otherwise small enough to round away. It is a bound rather than a milestone gate because it passes on the tree this step starts from, which is what puts it here and what keeps it here: moving twelve weight into a migrated family of thirty-one would raise an untouched step-3 tree to 0.45 + 0.55 x 12/43 = 0.603, well above the half build-process item 6 requires of a step's floor."
+  },
+  {
+   "dir": "store",
+   "id": "probe:store-controls",
+   "kind": "probe",
+   "tests": [
+    "TestAssertingGettersReturnWhatWasStored",
+    "TestAssertingGettersReturnNilOnTheWrongType",
+    "TestKeysAreCaseInsensitive",
+    "TestMissingKeysReturnZeroValues"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, the other half of the same package: the six getters requirement 3 does rewrite still return what was stored, still return nil for a value of the wrong type, still match keys without regard to case, and still answer a key that was never set with a zero value rather than a panic. These are the assertions the rewrite has to keep. They are graded apart from the six above so that the two failures are told apart: a candidate who never touched the file fails neither, a candidate who swept the whole file fails those six, and a candidate whose type parameter is wrong fails these four."
+  },
+  {
+   "dir": "schema",
+   "id": "probe:schema-controls",
+   "kind": "probe",
+   "tests": [
+    "TestTheSchemaExistsExactlyOnce",
+    "TestValidationAcceptsAndRejects"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, on what requirement 2 is not allowed to cost. The schema document still exists exactly once in the repository -- found by parsing every file in the tree and recognising the document by its own contents rather than by its name, so a copy left behind at the old path is two and fails this. And the validator still accepts a well-formed volume and still rejects one with no `id` and one whose `size` is not a number. The second test is what proves the embed resolved: validation reaches the schema through the unexported variable the generated file used to define, so a tree whose `//go:embed` names the wrong file compiles, passes both graded tests next door, and fails this one. Both pass on the tree this step starts from and on the independently solved tree the previous milestone produced."
+  }
+ ],
+ "step": "04-generics-and-stdlib"
+}

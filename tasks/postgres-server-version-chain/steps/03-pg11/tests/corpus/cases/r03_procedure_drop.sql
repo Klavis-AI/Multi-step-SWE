@@ -1,0 +1,8 @@
+CREATE PROCEDURE q3_pdp(x int) LANGUAGE plpgsql AS $$ BEGIN NULL; END $$;
+CREATE FUNCTION q3_pdf(x int) RETURNS void LANGUAGE plpgsql AS $$ BEGIN NULL; END $$;
+DROP FUNCTION q3_pdp(int);
+DROP PROCEDURE q3_pdf(int);
+DROP PROCEDURE q3_pdp(int);
+DROP PROCEDURE q3_pdp(int);
+DROP PROCEDURE IF EXISTS q3_pdp(int);
+DROP FUNCTION q3_pdf(int);

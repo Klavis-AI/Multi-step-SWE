@@ -1,0 +1,1 @@
+SELECT '{"a":1}' IS JSON, '[1]' IS JSON ARRAY;

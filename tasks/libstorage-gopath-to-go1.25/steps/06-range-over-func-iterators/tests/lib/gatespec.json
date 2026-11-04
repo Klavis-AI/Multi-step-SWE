@@ -1,0 +1,1021 @@
+{
+ "gates": [
+  {
+   "go": "1.23",
+   "kind": "module",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 2,
+   "why": "Requirement 1, and the rung the rest of the milestone stands on. `go 1.23` is the directive that makes `for x := range f` legal for a function of the three range-over-func shapes, and it is the rung at which `iter`, `unique` and the sequence adapters in `slices` and `maps` exist at all. Exact rather than a minimum, for the reason the gate documents and the reason this ladder has eight rungs: a module that declares 1.25 here has taken the whole ladder in one line while the constructs the later rungs are about are still absent from the tree. Worth 2 of 32 because it is one line, and because a tree that edits only this line has changed nothing else at all -- unlike the previous rung, where the same line silently changed the meaning of every closure over a loop variable, 1.23 adds spellings and takes nothing away."
+  },
+  {
+   "baseline": 24,
+   "direction": "down",
+   "field": "chan_returns",
+   "floor": 11,
+   "id": "count:chan-returns",
+   "kind": "count",
+   "scope": "own",
+   "weight": 4,
+   "why": "Requirements 2 and 3, counted, and the widest reading of the milestone in one number. The census counts a channel type standing in a result list, wherever it stands -- package function, method, interface method or function literal -- and there are 24 of them on both of the trees this step can start from. Thirteen have to go: the twelve producers requirement 2 names, counting the unexported implementation behind the task service and the interface method that declares it, and the middleware helper requirement 3 retires. Eleven stay, and the floor is what says so rather than a sentence in the instruction being trusted to: `TaskWaitC` and `TaskWaitAllC` at the package, the implementation and the interface, `TaskWait` and `TaskWaitAll` as the interface declares them, the error channel `server.New` hands back, the one the root package's own `Run` hands back, and the channel `server.Close` returns. A tree that converts those as well reads below the floor and `graded` clamps at 1.0, so it gains nothing here -- and loses the two gates in the regression family that read them. Graded, so each of the thirteen is worth a thirteenth of this gate. Worth 4 of 32 because it is the only gate that prices the whole of the conversion by extent: the two probes beside it read eleven of the thirteen by type and four of them by behaviour, and neither notices the unexported one at all."
+  },
+  {
+   "import": "iter",
+   "kind": "import-present",
+   "min_packages": 4,
+   "weight": 2,
+   "why": "Requirement 2's complement, read from the import graph. A function that returns `iter.Seq[T]` has to name the package, so this is the cheapest available statement that the producers were converted rather than deleted -- and deletion is a live answer here, because five of the twelve have no caller in this repository at all. Four packages is a floor rather than a target: the twelve producers live in `api/context`, `api/registry`, `api/server/services` and `api/types`, and the handler that takes one as a parameter puts a fifth within reach, so four is the number below which the conversion is incomplete however it is factored. Graded as a ratio of that floor, so a tree that has converted one package's worth reads a quarter. Worth 2: it says the package is reached, not that anything was done well."
+  },
+  {
+   "dir": "sequences",
+   "id": "probe:sequences",
+   "kind": "probe",
+   "tests": [
+    "TestASequenceCanBeWalkedTwice",
+    "TestTheWalkRunsOnTheCallersGoroutine",
+    "TestEveryRegistrySequenceYieldsWhatWasRegistered",
+    "TestTheContextKeySequencesYieldTheirKeys",
+    "TestTheServiceAndTaskSequencesYieldTheirContents",
+    "TestTheInstanceIDHandlerReadsTheWholeSequence"
+   ],
+   "weight": 6,
+   "why": "Requirement 2, read as a type and then as behaviour, and the second largest weight in this family. The typed half is not in the six tests at all: it is twelve assignments in the package's declarations, each naming a producer and the exact function type it must have -- eleven of the twelve producers (the twelfth is unexported and the count above is what reads it) and the one entry point that takes a sequence rather than returning one, `handlers.NewInstanceIDHandler`. Assignment in Go is exact for function values, so a producer still returning a channel, one returning a sequence over the wrong element type, and one returning a named type of the candidate's own whose underlying type happens to match are all compile errors, and a package that does not compile reports no passing test: all six of these score 0 together. That is deliberate and it is why the assignments are here rather than in a test. The call sites cannot make this statement -- `for v := range f()` compiles whether `f` returns a channel or a sequence, which is the whole difficulty of grading this milestone. The six tests then ask for the three things the type alone does not promise. A sequence is a function, so walking it twice runs it twice and yields the same elements both times; the cheapest wrong answer to this milestone -- wrap the existing channel producer in `func(yield func(T) bool) { for v := range c { if !yield(v) { return } } }` with the channel made once outside the returned function -- has exactly the right type, passes the corpus, and yields nothing on the second walk. A sequence yields from the goroutine that is walking it, so the number of goroutines in the process during a walk is the number before it; the same wrapper, or any producer that keeps a goroutine to do the sending, reads one more. That one was measured rather than argued: a converted producer read peak = before over eight elements on five consecutive runs and a channel-backed one read before + 1 on all five. And the three remaining tests walk the registry's five producers, the two context-key producers and the service and task producers to exhaustion and check what came out, then hand a sequence of services to the instance-ID handler and check it read all of them rather than the first. Worth 6 of 32, and 6 rather than more because of what this package is: the twelve assignments and the six tests are one Go package and share one build. A tree that converts eleven of the twelve producers and gets the twelfth's element type wrong does not compile, reports no passing test, and reads 0 on the whole of this weight -- the same 0 as a tree that converted none. That is a cliff rather than a gradient, and nothing inside a single probe package can price it per conversion; `count:chan-returns` above is the gate that does, a thirteenth of its weight at a time, and moving two of this gate's weight off the cliff is what the 6 is. It is still the only gate that reads the element types at all, and the only one that fails the wrapper."
+  },
+  {
+   "dir": "earlyexit",
+   "id": "probe:earlyexit",
+   "kind": "probe",
+   "tests": [
+    "TestLeavingARegistryWalkEarlyEndsTheWalk",
+    "TestLeavingAServiceWalkEarlyEndsTheWalk",
+    "TestLeavingARegistryWalkEarlyLeavesItUsable",
+    "TestLeavingACustomKeyWalkEarlyLeavesThemUsable"
+   ],
+   "weight": 8,
+   "why": "Requirement 2's second sentence -- a walk that is stopped stops the producer -- and the defect this milestone exists to remove. Every producer in the tree this step starts from is written the same way: make an unbuffered channel, start a goroutine that takes a read lock and sends every element, hand the channel back. A caller that leaves the loop early, and four route handlers in this tree do exactly that on the error path, abandons that goroutine blocked on a send nobody will receive; the lock it took is released by a deferred call in a function that never returns, so it holds that read lock for the life of the process and the next registration of a driver, a router or a context key waits behind it forever. Two symptoms, graded separately, both measured on the starting tree: the goroutine count is one higher after a walk that stopped at the first element (seven times over, across the five registry producers and the service producer), and a registration attempted afterwards has not returned five seconds later. A range-over-func producer fixes both, but only if it stops when `yield` returns false -- a body that ignores that return value has the right type, walks correctly to the end, and leaves this package exactly as it found it. Nothing else in the verifier reads that: the corpus cannot, because the leak is invisible to a process that exits at the end of a scenario, and `probe:sequences` cannot, because the type is right. Worth 8 of 32, the largest single weight in this family, and the largest because it is the only reading anywhere of the one property this step exists for. A tree that converts all twelve producers, fixes the reverse walk, retires the collect loops and interns the registry keys, and then writes producer bodies that ignore what `yield` returns, has left exactly the defect named above: at the weights this family carried before, that tree took 26 of 32 and a reward near 0.90. At 8 it takes 24 of 32. The package takes the better part of a minute to fail and a fraction of that to pass, which is the shape of a deadline-bounded observation and is priced into its timeout rather than into its weight."
+  },
+  {
+   "baseline": 6,
+   "direction": "down",
+   "field": "collect_loops",
+   "floor": 1,
+   "id": "count:collect-loops",
+   "kind": "count",
+   "scope": "own",
+   "weight": 3,
+   "why": "Requirement 4, counted, and the half of it that reads retirement. The census counts a range loop whose body is one statement -- appending one of the loop's own variables to a slice -- and nothing else: not a loop that filters, not one that transforms, not one that appends something computed from the loop variable, because none of those is what a collection adapter replaces. Six on the tree this step is documented as starting from. Five of the six are a call in the standard library's terms: the header keys collected out of a `map[string]bool`, the device names collected and then sorted, the store's key list, and the volume and snapshot lists built out of a map of objects. The sixth is not, and the floor is where that is recorded: `api/client/client_http.go` collects a `types.LocalDevicesMap`'s values -- `*types.LocalDevices` -- into a `[]fmt.Stringer`, and `slices.Collect` over `maps.Values` of that map yields `[]*types.LocalDevices`, which is a different type. Go has no adapter that converts while it collects, so that loop is the right answer and a floor of 1 is what stops this gate from asking for a wrong one. Graded over the other five, so each is worth a fifth. The other tree a candidate can arrive here with -- the previous milestone's own reference solution -- carries eight of these loops rather than six, because that solution wrote two more of the same shape: a log handler's fields and a router's paths, each collected out of a map and then sorted. Eight against a baseline of six grades to a negative number, which the scorer clamps, so that chain also starts at 0; both of its extra loops are `maps.Keys` collected and sorted, so it reaches the floor of 1 by the same conversions plus two. Worth 3: the clause is six loops in four files and it is mechanical, but it is the clause the whole `slices`/`maps` half of the milestone line is about."
+  },
+  {
+   "baseline": 6,
+   "direction": "up",
+   "id": "count:seq-adapters",
+   "kind": "count",
+   "scope": "own",
+   "selectors": [
+    "slices.Collect",
+    "slices.Sorted",
+    "slices.SortedFunc",
+    "slices.SortedStableFunc",
+    "slices.AppendSeq",
+    "slices.Values",
+    "slices.All",
+    "maps.Keys",
+    "maps.Values",
+    "maps.All",
+    "maps.Collect",
+    "maps.Insert"
+   ],
+   "weight": 3,
+   "why": "Requirement 4's other half, and the gate that says what the loops became. The count above can be satisfied by writing one generic helper with the same loop inside it and calling it from five places -- five loops retired, one left, the floor reached, and nothing adopted. This reads the other direction: calls to the sequence adapters the standard library grew at this rung, twelve selectors across `slices` and `maps` summed as one number, because which of `slices.Collect`, `slices.Sorted` and `slices.AppendSeq` a site takes is a property of that site -- whether it wants order, whether it must not be nil -- and not of the migration. `slices.Backward` is the thirteenth of that family and is deliberately not in this sum: the reverse walk is requirement 3 and `count:slices-backward` below prices it on its own, and one call counted in both places would be paid for twice. Zero on both of the trees this step can start from, measured: this repository reached `slices.Sort`, `slices.SortFunc`, `slices.ContainsFunc`, `slices.IndexFunc` and `maps.Copy` on the previous rungs and not one of the sequence-shaped ones, because none of them existed before Go 1.23. The target is 6, and a reference conversion of the five convertible loops reaches 10 in these twelve selectors -- each of them is an adapter over a `maps.Keys` or a `maps.Values`, which is two calls -- so 6 is a little over half of what the clause pays out and is reachable by a tree that converts three of the five. Scored as a ratio of the target, so the gradient is per call. Worth 3, the same as the retirement half: neither of the two is the clause on its own."
+  },
+  {
+   "baseline": 1,
+   "direction": "up",
+   "id": "count:slices-backward",
+   "kind": "count",
+   "scope": "own",
+   "selector": "slices.Backward",
+   "weight": 2,
+   "why": "Requirement 3, and the one clause of this milestone that is a deletion rather than a conversion. `api/server/server_middleware.go` walks the global middleware in reverse to wrap the handler chain, and the way it does it is a nine-line helper that makes a channel, starts a goroutine and sends the slice's elements into it backwards. That helper is a producer with every defect requirement 2 is about -- abandoned on an early exit, an extra goroutine for the duration -- for a walk over a slice already in memory. `slices.Backward` is the whole of it at this rung, and the clause is: the helper goes, and the loop ranges the sequence. Counted as adoption because the retirement side is already counted by `count:chan-returns`, whose floor of 11 has this helper's channel in it. A three-clause `for` counting down is honest Go and reads 0 here, which is why the instruction names the reverse sequence rather than leaving the shape open; worth 2 of 32 for the same reason, since a tree that counts down has retired the goroutine and kept the behaviour and only missed the spelling this rung is about."
+  },
+  {
+   "import": "unique",
+   "kind": "import-present",
+   "min_packages": 1,
+   "weight": 1,
+   "why": "Requirement 5, read from the import graph. One package, because one package is the whole of the clause: `api/registry` keys four maps by a name it folds to lower case on every registration and every lookup, eight `strings.ToLower` calls in one file, and `unique.Make` of the folded name gives a handle that is made once and compared as a word. Worth 1, the smallest weight in this family, because the clause is small and because it is the only one of the five whose value to this repository is a matter of judgement rather than of defect: four maps of five entries do not need interning to be fast. It is here because the rung has the package and the registry is the one place in this tree where the same string is folded eight times in one file."
+  },
+  {
+   "baseline": 1,
+   "direction": "up",
+   "id": "count:unique-make",
+   "kind": "count",
+   "scope": "own",
+   "selector": "unique.Make",
+   "weight": 1,
+   "why": "Requirement 5's complement, and the statement that the import above is used rather than merely present. A target of 1 rather than 8: a solver who writes one `func key(name string) unique.Handle[string]` and calls it from the eight sites has done the clause exactly right and reads 1 here, and a gate that asked for 8 would be asking for the helper not to be written. The handles have to be what the maps are keyed by for the registry to keep working, and `probe:enumeration`'s case-insensitivity test is what says they do."
+  }
+ ],
+ "module": "github.com/codedellemc/libstorage",
+ "probes": {
+  "cancellation": {
+   "hard_timeout": 240,
+   "timeout": "3m",
+   "why": "Five tests, 3.0 s together on the finished tree and 3.0 s on the tree this step starts from; the two controls account for nearly all of it, one of them deliberately waiting two seconds for a slow answer. Every failure path in the package is a bounded select, so the budget is there for a tree that will not start a server at all rather than for one that merely fails."
+  },
+  "deadlines": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Four tests, and each of the two graded ones now drives its key at two values in turn rather than at one, so the package starts six servers instead of four: 56.4 s together on the finished tree and 41.2 s on the tree this step starts from, where the two graded tests fail early. Neither is the number the budget has to clear. A tree that adds a draining stop and keeps the 2017 substring sniff deadlocks every close, and this package's teardown gives up on a stop after 30 s rather than joining the deadlock -- six servers, so three minutes of teardown on top of the waiting the tests do anyway: measured at 236.6 s on that tree, with all four assertions still reported correctly. The budget is set above that so a deadlock elsewhere in the tree costs this package time and not its answers."
+  },
+  "earlyexit": {
+   "hard_timeout": 330,
+   "timeout": "5m",
+   "why": "Four tests, every one of which is a deadline. The package's own clocks are what bound it: 3 s for a walk that has ended to have ended, asked seven times, and 5 s for a registration to complete, asked twice -- 31 s of deadline in all if every one of them runs out, which is what happens on the tree this step starts from. Measured there: 51.23 s for the four to fail, the difference being the server the service walk needs. A passing run spends none of it. Five minutes is the budget because the failure this package is built to observe is a process that has stopped making progress, and the way that shows up when it is worse than expected -- a registration queued behind a reader that is itself queued behind a writer -- is every later deadline running out in turn rather than one of them. Test order in the file is load-bearing for that reason and is documented there."
+  },
+  "enumeration": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Six tests in 0.08 s, measured on both of the trees this step can start from. Five of the six are in-process registrations and walks; the sixth builds a configuration with three vfs services and starts the service layer over it, which is the 0.04 s. Two minutes is for the compile, not for the tests. The one thing that can spend real time here is a producer that never ends -- these walks are all to exhaustion -- and `go test -timeout` is what ends that, below the hard timeout so the per-test dump is printed rather than killed."
+  },
+  "errstatus": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Six tests sharing one server, 1.07 s together on the finished tree and 1.07 s on the tree this step starts from, where the three graded tests fail on the first response they read. Neither is the number the budget has to clear. Every way this package can wait is bounded by the package itself: sixty seconds for a server that never finishes starting, fifteen for a request that is never answered, thirty for a stop that never returns. Twenty-one requests are issued in all, so the arithmetic worst case -- a server that answers every one of them just too slowly to count -- is 315 s of requests on top of a minute of start and half a minute of stop, and the budget sits above that. Bounding rather than waiting is deliberate: a tree whose server has been broken elsewhere should fail these assertions and say so, not take the package's other answers down with it."
+  },
+  "errwrap": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Six tests that construct errors and ask questions of them in process -- no server, no listener, no clock. 0.005 s together on the finished tree and 0.006 s on the tree this step starts from. The budget is two minutes because the only way this package can be slow is a tree that takes a long time to compile, and a compile is the one thing a test timeout should never be the first to notice."
+  },
+  "logging": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Eighteen tests that build a context and log to it in process -- no server, no listener, no clock -- thirteen graded bounds, the two that read the logger no context configured, and three controls that ask the same of the harness itself. 0.02 s together on the tree this step starts from: every one of them writes a handful of lines and reads them back. Two minutes for the reason the other the compile, not the tests. The one thing this package does that is not ordinary is redirect file descriptors 1 and 2 into a pipe for the duration of each call and restore them afterwards, including on the way out of a panic; the reader is drained in a goroutine so a logger that writes more than a pipe buffer cannot block, and the first of the three controls is there to fail loudly if any of that stops working."
+  },
+  "routing": {
+   "hard_timeout": 660,
+   "retry": true,
+   "timeout": "10m",
+   "why": "Eight tests against one server. The package starts a single real server on a loopback port with a single vfs service in TestMain, seeds one volume through it, and every test drives raw requests at that one instance: 34 request/response pairs in all, 1.08 s together on the tree this step starts from, because the requests are loopback round trips against an in-process driver. The budget is ten minutes rather than one for the failure modes, not for the passing case. A routing table the candidate has changed fails in two shapes. The fast shape is a pattern the standard router rejects: `net/http.ServeMux.Handle` panics rather than returning an error, the panic happens in TestMain before the first test, and the binary dies in 0.099 s reporting nothing -- measured, with a deliberately malformed pattern -- which is 0/8 and costs no clock at all. The slow shape is a server that starts and then answers late or not at all, and that one is bounded by the deadlines the package carries rather than by the harness killing it: 20 s to start, 10 s to become ready, 15 s on each of the seed request and the 34 graded ones, 10 s to stop, which is 550 s if every single request runs out its deadline. Ten minutes sits above that, so `go test -timeout` never truncates the run and every assertion is reported as its own pass or fail; the 660 s hard timeout sits above the `go test` one so that the Go-side timeout is always what fires, since that prints a panic dump after the `--- PASS` lines the parser has already seen, while a hard kill would lose them. One more thing, and it is not about the budget. This package's subject carries a race that predates the migration and that no step on this ladder touches: `taskTrack` in `api/server/services/services_task.go` takes the next task id from `len(s.tasks)` under the read lock and inserts under the write lock, so two registrations that overlap claim the same id, and a request that waits for a task can be left waiting on one that nobody will complete. It is verbatim in the 2017 tree. The symptom is always the same shape -- one request of the 34 never answered, its 15 s deadline reached, one test failed -- and it was measured at 3 gradings in 44 across the archive on the weight-2 controls gate, one of those three on a reference solution, with one further sighting in 46 on the weight-10 half beside it. A gate that reads 0 on a tree that answered every question correctly, one run in fourteen, is scoring a coin toss. Asking the same request again inside the same process does not help and was measured not helping: the second attempt reaches its own deadline, because what is stuck is the server's waiter and not the client's request. A fresh process does help, which is why `retry` is set here and nowhere else. It costs one more execution of this package, and only on a tree that has already failed something in it."
+  },
+  "schema": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Five tests. Three of them walk the whole repository: one parses every `.go` file in it, one finds every schema document in it and asks `go/build` for the embed patterns of the directories above each one, from the document's own directory up to the repository root, and the third reads the fourteen makefiles it passes on the way. The other two parse the schema document and drive the validator. 0.103 s together on the tree this step starts from and 0.096 s on the finished one, measured five tests at a time. Seven hundredths of that is the literal walk, which is the only one that parses every `.go` file in the repository; the embed reader asks `go/build` rather than the parser and the other three are a hundredth of a second each. The budget is two minutes because the only way this package can be slow is a tree that takes a long time to compile, and a compile is the one thing a test timeout should never be the first to notice."
+  },
+  "sequences": {
+   "hard_timeout": 330,
+   "timeout": "5m",
+   "why": "Six tests and twelve compile-time assignments, in process, against one registry and one small server. Nothing here waits on anything: the tests register a handful of values, walk them, and count. The budget is five minutes for the failure modes rather than for the passing case. The commonest failure is the fastest -- a producer whose type is wrong makes the package fail to build, which is reported in seconds and scores 0 on the gate over it -- and the slowest is the one the budget is for: a sequence whose body never returns false when `yield` does, walked by a test that stops early, does not hang here (no test in this package stops early; that is the other package's subject) but a producer that yields forever does, and `go test -timeout` is what ends it. The hard timeout sits above the Go-side one so the Go-side one always fires first: it prints a panic dump after the `--- PASS` lines the parser has already read, where a hard kill would lose them."
+  },
+  "shutdown": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Four tests, 40.6 s together on the finished tree and 4.2 s on the tree this step starts from, where every stop returns at once and every assertion fails the moment it is made. Neither is the number the budget has to clear. The worst measured case is the half-done tree that adds a draining stop and keeps the 2017 substring match, which deadlocks the close: there each test waits out its own ceiling and then pays a further 30 s of bounded teardown for a stop that was never going to return, 288.4 s in all, with all four failures still reported rather than lost with a killed binary. A tree that drains but sets no deadline is the other slow case, at 80.7 s. The budget sits well above the deadlocking tree because bounding the teardown exists precisely so that this package still answers on a tree whose close hangs, and a package timeout would take those answers away again."
+  },
+  "store": {
+   "hard_timeout": 150,
+   "timeout": "2m",
+   "why": "Ten tests that construct a `types.Store` and read values back out of it in process -- no server, no listener, no clock. 0.014 s together on the tree this step starts from. Two minutes for the same reason as the package above: the compile, not the tests."
+  },
+  "surface": {
+   "hard_timeout": 360,
+   "timeout": "5m",
+   "why": "Two tests, each of which starts an embedded server and a client through `libstorage.New` and makes one request: 2.3 s together on the finished tree and 2.2 s on the tree this step starts from. The budget is sized for the two ways a tree can be slow here rather than wrong -- `libstorage.New` itself hanging, which the helper gives up on after 60 s, and a stop that never returns, which the teardown gives up on after 30 s. Measured against the deadlocking tree: 62.4 s, both assertions still reported."
+  }
+ },
+ "regression": [
+  {
+   "id": "build-all",
+   "kind": "build-all",
+   "weight": 1,
+   "why": "Requirement 8. Inherited and still a bound rather than a milestone, and in this milestone it is the check most likely to be the first to speak. Three of the five clauses are the kind of port where the obvious edit does not compile: `math/rand/v2` has no `NewSource`, no `Intn` and no `Read`, so `rand.New(rand.NewSource(time.Now().UnixNano()))` and the three `Intn` calls beneath it all have to be rewritten rather than re-imported; the standard router panics at registration time on a pattern it cannot parse, which is a run-time failure rather than a compile-time one and is the reason the routing probe exists as well as this gate; and `log/slog` has no `Entry` type, so every one of the thirty files that names one has to be rewritten rather than re-imported."
+  },
+  {
+   "kind": "no-vendored-source",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 1,
+   "why": "Requirement 8. Computed from the import graph, so a dependency copied back into the repository under any directory name and rewired with a replace directive is still third-party source here. The same requirement has a second reading, because the graph cannot see a dependency whose source has been copied *into* the main module and given a first-party import path: every first-party file is also hashed, whitespace removed, against every .go file in the module cache the image ships, and a file that matches one of them is that dependency's source under another name. This milestone retires four third-party libraries at once. Copying any of the four in under a first-party name -- a `api/types/logrus` holding the text formatter, an `api/server/mux` holding the router -- is the shape the cheapest wrong answer takes, and it is the shape this gate is looking for."
+  },
+  {
+   "directives": [
+    "replace",
+    "exclude",
+    "ignore"
+   ],
+   "id": "gomod-directives",
+   "kind": "gomod-directives",
+   "weight": 1,
+   "why": "Requirement 8. `replace` would let a package be aliased back in under a name of the candidate's choosing; `ignore` would let a file that no longer compiles disappear from every `./...` pattern, including the import graph the gates above read. Note what this does *not* forbid: three of the libraries this milestone retires are reached by dependencies of this module as well as by this module, so they stay in `go.mod` as indirect requirements after the last first-party import of them is gone. The gates that read this milestone read the import graph, not the requirement list, for exactly that reason."
+  },
+  {
+   "baseline": 0,
+   "kind": "gofmt",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 8. The tree this step starts from is `gofmt -s` clean -- 0 dirty files out of 163 -- so the baseline is zero and any excursion is new. The standard router's patterns are string literals and cost this gate nothing; what does is the shape of the work, which is thirty files edited by hand in one pass, and the commonest way that ends is one import block left in the order the editor found it."
+  },
+  {
+   "baseline": 0,
+   "kind": "vet",
+   "weight": 1,
+   "why": "Requirement 8, and on this rung it is ground rather than a milestone check. The tree this step starts from leaves `go vet ./...` silent, so the bound is silence. The previous milestone had it under real load -- the `slog` analyser reads a structured call whose arguments do not pair up -- and this one does not: nothing `vet` reports is specific to a sequence, because a function whose signature is not one of the three range-over-func shapes is a compile error and `build-all` is what hears it. What keeps this gate interesting is the shape of the work rather than its subject. Twelve function bodies in five packages are rewritten by hand, and each of them loses a `go` statement, a `close` and a `return` at once; `unreachable` and `nilfunc` both live in the default analyser set, and a body edited down to its new form with one statement left below the new `return` is reported here and nowhere else."
+  },
+  {
+   "baseline": 0,
+   "checks": "SA1019",
+   "kind": "staticcheck",
+   "weight": 1,
+   "why": "Requirement 8's last clause. The check class is SA1019, deprecated identifiers, and the baseline is zero. Unlike the previous rung, where `math/rand`'s top-level `Seed` put it under load, nothing this milestone names is deprecated or near a deprecation: `iter`, `unique` and the sequence adapters in `slices` and `maps` are all additions. It is carried because a tree that reaches for an older spelling to get out of a difficulty -- and the collection clause is where that temptation lives -- is told so here."
+  },
+  {
+   "baseline": 0,
+   "field": "suppressions",
+   "id": "floor:suppressions",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6: silencing a tool is not fixing what it found. Zero today, and the bound is zero. `//lint:ignore SA1019` over an `io/ioutil` import is the specific thing this forecloses."
+  },
+  {
+   "baseline": 1,
+   "field": "skips",
+   "id": "floor:skips",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6. One `t.Skip` exists in the inherited corpus; a second is a test that stopped running."
+  },
+  {
+   "baseline": 97,
+   "field": "blank_discards",
+   "id": "floor:blank-discards",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6's last clause. 97 on the tree this step starts from, and the bound does not move: nothing in this milestone trades a returned value for a discard. The two places it could have -- the path variable that was read out of a map and is now read off the request, and the level that was parsed out of a string -- both still have an error or an ok to deal with, and dealing with it is the work. What the bound forbids is the ninety-seven becoming ninety-eight: shedding one is free, acquiring one is not."
+  },
+  {
+   "baseline": 84,
+   "field": "test_funcs",
+   "id": "floor:test-funcs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6. 84 `Test...` functions on the tree this step starts from and none of them may go. This milestone touches no test file for a reason of its own: the logging and routing layers it rewrites are exercised by the recorded corpus and by the verifier's own probe packages, neither of which lives in the tree, so a candidate who finds a test inconvenient here has no honest reason to have opened it."
+  },
+  {
+   "baseline": 111,
+   "field": "specs",
+   "id": "floor:specs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6. Ginkgo specs, counted separately from test functions because the integration suites are written in them."
+  },
+  {
+   "baseline": 493,
+   "field": "assertions",
+   "id": "floor:assertions",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6, and the bound does not move: 493, where it was set on the previous rung and for the reason recorded there -- `astcount` counts a logging call on a method chain as an assertion, because the clause that catches `t.Errorf` reached through a struct field cannot tell the two apart, and the previous milestone deleted eight such log statements. This milestone deletes none. Measured, rather than assumed: the twelve producer bodies, the middleware helper requirement 3 retires, the six collection loops and the eight case-folding sites in the registry hold no call to `Error`, `Errorf`, `Fatal` or `Fatalf` between them, on either of the two trees this step can start from, so the count this milestone inherits is the count it hands on -- 495 on one of those trees and 507 on the other, both well clear of the bound. What the bound forbids is the same thing it has always forbidden: buying a passing check by deleting the thing that checks."
+  },
+  {
+   "baseline": 16,
+   "field": "test_files",
+   "id": "floor:test-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6."
+  },
+  {
+   "baseline": 1,
+   "field": "constrained_test_files",
+   "id": "floor:constrained-test-files",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 6 and requirement 8's last sentence. One test file is behind a build tag today (`drivers/storage/mock/tests`); a second is a suite that stopped running under a constraint rather than in the open."
+  },
+  {
+   "baseline": 124,
+   "field": "unconstrained_src_files",
+   "id": "floor:unconstrained-src-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "strict": true,
+   "weight": 3,
+   "why": "Requirement 8's last sentence, and the bound that keeps the import-graph gates honest: a file tagged out of the build vanishes from `go list -deps` just as thoroughly as a file whose import was retired. 124, strict, inherited from step 5: the smallest count a tree that does everything the instructions ask can hold. This milestone neither adds nor removes a source file -- every clause of it is a rewrite in place, and the one deletion it asks for is a nine-line function, not the file it lives in. The bound is derived from what the instructions require, not from the reference's count (127), so a correct tree that added no file at steps 3 and 4 is not failed for it (wave D, 2026-10-12). Strict, for the reason step 1 recorded: proportional scoring cannot deter a single excursion against a baseline this large."
+  },
+  {
+   "constraints": {
+    "api/utils/unix_windows.go": "windows;",
+    "api/utils/utils_unix.go": ";!windows",
+    "cli/lss/lss-darwin/lss-darwin_amd64.go": "amd64;",
+    "cli/lss/lss-darwin/lss-darwin_arm.go": "arm;",
+    "cli/lss/lss-darwin/lss-darwin_arm64.go": "arm64;",
+    "cli/lss/lss-linux/lss-linux_amd64.go": "amd64;",
+    "cli/lss/lss-linux/lss-linux_arm.go": "arm;",
+    "cli/lss/lss-linux/lss-linux_arm64.go": "arm64;",
+    "cli/lss/lss-windows/lss-windows_amd64.go": "amd64;",
+    "client/client_darwin.go": "darwin;",
+    "client/client_linux.go": "linux;",
+    "drivers/os/darwin/darwin.go": ";darwin",
+    "drivers/os/linux/linux.go": ";linux",
+    "drivers/os/linux/linux_mount.go": ";linux",
+    "drivers/storage/mock/executor/mock_executor.go": ";mock",
+    "drivers/storage/mock/mock_driver.go": ";mock",
+    "drivers/storage/mock/tests/mock_test.go": ";mock",
+    "imports/executors/executors.go": ";!vfs",
+    "imports/executors/executors_vfs.go": ";vfs",
+    "imports/storage/storage.go": ";!vfs",
+    "imports/storage/storage_vfs.go": ";vfs"
+   },
+   "id": "floor:build-constraints",
+   "kind": "constraint-set",
+   "scope": "own",
+   "weight": 3,
+   "why": "Requirement 8's last sentence, by identity rather than by count. The same twenty-one entries the previous milestones left behind, unchanged: this milestone has no reason to move any of them. Widening `//go:build darwin` or `//go:build mock` so work can be skipped, or narrowing one so it need not be done, both move this. Keys the candidate adds are not held against it, so this is a bound on loss."
+  },
+  {
+   "baseline": 0,
+   "field": "legacy_build_tags",
+   "id": "floor:legacy-build-tags",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 8. The `// +build` form was retired three milestones ago; a file re-acquiring one is that coming undone. Zero on both trees."
+  },
+  {
+   "baseline": 12,
+   "field": "converted_build_tags",
+   "id": "floor:converted-build-tags",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "The same bound from the other side: twelve files carry a `//go:build` line and no legacy twin, on the tree this step starts from and on the finished one alike. A constraint dropped rather than kept moves this below twelve; the constraint set above says which twelve."
+  },
+  {
+   "baseline": 4,
+   "id": "import-absent:x-net-context",
+   "import": "golang.org/x/net/context",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 7. The `golang.org/x/net/context` shim stays retired; the baseline is the four packages that reached it before it was, so the fall-off is measured on the same scale it was earned on."
+  },
+  {
+   "baseline": 1,
+   "id": "import-absent:ctxhttp",
+   "import": "golang.org/x/net/context/ctxhttp",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 7, the same bound on the subpackage."
+  },
+  {
+   "id": "import-present:context",
+   "import": "context",
+   "kind": "import-present",
+   "packages": [
+    "github.com/codedellemc/libstorage",
+    "github.com/codedellemc/libstorage/api/types",
+    "github.com/codedellemc/libstorage/api/context",
+    "github.com/codedellemc/libstorage/api/server",
+    "github.com/codedellemc/libstorage/client"
+   ],
+   "weight": 2,
+   "why": "Requirement 7. The standard library's `context` stays live in the five first-party packages that deal in a context type. This milestone rewrites import blocks in a dozen files; a sweep that reorganised them and broke the plumbing would fail this while the two absence bounds above stayed clean."
+  },
+  {
+   "id": "pre-go17-twin",
+   "kind": "files-absent",
+   "paths": [
+    "libstorage_go17.go",
+    "libstorage_pre_go17.go"
+   ],
+   "weight": 2,
+   "why": "Requirement 7. The pre-Go-1.7 twin stays gone; a file reintroduced under either name is a milestone coming undone."
+  },
+  {
+   "dir": "deadlines",
+   "id": "probe:deadlines",
+   "kind": "probe",
+   "tests": [
+    "TestReadTimeoutFollowsTheConfiguredValue",
+    "TestWriteTimeoutFollowsTheConfiguredValue"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. The server's configured read and write timeouts keep taking effect at the values they are configured with."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown",
+   "kind": "probe",
+   "tests": [
+    "TestStopWaitsForRequestsInFlight",
+    "TestStopClosesIdleConnections"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. Stopping the server still drains what it is serving and still closes its idle connections."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown-bound",
+   "kind": "probe",
+   "tests": [
+    "TestStopGivesUpOnAWedgedRequest"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. The drain is still bounded, so a request that never finishes still cannot keep the process alive forever. It is the half of that milestone most easily lost by accident, which is why it is carried separately here too."
+  },
+  {
+   "dir": "cancellation",
+   "id": "probe:cancellation",
+   "kind": "probe",
+   "tests": [
+    "TestCancelledContextStopsRequest",
+    "TestContextDeadlineStopsRequest",
+    "TestServerSeesTheCancellation",
+    "TestLiveContextCompletesRequest",
+    "TestLiveContextSurvivesASlowAnswer"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. A cancelled or expired context still stops an in-flight request promptly, and a live one still completes however long the answer takes."
+  },
+  {
+   "dir": "deadlines",
+   "id": "probe:deadlines-controls",
+   "kind": "probe",
+   "tests": [
+    "TestDefaultReadTimeoutLeavesItAlone",
+    "TestConfiguredTimeoutsStillServeAnOrdinaryRequest"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. A server on the documented defaults still does not cut off a slow client, and a server with the timeouts configured still serves an ordinary request."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown-controls",
+   "kind": "probe",
+   "tests": [
+    "TestStopReturnsPromptlyWithNothingInFlight"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. A server with nothing to drain still stops at once."
+  },
+  {
+   "dir": "surface",
+   "id": "probe:surface",
+   "kind": "probe",
+   "tests": [
+    "TestEmbeddedNewReturnsAConnectedClient",
+    "TestEmbeddedNewServesTheConfiguredService"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed, and the widest of the inherited bounds: the exported surface that deals in contexts is written out as ordinary code the compiler has to agree with, and the root package's `New` is driven end to end. A generic helper introduced in the wrong place changes an exported signature, and this is what notices."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap-controls",
+   "kind": "probe",
+   "tests": [
+    "TestErrorTextIsUnchanged",
+    "TestErrorsAreStillClassifiable"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. Fifteen error messages stay what they are and every error type the repository hands out stays recognisable as itself."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap-json",
+   "kind": "probe",
+   "tests": [
+    "TestErrorJSONIsUnchanged"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed, on the part of the error API that is least visible and cheapest to break: six marshalled shapes, field for field. Carried at the inherited price of 2 rather than at the 4 the milestone that introduced it gave it -- an inherited bound is worth what every other inherited bound is worth, and the family it sits in is half again as large as it was."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus-controls",
+   "kind": "probe",
+   "tests": [
+    "TestPlainErrorsKeepTheirStatus",
+    "TestErrorResponseBodiesAreUnchanged"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed from outside the process: the plain statuses the server produces, and both shapes an error response takes, field for field."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus-outcome",
+   "kind": "probe",
+   "tests": [
+    "TestAnErrorThatAnswersForTheOutcomeKeepsIt"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. An error that answers for an outcome keeps its own answer: a partly completed batch is still a server error whatever stopped it, asked at a cause that is a 400 in its own right and at one that is a 404. Carried at the inherited price of 2 rather than at the 6 the milestone that introduced it gave it, for the reason given on the gate above."
+  },
+  {
+   "baseline": 16,
+   "id": "import-absent:goof",
+   "import": "github.com/akutz/goof",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7. `github.com/akutz/goof` stays gone -- no package the repository compiles reaches it, by any route. Graded as the property rather than as progress towards it, the way the milestone that retired it graded it."
+  },
+  {
+   "baseline": 29,
+   "direction": "down",
+   "id": "count:goof-imports",
+   "import": "github.com/akutz/goof",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, counted over the source rather than over the build, because the build does not see all of it: three of the twenty-nine files that imported the library are behind build constraints this platform does not satisfy, and the import graph above reads clean whatever they say."
+  },
+  {
+   "baseline": 1,
+   "category": "string-cmp",
+   "id": "errscan:string-cmp",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7. No error is identified by comparing the text of `Error()`. One such comparison existed before that milestone and none does now."
+  },
+  {
+   "baseline": 5,
+   "category": "identity-cmp",
+   "id": "errscan:identity-cmp",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7. No error is identified by comparing the value in hand to a sentinel with `==`. Five such comparisons existed before that milestone."
+  },
+  {
+   "baseline": 2,
+   "category": "concrete-type-switch",
+   "id": "errscan:concrete-type-switch",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7. No error is identified by switching on the concrete type in front of it. This milestone rewrites six type switches in `api/utils` into one type-parameterised declaration, and the two the previous milestone retired are not among them -- these are `Store` getters over ordinary values, not over errors. The scanner reads the operand's type, so the distinction is the compiler's rather than the author's."
+  },
+  {
+   "baseline": 1,
+   "category": "concrete-type-assert",
+   "id": "errscan:concrete-type-assert",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7, the same rule the previous three milestones have held: no error is identified by asserting the concrete type in front of it. The scanner reads the operand's type rather than the syntax, which matters again here for a new reason -- requirement 2 rewrites two producers whose element type is `interface{}`, and the custom-key walk that reads a key out of one of them asserts it to a `string` or a `fmt.Stringer` on the way past. Those are assertions on a value, not on an error, and this gate is indifferent to them."
+  },
+  {
+   "baseline": 4,
+   "category": "dropped-cause",
+   "id": "errscan:dropped-cause",
+   "kind": "errscan",
+   "weight": 2,
+   "why": "Requirement 7. Where a call site renders an error into a new message, the cause still survives the rendering: four places do this and all four still keep what they rendered."
+  },
+  {
+   "baseline": 4,
+   "direction": "up",
+   "field": "wrap_verbs",
+   "id": "count:wrap-verbs",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, the syntactic mark a wrapped cause leaves -- `%w` and `%v` render an error identically, so nothing about the message distinguishes them. Four on the tree this step starts from, and a tree that reached zero here has unwound the previous milestone whatever else it did."
+  },
+  {
+   "baseline": 1,
+   "direction": "up",
+   "field": "unwrap_methods",
+   "id": "count:unwrap-methods",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, the same mark for the other way an error carries a cause: at least one type in this tree still exposes a stored one."
+  },
+  {
+   "dir": "errwrap",
+   "id": "probe:errwrap",
+   "kind": "probe",
+   "tests": [
+    "TestBadFilterKeepsItsCause",
+    "TestBatchProcessKeepsItsCause",
+    "TestCauseKeepsItsTypeThroughAWrap"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. An error that was caused by another error still leads to it -- `errors.Is` by identity, `errors.As` by type, through two layers as well as one."
+  },
+  {
+   "dir": "errstatus",
+   "id": "probe:errstatus",
+   "kind": "probe",
+   "tests": [
+    "TestAWrappedNotFoundIsStillANotFound",
+    "TestAWrappedBadRequestIsStillABadRequest",
+    "TestAWrappedUnauthorizedIsStillUnauthorized"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. The HTTP status an error is reported with still belongs to the error rather than to the value in hand, through a wrap that has no status of its own."
+  },
+  {
+   "dir": "store",
+   "id": "probe:store-coercion",
+   "kind": "probe",
+   "tests": [
+    "TestGetStringRendersNonStrings",
+    "TestGetBoolParsesStoredStrings",
+    "TestGetIntAndInt64ParseStoredStrings",
+    "TestPointerGettersDisagreeOnAParseFailure",
+    "TestPointerGettersReadThroughAStoredPointer",
+    "TestGetStringPtrShapes"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed, and normalised to the inherited price the way every other carried milestone gate is. The previous step weighted this at 12 because the cheapest wrong answer to *that* milestone -- one generic getter applied to a file of twelve -- erased the coercions silently, and the weight existed to order that tree below one that merely left a clause half-answered. That ordering is settled: the tree in question no longer exists on this rung, and what is left is the ordinary inherited statement that `types.Store` still renders, parses and disagrees the way it did. This step's own faithfulness risk is priced by the two probes this step adds, not by this one."
+  },
+  {
+   "dir": "store",
+   "id": "probe:store-controls",
+   "kind": "probe",
+   "tests": [
+    "TestAssertingGettersReturnWhatWasStored",
+    "TestAssertingGettersReturnNilOnTheWrongType",
+    "TestKeysAreCaseInsensitive",
+    "TestMissingKeysReturnZeroValues"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, the controls for the package above: the asserting getters still return what was stored, still return nil on the wrong type, are still case-insensitive in their keys and still answer zero for a key that is not there. If these fail the result above is meaningless rather than wrong."
+  },
+  {
+   "dir": "schema",
+   "id": "probe:schema-controls",
+   "kind": "probe",
+   "tests": [
+    "TestTheSchemaExistsExactlyOnce",
+    "TestValidationAcceptsAndRejects"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, the controls for the schema package: the document exists exactly once in the tree and the validator still accepts what it accepted and rejects what it rejected."
+  },
+  {
+   "id": "schema-generated",
+   "kind": "files-absent",
+   "paths": [
+    "api/utils/schema/schema_generated.go"
+   ],
+   "weight": 2,
+   "why": "Requirement 7. The generated Go file that carried the API schema as a string literal stays gone; the document is the source and the build reads it."
+  },
+  {
+   "import": "embed",
+   "kind": "import-present",
+   "min_packages": 1,
+   "weight": 2,
+   "why": "Requirement 7, the other half of the same statement: the document reaches the binary at build time rather than at generation time."
+  },
+  {
+   "dir": "schema",
+   "id": "probe:schema",
+   "kind": "probe",
+   "tests": [
+    "TestNoGoSourceCarriesTheSchemaAsALiteral",
+    "TestTheSchemaIsPulledInAtBuildTime"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. No Go source in the repository carries the schema as a literal, and the schema the binary validates against is the document on disk."
+  },
+  {
+   "dir": "schema",
+   "id": "probe:schema-rule",
+   "kind": "probe",
+   "tests": [
+    "TestNoBuildRuleStillReadsTheSchemaDocument"
+   ],
+   "weight": 2,
+   "why": "Requirement 7. The build rule that used to regenerate the Go file no longer reads the schema document behind the embed."
+  },
+  {
+   "baseline": 10,
+   "id": "dupscan",
+   "kind": "dupscan",
+   "min_group": 2,
+   "min_nodes": 12,
+   "tests": true,
+   "weight": 2,
+   "why": "Requirement 7. The clone group the previous milestone collapsed stays collapsed: twelve near-identical getter bodies in `api/utils` are one type-parameterised declaration and the tree may not grow them back. This milestone edits thirty files by hand and the shape it invites is a helper copied into each of them, which is the same defect under a different name."
+  },
+  {
+   "baseline": 2,
+   "direction": "up",
+   "field": "generic_decls",
+   "id": "count:generic-decls",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, the syntactic mark the previous milestone leaves: at least two declarations in this tree take type parameters."
+  },
+  {
+   "baseline": 3,
+   "direction": "down",
+   "field": "sort_adapters",
+   "id": "count:sort-adapters",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7. The three hand-written `sort.Interface` adapters stay retired. Zero on the tree this step starts from."
+  },
+  {
+   "baseline": 3,
+   "direction": "down",
+   "field": "sort_sort_calls",
+   "id": "count:sort-sort-calls",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, the call side of the same statement: no `sort.Sort` or `sort.Stable` call remains."
+  },
+  {
+   "baseline": 2,
+   "import": "sort",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 7. No package in this repository imports `sort`. Graded rather than strict, the way the milestone that retired it graded it."
+  },
+  {
+   "import": "slices",
+   "kind": "import-present",
+   "min_packages": 2,
+   "weight": 2,
+   "why": "Requirement 7, the complement: the two packages that sort still reach `slices`."
+  },
+  {
+   "baseline": 5,
+   "direction": "up",
+   "id": "count:maps-copy",
+   "kind": "count",
+   "scope": "own",
+   "selector": "maps.Copy",
+   "weight": 2,
+   "why": "Requirement 7. The five unconditional map copies are still library calls rather than loops. This milestone rewrites `api/context`, which holds two of the five, so the gate is under load rather than dormant."
+  },
+  {
+   "import": "maps",
+   "kind": "import-present",
+   "min_packages": 3,
+   "weight": 2,
+   "why": "Requirement 7, the same statement read from the import graph rather than from the census."
+  },
+  {
+   "import": "cmp",
+   "kind": "import-present",
+   "min_packages": 1,
+   "weight": 2,
+   "why": "Requirement 7. The one sort that orders by a field still reaches `cmp` for its three-way comparison."
+  },
+  {
+   "baseline": 6,
+   "import": "io/ioutil",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7. The deprecated package stays retired, and strictly: a first-party re-export under another name is the answer this was made strict to rule out."
+  },
+  {
+   "baseline": 10,
+   "direction": "down",
+   "id": "count:ioutil-imports",
+   "import": "io/ioutil",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, the finer gradient behind the endpoint above, counted over the source rather than over the build so a file behind a build constraint this platform does not satisfy is still counted."
+  },
+  {
+   "dir": "routing",
+   "id": "probe:routing",
+   "kind": "probe",
+   "tests": [
+    "TestTrailingSlashIsNotTheSameRoute",
+    "TestUnmatchedPathsAreNotFound",
+    "TestAMethodThePathDoesNotServeIsNotFound",
+    "TestQueriesDiscriminateBetweenHandlersOnOnePath",
+    "TestPercentEncodingDecidesWhereARequestLands",
+    "TestTheSingleVolumeRouteIsNotTheServiceRoute",
+    "TestACleanedPathIsRedirectedRatherThanAnswered"
+   ],
+   "weight": 10,
+   "why": "Requirement 6, asked of the routing layer the previous milestone rewrote, and carried at its full weight rather than normalised because what it prices is behaviour rather than a milestone. The router this repository was written against and the standard one disagree about every edge of a request that is not an exact match, and they disagree quietly: a method the path does not serve is 404 with no `Allow` header here and 405 with one from `net/http.ServeMux`; a trailing slash is a plain 404 here where a pattern rendered as a subtree answers it; `%2F` is a separator here, decoded before the path is split, so `/volumes/vfs%2Fvfs-000` names one volume where `ServeMux` would read it as a service; a doubled separator is cleaned and redirected, and the test pins the destination rather than the fact; and the table puts 26 routes on 21 distinct method-and-path pairs, telling four handlers that share `POST /volumes/{service}/{volumeID}` apart by query string, which the standard router cannot do and a faithful port has to carry itself. None of that is this milestone's subject, which is exactly why it is a bound: requirement 2 rewrites `registry.Routers`, the producer the server walks to build that table at startup, so the table is assembled by new code on every one of these requests. A sequence that yields a router twice, or drops the last one, or is walked to exhaustion before the server is ready, lands here first. Weighted at 10, the second-largest weight in this family, for the measured reason recorded when it was written: the corpus does hold a routing scenario -- `routing-edges`, 27 exchanges of 1118 -- and that is 0.008 of the reward, too thin to price a routing layer. 10 of this family is 0.4 x 10/170 = 0.0235 of the reward at its very most, because a regression weight scales a multiplier that lives in [0.6, 1.0]."
+  },
+  {
+   "dir": "routing",
+   "id": "probe:routing-controls",
+   "kind": "probe",
+   "tests": [
+    "TestTheOrdinaryRoutesStillAnswer"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, the control for the package above: the root, the service list, a named service, a volume list and a named volume all still answer what they answered. If this fails, the seven results above are meaningless rather than wrong -- a server that will not start makes every edge a 404."
+  },
+  {
+   "dir": "logging",
+   "id": "probe:logging",
+   "kind": "probe",
+   "tests": [
+    "TestALevelPrintsItsOwnMessagesAndTheMoreSevereOnes",
+    "TestTheFieldLoggerObeysTheSameOrder",
+    "TestTheQuietestSettingIsStillNotSilent",
+    "TestEachLevelPrintsItsOwnName",
+    "TestEveryLineIsLogfmtWithATimestampAndAMessage",
+    "TestFieldsFollowTheMessageInAlphabeticalOrder",
+    "TestQuotingFollowsTheRecordedForm",
+    "TestAnEmptyMessageWritesNoMessageFieldAtAll",
+    "TestAnEmptyValueIsWrittenBare",
+    "TestTheLevelSettingTakesTheLongSpellingAndFallsBackToWarning",
+    "TestTheFormattedAndSpacedCallsRenderTheirArguments",
+    "TestTheFieldLoggerSurfaceIsIntact",
+    "TestTheLevelConstantsKeepTheirOrder"
+   ],
+   "weight": 8,
+   "why": "Requirement 6, asked of the logging the previous milestone rewrote. The thirteen tests pin what the recorded corpus barely reaches: which levels print at which setting and in which direction, that the rendered form is logfmt with a timestamp and a message, that fields follow the message in alphabetical order, that a value with a space in it is quoted and one without is not, that an empty message is left out of the line rather than written as an empty field, that the long spelling `warning` is still a level an operator may configure and an unknown name still falls back to warn, and that the twenty-seven-method `types.FieldLogger` surface is intact. All thirteen pass on the tree this step starts from, which is what makes them bounds. This milestone's contact with them is narrower than the routing gate's above but it is real: `api/context/context_keys.go` holds two of the twelve producers requirement 2 rewrites, and one of them -- `CustomLoggerKeys` -- is walked by `api/context/context_logger.go` on the way to building every log record that carries custom fields. A sequence that yields a key twice writes the field twice; one that is drained by the first walk writes it once and then never again, which is a defect no test of the first line logged can see. Weighted at 8 for the same arithmetic as the routing probe: six lines of two expect files is 0.002 of the reward, and 0.4 x 8/170 = 0.0188 of it is what this gate can be worth."
+  },
+  {
+   "dir": "logging",
+   "id": "probe:logging-controls",
+   "kind": "probe",
+   "tests": [
+    "TestTheStandardStreamsCanBeCaptured",
+    "TestAContextLogsWithoutAnySettingAtAll",
+    "TestTheLoggerOutsideAnyContextWritesAtAll"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, the controls for the package above and for the migrated gate that shares its directory, and they control three different things. The first writes a sentinel to each standard stream and reads it back, because every result above is collected by redirecting file descriptors 1 and 2 into a pipe and a collection method that has stopped working reports silence, which is indistinguishable from a logger that has stopped writing. The second asks for a line with nothing configured at all: a context with no level set still exists and an error logged on it still comes out. The third asks the same of the logger no context configured, which is the one the two migrated form checks read: a logger that writes nothing at all fails those for a reason that has nothing to do with the form it would have used, and this is what tells the two cases apart."
+  },
+  {
+   "id": "import-present:crypto/rand",
+   "import": "crypto/rand",
+   "kind": "import-present",
+   "min_packages": 1,
+   "weight": 2,
+   "why": "Requirement 7, and the false friend the previous milestone left behind. Two packages in this tree import something called `rand` and only one of them was the one that milestone retired: `api/server/server_names.go` draws three words out of three word lists and now does it with `math/rand/v2`, and `api/types/types_uuid.go` fills sixteen bytes of a version-4 UUID from `crypto/rand`. The AST census cannot tell them apart -- it keys selectors on the leftmost identifier, and both are `rand` -- so this is the gate that says the cryptographic one is still there, read from the import graph. Worth 2 rather than 1 because the tree it exists for is not a careless one: it is the tree that answered a compiler message by filling a UUID from a seeded generator, compiles, passes the corpus, and has replaced a cryptographic source with a predictable one."
+  },
+  {
+   "baseline": 2,
+   "direction": "down",
+   "field": "loopvar_copy_workarounds",
+   "id": "count:loopvar-workarounds",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7. The two function literals that took a copy of their loop's own variable as a parameter stay retired, and no new one appears. The gate is under load rather than dormant: requirement 2 rewrites twelve function bodies that each consist of a `go func() { ... }()` inside or around a loop, and the shape the retired workaround had is the shape a candidate editing those bodies has in front of them."
+  },
+  {
+   "baseline": 2,
+   "id": "loopscan:loopvar-capture",
+   "kind": "loopscan",
+   "tests": true,
+   "weight": 2,
+   "why": "Requirement 7. No function literal reaches past a parameter of its own type for the loop variable that parameter stands in for; the aliasing bug in `volumeDetachAll` stays fixed. The pass type-checks the module to answer that, so a tree it cannot type-check scores zero here rather than reporting an empty population -- which on this rung means a producer whose new signature does not compile costs this bound as well as the gate that reads it."
+  },
+  {
+   "baseline": 18,
+   "import": "github.com/Sirupsen/logrus",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7. The retired logging library stays out of every package's import graph. Strict, for the reason it was made strict: a first-party package that re-exports `Fields` and `Entry` retires nothing."
+  },
+  {
+   "baseline": 30,
+   "direction": "down",
+   "id": "count:logrus-imports",
+   "import": "github.com/Sirupsen/logrus",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7, the census behind the endpoint above, counted over the source rather than over the build so that a file behind a build constraint this platform does not satisfy is counted too."
+  },
+  {
+   "import": "log/slog",
+   "kind": "import-present",
+   "min_packages": 5,
+   "weight": 2,
+   "why": "Requirement 7's complement: the tree still logs, and through the standard library. Absence of the old library is satisfied by a tree that stopped logging, and the corpus would barely notice."
+  },
+  {
+   "baseline": 1,
+   "import": "github.com/codedellemc/gournal",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7. The logging facade and the seven-arm level translation beneath it stay retired."
+  },
+  {
+   "baseline": 1,
+   "import": "github.com/codedellemc/gournal/logrus",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7. The bridge between the two retired libraries stays out, and it is a separate gate from the one above because it is a separate import path. It was imported under an alias, which is what made it the one an otherwise complete port left behind."
+  },
+  {
+   "baseline": 1,
+   "import": "github.com/gorilla/mux",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7. The routing stays the standard library's: no package reaches for the retired router, its `Vars` or its `Router` type."
+  },
+  {
+   "baseline": 1,
+   "import": "github.com/gorilla/context",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7, the other half of the same retirement. The per-request global map the router populated has no reader left and no writer either."
+  },
+  {
+   "baseline": 1,
+   "direction": "up",
+   "field": "pathvalue_calls",
+   "id": "count:pathvalue",
+   "kind": "count",
+   "scope": "own",
+   "weight": 2,
+   "why": "Requirement 7. The path variables are still read off the request through the accessor the standard router grew for them, rather than out of a map a library puts there."
+  },
+  {
+   "baseline": 1,
+   "import": "math/rand",
+   "kind": "import-absent",
+   "strict": true,
+   "weight": 2,
+   "why": "Requirement 7. The version-1 generator stays out of the build."
+  },
+  {
+   "import": "math/rand/v2",
+   "kind": "import-present",
+   "min_packages": 1,
+   "weight": 2,
+   "why": "Requirement 7's complement, and the pair matters for the reason every absent/present pair on this ladder does: absence alone is satisfied by a tree that deleted the randomisation, which the corpus would not notice."
+  },
+  {
+   "dir": "logging",
+   "id": "probe:logging-form",
+   "kind": "probe",
+   "tests": [
+    "TestTheLoggerOutsideAnyContextRendersTheSameLine",
+    "TestTheFieldsOutsideAnyContextAreSortedAndQuotedTheSameWay"
+   ],
+   "weight": 2,
+   "why": "Requirement 7, observed. The line the standard library's default logger writes still has the form the previous milestone settled -- logfmt, timestamp first, fields sorted after the message -- rather than the form `slog.NewTextHandler` would give it. This is the gate that priced the rendered form on the previous rung and it is carried at the inherited price here, where nothing is asked of the form at all."
+  },
+  {
+   "dir": "enumeration",
+   "id": "probe:enumeration",
+   "kind": "probe",
+   "tests": [
+    "TestEveryRegisteredValueIsStillWalked",
+    "TestTheCustomKeysAreStillWalkedAndStillFiltered",
+    "TestEveryConfiguredServiceIsStillWalked",
+    "TestTheRegistryStillFindsADriverWhateverTheCaseOfItsName"
+   ],
+   "weight": 6,
+   "why": "Requirement 6, asked of the thing requirement 2 rewrites, and the bound that decides whether the migrated family's result means anything. Every gate in that family reads the type of a producer or the behaviour of a walk that is stopped early; not one of them reads whether the walk that runs to the end still hands over everything that was registered. This does. It registers three executors, three storage drivers, three OS drivers, three integration drivers, three routers, three configuration registrations and three custom keys, walks each producer to exhaustion and counts what came out, and then walks the configuration registrations once more and reads the name back off each one -- a registration is the only one of those six elements that carries the name it was registered under, so it is the only walk that can be asked what came out of it rather than how much of it, and it is the one that has to be handed a context with the path configuration in it, because two of the registrations this tree makes at init time read that configuration out of the context they are given and panic without it, which is why the helper that does the counting takes a context at all; it walks the custom keys through both of the two producers that publish them and checks that the header walk yields the keys registered as header keys and the logger walk the ones registered as logger keys, because those two producers filter the same registration list by different flags and a rewrite that shares one body between them loses the distinction silently; it builds a real configuration with three vfs services and walks the service producer, which is the one that reaches into the server's service map rather than a registry slice; and it looks a driver up by a name in the wrong case, which is requirement 5's subject read as behaviour rather than as an import. Every one of those is a thing a sequence can get wrong while having exactly the right type: yield nothing, yield the same element three times, yield the header keys to the logger walk, filter on the wrong flag, or stop after the first. Worth 6, above the inherited price of 2 and below the migrated gates it guards, because what it prices is the difference between a migration and a deletion and the corpus cannot see that difference: the recorded exchanges configure one service and register their drivers at init time, so a producer that yields exactly one of everything satisfies all 1118 of them."
+  },
+  {
+   "dir": "enumeration",
+   "id": "probe:enumeration-signals",
+   "kind": "probe",
+   "tests": [
+    "TestTheCompletionSignalsStillSignalCompletion"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, and the scope bound on requirement 2. Three of this repository's channel-returning functions are not enumeration: `TaskWaitC` and `TaskWaitAllC` report that work has finished, and the interface that declares them says the same thing a third time. A candidate sweeping the tree for `<-chan` and converting what they find takes those with them, and the type system is no help -- a `chan struct{}` closed when a task ends and a sequence of nothing are both plausible-looking Go. The test enqueues a task, waits on the single-task signal, checks the task had actually run by the time the wait returned, then enqueues two more and waits on the many-task signal. It is the compile-time half of the same statement that carries most of the weight, and that half is in the package's declarations rather than in a test: four assignments pinning the two functions and the two interface methods to their exact channel-returning types, so a tree that converted them does not build this package and scores 0 on all three gates over it. Worth 2, the inherited price of a bound, because the conversion it forbids is a scope error rather than a behavioural defect -- and because the same error is already expensive in the migrated family, where `count:chan-returns` has a floor of 11 that a tree converting these cannot stop at."
+  },
+  {
+   "dir": "enumeration",
+   "id": "probe:enumeration-empty",
+   "kind": "probe",
+   "tests": [
+    "TestAnEmptyCollectionIsStillAnEmptyCollection"
+   ],
+   "weight": 2,
+   "why": "Requirement 6, and the bound on the other half of requirement 4. A loop that appends into a slice initialised as `[]string{}` produces an empty slice when there is nothing to append; `slices.Collect` over an empty sequence produces nil. The two are the same length, compare equal to each other under every test a Go program usually writes, and render as different documents: `[]` against `null`. `keyValueStore.Keys` in `api/utils/utils_store.go` is the site where that matters -- it is one of the six loops requirement 4 names, its result is a `types.Store`'s key list, and stores are marshalled into the JSON this API answers with. The test asks an empty store for its keys and reads all three things: not nil, length zero, and `[]` when written out. It is a bound rather than a milestone gate because it passes on the tree this step starts from, where the loop is still a loop. Worth 2, and it is here rather than left to the recorded corpus for a measured reason: the corpus holds 90 recorded expectation files and not one of them has an empty volume or snapshot list in it, so the recordings cannot see this defect at all."
+  }
+ ],
+ "step": "06-range-over-func-iterators"
+}

@@ -1,0 +1,169 @@
+{
+ "error": null,
+ "step": 4,
+ "tags": [
+  "federation",
+  "room-versions",
+  "restricted",
+  "knock"
+ ],
+ "transcript": [
+  {
+   "binary": null,
+   "body": {
+    "allow": [
+     {
+      "room_id": "<ROOM1>",
+      "type": "m.room_membership"
+     }
+    ],
+    "join_rule": "knock_restricted"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the knock_restricted join rule",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}",
+   "path": "/_matrix/client/v3/rooms/<ROOM2>/state/m.room.join_rules/",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "room_id": "<ROOM2>"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "a remote member of the allowed room joins outright",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/join/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/join/<ROOM2>?server_name=<HS1>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "authorised_by_a_resident_user": true,
+    "membership": "join"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "that join carries an authorising user",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}",
+   "path": "/_matrix/client/v3/rooms/<ROOM2>/state/m.room.member/@krb:<HS2>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "errcode": "M_FORBIDDEN"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "a remote user outside the allowed room cannot join",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/join/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/join/<ROOM2>?server_name=<HS1>",
+   "status": 403,
+   "status_exact": false
+  },
+  {
+   "binary": null,
+   "body": {
+    "room_id": "<ROOM2>"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "but such a user may knock on it",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/knock/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/knock/<ROOM2>?server_name=<HS1>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "knock": {
+     "<ROOM2>": {
+      "has_recommended_state": true,
+      "join_rule": "knock_restricted",
+      "membership": [
+       "@krc:<HS2>|knock"
+      ],
+      "specified_keys_on_every_event": [
+       "content",
+       "sender",
+       "state_key",
+       "type"
+      ]
+     }
+    },
+    "sections": {
+     "invite": [],
+     "join": [],
+     "knock": [
+      "<ROOM2>"
+     ],
+     "leave": []
+    }
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs2 /sync carries the knock on a v10 room",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/sync",
+   "path": "hs2 /_matrix/client/v3/sync?timeout=0&since=<BATCH>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": [
+    "@kra:<HS1>|join|kra D",
+    "@krb:<HS2>|join|krb D",
+    "@krc:<HS2>|knock|krc D"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "one join and one knock",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "/_matrix/client/v3/rooms/<ROOM2>/members",
+   "status": 200,
+   "status_exact": true
+  }
+ ]
+}

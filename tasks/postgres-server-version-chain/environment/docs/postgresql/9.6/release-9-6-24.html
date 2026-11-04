@@ -1,0 +1,955 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<HTML
+><HEAD
+><TITLE
+>Release 9.6.24</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.79"><LINK
+REV="MADE"
+HREF="mailto:pgsql-docs@postgresql.org"><LINK
+REL="HOME"
+TITLE="PostgreSQL 9.6.24 Documentation"
+HREF="index.html"><LINK
+REL="UP"
+TITLE="Release Notes"
+HREF="release.html"><LINK
+REL="PREVIOUS"
+TITLE="Release Notes"
+HREF="release.html"><LINK
+REL="NEXT"
+TITLE="Release 9.6.23"
+HREF="release-9-6-23.html"><LINK
+REL="STYLESHEET"
+TYPE="text/css"
+HREF="stylesheet.css"><META
+HTTP-EQUIV="Content-Type"
+CONTENT="text/html; charset=ISO-8859-1"><META
+NAME="creation"
+CONTENT="2021-11-08T22:28:11"></HEAD
+><BODY
+CLASS="SECT1"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+SUMMARY="Header navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="4"
+ALIGN="center"
+VALIGN="bottom"
+><A
+HREF="index.html"
+>PostgreSQL 9.6.24 Documentation</A
+></TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="top"
+><A
+TITLE="Release Notes"
+HREF="release.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="60%"
+ALIGN="center"
+VALIGN="bottom"
+>Appendix E. Release Notes</TD
+><TD
+WIDTH="20%"
+ALIGN="right"
+VALIGN="top"
+><A
+TITLE="Release 9.6.23"
+HREF="release-9-6-23.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="RELEASE-9-6-24"
+>E.1. Release 9.6.24</A
+></H1
+><DIV
+CLASS="FORMALPARA"
+><P
+><B
+>Release date: </B
+>2021-11-11</P
+></DIV
+><P
+>   This release contains a variety of fixes from 9.6.23.
+   For information about new features in the 9.6 major release, see
+   <A
+HREF="release-9-6.html"
+>Section E.25</A
+>.
+  </P
+><P
+>   This is expected to be the last <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+>
+   release in the 9.6.X series.  Users are encouraged to update to a newer
+   release branch soon.
+  </P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN131864"
+>E.1.1. Migration to Version 9.6.24</A
+></H2
+><P
+>    A dump/restore is not required for those running 9.6.X.
+   </P
+><P
+>    However, note that installations using physical replication should
+    update standby servers before the primary server, as explained in
+    the third changelog entry below.
+   </P
+><P
+>    Also, several bugs have been found that may have resulted in corrupted
+    indexes, as explained in the next several changelog entries.  If any
+    of those cases apply to you, it's recommended to reindex
+    possibly-affected indexes after updating.
+   </P
+><P
+>    Also, if you are upgrading from a version earlier than 9.6.21,
+    see <A
+HREF="release-9-6-21.html"
+>Section E.4</A
+>.
+   </P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN131871"
+>E.1.2. Changes</A
+></H2
+><P
+></P
+><UL
+><LI
+><P
+>      Make the server reject extraneous data after an SSL or GSS
+      encryption handshake (Tom Lane)
+     </P
+><P
+>      A man-in-the-middle with the ability to inject data into the TCP
+      connection could stuff some cleartext data into the start of a
+      supposedly encryption-protected database session.
+      This could be abused to send faked SQL commands to the server,
+      although that would only work if the server did not demand any
+      authentication data.  (However, a server relying on SSL certificate
+      authentication might well not do so.)
+     </P
+><P
+>      The <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+> Project thanks
+      Jacob Champion for reporting this problem.
+      (CVE-2021-23214)
+     </P
+></LI
+><LI
+><P
+>      Make <SPAN
+CLASS="APPLICATION"
+>libpq</SPAN
+> reject extraneous data after
+      an SSL or GSS encryption handshake (Tom Lane)
+     </P
+><P
+>      A man-in-the-middle with the ability to inject data into the TCP
+      connection could stuff some cleartext data into the start of a
+      supposedly encryption-protected database session.
+      This could probably be abused to inject faked responses to the
+      client's first few queries, although other details of libpq's
+      behavior make that harder than it sounds.  A different line of
+      attack is to exfiltrate the client's password, or other sensitive
+      data that might be sent early in the session.  That has been shown
+      to be possible with a server vulnerable to CVE-2021-23214.
+     </P
+><P
+>      The <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+> Project thanks
+      Jacob Champion for reporting this problem.
+      (CVE-2021-23222)
+     </P
+></LI
+><LI
+><P
+>      Fix physical replication for cases where the primary crashes
+      after shipping a WAL segment that ends with a partial WAL record
+      (&Aacute;lvaro Herrera)
+     </P
+><P
+>      If the primary did not survive long enough to finish writing the
+      rest of the incomplete WAL record, then the previous crash-recovery
+      logic had it back up and overwrite WAL starting from the beginning
+      of the incomplete WAL record.  This is problematic since standby
+      servers may already have copies of that WAL segment.  They will then
+      see an inconsistent next segment, and will not be able to recover
+      without manual intervention.  To fix, do not back up over a WAL
+      segment boundary when restarting after a crash.  Instead write a new
+      type of WAL record at the start of the next WAL segment, informing
+      readers that the incomplete WAL record will never be finished and
+      must be disregarded.
+     </P
+><P
+>      When applying this update, it's best to update standby servers
+      before the primary, so that they will be ready to handle this new
+      WAL record type if the primary happens to crash.
+     </P
+></LI
+><LI
+><P
+>      Fix <TT
+CLASS="COMMAND"
+>CREATE INDEX CONCURRENTLY</TT
+> to wait for
+      the latest prepared transactions (Andrey Borodin)
+     </P
+><P
+>      Rows inserted by just-prepared transactions might be omitted from
+      the new index, causing queries relying on the index to miss such
+      rows.  The previous fix for this type of problem failed to account
+      for <TT
+CLASS="COMMAND"
+>PREPARE TRANSACTION</TT
+> commands that were still
+      in progress when <TT
+CLASS="COMMAND"
+>CREATE INDEX CONCURRENTLY</TT
+>
+      checked for them.  As before, in installations that have enabled
+      prepared transactions (<TT
+CLASS="VARNAME"
+>max_prepared_transactions</TT
+>
+      &gt; 0), it's recommended to reindex any concurrently-built indexes
+      in case this problem occurred when they were built.
+     </P
+></LI
+><LI
+><P
+>      Avoid race condition that can cause backends to fail to add entries
+      for new rows to an index being built concurrently (Noah Misch,
+      Andrey Borodin)
+     </P
+><P
+>      While it's apparently rare in the field, this case could potentially
+      affect any index built or reindexed with
+      the <TT
+CLASS="LITERAL"
+>CONCURRENTLY</TT
+> option.  It is recommended to
+      reindex any such indexes to make sure they are correct.
+     </P
+></LI
+><LI
+><P
+>      Fix <TT
+CLASS="TYPE"
+>float4</TT
+> and <TT
+CLASS="TYPE"
+>float8</TT
+> hash functions to
+      produce uniform results for NaNs (Tom Lane)
+     </P
+><P
+>      Since <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+>'s floating-point types
+      deem all NaNs to be equal, it's important for the hash functions to
+      produce the same hash code for all bit-patterns that are NaNs
+      according to the IEEE 754 standard.  This failed to happen before,
+      meaning that hash indexes and hash-based query plans might produce
+      incorrect results for non-canonical NaN values.
+      (<TT
+CLASS="LITERAL"
+>'-NaN'::float8</TT
+> is one way to produce such a
+      value on most machines.)  It is advisable to reindex hash indexes
+      on floating-point columns, if there is any possibility that they
+      might contain such values.
+     </P
+></LI
+><LI
+><P
+>      Prevent data loss during crash recovery of <TT
+CLASS="COMMAND"
+>CREATE
+      TABLESPACE</TT
+>, when <TT
+CLASS="VARNAME"
+>wal_level</TT
+>
+      = <TT
+CLASS="LITERAL"
+>minimal</TT
+> (Noah Misch)
+     </P
+><P
+>      If the server crashed between <TT
+CLASS="COMMAND"
+>CREATE TABLESPACE</TT
+>
+      and the next checkpoint, replay would fully remove the contents of
+      the new tablespace's directory, relying on subsequent WAL replay
+      to restore everything within that directory.  This interacts badly
+      with optimizations that skip writing WAL (one example
+      is <TT
+CLASS="COMMAND"
+>COPY</TT
+> into a just-created table).  Such
+      optimizations are applied only when <TT
+CLASS="VARNAME"
+>wal_level</TT
+>
+      is <TT
+CLASS="LITERAL"
+>minimal</TT
+>, which is not the default in v10 and
+      later.
+     </P
+></LI
+><LI
+><P
+>      Don't discard a cast to the same type with unspecified type modifier
+      (Tom Lane)
+     </P
+><P
+>      For example, if column <TT
+CLASS="LITERAL"
+>f1</TT
+> is of
+      type <TT
+CLASS="LITERAL"
+>numeric(18,3)</TT
+>, the parser used to simply
+      discard a cast like <TT
+CLASS="LITERAL"
+>f1::numeric</TT
+>, on the grounds
+      that it would have no run-time effect.  That's true, but the exposed
+      type of the expression should still be considered to be
+      plain <TT
+CLASS="LITERAL"
+>numeric</TT
+>,
+      not <TT
+CLASS="LITERAL"
+>numeric(18,3)</TT
+>.  This is important for
+      correctly resolving the type of larger constructs, such
+      as recursive <TT
+CLASS="LITERAL"
+>UNION</TT
+>s.
+     </P
+></LI
+><LI
+><P
+>      Fix corner-case loss of precision in
+      numeric <CODE
+CLASS="FUNCTION"
+>power()</CODE
+> (Dean Rasheed)
+     </P
+><P
+>      The result could be inaccurate when the first argument is very close
+      to 1.
+     </P
+></LI
+><LI
+><P
+>      Avoid regular expression errors with capturing parentheses
+      inside <TT
+CLASS="LITERAL"
+>{0}</TT
+> (Tom Lane)
+     </P
+><P
+>      Regular expressions like <TT
+CLASS="LITERAL"
+>(.){0}...\1</TT
+> drew
+      <SPAN
+CLASS="QUOTE"
+>"invalid backreference number"</SPAN
+>.  Other regexp engines
+      such as Perl don't complain, though, and for that matter ours
+      doesn't either in some closely related cases.  Worse, it could throw
+      an assertion failure instead.  Fix it so that no error is thrown and
+      instead the back-reference is silently deemed to never match.
+     </P
+></LI
+><LI
+><P
+>      Prevent regular expression back-references from sometimes matching
+      when they shouldn't (Tom Lane)
+     </P
+><P
+>      The regexp engine was careless about clearing match data
+      for capturing parentheses after rejecting a partial match.  This
+      could allow a later back-reference to match in places where it
+      should fail for lack of a defined referent.
+     </P
+></LI
+><LI
+><P
+>      Fix regular expression performance bug with back-references inside
+      iteration nodes (Tom Lane)
+     </P
+><P
+>      Incorrect back-tracking logic could result in exponential time spent
+      looking for a match.  Fortunately the problem is masked in most
+      cases by other optimizations.
+     </P
+></LI
+><LI
+><P
+>      Fix incorrect results from <TT
+CLASS="LITERAL"
+>AT TIME ZONE</TT
+> applied
+      to a <TT
+CLASS="TYPE"
+>time with time zone</TT
+> value (Tom Lane)
+     </P
+><P
+>      The results were incorrect if the target time zone was specified by
+      a dynamic timezone abbreviation (that is, one that is defined as
+      equivalent to a full time zone name, rather than a fixed UTC offset).
+     </P
+></LI
+><LI
+><P
+>      Clean up correctly if a transaction fails after exporting its
+      snapshot (Dilip Kumar)
+     </P
+><P
+>      This oversight would only cause a problem if the same session
+      attempted to export a snapshot again.  The most likely scenario for
+      that is creation of a replication slot (followed by rollback)
+      and then creation of another replication slot.
+     </P
+></LI
+><LI
+><P
+>      Prevent wraparound of overflowed-subtransaction tracking on standby
+      servers (Kyotaro Horiguchi, Alexander Korotkov)
+     </P
+><P
+>      This oversight could cause significant performance degradation
+      (manifesting as excessive SubtransSLRU traffic) on standby servers.
+     </P
+></LI
+><LI
+><P
+>      Ensure that prepared transactions are properly accounted for during
+      promotion of a standby server (Michael Paquier, Andres Freund)
+     </P
+><P
+>      There was a narrow window where a prepared transaction could be
+      omitted from a snapshot taken by a concurrently-running session.
+      If that session then used the snapshot to perform data updates,
+      erroneous results or data corruption could occur.
+     </P
+></LI
+><LI
+><P
+>      Fix detection of a relation that has grown to the maximum allowed
+      length (Tom Lane)
+     </P
+><P
+>      An attempt to extend a table or index past the limit of 2^32-1
+      blocks was rejected, but not soon enough to prevent inconsistent
+      internal state from being created.
+     </P
+></LI
+><LI
+><P
+>      Correctly track the presence of data-modifying CTEs when expanding
+      a <TT
+CLASS="LITERAL"
+>DO INSTEAD</TT
+> rule (Greg Nancarrow, Tom Lane)
+     </P
+><P
+>      The previous failure to do this could lead to problems such as
+      unsafely choosing a parallel plan.
+     </P
+></LI
+><LI
+><P
+>      Ensure that walreceiver processes create all required archive
+      notification files before exiting (Fujii Masao)
+     </P
+><P
+>      If a walreceiver exited exactly at a WAL segment boundary, it failed
+      to make a notification file for the last-received segment, thus
+      delaying archiving of that segment on the standby.
+     </P
+></LI
+><LI
+><P
+>      Avoid trying to lock the <TT
+CLASS="LITERAL"
+>OLD</TT
+>
+      and <TT
+CLASS="LITERAL"
+>NEW</TT
+> pseudo-relations in a rule
+      that uses <TT
+CLASS="LITERAL"
+>SELECT FOR UPDATE</TT
+>
+      (Masahiko Sawada, Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Fix parser's processing of aggregate <TT
+CLASS="LITERAL"
+>FILTER</TT
+>
+      clauses (Tom Lane)
+     </P
+><P
+>      If the <TT
+CLASS="LITERAL"
+>FILTER</TT
+> expression is a plain boolean column,
+      the semantic level of the aggregate could be mis-determined, leading
+      to not-per-spec behavior.  If the <TT
+CLASS="LITERAL"
+>FILTER</TT
+>
+      expression is itself a boolean-returning aggregate, an error should
+      be thrown but was not, likely resulting in a crash at execution.
+     </P
+></LI
+><LI
+><P
+>      Avoid null-pointer-dereference crash when dropping a role that owns
+      objects being dropped concurrently (&Aacute;lvaro Herrera)
+     </P
+></LI
+><LI
+><P
+>      Prevent <SPAN
+CLASS="QUOTE"
+>"snapshot reference leak"</SPAN
+> warning
+      when <CODE
+CLASS="FUNCTION"
+>lo_export()</CODE
+> or a related function fails
+      (Heikki Linnakangas)
+     </P
+></LI
+><LI
+><P
+>      Ensure that scans of SP-GiST indexes are counted in the statistics
+      views (Tom Lane)
+     </P
+><P
+>      Incrementing the number-of-index-scans counter was overlooked in the
+      SP-GiST code, although per-tuple counters were advanced correctly.
+     </P
+></LI
+><LI
+><P
+>      Recalculate relevant wait intervals
+      if <TT
+CLASS="VARNAME"
+>recovery_min_apply_delay</TT
+> is changed during
+      recovery (Soumyadeep Chakraborty, Ashwin Agrawal)
+     </P
+></LI
+><LI
+><P
+>      Fix <SPAN
+CLASS="APPLICATION"
+>ecpg</SPAN
+> to recover correctly
+      after <CODE
+CLASS="FUNCTION"
+>malloc()</CODE
+> failure while establishing a
+      connection (Michael Paquier)
+     </P
+></LI
+><LI
+><P
+>      Allow <TT
+CLASS="LITERAL"
+>EXIT</TT
+> out of the outermost block in a
+      PL/pgSQL routine (Tom Lane)
+     </P
+><P
+>      If the routine does not require an explicit <TT
+CLASS="LITERAL"
+>RETURN</TT
+>,
+      this usage should be valid, but it was rejected.
+     </P
+></LI
+><LI
+><P
+>      Remove <SPAN
+CLASS="APPLICATION"
+>pg_ctl</SPAN
+>'s hard-coded limits on the
+      total length of generated commands (Phil Krylov)
+     </P
+><P
+>      For example, this removes a restriction on how many command-line
+      options can be passed through to the postmaster.  Individual path
+      names that <SPAN
+CLASS="APPLICATION"
+>pg_ctl</SPAN
+> deals with, such as the
+      postmaster executable's name or the data directory name, are still
+      limited to <TT
+CLASS="LITERAL"
+>MAXPGPATH</TT
+> bytes in most cases.
+     </P
+></LI
+><LI
+><P
+>      Fix <SPAN
+CLASS="APPLICATION"
+>pg_dump</SPAN
+> to dump non-global default
+      privileges correctly (Neil Chen, Masahiko Sawada)
+     </P
+><P
+>      If a global (unrestricted) <TT
+CLASS="COMMAND"
+>ALTER DEFAULT
+      PRIVILEGES</TT
+> command revoked some present-by-default
+      privilege, for example <TT
+CLASS="LITERAL"
+>EXECUTE</TT
+> for functions, and
+      then a restricted <TT
+CLASS="COMMAND"
+>ALTER DEFAULT PRIVILEGES</TT
+>
+      command granted that privilege again for a selected role or
+      schema, <SPAN
+CLASS="APPLICATION"
+>pg_dump</SPAN
+> failed to dump the
+      restricted privilege grant correctly.
+     </P
+></LI
+><LI
+><P
+>      Improve <SPAN
+CLASS="APPLICATION"
+>pg_dump</SPAN
+>'s performance by avoiding
+      making per-table queries for RLS policies, and by avoiding repetitive
+      calls to <CODE
+CLASS="FUNCTION"
+>format_type()</CODE
+> (Tom Lane)
+     </P
+><P
+>      These changes provide only marginal improvement when dumping from a
+      local server, but a dump from a remote server can benefit
+      substantially due to fewer network round-trips.
+     </P
+></LI
+><LI
+><P
+>      Fix incorrect filename in <SPAN
+CLASS="APPLICATION"
+>pg_restore</SPAN
+>'s
+      error message about an invalid large object TOC file (Daniel
+      Gustafsson)
+     </P
+></LI
+><LI
+><P
+>      Fix failure of <TT
+CLASS="FILENAME"
+>contrib/btree_gin</TT
+> indexes
+      on <TT
+CLASS="TYPE"
+>"char"</TT
+>
+      (not <TT
+CLASS="TYPE"
+>char(<TT
+CLASS="REPLACEABLE"
+><I
+>n</I
+></TT
+>)</TT
+>) columns,
+      when an indexscan using the <TT
+CLASS="LITERAL"
+>&lt;</TT
+>
+      or <TT
+CLASS="LITERAL"
+>&lt;=</TT
+> operator is performed (Tom Lane)
+     </P
+><P
+>      Such an indexscan failed to return all the entries it should.
+     </P
+></LI
+><LI
+><P
+>      Change <TT
+CLASS="FILENAME"
+>contrib/pg_stat_statements</TT
+> to read
+      its <SPAN
+CLASS="QUOTE"
+>"query texts"</SPAN
+> file in units of at most 1GB
+      (Tom Lane)
+     </P
+><P
+>      Such large query text files are very unusual, but if they do occur,
+      the previous coding would fail on Windows 64 (which rejects
+      individual read requests of more than 2GB).
+     </P
+></LI
+><LI
+><P
+>      Fix null-pointer crash
+      when <TT
+CLASS="FILENAME"
+>contrib/postgres_fdw</TT
+> tries to report a
+      data conversion error (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Add spinlock support for the RISC-V architecture (Marek Szuba)
+     </P
+><P
+>      This is essential for reasonable performance on that platform.
+     </P
+></LI
+><LI
+><P
+>      Set correct type identifier on OpenSSL BIO (I/O abstraction)
+      objects created by <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+>
+      (Itamar Gafni)
+     </P
+><P
+>      This oversight probably only matters for code that is doing
+      tasks like auditing the OpenSSL installation.  But it's
+      nominally a violation of the OpenSSL API, so fix it.
+     </P
+></LI
+><LI
+><P
+>      Make <CODE
+CLASS="FUNCTION"
+>pg_regexec()</CODE
+> robust against an
+      out-of-range <TT
+CLASS="REPLACEABLE"
+><I
+>search_start</I
+></TT
+> parameter
+      (Tom Lane)
+     </P
+><P
+>      Return <TT
+CLASS="LITERAL"
+>REG_NOMATCH</TT
+>, instead of possibly crashing,
+      when <TT
+CLASS="REPLACEABLE"
+><I
+>search_start</I
+></TT
+> is past the end of the
+      string.  This case is probably unreachable within
+      core <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+>, but extensions might be
+      more careless about the parameter value.
+     </P
+></LI
+><LI
+><P
+>      Ensure that <CODE
+CLASS="FUNCTION"
+>GetSharedSecurityLabel()</CODE
+> can be
+      used in a newly-started session that has not yet built its critical
+      relation cache entries (Jeff Davis)
+     </P
+></LI
+><LI
+><P
+>      Use the CLDR project's data to map Windows time zone names to IANA
+      time zones (Tom Lane)
+     </P
+><P
+>      When running on Windows, <SPAN
+CLASS="APPLICATION"
+>initdb</SPAN
+> attempts
+      to set the new cluster's <TT
+CLASS="VARNAME"
+>timezone</TT
+> parameter to
+      the IANA time zone matching the system's prevailing time zone.
+      We were using a mapping table that we'd generated years ago and
+      updated only fitfully; unsurprisingly, it contained a number of
+      errors as well as omissions of recently-added zones.  It turns out
+      that CLDR has been tracking the most appropriate mappings, so start
+      using their data.  This change will not affect any existing
+      installation, only newly-initialized clusters.
+     </P
+></LI
+><LI
+><P
+>      Update time zone data files to <SPAN
+CLASS="APPLICATION"
+>tzdata</SPAN
+>
+      release 2021e for DST law changes in Fiji, Jordan, Palestine, and
+      Samoa, plus historical corrections for Barbados, Cook Islands,
+      Guyana, Niue, Portugal, and Tonga.
+     </P
+><P
+>      Also, the Pacific/Enderbury zone has been renamed to Pacific/Kanton.
+      Also, the following zones have been merged into nearby, more-populous
+      zones whose clocks have agreed with them since 1970: Africa/Accra,
+      America/Atikokan, America/Blanc-Sablon, America/Creston,
+      America/Curacao, America/Nassau, America/Port_of_Spain,
+      Antarctica/DumontDUrville, and Antarctica/Syowa.
+      In all these cases, the previous zone name remains as an alias.
+     </P
+></LI
+></UL
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+SUMMARY="Footer navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="index.html"
+ACCESSKEY="H"
+>Home</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="release-9-6-23.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Release Notes</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Release 9.6.23</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

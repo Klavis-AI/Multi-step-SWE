@@ -1,0 +1,340 @@
+{
+ "gates": [
+  {
+   "baseline": 4,
+   "id": "import-absent:x-net-context",
+   "import": "golang.org/x/net/context",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "Requirement 1, read off the compiled import graph rather than the text: four first-party packages import the shim today -- api/types, api/context, api/server and client -- and an alias, a dot-import or a first-party re-export all still show up here. The root package's fifth import of it sits behind `//go:build !go1.7` and is invisible to every toolchain that can build this module, which is requirement 2's whole point. `./...` honours build constraints, so tagging a file out of the build would also drop it from this graph; step 1's strict `floor:unconstrained-src-files` and the constraint set below are what close that, and they are inherited here unchanged."
+  },
+  {
+   "baseline": 1,
+   "id": "import-absent:ctxhttp",
+   "import": "golang.org/x/net/context/ctxhttp",
+   "kind": "import-absent",
+   "weight": 2,
+   "why": "The same requirement from the other side. `api/client` is the repository's only outbound HTTP call site and `ctxhttp.Do` is the pre-1.7 way to give a request a context; it is graded separately from its parent package because a candidate can plausibly retire one and not the other."
+  },
+  {
+   "id": "import-present:context",
+   "import": "context",
+   "kind": "import-present",
+   "packages": [
+    "github.com/codedellemc/libstorage",
+    "github.com/codedellemc/libstorage/api/types",
+    "github.com/codedellemc/libstorage/api/context",
+    "github.com/codedellemc/libstorage/api/server",
+    "github.com/codedellemc/libstorage/client"
+   ],
+   "weight": 1,
+   "why": "The complement, and the reason requirement 1 names five packages rather than a count of them. They are named here too, because any five packages satisfy a count of five and that is not the statement the requirement makes: a tree that migrated five leaf packages and left the context plumbing where it is would have passed a count. Each of the named five is forced: `api/types` embeds `context.Context` in `types.Context`, `api/context` is built out of it, and `api/server`, `client` and the root package all take a `context.Context` in an exported signature that the others call. Scored proportionally, so migrating four of the five earns four fifths. A shim that keeps the old import path alive and re-exports it fails this and the absence gates together; deleting the context plumbing instead of migrating it fails this one alone. The tree this step starts from scores one fifth, because the root package's go1.7 twin already imports the standard library -- which is what it scored against the count this replaces."
+  },
+  {
+   "id": "pre-go17-twin",
+   "kind": "files-absent",
+   "paths": [
+    "libstorage_go17.go",
+    "libstorage_pre_go17.go"
+   ],
+   "weight": 2,
+   "why": "Requirement 2. The pair is graded, not just the `!go1.7` half, because keeping the `go1.7` name means keeping a file whose name says it is one side of a choice that no longer exists. Deleting both and declaring `New` in an unconstrained file is what the requirement asks for; the census floors and the constraint set below are what stop the deletion from being the only thing that happened."
+  },
+  {
+   "dir": "deadlines",
+   "id": "probe:deadlines",
+   "kind": "probe",
+   "tests": [
+    "TestReadTimeoutFollowsTheConfiguredValue",
+    "TestWriteTimeoutFollowsTheConfiguredValue"
+   ],
+   "weight": 4,
+   "why": "Requirement 4's first two bullets, observed rather than read, and observed at two configured values rather than at one. Each test starts the server twice through the repository's own exported entry point -- once with its key at 3 s and once at 12 s -- stalls a half-sent request against the read timeout and a slow answer against the write timeout, and requires each close to land in a window around the value that was configured and the patient close to trail the quick one. The windows are [2 s, 8 s] and [11 s, 17 s], lopsided because a loaded box is late and never early, and the trailing requirement is three seconds rather than the nine that separate the two configurations, so that it is the widest of the two windows and never the thing that decides. One duration compiled into the server cannot sit in two disjoint windows, so the pair rejects it on its own rather than leaving it to the controls; the two configurations that must not cut anything are the same package's other two tests and are graded in the regression family. Measured 0/2 on the tree this step starts from and 2/2 on the finished one, where the four closes landed at 3.00 s, 12.00 s, 3.01 s and 12.04 s against the 3 s and 12 s that were configured."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown",
+   "kind": "probe",
+   "tests": [
+    "TestStopWaitsForRequestsInFlight",
+    "TestStopClosesIdleConnections"
+   ],
+   "weight": 4,
+   "why": "Requirement 5's first two bullets, which together are the draining half of the stop. Both are a difference in kind on the tree this step starts from, where `Close` drops the listeners and returns at once: measured there, the stop came back in 167 microseconds with about six seconds of request still to run, and the keep-alive connection that was idle when the server stopped answered a further request with 200 afterwards. On the finished tree the stop waits 6.3 s for the request in flight and the idle connection is gone when it returns. The third bullet is graded next door rather than here because a tree can drain and still have no deadline, and a single gate over all three would score that tree the way it scores a tree that does neither."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown-bound",
+   "kind": "probe",
+   "tests": [
+    "TestStopGivesUpOnAWedgedRequest"
+   ],
+   "weight": 4,
+   "why": "Requirement 5's third bullet, graded apart from the two above because it is the one a tree is most likely to miss while satisfying them. A stop that waits for a request which will never finish is a process that will never exit, and a tree can arrive there by doing everything else right: measured on one that drains correctly and closes its idle connections correctly, the gate next door passes in full and this test fails after waiting 70 s for a stop that was never going to return. The assertion is a window rather than a ceiling -- not sooner than three seconds, not later than seventy -- because a ceiling alone is satisfied by the stop being replaced, which returns in microseconds and has waited for nothing. On the finished tree the stop gives up after 30.0 s. It carries the same weight as its neighbour: the deadline is half of what requirement 5 asks for, and it is the half nothing else in the spec reads."
+  }
+ ],
+ "module": "github.com/codedellemc/libstorage",
+ "probes": {
+  "cancellation": {
+   "hard_timeout": 240,
+   "timeout": "3m",
+   "why": "Five tests, 3.0 s together on the finished tree and 3.0 s on the tree this step starts from; the two controls account for nearly all of it, one of them deliberately waiting two seconds for a slow answer. Every failure path in the package is a bounded select, so the budget is there for a tree that will not start a server at all rather than for one that merely fails."
+  },
+  "deadlines": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Four tests, and each of the two graded ones now drives its key at two values in turn rather than at one, so the package starts six servers instead of four: 56.4 s together on the finished tree and 41.2 s on the tree this step starts from, where the two graded tests fail early. Neither is the number the budget has to clear. A tree that adds a draining stop and keeps the 2017 substring sniff deadlocks every close, and this package's teardown gives up on a stop after 30 s rather than joining the deadlock -- six servers, so three minutes of teardown on top of the waiting the tests do anyway: measured at 236.6 s on that tree, with all four assertions still reported correctly. The budget is set above that so a deadlock elsewhere in the tree costs this package time and not its answers."
+  },
+  "shutdown": {
+   "hard_timeout": 540,
+   "timeout": "8m",
+   "why": "Four tests, 40.6 s together on the finished tree and 4.2 s on the tree this step starts from, where every stop returns at once and every assertion fails the moment it is made. Neither is the number the budget has to clear. The worst measured case is the half-done tree that adds a draining stop and keeps the 2017 substring match, which deadlocks the close: there each test waits out its own ceiling and then pays a further 30 s of bounded teardown for a stop that was never going to return, 288.4 s in all, with all four failures still reported rather than lost with a killed binary. A tree that drains but sets no deadline is the other slow case, at 80.7 s. The budget sits well above the deadlocking tree because bounding the teardown exists precisely so that this package still answers on a tree whose close hangs, and a package timeout would take those answers away again."
+  },
+  "surface": {
+   "hard_timeout": 360,
+   "timeout": "5m",
+   "why": "Two tests, each of which starts an embedded server and a client through `libstorage.New` and makes one request: 2.3 s together on the finished tree and 2.2 s on the tree this step starts from. The budget is sized for the two ways a tree can be slow here rather than wrong -- `libstorage.New` itself hanging, which the helper gives up on after 60 s, and a stop that never returns, which the teardown gives up on after 30 s. Measured against the deadlocking tree: 62.4 s, both assertions still reported."
+  }
+ },
+ "regression": [
+  {
+   "go": "1.17",
+   "id": "module",
+   "kind": "module",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 1,
+   "why": "Requirement 8's first sentence. The language version is a ladder rung of its own later in this task, and moving it here would change what several of the tools below report without any of the work having been done -- the deprecation scan in particular reads zero at `go 1.17` and would light up at a later directive. Read back out of the built binary, so a go.mod that disagrees with the build cannot pass."
+  },
+  {
+   "id": "build-all",
+   "kind": "build-all",
+   "weight": 1,
+   "why": "Requirement 8. Inherited from step 1 and demoted to a bound: compiling is no longer the milestone, it is the thing the milestone may not cost."
+  },
+  {
+   "kind": "no-vendored-source",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 1,
+   "why": "Requirement 8. Computed from the import graph, so a dependency copied back into the repository under any directory name and rewired with a replace directive is still third-party source here. The same requirement has a second reading, because the graph cannot see a dependency whose source has been copied *into* the main module and given a first-party import path: every first-party file is also hashed, whitespace removed, against every .go file in the module cache the image ships, and a file that matches one of them is that dependency's source under another name."
+  },
+  {
+   "directives": [
+    "replace",
+    "exclude",
+    "ignore"
+   ],
+   "id": "gomod-directives",
+   "kind": "gomod-directives",
+   "weight": 1,
+   "why": "Requirement 8. `replace` would let the shim be aliased back in under the standard library's name; `ignore` would let a file that no longer compiles disappear from every `./...` pattern, including the import graph the gates above read."
+  },
+  {
+   "baseline": 0,
+   "kind": "gofmt",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 8. Step 1 left the tree `gofmt -s` clean -- measured 0 dirty files out of 163 -- so the baseline here is zero and any excursion is new."
+  },
+  {
+   "baseline": 0,
+   "kind": "vet",
+   "weight": 1,
+   "why": "Requirement 8, same shape: step 1 left `go vet ./...` silent, so the bound is silence."
+  },
+  {
+   "baseline": 0,
+   "checks": "SA1019",
+   "kind": "staticcheck",
+   "weight": 1,
+   "why": "Requirement 8's last clause. Measured 0 on the tree this step starts from and 0 on the finished one: at a `go 1.17` directive the remaining `io/ioutil` imports are not reported, which is why step 1 could floor them and why the bound here is zero. This is the gate that would notice the standard library's own deprecated context helpers being reached for instead of the live ones."
+  },
+  {
+   "baseline": 0,
+   "field": "suppressions",
+   "id": "floor:suppressions",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7: silencing a tool is not fixing what it found. Zero today."
+  },
+  {
+   "baseline": 1,
+   "field": "skips",
+   "id": "floor:skips",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7. One `t.Skip` exists in the inherited corpus; a second is a test that stopped running."
+  },
+  {
+   "baseline": 97,
+   "field": "blank_discards",
+   "id": "floor:blank-discards",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7's last clause. 97 on the tree this step starts from; the finished tree has 96, because the two root-package twins each carried one and requirement 2 merges them. The bound is the inherited number, so shedding one is free and acquiring one -- the usual way to make a newly returned error compile away -- is not."
+  },
+  {
+   "baseline": 84,
+   "field": "test_funcs",
+   "id": "floor:test-funcs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7. The repository's own corpus, which this milestone has no reason to touch at all."
+  },
+  {
+   "baseline": 111,
+   "field": "specs",
+   "id": "floor:specs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7. Ginkgo specs, counted separately from test functions because the integration suites are written in them and a deadlocking shutdown is exactly what a candidate would be tempted to delete them over."
+  },
+  {
+   "baseline": 503,
+   "field": "assertions",
+   "id": "floor:assertions",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7. A test function that survives with its body hollowed out keeps the two counts above still and moves this one."
+  },
+  {
+   "baseline": 16,
+   "field": "test_files",
+   "id": "floor:test-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7."
+  },
+  {
+   "baseline": 1,
+   "field": "constrained_test_files",
+   "id": "floor:constrained-test-files",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 7 and requirement 8's last sentence. One test file is behind a build tag today (`drivers/storage/mock/tests`); tagging a second one out of the build is both how a suite gets deleted without being deleted and an unconstrained file gaining a constraint."
+  },
+  {
+   "baseline": 125,
+   "field": "unconstrained_src_files",
+   "id": "floor:unconstrained-src-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "strict": true,
+   "weight": 3,
+   "why": "Requirement 8's last sentence, and the bound that keeps the import-graph gates honest: a file tagged out of the build vanishes from `go list -deps` just as thoroughly as a file whose import was migrated. 125 on the tree this step starts from and 126 on the finished one, because requirement 2 turns two constrained files into one unconstrained one. Strict, for the reason step 1 recorded: proportional scoring cannot deter a single excursion against a baseline this large."
+  },
+  {
+   "constraints": {
+    "api/utils/unix_windows.go": "windows;",
+    "api/utils/utils_unix.go": ";!windows",
+    "cli/lss/lss-darwin/lss-darwin_amd64.go": "amd64;",
+    "cli/lss/lss-darwin/lss-darwin_arm.go": "arm;",
+    "cli/lss/lss-darwin/lss-darwin_arm64.go": "arm64;",
+    "cli/lss/lss-linux/lss-linux_amd64.go": "amd64;",
+    "cli/lss/lss-linux/lss-linux_arm.go": "arm;",
+    "cli/lss/lss-linux/lss-linux_arm64.go": "arm64;",
+    "cli/lss/lss-windows/lss-windows_amd64.go": "amd64;",
+    "client/client_darwin.go": "darwin;",
+    "client/client_linux.go": "linux;",
+    "drivers/os/darwin/darwin.go": ";darwin",
+    "drivers/os/linux/linux.go": ";linux",
+    "drivers/os/linux/linux_mount.go": ";linux",
+    "drivers/storage/mock/executor/mock_executor.go": ";mock",
+    "drivers/storage/mock/mock_driver.go": ";mock",
+    "drivers/storage/mock/tests/mock_test.go": ";mock",
+    "imports/executors/executors.go": ";!vfs",
+    "imports/executors/executors_vfs.go": ";vfs",
+    "imports/storage/storage.go": ";!vfs",
+    "imports/storage/storage_vfs.go": ";vfs"
+   },
+   "id": "floor:build-constraints",
+   "kind": "constraint-set",
+   "scope": "own",
+   "weight": 3,
+   "why": "Requirement 8's last sentence, by identity rather than by count. Step 1's map had 23 entries; this is the same map with `libstorage_go17.go` and `libstorage_pre_go17.go` removed, which is exactly the exception requirement 2 asks for and the only difference between the two steps' expectations. Nothing else in the map moves. Keys the candidate adds are not held against it -- a new platform file is not a regression -- so this is a bound on loss."
+  },
+  {
+   "baseline": 0,
+   "field": "legacy_build_tags",
+   "id": "floor:legacy-build-tags",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "weight": 1,
+   "why": "Requirement 8. Step 1 retired the `// +build` form; a file re-acquiring one is step 1 coming undone. Zero on both trees."
+  },
+  {
+   "baseline": 12,
+   "field": "converted_build_tags",
+   "id": "floor:converted-build-tags",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "weight": 1,
+   "why": "The same bound from the other side: 14 `//go:build` lines today, 12 after requirement 2 removes the two root-package twins. A constraint dropped rather than converted moves this below 12; the constraint set above says which twelve."
+  },
+  {
+   "dir": "cancellation",
+   "id": "probe:cancellation",
+   "kind": "probe",
+   "tests": [
+    "TestCancelledContextStopsRequest",
+    "TestContextDeadlineStopsRequest",
+    "TestServerSeesTheCancellation",
+    "TestLiveContextCompletesRequest",
+    "TestLiveContextSurvivesASlowAnswer"
+   ],
+   "weight": 2,
+   "why": "Requirement 3, which is a bound rather than a leap: the client already honours cancellation, but only because `ctxhttp` is doing it for it, and requirement 1 takes `ctxhttp` away. All five pass on the tree this step starts from and all five pass on the finished one, 3.0 s on each; what they catch is the migration that removes the shim and drops the behaviour with it. The first two require the call to come back with the error the caller's own cancellation produces rather than with whatever else happened to end it at about the same moment, which is the difference between a request that was called off and one that merely failed. The last two are the controls. A request whose context stays live has to complete, so a client that returns a context error unconditionally fails the set rather than passing three fifths of it; and it has to complete however long the server takes over the answer, which a client that quietly bounds every request by a short clock of its own would not do, and such a client looks exactly like cancellation in the three tests above."
+  },
+  {
+   "dir": "deadlines",
+   "id": "probe:deadlines-controls",
+   "kind": "probe",
+   "tests": [
+    "TestDefaultReadTimeoutLeavesItAlone",
+    "TestConfiguredTimeoutsStillServeAnOrdinaryRequest"
+   ],
+   "weight": 2,
+   "why": "Requirement 4's third bullet, and the half of that package that has to keep passing: a server on the documented 300 s defaults must not cut a slow client off, and a server with the timeouts configured must still serve an ordinary request. Both pass today, which is what makes them a regression bound; together with the two graded in the migrated family they are the reason a fixed duration compiled into the server cannot pass requirement 4."
+  },
+  {
+   "dir": "shutdown",
+   "id": "probe:shutdown-controls",
+   "kind": "probe",
+   "tests": [
+    "TestStopReturnsPromptlyWithNothingInFlight"
+   ],
+   "weight": 2,
+   "why": "The control, and the only thing forbidding the cheapest way to pass the three assertions above: a stop that always takes a long time. A server with nothing to drain has to stop at once, and it does on the tree this step starts from, so this belongs to the bound rather than to the leap. It is also what makes the deadlocking tree readable -- when a close hangs, this is the entry that says so without the migrated gates having to be re-read."
+  },
+  {
+   "dir": "surface",
+   "id": "probe:surface",
+   "kind": "probe",
+   "tests": [
+    "TestEmbeddedNewReturnsAConnectedClient",
+    "TestEmbeddedNewServesTheConfiguredService"
+   ],
+   "weight": 2,
+   "why": "Requirement 1's last sentence and requirement 2's last clause, both bounds. The package writes the exported surface that deals in contexts out as ordinary code the compiler has to agree with: `api/context`'s `New`, `Background` and `WithValue`, `api/server.Serve`, `client.New` and the root package's `New` are each handed a standard library context and each result is assigned to the type it has today, and `types.Context` is assigned to a standard `context.Context`. A context parameter that is dropped, reordered or narrowed to something a standard context no longer satisfies stops the package building, and a package that does not build reports no passing tests. The two tests then drive the root package's `New` end to end, because a signature that still compiles is not the same as a function that still works: `New` is the function requirement 2 asks to be merged into a single unconstrained file, and it is the one exported entry point in the repository that nothing else calls, so with both build-constrained copies deleted and nothing put in their place every other gate is satisfied and only this one notices. All of it holds on the tree this step starts from."
+  }
+ ],
+ "step": "02-context-propagation"
+}

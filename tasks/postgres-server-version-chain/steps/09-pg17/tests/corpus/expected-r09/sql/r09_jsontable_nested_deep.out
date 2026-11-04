@@ -1,0 +1,18 @@
+SELECT * FROM JSON_TABLE('{"k":[{"n":[1,2]},{"n":[3]}]}'::jsonb, '$'
+       COLUMNS (NESTED PATH '$.k[*]' COLUMNS (o1 FOR ORDINALITY,
+                NESTED PATH '$.n[*]' COLUMNS (o2 FOR ORDINALITY, v int PATH '$'))))
+  ORDER BY o1, o2;
+ o1 | o2 | v 
+----+----+---
+  1 |  1 | 1
+  1 |  2 | 2
+  2 |  1 | 3
+(3 rows)
+
+SELECT count(*) FROM JSON_TABLE('{"k":[]}'::jsonb, '$'
+       COLUMNS (NESTED PATH '$.k[*]' COLUMNS (v int PATH '$')));
+ count 
+-------
+     1
+(1 row)
+

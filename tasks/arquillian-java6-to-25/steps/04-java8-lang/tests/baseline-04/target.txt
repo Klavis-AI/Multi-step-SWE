@@ -1,0 +1,206 @@
+# Step 04 -- what the migrated tree must reach, measured on the golden solution
+# with arqgate.SourceScan and frozen here.
+#
+# The BASELINE (baseline/source.txt) says where the tree starts; this file says
+# where it has to get to. Both are shipped, and the scorer reads both rather
+# than deriving either from the tree it is grading -- a threshold computed at
+# grading time from the candidate's own tree is a threshold the candidate sets.
+#
+# Every number here was produced by running the same gate over the golden tree
+# and is reproducible from the reports the authoring notes point at. None is a
+# round number chosen for its shape.
+
+# --- lambdas, C-1 -----------------------------------------------------------
+# 48 anonymous functional-interface bodies at the baseline, 36 of them
+# convertible; the golden converts every convertible one and leaves the 12 that
+# cannot be converted, so `anonymousfunctional.size` falls 48 -> 12, a drop of
+# exactly 36.
+#
+# The DEPARTURE half of C-1 is scored on anonymousfunctional.size and NOT on
+# anonymousfunctional.convertible, which is the number the gate looks like it
+# should use. Adding one member to an anonymous body makes it inconvertible, so
+# `convertible` falls to zero for a tree that did no work at all and only typed
+# 36 unused methods. `anonymousfunctional.size` does not move for that trick:
+# the body is still an anonymous class implementing a functional interface. The
+# denominator is the 36 that actually go.
+target.anonfn=12
+target.convertible=0
+target.lambda=60
+target.lambda.files=33
+target.methodref=24
+
+# 60 lambdas and 24 method references arrive where 36 bodies left, because the
+# golden also converts sites that were never anonymous classes -- the 24
+# collecting loops of C-3 carry lambdas of their own. So the ARRIVAL half is not
+# scored on a total either; it is scored on coverage of the 20 named files in
+# baseline/lambdafiles.txt, counting a lambda OR a method reference in each.
+#
+# The OR is load-bearing. 24 of the arriving sites are method references, and a
+# gate that read lambda[...] records alone would refuse a site migrated to
+# `this::handle` -- scoring the golden's spelling rather than the work. That is
+# the same defect round 1 of step 03's static review found in the nio
+# denominator, and it is not repeated here.
+target.lambdafiles=20
+
+# --- @FunctionalInterface, C-2 ----------------------------------------------
+# The tree declares 65 interfaces and 24 of them are SAMs, at the baseline and
+# at the golden alike: converting an anonymous body to a lambda does not change
+# what its interface is. So the annotation has exactly one correct extent, and
+# it is the 24 (path, Name) pairs in baseline/samifaces.txt -- which is the
+# whole SAM census and not a sample of it. See that file for the proof that the
+# frozen set is the tree's and not the solution's.
+#
+# Frozen as a SET and not as a count, because a count of 24 is reachable by
+# declaring 24 trivial annotated interfaces in a file of one's own while leaving
+# the tree's own 24 unmarked.
+target.sam=24
+target.samannotated=24
+target.iface.decl=65
+
+# --- streams, C-3 -----------------------------------------------------------
+# 114 enhanced `for` statements at the baseline, 24 of which collect into a
+# collection -- the one shape with a faithful stream form. The golden migrates
+# all 24, so foreach.size falls 114 -> 90 and foreach.collect falls 24 -> 0.
+#
+# 24 pipelines arrive, entered once each, with 48 stages between them. The
+# producers-vs-stages split matters and is pinned in the gate's own selftest:
+# `filter()` both takes and returns a stream, so a counter that called every
+# stream-returning call an entry would report two entries in one pipeline.
+target.foreach.collect=0
+target.stream.producers=24
+target.stream.ops=48
+
+# The arrival half of C-3, and the reason SourceScan grew per-site stream[...]
+# records at all: `foreach.collect` reaching 0 says the loops are gone, not that
+# they were migrated. A tree that deleted the 24 loops and wrote 24 unrelated
+# pipelines in a file of its own moves every counter above exactly as far as one
+# that did the work. So the gate asks which of the 14 named files in
+# baseline/streamfiles.txt now holds a stream PRODUCER.
+#
+# Measured on the golden: the producer files are IDENTICAL to the 14 frozen
+# ones, not merely 14 in number.
+target.stream.files=14
+
+# A producer alone is not a pipeline, and round 1 of this step's static review
+# is why the distinction is frozen. `xs.stream();` as a statement enters the
+# stream world, does nothing and comes back: it is a producer, it lands in the
+# right file, and fourteen of them used to collect the whole arrival half of
+# C-3. So the scorer asks for a producer AND a stage in the same file, and the
+# stage census is frozen here alongside the producer one.
+#
+# 48 stages over 24 pipelines, so two per pipeline: all 14 producer files carry
+# stages on the golden, and the conjunction is nowhere near tight against a tree
+# that did the work.
+target.stream.opfiles=14
+
+# And a file is still too coarse, which is round 2 of the same review. A tree
+# that removes the 24 loops by some means that is not a loop and not a stream --
+# `dst.addAll(src)`, `src.forEach(dst::add)` -- passes the census half honestly,
+# and then fourteen `xs.stream().count();` statements, one per file, pay the
+# arrival half in full. `count()` is a stage, so the producer-AND-stage
+# conjunction above does not see it coming.
+#
+# So arrival is asked one scope down: of the 24 <file>#<method> buckets that
+# held the collecting loops, how many now hold a producer AND a stage. Frozen in
+# baseline/collectmethods.txt, which is derived from source.txt's own foreach
+# records. The golden's 24 producer buckets and 24 stage buckets are each
+# IDENTICAL to those 24 -- measured, and with nothing left over, which is what
+# says the golden put its pipelines where the loops were rather than merely
+# somewhere in the same files.
+target.stream.opmethods=24
+target.collectmethods=24
+
+# The other half of that finding, and the reason SourceScan grew a whole-tree
+# loop census. `foreach.collect` counts an enhanced `for` whose body collects,
+# so a candidate who rewrites all 24 as `while (it.hasNext())` -- or as an
+# indexed `for`, or a `do` -- takes it to 0 having migrated nothing, and family
+# A stays green because the adds still happen. What distinguishes a loop that
+# BECAME a pipeline from one that changed spelling is that the first is not
+# there any more.
+#
+# 139 loop statements at the baseline against the golden's 115, all four
+# spellings counted. The difference is exactly the 24, and the other two
+# spellings do not move: 15 indexed `for` and 10 `while` at both ends, 114 -> 90
+# enhanced `for`. A reshape leaves the total where it was.
+target.loop.size=115
+target.loop.for=15
+target.loop.while=10
+
+# --- the compile level, C-4 -------------------------------------------------
+# The gate that cannot be satisfied by annotation or by counting: the tree must
+# compile at -source 1.8 and must NOT compile at -source 1.7. A tree carrying
+# real Java 8 constructs cannot compile at 1.7, and a tree that merely raised
+# build.gradle still can.
+#
+# Measured, with the taxonomy checked rather than assumed:
+#
+#   step-03 golden (this step's INPUT) at 1.7   rc=0 errors=0 classes=486
+#   golden at 1.8                               rc=0 errors=0 classes=451
+#   golden at 1.7                               rc=1 errors=47
+#
+# All 47 are level errors -- 33 "lambda expressions are not supported in
+# -source 1.7" and 14 "method references are not supported in -source 1.7",
+# over 33 distinct files, with 0 errors of any other kind. The scorer requires
+# every 1.7 error to be a level error for exactly that reason: a tree that fails
+# at 1.7 because it does not compile anywhere has not demonstrated anything, and
+# would otherwise score the same as one that outgrew the level.
+#
+# 20, not 47, is the threshold. The golden clears it with x2.35 of headroom, and
+# the point of the gap is that a candidate who migrates most of the tree still
+# passes while the one-construct flip does not: a single lambda reads 1/20.
+target.level17.errors=47
+target.level17.floor=20
+
+# --- what step 03 won and must not lose, B-10 -------------------------------
+# Every figure in this block is the step-03 target, unchanged. They are repeated
+# here because a step-local gate cannot notice a tree that earns its own rung by
+# undoing the one below it -- the ladder's ninth trap -- and because two of them
+# move for an honest reason and would otherwise look like regressions.
+#
+# The generics figure is the one that needs care. `newgeneric.explicit` falls
+# 50 -> 36 across this step and that is CORRECT: 14 of the explicit-generic
+# sites sit on anonymous classes, an anonymous class cannot be a lambda and keep
+# its type arguments, and so those 14 sites legitimately vanish when the body
+# becomes a lambda. `explicitanon` falls 27 -> 13 by the same 14. The quantity
+# that must hold is therefore the NON-anonymous remainder,
+# explicit - explicitanon, which is 23 at both ends. A gate reading raw
+# `explicit` would fail the golden.
+target.diamond=93
+target.diamondfiles=47
+target.explicit.nonanon=23
+target.try.resources=9
+target.try.resourcevars=12
+target.close.manual=0
+target.iofile=2
+target.niofile.ref=13
+target.niofile.files=6
+
+# B-10's three denominators, which are step 03's POPULATIONS rather than this
+# step's figures. The quantity the gate is about is how much of step 03's work
+# is still standing, so what it divides by is how much work step 03 did -- and a
+# regression is counted against that same number, so that a tree which undid the
+# whole of one construct reads 0 on that third and a tree which undid one site
+# of it pays one site's worth.
+#
+# All three are differences of two step-03 frozen figures, repeated here so that
+# this scorer reads one baseline directory rather than two:
+#
+#   93  diamonds converted   newgeneric.diamond 0 -> 93, and the non-anonymous
+#                            explicit-generic sites 116 -> 23, which is the same
+#                            93 counted from the other end
+#   11  manual closes moved  close.manual 11 -> 0, with 9 resource clauses
+#                            arriving: two of the 11 acquisitions share a try
+#   11  java.io sites moved  iofile 13 -> 2. NOT the golden's 13 NIO.2
+#                            references -- that is one correct tree's spelling
+#                            and this is the requirement, the same distinction
+#                            step 03's own C-3 comment records at length.
+target.b10.diamond=93
+target.b10.close=11
+target.b10.nio=11
+
+# --- the anti-gaming denominators, unchanged from step 03 -------------------
+# Raw types added and suppressions above the baseline both scale the family-C
+# score rather than gating it, for the reason step 03's notes record: a gate
+# would let one added @SuppressWarnings cancel the whole step's work.
+target.raw=0
+target.suppress.sites=44

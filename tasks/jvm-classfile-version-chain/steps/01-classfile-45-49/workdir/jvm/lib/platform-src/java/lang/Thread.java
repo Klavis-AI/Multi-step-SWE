@@ -1,0 +1,76 @@
+package java.lang;
+public class Thread implements Runnable {
+    public static final int MIN_PRIORITY = 1;
+    public static final int NORM_PRIORITY = 5;
+    public static final int MAX_PRIORITY = 10;
+
+    private volatile String name;
+    private int priority = NORM_PRIORITY;
+    private boolean daemon;
+    private Runnable target;
+    private long eetop;          // VM thread handle
+    private long tid;
+    private boolean started;
+    private boolean virtual;
+    private volatile boolean interrupted;
+    private static int threadSeq;
+    private static long tidSeq = 1;
+
+    public Thread() { this(null, null); }
+    public Thread(Runnable target) { this(target, null); }
+    public Thread(String name) { this(null, name); }
+    public Thread(Runnable target, String name) {
+        this.target = target;
+        synchronized (Thread.class) {
+            this.name = (name != null) ? name : ("Thread-" + threadSeq++);
+            this.tid = tidSeq++;
+        }
+        Thread parent = currentThread();
+        if (parent != null) { this.priority = parent.priority; this.daemon = parent.daemon; }
+    }
+    Thread(Runnable target, String name, boolean virtual) { this(target, name); this.virtual = virtual; }
+
+    public static native Thread currentThread();
+    public static native void yield();
+    public static native void sleep(long millis) throws InterruptedException;
+    public static void sleep(long millis, int nanos) throws InterruptedException { sleep(millis); }
+
+    private native void start0();
+    public synchronized void start() {
+        if (started) throw new IllegalThreadStateException();
+        started = true;
+        start0();
+    }
+    public void run() { if (target != null) target.run(); }
+    public final String getName() { return name; }
+    public final void setName(String name) { this.name = name; }
+    public final int getPriority() { return priority; }
+    public final void setPriority(int newPriority) {
+        if (newPriority > MAX_PRIORITY || newPriority < MIN_PRIORITY) throw new IllegalArgumentException();
+        priority = newPriority;
+    }
+    public final boolean isDaemon() { return daemon; }
+    public final void setDaemon(boolean on) {
+        if (started) throw new IllegalThreadStateException();
+        daemon = on;
+    }
+    public long getId() { return tid; }
+    public native boolean isAlive();
+    public native void interrupt();
+    public native boolean isInterrupted();
+    public static native boolean interrupted();
+    public final synchronized void join(long millis) throws InterruptedException {
+        long base = System.currentTimeMillis();
+        if (millis == 0) { while (isAlive()) wait(0); }
+        else {
+            while (isAlive()) {
+                long delay = millis - (System.currentTimeMillis() - base);
+                if (delay <= 0) break;
+                wait(delay);
+            }
+        }
+    }
+    public final void join() throws InterruptedException { join(0); }
+    public String toString() { return "Thread[" + getName() + "," + getPriority() + ",main]"; }
+    public StackTraceElement[] getStackTrace() { return new StackTraceElement[0]; }
+}

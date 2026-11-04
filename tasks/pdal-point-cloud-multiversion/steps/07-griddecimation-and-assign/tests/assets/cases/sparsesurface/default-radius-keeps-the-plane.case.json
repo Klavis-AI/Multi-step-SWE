@@ -1,0 +1,89 @@
+{
+ "doc": "stages/filters.sparsesurface.rst: 'The **Sparse Surface filter** segments input points into two classes: ground or low point. It does this by adding ground points in ascending elevation order, and masking all neighbor points within a specified radius as low points. This process creates a sparse sampling of the ground estimate akin to the Poisson disk sampling available in :ref:`filters.sample` and marks all other points as low noise.' and its Options block: radius 'Mask neighbor points as low noise. [Default: **1.0**]' -- the page's Example #2 calls the sampling radius 'the only option unique to the sparse sample filter', and at 2.7.1 that is literally true: the stage takes no other option.  PROFILE.md 7.1 fixes the distance convention: 'every still-unselected point *strictly* within `radius` of it *horizontally* — X and Y only, Z is not part of the distance — is a low point [...] A point at horizontal distance *exactly* `radius` is **not** masked.'  The option's [Default: **1.0**] is asserted by leaving the option off and getting the same split as an explicit 1.0: 1600 ground and 52 low noise.  That split is exact rather than bracketed because at radius 1.0 it cannot depend on the walk order: the fixture's 1652 points occupy only 1600 distinct X/Y positions, the closest two distinct positions are exactly 1 m apart and so are **not** within a strict 1.0 of each other, and the 52 points that share a position with another are at distance 0 -- whichever of a coincident pair is reached first is ground and the other is masked, either way 1600 and 52.  The page names the two classes -- 'ground or low point' -- but nowhere states the `Classification` codes it writes, so those come from the profile.  PROFILE.md 7.1: '**The classes it writes, how it picks them, and how far this task grades the result are not on the page, so they are stated here.** Every input point is kept — nothing is dropped, so the output holds exactly as many points as the input. The filter reassigns `Classification` on the whole view: points it picks as ground become `2` and every point it masks becomes `7`, and no other `Classification` value survives.'",
+ "files": {
+  "t.las": {
+   "fixture": "terrain.las"
+  },
+  "p.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"t.las\"}, {\"type\": \"filters.sparsesurface\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]"
+  },
+  "cnt.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"out.las\"}, {\"type\": \"filters.expression\", \"expression\": \"Classification==7\"}, {\"type\": \"writers.las\", \"filename\": \"cnt.las\"}]"
+  },
+  "grnd.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"out.las\"}, {\"type\": \"filters.expression\", \"expression\": \"Classification==2\"}, {\"type\": \"writers.las\", \"filename\": \"grnd.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "cnt.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "grnd.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": {
+     "equals": 1652
+    }
+   },
+   "dims": {
+    "Classification": {
+     "unique": [
+      2,
+      7
+     ]
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "grnd.las",
+   "header": {
+    "point_count": {
+     "equals": 1600
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "cnt.las",
+   "header": {
+    "point_count": {
+     "equals": 52
+    }
+   }
+  }
+ ]
+}

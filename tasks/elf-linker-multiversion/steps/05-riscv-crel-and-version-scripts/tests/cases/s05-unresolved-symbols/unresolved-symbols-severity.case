@@ -1,0 +1,27 @@
+# arch: x86_64
+# what: --warn-unresolved-symbols downgrades an unresolved reference to a
+# diagnostic that still names the symbol while the link succeeds, and
+# --error-unresolved-symbols puts it back to fatal.
+rt_obj rt.o
+cat > u.c <<'C'
+int missing_one(void);
+int entry(void) { return missing_one() + 1; }
+C
+cc_obj u.o u.c
+link_ok warn --warn-unresolved-symbols rt.o u.o
+want_has "warning names the symbol"       "$LINK_OUT" "missing_one"
+want "a complete executable was written" "$(hdr warn | awk '/^ *Type:/{print $2}')" "EXEC"
+want "entry point is _start" \
+  "$((  $(hdr warn | awk '/Entry point address:/{print $NF}') ))" \
+  "$((0x$(sym_value warn _start)))"
+link_fails err --error-unresolved-symbols rt.o u.o
+want_has "error names the symbol" "$LINK_OUT" "missing_one"
+# The severity flag applies on top of an explicit reporting policy too.
+link_ok warn2 --unresolved-symbols=report-all --warn-unresolved-symbols rt.o u.o
+want_has "report-all + warn is still a warning" "$LINK_OUT" "missing_one"
+want "report-all + warn still links" "$(hdr warn2 | awk '/^ *Type:/{print $2}')" "EXEC"
+# ...but an ignoring policy wins over the severity flag: nothing is said.
+link_ok quiet --error-unresolved-symbols --unresolved-symbols=ignore-all rt.o u.o
+want "ignore-all silences the report" "$LINK_OUT" ""
+# 7 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 7

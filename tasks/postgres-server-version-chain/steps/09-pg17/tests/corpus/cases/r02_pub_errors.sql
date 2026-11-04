@@ -1,0 +1,12 @@
+CREATE TABLE q2_per(i int);
+CREATE VIEW q2_per_v AS SELECT * FROM q2_per;
+CREATE PUBLICATION q2_per_p FOR TABLE q2_per;
+CREATE PUBLICATION q2_per_p FOR TABLE q2_per;
+CREATE PUBLICATION q2_per_v_p FOR TABLE q2_per_v;
+CREATE PUBLICATION q2_per_bad WITH (publish = 'bogus');
+CREATE PUBLICATION q2_per_opt WITH (nosuchoption = 'x');
+DROP PUBLICATION q2_per_p;
+DROP PUBLICATION q2_per_p;
+DROP PUBLICATION IF EXISTS q2_per_p;
+DROP VIEW q2_per_v;
+DROP TABLE q2_per;

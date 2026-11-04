@@ -1,0 +1,11 @@
+SHOW timezone;
+SHOW datestyle;
+SHOW lc_messages;
+SHOW standard_conforming_strings;
+SET work_mem = '2MB';
+SHOW work_mem;
+RESET work_mem;
+SET search_path = public;
+SHOW search_path;
+SHOW no_such_guc_at_all;
+SET no_such_guc_at_all = 1;

@@ -1,0 +1,11 @@
+CREATE TABLE x05_18a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x05_18a1 PARTITION OF x05_18a FOR VALUES FROM (0) TO (10);
+CREATE TABLE x05_18a2 PARTITION OF x05_18a FOR VALUES FROM (10) TO (20);
+CREATE PUBLICATION x05_18p FOR TABLE x05_18a WITH (publish_via_partition_root = true);
+INSERT INTO x05_18a VALUES (1,'a'),(11,'b');
+SELECT tableoid::regclass::text AS part, a, b FROM x05_18a ORDER BY a;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_18p' ORDER BY tablename;
+ALTER TABLE x05_18a DETACH PARTITION x05_18a2;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_18p' ORDER BY tablename;
+DROP PUBLICATION x05_18p;
+DROP TABLE x05_18a, x05_18a2;

@@ -1,0 +1,33 @@
+# arch: x86_64
+# An address that is not a number is reported against the option that carried
+# it, and nothing is written.
+rt_obj rt.o
+cat > v.c <<'C'
+int dvar = 7;
+int entry(void) { return dvar + 35; }
+C
+cc_obj v.o v.c
+
+link_fails no1 -Ttext=zzz rt.o v.o --no-gc-sections
+want_has "the diagnostic names the option" "$LINK_OUT" '\-Ttext'
+want_has "and the value it rejected" "$LINK_OUT" 'zzz'
+[ -e no1 ] && die "a rejected -Ttext still wrote an output file"
+
+link_fails no2 -Tdata=notanumber rt.o v.o --no-gc-sections
+want_has "the -Tdata diagnostic names the option" "$LINK_OUT" '\-Tdata'
+want_has "and the value it rejected" "$LINK_OUT" 'notanumber'
+
+link_fails no3 -Tbss=0x rt.o v.o --no-gc-sections
+want_has "the -Tbss diagnostic names the option" "$LINK_OUT" '\-Tbss'
+
+# The same inputs link when the address is well formed, so the refusal is about
+# the value and not about the objects.
+link_ok yes -Ttext=0x500000 rt.o v.o --no-gc-sections
+yes_text=$(sec_addr yes .text)
+[ -n "$yes_text" ] || die "the accepted link produced no .text to place"
+want "-Ttext places .text" "$((16#$yes_text))" "$((0x500000))"
+run_expect yes "" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 6

@@ -1,0 +1,37 @@
+# arch: x86_64
+# Merging rewrites addresses but must not damage content: every literal is
+# still NUL-terminated and distinct after the merge, including ones that are
+# prefixes or suffixes of each other.
+rt_obj rt.o
+cat > a.c <<'C'
+const char *p1(void) { return "abc"; }
+const char *p2(void) { return "abcdef"; }
+const char *p3(void) { return "def"; }
+C
+cat > b.c <<'C'
+const char *q1(void) { return "abc"; }
+const char *q2(void) { return ""; }
+const char *q3(void) { return "abcdef"; }
+C
+cat > m.c <<'C'
+#include "rt.h"
+const char *p1(void); const char *p2(void); const char *p3(void);
+const char *q1(void); const char *q2(void); const char *q3(void);
+static long len(const char *s) { long n = 0; while (s[n]) n++; return n; }
+static int eq(const char *x, const char *y) {
+  while (*x && *x == *y) { x++; y++; }
+  return *x == *y;
+}
+int entry(void) {
+  int ok = 0;
+  if (len(p1()) == 3 && len(p2()) == 6 && len(p3()) == 3 && len(q2()) == 0) ok |= 1;
+  if (eq(p1(), "abc") && eq(p2(), "abcdef") && eq(p3(), "def")) ok |= 2;
+  if (p1() == q1() && p2() == q3()) ok |= 4;
+  if (p1() != p2() && p2() != p3()) ok |= 8;
+  print(p1()); print(p2()); print(p3()); print(q2()); print("\n");
+  return ok;
+}
+C
+cc_obj a.o a.c; cc_obj b.o b.c; cc_obj m.o m.c
+link_ok out rt.o a.o b.o m.o
+run_expect out "abcabcdefdef" 15

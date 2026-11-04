@@ -1,0 +1,9 @@
+CREATE TABLE q4_mvo(a int);
+INSERT INTO q4_mvo SELECT generate_series(1,20);
+VACUUM (SKIP_LOCKED) q4_mvo;
+VACUUM (INDEX_CLEANUP OFF) q4_mvo;
+VACUUM (TRUNCATE OFF) q4_mvo;
+VACUUM (SKIP_LOCKED, ANALYZE) q4_mvo;
+VACUUM (NOSUCHOPT) q4_mvo;
+SELECT count(*) FROM q4_mvo;
+DROP TABLE q4_mvo;

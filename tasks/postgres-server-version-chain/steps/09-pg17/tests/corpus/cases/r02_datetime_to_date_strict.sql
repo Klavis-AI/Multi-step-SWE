@@ -1,0 +1,6 @@
+SELECT to_date('2020-02-30','YYYY-MM-DD');
+SELECT to_date('2020-13-01','YYYY-MM-DD');
+SELECT to_date('2020-02-29','YYYY-MM-DD');
+SELECT to_date('2019-02-29','YYYY-MM-DD');
+SELECT to_date('2020-00-01','YYYY-MM-DD');
+SELECT to_date('2020-01-00','YYYY-MM-DD');

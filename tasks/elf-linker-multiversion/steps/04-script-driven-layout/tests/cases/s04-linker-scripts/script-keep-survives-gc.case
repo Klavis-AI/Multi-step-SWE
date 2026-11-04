@@ -1,0 +1,72 @@
+# arch: x86_64
+# what: KEEP(...) in a SECTIONS description is a garbage-collection root -- the
+# matched input section and everything it points at survive --gc-sections -- while
+# an equally unreferenced input section matched without KEEP does not. Also that
+# section GC is ON BY DEFAULT: the sweep happens with no flag at all, and only
+# --no-gc-sections turns it off.
+rt_obj rt.o
+cat > d.s <<'S'
+        .section .text.ctor,"ax",@progbits
+        .globl ctor_a
+ctor_a: mov $1, %eax
+        ret
+        .section .text.dead,"ax",@progbits
+        .globl dead_fn
+dead_fn: mov $2, %eax
+        ret
+        .section .myinit,"aw",@progbits
+        .quad ctor_a
+        .section .mydead,"aw",@progbits
+        .quad dead_fn
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d.o d.s
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { return 0; }
+C
+cc_obj m.o m.c
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+    kept : { KEEP(*(.myinit)) }
+    dropped : { *(.mydead) }
+}
+L
+link_ok out -T lay.ld --gc-sections rt.o m.o d.o
+# The KEEP'd input section is retained ...
+want "kept exists" "$(sections out | grep -cE '[[:space:]]kept[[:space:]]')" "1"
+want "kept size" "$(( 16#$(sec_size out kept) ))" "8"
+# ... and so is the function it points at, because KEEP made it a GC root.
+ca=$(sym_value out ctor_a)
+[ -n "$ca" ] && [ "$(( 16#$ca ))" -ne 0 ] || die "ctor_a was collected despite KEEP"
+kaddr=$(sec_addr out kept)
+slot=$($OBJDUMP -s -j kept out | awk -v a="$(printf '%x' $(( 16#$kaddr )))" '$1==a{print $2 $3}')
+# .quad ctor_a, little endian, as 8 bytes of hex.
+want "kept slot holds &ctor_a" "$slot" \
+  "$(printf '%016x' $(( 16#$ca )) | fold -w2 | tac | tr -d '\n')"
+# The unKEEP'd, unreferenced sibling is collected: no section, no symbol.
+want "dropped section absent" "$(sections out | grep -cE '[[:space:]]dropped[[:space:]]')" "0"
+want "dead_fn collected" "$(symbols out | awk '$8=="dead_fn"' | wc -l)" "0"
+run_expect out "" 0
+
+# GC is on by DEFAULT, so the link above proves nothing about the default until
+# the flag is removed. Three links, one variable: no flag must behave like
+# --gc-sections and unlike --no-gc-sections.
+link_ok def -T lay.ld            rt.o m.o d.o
+link_ok off -T lay.ld --no-gc-sections rt.o m.o d.o
+want "no flag: GC still ran, dropped is absent" \
+  "$(sections def | grep -cE '[[:space:]]dropped[[:space:]]')" "0"
+want "no flag: KEEP'd section still present" \
+  "$(sections def | grep -cE '[[:space:]]kept[[:space:]]')" "1"
+# ... and the sweep is genuinely suppressible, which is what makes the two
+# previous assertions a discrimination rather than a section that never existed.
+want "--no-gc-sections: dropped survives" \
+  "$(sections off | grep -cE '[[:space:]]dropped[[:space:]]')" "1"
+# Only section presence is asserted for the suppressed link: whether the
+# collected FUNCTION symbol reappears in .symtab under --no-gc-sections varies
+# across the reference releases, so asserting on dead_fn here would be a
+# version-specific claim rather than a requirement.
+run_expect def "" 0
+asserts_at_least 8

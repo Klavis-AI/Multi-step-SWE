@@ -1,0 +1,41 @@
+# Step 11 -- C-4's behaviour scaling: the 4 recorded fixtures whose outcome is
+# the checked IllegalAccessException that `Constructor.newInstance` and
+# `Method.invoke` raise when the member they were handed is inaccessible.
+# Slash form, because that is the form behavior.differ[] and behavior.missing[]
+# report and this list is compared against those.
+#
+# THESE ARE THE FOUR SITES C-4 MUST NOT TOUCH, PRICED. varhandle.txt marks four
+# of the fourteen setAccessible calls `verdict=behaviour`: three
+# Constructor.newInstance chains and one Method.invoke setter. Reflection
+# reports inaccessibility there as a checked IllegalAccessException at the call
+# site, and each of these recordings carries one. A MethodHandles.Lookup does
+# not: it refuses at unreflect time, which is a different moment and a
+# different type, so any tree that converts one of the four stops producing
+# these transcripts.
+#
+# C-4's structural halves are MULTIPLIED by the fraction of these that still
+# match. The hold half already asks that ten setAccessible calls survive; this
+# asks the harder question, which is whether what surrounds them still answers
+# the way it answered. A tree that keeps all ten calls and rewrites their
+# catches scores the hold half in full and this one at zero.
+#
+# ONE TRANSCRIPT CARRIES THE EXCEPTION AND IS DELIBERATELY NOT HERE.
+# svc/sl-package-private-class records java.lang.IllegalAccessException too,
+# but it is raised by `java.util.ServiceLoader$ProviderImpl` INSIDE java.base
+# about a probe provider class -- the JDK's reflection refusing, not this
+# tree's -- and it arrives wrapped in the java.util.ServiceConfigurationError
+# that says as much. No site in varhandle.txt is on its path. It belongs to
+# B-15.3, whose svcids.txt already scales by it, and a list that took all five
+# would charge one regression to two legs.
+#
+# DERIVED, NOT TYPED. mk-baseline-step11.sh states each id with the transcript
+# line it must carry, asserts every line against rec/jdk25-step11, derives the
+# same set independently as "carries IllegalAccessException and does not carry
+# ServiceConfigurationError", and requires the two to agree -- so a sixth
+# recording growing the exception fails the generator instead of escaping the
+# scaling. It then checks all six behaviour-id lists this era carries, 15
+# pairs, for the overlap that rule exists to prevent. NOTES 16.17, 16.21.
+domain/container-create-config-hidden-class
+domain/container-create-config-no-public-ctor
+domain/protodef-create-configuration-no-public-ctor
+webrunner/security-new-instance-non-public-class

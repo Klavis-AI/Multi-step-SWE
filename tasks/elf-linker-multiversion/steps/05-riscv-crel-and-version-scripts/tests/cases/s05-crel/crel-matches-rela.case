@@ -1,0 +1,102 @@
+# arch: x86_64
+# what: an object whose SHT_RELA sections have been re-encoded as SHT_CREL must
+# produce a byte-for-byte identical output to the SHT_RELA original.
+cat > crel.py <<'PY'
+import sys, struct
+# argv[2], when given, is the sh_entsize left behind on the CREL section.
+ENTSIZE = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+f = bytearray(open(sys.argv[1], 'rb').read())
+sho, = struct.unpack_from('<Q', f, 0x28)
+esz, num = struct.unpack_from('<HH', f, 0x3a)
+def leb(v, s):
+    o = bytearray()
+    while 1:
+        b = v & 0x7f; v >>= 7
+        if (v == 0 and (not s or not b & 0x40)) or (s and v == -1 and b & 0x40):
+            return o + bytes([b])
+        o.append(b | 0x80)
+for i in range(num):
+    o = sho + i * esz
+    if struct.unpack_from('<I', f, o + 4)[0] != 4: continue   # SHT_RELA
+    so, ss = struct.unpack_from('<QQ', f, o + 0x18)
+    out = bytearray(leb(ss // 24 << 3 | 4, 0)); p = [0, 0, 0, 0]
+    for k in range(ss // 24):
+        ro, ri, ra = struct.unpack_from('<QQq', f, so + k * 24)
+        c = [ro, ri >> 32, ri & 0xffffffff, ra]
+        fl = sum(m for m, j in ((1, 1), (2, 2), (4, 3)) if c[j] != p[j])
+        d = ro - p[0]
+        out.append(fl | (d & 0xf) << 3 | (0x80 if d >> 4 else 0))
+        if d >> 4: out += leb(d >> 4, 0)
+        for m, j in ((1, 1), (2, 2), (4, 3)):
+            if fl & m: out += leb(c[j] - p[j], 1)
+        p = c
+    assert len(out) <= ss
+    f[so:so + len(out)] = out
+    struct.pack_into('<I', f, o + 4, 0x40000014)              # SHT_CREL
+    struct.pack_into('<Q', f, o + 0x20, len(out))
+    struct.pack_into('<Q', f, o + 0x38, ENTSIZE)
+open(sys.argv[1], 'wb').write(f)
+PY
+rt_obj rt.o
+cat > x.c <<'C'
+#include "rt.h"
+extern long datum; extern long other[];
+long *const ptrs[2] = { &datum, &other[3] };
+long f1(void) { return datum + other[3] + *ptrs[1]; }
+void say(void) { print("crel\n"); }
+C
+cat > d.c <<'C'
+long datum = 40;
+long other[8] = { 0, 0, 0, 2, 0, 0, 0, 0 };
+C
+cat > m.c <<'C'
+long f1(void); void say(void);
+int entry(void) { say(); return (int)f1(); }
+C
+cc_obj x.o x.c; cc_obj d.o d.c; cc_obj m.o m.c
+cp x.o xc.o
+python3 crel.py xc.o || die "crel re-encoding failed"
+sections x.o > sr.txt; sections xc.o > sc.txt
+want "original has 2 RELA sections" "$(grep -c ' RELA ' sr.txt)" "2"
+want "rewritten has no RELA"        "$(grep -c ' RELA ' sc.txt)" "0"
+want "rewritten has 2 SHT_CREL"     "$(grep -c '0x40000014' sc.txt)" "2"
+want "same number of sections"      "$(wc -l < sr.txt)" "$(wc -l < sc.txt)"
+link_ok rela.out rt.o x.o d.o m.o
+link_ok crel.out rt.o xc.o d.o m.o
+cmp -s rela.out crel.out || die "CREL and RELA inputs gave different outputs: $(cmp rela.out crel.out)"
+run_expect rela.out "crel" 44
+run_expect crel.out "crel" 44
+# A CREL section's contents are a byte stream, so sh_entsize does not describe
+# them and MUST NOT be read as an entry count: only the header's `count` field
+# is authoritative (spec/11 §9). The fixtures above leave sh_entsize = 1, the
+# value the re-encoder writes; leaving 0 there must change nothing.
+cp x.o xz.o
+python3 crel.py xz.o 0 || die "crel re-encoding with sh_entsize=0 failed"
+want "sh_entsize=0 variant is still SHT_CREL" "$(sections xz.o | grep -c '0x40000014')" "2"
+link_ok crel0.out rt.o xz.o d.o m.o
+want "sh_entsize is not an entry count" "$(cmp -s rela.out crel0.out && echo same)" "same"
+run_expect crel0.out "crel" 44
+# The header's `count` is authoritative and the link MUST fail if the stream
+# runs out before that many relocations have been decoded (spec/11 §9). Shave
+# one byte off the CREL section's sh_size so the last entry is incomplete.
+cat > trunc.py <<'PY2'
+import sys, struct
+f = bytearray(open(sys.argv[1], 'rb').read())
+sho, = struct.unpack_from('<Q', f, 0x28)
+esz, num = struct.unpack_from('<HH', f, 0x3a)
+for i in range(num):
+    o = sho + i * esz
+    if struct.unpack_from('<I', f, o + 4)[0] != 0x40000014: continue
+    sz, = struct.unpack_from('<Q', f, o + 0x20)
+    struct.pack_into('<Q', f, o + 0x20, sz - 1)
+    break
+else:
+    raise SystemExit("no SHT_CREL section found")
+open(sys.argv[1], 'wb').write(f)
+PY2
+cp xc.o xt.o
+python3 trunc.py xt.o || die "crel truncation failed"
+link_fails crel-trunc.out rt.o xt.o d.o m.o
+want_has "a truncated CREL stream is diagnosed on stderr" "$LINK_ERR" '.'
+# 7 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 7

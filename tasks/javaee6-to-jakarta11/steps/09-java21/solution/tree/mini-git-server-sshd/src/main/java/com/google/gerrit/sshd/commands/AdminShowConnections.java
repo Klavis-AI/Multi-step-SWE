@@ -1,0 +1,182 @@
+// Copyright (C) 2009 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package com.google.gerrit.sshd.commands;
+
+import com.google.gerrit.server.CurrentUser;
+import com.google.gerrit.server.IdentifiedUser;
+import com.google.gerrit.server.util.IdGenerator;
+import com.google.gerrit.sshd.AdminCommand;
+import com.google.gerrit.sshd.BaseCommand;
+import com.google.gerrit.sshd.SshDaemon;
+import com.google.gerrit.sshd.SshSession;
+
+import org.apache.sshd.common.io.IoAcceptor;
+import org.apache.sshd.common.io.IoSession;
+import org.apache.sshd.common.session.helpers.AbstractSession;
+import org.apache.sshd.server.Environment;
+import org.apache.sshd.server.channel.ChannelSession;
+import org.apache.sshd.server.session.ServerSession;
+import org.kohsuke.args4j.Option;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.io.PrintWriter;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+
+/** Show the current SSH connections. */
+@AdminCommand
+final class AdminShowConnections extends BaseCommand {
+  // DateTimeFormatter is immutable and thread-safe, so unlike the
+  // SimpleDateFormat this replaces it can be shared by every session.
+  private static final DateTimeFormatter TIME_OF_DAY =
+      DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
+  private static final DateTimeFormatter MONTH_DAY =
+      DateTimeFormatter.ofPattern("MMM-dd").withZone(ZoneId.systemDefault());
+
+  @Option(name = "--numeric", aliases = {"-n"}, usage = "don't resolve names")
+  private boolean numeric;
+
+  private PrintWriter p;
+
+  @Autowired
+  private SshDaemon daemon;
+
+  @Override
+  public void start(final ChannelSession channel, final Environment env) {
+    startThread(() -> {
+      parseCommandLine();
+      display();
+    });
+  }
+
+  private void display() throws Failure {
+    p = toPrintWriter(out);
+
+    final IoAcceptor acceptor = daemon.getIoAcceptor();
+    if (acceptor == null) {
+      throw new Failure(1, "fatal: sshd no longer running");
+    }
+
+    final List<IoSession> list =
+        new ArrayList<>(acceptor.getManagedSessions().values());
+    // Session ids are handed out by one ascending counter, so ordering by id
+    // is ordering by connect time. That matters because the socket no longer
+    // carries timestamps of its own: the two columns below come from this
+    // server's record of the connection and from the session's idle clock.
+    //
+    list.sort(Comparator.comparingLong(IoSession::getId));
+
+    final long now = System.currentTimeMillis();
+    p.print(String.format("%-8s %8s %8s   %-15s %s\n", //
+        "Session", "Start", "Idle", "User", "Remote Host"));
+    p.print("--------------------------------------------------------------\n");
+    for (final IoSession io : list) {
+      AbstractSession as = AbstractSession.getSession(io, true);
+      ServerSession s = as instanceof ServerSession ss ? ss : null;
+      SshSession sd = s != null ? s.getAttribute(SshSession.KEY) : null;
+
+      final SocketAddress remoteAddress = io.getRemoteAddress();
+      final long start = sd != null ? sd.getCreatedAt() : now;
+      final long idle =
+          s != null ? now - s.getIdleTimeoutStart().toEpochMilli() : 0;
+
+      p.print(String.format("%8s %8s %8s  %-15.15s %.30s\n", //
+          id(sd), //
+          time(now, start), //
+          age(idle), //
+          username(sd), //
+          hostname(remoteAddress)));
+    }
+    p.print("--\n");
+
+    p.flush();
+  }
+
+  private static String id(final SshSession sd) {
+    return sd != null ? IdGenerator.format(sd.getSessionId()) : "";
+  }
+
+  private static String time(final long now, final long time) {
+    final Instant when = Instant.ofEpochMilli(time);
+    if (time - now < 24 * 60 * 60 * 1000L) {
+      return TIME_OF_DAY.format(when);
+    }
+    return MONTH_DAY.format(when);
+  }
+
+  private static String age(long age) {
+    age /= 1000;
+
+    final int sec = (int) (age % 60);
+    age /= 60;
+
+    final int min = (int) (age % 60);
+    age /= 60;
+
+    final int hr = (int) (age % 60);
+    return String.format("%02d:%02d:%02d", hr, min, sec);
+  }
+
+  private String username(final SshSession sd) {
+    if (sd == null) {
+      return "";
+    }
+
+    final CurrentUser user = sd.getCurrentUser();
+    if (user instanceof IdentifiedUser u) {
+
+      if (!numeric) {
+        String name = u.getUserName();
+        if (name != null && !name.isEmpty()) {
+          return name;
+        }
+      }
+
+      return "a/";
+
+    } else {
+      return "";
+    }
+  }
+
+  private String hostname(final SocketAddress remoteAddress) {
+    if (remoteAddress == null) {
+      return "?";
+    }
+    String host = null;
+    if (remoteAddress instanceof final InetSocketAddress sa) {
+      final InetAddress in = sa.getAddress();
+      if (numeric) {
+        return in.getHostAddress();
+      }
+      if (in != null) {
+        host = in.getCanonicalHostName();
+      } else {
+        host = sa.getHostName();
+      }
+    }
+    if (host == null) {
+      host = remoteAddress.toString();
+    }
+    return host;
+  }
+}

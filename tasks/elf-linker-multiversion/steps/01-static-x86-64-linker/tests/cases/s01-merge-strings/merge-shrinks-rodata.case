@@ -1,0 +1,33 @@
+# arch: x86_64
+# Deduplication is real storage saving, not just pointer equality: turning it
+# off with --no-string-merge makes .rodata grow by the duplicated bytes and
+# makes the two pointers differ.
+rt_obj rt.o
+cat > a.c <<'C'
+const char *from_a(void) { return "0123456789abcdef0123456789abcdef"; }
+C
+cat > b.c <<'C'
+const char *from_b(void) { return "0123456789abcdef0123456789abcdef"; }
+C
+cat > c.c <<'C'
+const char *from_c(void) { return "0123456789abcdef0123456789abcdef"; }
+C
+cat > m.c <<'C'
+#include "rt.h"
+const char *from_a(void); const char *from_b(void); const char *from_c(void);
+int entry(void) {
+  int same = (from_a() == from_b()) && (from_b() == from_c());
+  putdec(same); print("\n");
+  return same;
+}
+C
+cc_obj a.o a.c; cc_obj b.o b.c; cc_obj c.o c.c; cc_obj m.o m.c
+link_ok merged   rt.o a.o b.o c.o m.o
+link_ok separate rt.o a.o b.o c.o m.o --no-string-merge
+ms=$((0x$(sec_size merged   .rodata)))
+ss=$((0x$(sec_size separate .rodata)))
+[ "$ms" -gt 0 ] || die "merged .rodata is empty"
+[ $((ss - ms)) -ge 66 ] \
+  || die ".rodata is $ms merged and $ss unmerged; two 33-byte copies were not saved"
+run_expect merged "1" 1
+run_expect separate "0" 0

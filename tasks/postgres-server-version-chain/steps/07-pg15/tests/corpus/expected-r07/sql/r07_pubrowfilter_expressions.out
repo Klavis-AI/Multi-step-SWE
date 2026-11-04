@@ -1,0 +1,21 @@
+CREATE TABLE x07_18a(a int PRIMARY KEY, b text, c int);
+CREATE PUBLICATION x07_18p FOR TABLE x07_18a WHERE (a > 10 AND a < 100);
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+CREATE PUBLICATION x07_18q FOR TABLE x07_18a WHERE (a IN (1,2,3));
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+CREATE PUBLICATION x07_18r FOR TABLE x07_18a WHERE (a IS NOT NULL);
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT pubname, rowfilter FROM pg_publication_tables
+  WHERE pubname IN ('x07_18p','x07_18q','x07_18r') ORDER BY pubname;
+ pubname |         rowfilter          
+---------+----------------------------
+ x07_18p | ((a > 10) AND (a < 100))
+ x07_18q | (a = ANY (ARRAY[1, 2, 3]))
+ x07_18r | (a IS NOT NULL)
+(3 rows)
+
+DROP PUBLICATION x07_18p; DROP PUBLICATION x07_18q; DROP PUBLICATION x07_18r;
+DROP TABLE x07_18a;

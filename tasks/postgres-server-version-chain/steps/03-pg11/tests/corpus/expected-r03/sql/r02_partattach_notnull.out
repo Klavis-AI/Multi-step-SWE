@@ -1,0 +1,25 @@
+CREATE TABLE q2_pan(a int, b text) PARTITION BY RANGE (a);
+SELECT attname, attnotnull FROM pg_attribute
+  WHERE attrelid = 'q2_pan'::regclass AND attnum > 0 ORDER BY attnum;
+ attname | attnotnull 
+---------+------------
+ a       | f
+ b       | f
+(2 rows)
+
+CREATE TABLE q2_pan_1 PARTITION OF q2_pan FOR VALUES FROM (1) TO (10);
+SELECT attname, attnotnull FROM pg_attribute
+  WHERE attrelid = 'q2_pan_1'::regclass AND attnum > 0 ORDER BY attnum;
+ attname | attnotnull 
+---------+------------
+ a       | f
+ b       | f
+(2 rows)
+
+ALTER TABLE q2_pan_1 ALTER COLUMN a DROP NOT NULL;
+INSERT INTO q2_pan_1 VALUES (NULL,'direct');
+ERROR:  new row for relation "q2_pan_1" violates partition constraint
+DETAIL:  Failing row contains (null, direct).
+ALTER TABLE q2_pan DROP COLUMN a;
+ERROR:  cannot drop column "a" because it is part of the partition key of relation "q2_pan"
+DROP TABLE q2_pan;

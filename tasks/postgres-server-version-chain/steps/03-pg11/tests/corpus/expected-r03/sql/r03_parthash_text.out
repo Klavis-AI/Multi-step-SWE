@@ -1,0 +1,27 @@
+CREATE TABLE q3_hst(k text, v int) PARTITION BY HASH (k);
+CREATE TABLE q3_hst_0 PARTITION OF q3_hst FOR VALUES WITH (MODULUS 2, REMAINDER 0);
+CREATE TABLE q3_hst_1 PARTITION OF q3_hst FOR VALUES WITH (MODULUS 2, REMAINDER 1);
+INSERT INTO q3_hst VALUES ('alpha',1),('beta',2),('gamma',3),('delta',4);
+SELECT k, v FROM q3_hst ORDER BY k;
+   k   | v 
+-------+---
+ alpha | 1
+ beta  | 2
+ delta | 4
+ gamma | 3
+(4 rows)
+
+SELECT count(DISTINCT tableoid) FROM q3_hst;
+ count 
+-------
+     2
+(1 row)
+
+UPDATE q3_hst SET v = v * 10 WHERE k = 'beta';
+SELECT k, v FROM q3_hst WHERE k = 'beta';
+  k   | v  
+------+----
+ beta | 20
+(1 row)
+
+DROP TABLE q3_hst;

@@ -1,0 +1,148 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score. Each step's
+# reward is assembled by harness/score.py from two families -- preservation of
+# what the rung inherited, and the rung's own bar -- and written by
+# tests/test.sh. The split between them is per rung and measured at that rung's
+# item 4.3, not a constant. A rung whose predecessor tree still imports and runs
+# under the new interpreter collects family 1 in full by doing nothing, so that
+# rung weighs the families 0.30/0.70 -- the automated migrator's floor forces
+# it. Rungs 01, 02 and 03 are measured to be of that kind; a rung whose predecessor
+# cannot import at all weighs them 0.40/0.60. build/sync.sh computes the split
+# from that one list (NOTES-authoring.md sections 4.9, 7.16 and 8.3). Within a
+# family the weight splits again between a behavioural and a static component,
+# and a component with no members gets none: a rung with both weighs behaviour
+# two thirds to the gates' one, because the gates say the retired construct is
+# absent and only the cases say the replacement is right.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Nothing is excluded. The candidate's tree is the
+# whole artifact, and the scorer copies it to scratch before touching it, so
+# there is no build output to leave behind.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/python2-to-3.14-sublime-elasticsearch-client"
+version = "1.0.0"
+description = """\
+Climb KunihikoKido/sublime-elasticsearch-client from the Python 2/3 straddle it \
+was written in (2016, three vendored copies of six) to Python 3.14, one \
+interpreter at a time. Seven rungs, each pinned to the CPython release that \
+first refuses the previous rung's tree: 3.10 drops the Python 2 scaffolding, \
+3.11 aggregates retry failures into an ExceptionGroup, 3.12 rebuilds the TLS \
+path on SSLContext, 3.13 removes the dead batteries, then a typed client \
+surface, free-threading safety under PYTHON_GIL=0, and PEP 649/765 on 3.14. \
+Behaviour is pinned by 544 recorded fixtures replayed against every rung.\
+"""
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["python", "migration", "multi-step", "python3.14", "free-threading"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["python", "migration", "multi-step", "legacy", "python3.14"]
+
+[environment]
+# Agent environment, built from environment/Dockerfile. uv-based rather than
+# FROM python:X-slim because the official python:3.13t / python:3.14t Docker
+# tags do not exist and uv is the only source of an official free-threaded
+# build (NOTES section 5.1).
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench: withholding the network is not a
+# legitimate way to make a task harder.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. Each step's verifier holds its
+# own interpreter and no other: a verifier carrying a newer CPython would let a
+# tree that only works on 3.14 pass an earlier rung.
+[verifier]
+environment_mode = "separate"
+
+# Sizes the verifier containers; without this section Harbor silently reuses a
+# copy of [environment]. Sized for the test corpus: the behaviour family forks
+# one subprocess per case and shards them across workers.
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# The scored suite never reaches the public network -- every fixture is served
+# from a loopback HTTP/HTTPS server the harness starts itself, and the TLS
+# material is minted at run time (NOTES section 4.8) rather than checked in,
+# so no certificate can expire under the task. The image build does pull an
+# interpreter, which is why this is not "none".
+network_mode = "public"
+
+# ---------------------------------------------------------------- steps ----
+#
+# Each verifier writes {"reward": <step-local 0-1>} to reward.json. No
+# min_reward: a zero or partial score never stops the trial, and every step is
+# reached so that a crashed step shows up as a missing reward.json rather than
+# vanishing from the mean.
+#
+# Budgets per rung are the same shape throughout: 7200 s for the agent, 1800 s
+# for the verifier, targeting the <=30 min of scoring on 7 vCPU that rule 10
+# asks for. The verifier budget covers the image build and the /app artifact
+# round trip as well as the scoring run.
+
+[[steps]]
+name = "01-py310-drop-python2"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "02-py311-exception-groups"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "03-py312-tls-and-retired-stdlib"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "04-py313-dead-batteries"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "05-typed-client-surface"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "06-py313t-free-threading"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "07-py314-deferred-annotations"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 1800.0

@@ -1,0 +1,68 @@
+# arch: aarch64
+# R_AARCH64_LDST{8,16,32,64}_ABS_LO12_NC each scale the low 12 bits of the
+# target address by the access width before writing imm12. Four widths at four
+# offsets catch a missing or wrong shift.
+rt_obj rt.o
+cat > d.s <<'S'
+        .data
+        .p2align 12
+        .space 0x2a0
+        .globl b8
+b8:     .byte 0xab
+        .p2align 1
+        .globl h16
+h16:    .hword 0x1234
+        .p2align 2
+        .globl w32
+w32:    .word 0x0bad1dea
+        .p2align 3
+        .globl x64
+x64:    .quad 0x0102030405060708
+        .section .note.GNU-stack,"",@progbits
+S
+cat > a.s <<'S'
+        .text
+        .globl load8
+load8:  adrp    x1, b8
+        ldrb    w0, [x1, :lo12:b8]
+        ret
+        .globl load16
+load16: adrp    x1, h16
+        ldrh    w0, [x1, :lo12:h16]
+        ret
+        .globl load32
+load32: adrp    x1, w32
+        ldr     w0, [x1, :lo12:w32]
+        ret
+        .globl load64
+load64: adrp    x1, x64
+        ldr     x0, [x1, :lo12:x64]
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+cat > m.c <<'C'
+#include "rt.h"
+long load8(void); long load16(void); long load32(void); long load64(void);
+int entry(void) {
+    putdec(load8());  print(",");
+    putdec(load16()); print(",");
+    putdec(load32()); print(",");
+    putdec(load64());
+    return 0;
+}
+C
+as_obj d.o d.s; as_obj a.o a.s; cc_obj m.o m.c
+relocs a.o > a.rel
+for w in 8 16 32 64; do
+  grep -q "R_AARCH64_LDST${w}_ABS_LO12_NC" a.rel || die "input lacks LDST${w}_ABS_LO12_NC"
+done
+link_ok out rt.o a.o m.o d.o
+want "b8 page offset"  "$(( 0x$(sym_value out b8)  & 0xfff ))" "672"
+want "x64 page offset" "$(( 0x$(sym_value out x64) & 0xfff ))" "680"
+run_expect out "171,4660,195894762,72623859790382856" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

@@ -1,0 +1,118 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`.  A step's reward is
+#   correctness x mean_f( ln(max(1, speedup_f)) )
+# over the functions in its scope -- i.e. correctness x ln(geometric mean of the
+# per-function speedups).  Correctness is binary and multiplies, so a tree that
+# changes behaviour scores 0 however fast it is; a correct but unimproved tree
+# scores 0 too, which is the accepted price of a log aggregate that composes.
+multi_step_reward_strategy = "mean"
+
+# The cumulative worktree has to reach the verifier, which runs with
+# environment_mode = "separate".  Exclusions are build output only -- and they
+# match a path component at ANY depth, so the list is audited against the real
+# image rather than against intent (see README).
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build", "Bin"] },
+]
+
+[task]
+name = "harbor/svtjpegxs-codec-avx2"
+version = "1.0.0"
+description = "Optimize the SVT-JPEG-XS JPEG XS codec's encode and decode pipelines one stage at a time. Eight cumulative steps, each measured by per-function speedup gated on bit-exact output."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "jpeg-xs", "codec", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c", "simd", "codec"]
+
+[environment]
+build_timeout_sec = 2400.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# The verifier image reconstructs the ladder's L0 tree from the pin and builds
+# it, so a grading run only has to build the candidate, run the per-function
+# harness in both trees, run the project's own suite and the end-to-end checks.
+# cpus must stay >= 2: the harness and the guard pin to cores 0,1.
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 12288
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-nlt-encode-forward"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "02-dwt-forward"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "03-quantize"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "04-gcli-group-coding"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "05-rate-control-vpred"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "06-unpack"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "07-idwt-inverse"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "08-nlt-decode-output"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

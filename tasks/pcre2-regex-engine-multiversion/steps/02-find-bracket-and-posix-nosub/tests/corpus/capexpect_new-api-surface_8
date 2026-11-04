@@ -1,0 +1,59 @@
+# New API surface: offset limits and the new substitution options.
+/grebe/use_offset_limit
+    a grebe swims\=offset_limit=4
+ 0: grebe
+    a grebe swims\=offset_limit=1
+No match
+    a grebe swims\=offset_limit=2
+ 0: grebe
+    a grebe swims
+ 0: grebe
+
+/grebe/
+    a grebe swims\=offset_limit=4
+Failed: error -56: offset limit set without PCRE2_USE_OFFSET_LIMIT
+
+/\bteal\b/g,use_offset_limit
+    teal teal teal\=offset_limit=6
+ 0: teal
+ 0: teal
+
+/^snipe/use_offset_limit
+    a snipe\=offset_limit=9
+No match
+
+/(\w+)=(\w+)/replace=$2=$1
+    key=value\=substitute_extended
+ 1: value=key
+
+/(?<k>\w+):(?<v>\w+)/replace=${v:-none}/${k}
+    alpha:beta\=substitute_extended
+ 1: beta/alpha
+
+/x(y)?z/replace=<${1:-empty}>
+    xz\=substitute_extended
+ 1: <empty>
+    xyz\=substitute_extended
+ 1: <y>
+
+/x(y)?z/replace=<$1>
+    xz\=substitute_unset_empty
+ 1: <>
+    xz
+Failed: error -55 at offset 3 in replacement: requested value is not set
+
+/(\w+)/replace=\U$1
+    otter\=substitute_extended
+ 1: OTTER
+
+/(\w+)/replace=<${missing}>
+    otter\=substitute_unknown_unset,substitute_unset_empty
+ 1: <>
+
+/(*MARK:tail)\w+/replace=${*MARK}
+    weasel
+ 1: tail
+
+/heron/replace=cormorant
+    a heron here\=replace=[6]cormorant,substitute_overflow_length
+Failed: error -48: no more memory: 17 code units are needed

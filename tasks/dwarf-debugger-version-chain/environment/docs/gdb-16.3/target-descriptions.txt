@@ -1,0 +1,1412 @@
+File: gdb.info,  Node: Target Descriptions,  Next: Operating System Information,  Prev: Agent Expressions,  Up: Top
+
+Appendix G Target Descriptions
+******************************
+
+One of the challenges of using GDB to debug embedded systems is that
+there are so many minor variants of each processor architecture in use.
+It is common practice for vendors to start with a standard processor
+core -- ARM, PowerPC, or MIPS, for example -- and then make changes to
+adapt it to a particular market niche.  Some architectures have hundreds
+of variants, available from dozens of vendors.  This leads to a number
+of problems:
+
+   * With so many different customized processors, it is difficult for
+     the GDB maintainers to keep up with the changes.
+   * Since individual variants may have short lifetimes or limited
+     audiences, it may not be worthwhile to carry information about
+     every variant in the GDB source tree.
+   * When GDB does support the architecture of the embedded system at
+     hand, the task of finding the correct architecture name to give the
+     'set architecture' command can be error-prone.
+
+   To address these problems, the GDB remote protocol allows a target
+system to not only identify itself to GDB, but to actually describe its
+own features.  This lets GDB support processor variants it has never
+seen before -- to the extent that the descriptions are accurate, and
+that GDB understands them.
+
+   GDB must be linked with the Expat library to support XML target
+descriptions.  *Note Expat::.
+
+* Menu:
+
+* Retrieving Descriptions::         How descriptions are fetched from a target.
+* Target Description Format::       The contents of a target description.
+* Predefined Target Types::         Standard types available for target
+                                    descriptions.
+* Enum Target Types::               How to define enum target types.
+* Standard Target Features::        Features GDB knows about.
+
+File: gdb.info,  Node: Retrieving Descriptions,  Next: Target Description Format,  Up: Target Descriptions
+
+G.1 Retrieving Descriptions
+===========================
+
+Target descriptions can be read from the target automatically, or
+specified by the user manually.  The default behavior is to read the
+description from the target.  GDB retrieves it via the remote protocol
+using 'qXfer' requests (*note qXfer: General Query Packets.).  The ANNEX
+in the 'qXfer' packet will be 'target.xml'.  The contents of the
+'target.xml' annex are an XML document, of the form described in *note
+Target Description Format::.
+
+   Alternatively, you can specify a file to read for the target
+description.  If a file is set, the target will not be queried.  The
+commands to specify a file are:
+
+'set tdesc filename PATH'
+     Read the target description from PATH.
+
+'unset tdesc filename'
+     Do not read the XML target description from a file.  GDB will use
+     the description supplied by the current target.
+
+'show tdesc filename'
+     Show the filename to read for a target description, if any.
+
+File: gdb.info,  Node: Target Description Format,  Next: Predefined Target Types,  Prev: Retrieving Descriptions,  Up: Target Descriptions
+
+G.2 Target Description Format
+=============================
+
+A target description annex is an XML (http://www.w3.org/XML/) document
+which complies with the Document Type Definition provided in the GDB
+sources in 'gdb/features/gdb-target.dtd'.  This means you can use
+generally available tools like 'xmllint' to check that your feature
+descriptions are well-formed and valid.  However, to help people
+unfamiliar with XML write descriptions for their targets, we also
+describe the grammar here.
+
+   Target descriptions can identify the architecture of the remote
+target and (for some architectures) provide information about custom
+register sets.  They can also identify the OS ABI of the remote target.
+GDB can use this information to autoconfigure for your target, or to
+warn you if you connect to an unsupported target.
+
+   Here is a simple target description:
+
+     <target version="1.0">
+       <architecture>i386:x86-64</architecture>
+     </target>
+
+This minimal description only says that the target uses the x86-64
+architecture.
+
+   A target description has the following overall form, with [ ] marking
+optional elements and ... marking repeatable elements.  The elements are
+explained further below.
+
+     <?xml version="1.0"?>
+     <!DOCTYPE target SYSTEM "gdb-target.dtd">
+     <target version="1.0">
+       [ARCHITECTURE]
+       [OSABI]
+       [COMPATIBLE]
+       [FEATURE...]
+     </target>
+
+The description is generally insensitive to whitespace and line breaks,
+under the usual common-sense rules.  The XML version declaration and
+document type declaration can generally be omitted (GDB does not require
+them), but specifying them may be useful for XML validation tools.  The
+'version' attribute for '<target>' may also be omitted, but we recommend
+including it; if future versions of GDB use an incompatible revision of
+'gdb-target.dtd', they will detect and report the version mismatch.
+
+G.2.1 Inclusion
+---------------
+
+It can sometimes be valuable to split a target description up into
+several different annexes, either for organizational purposes, or to
+share files between different possible target descriptions.  You can
+divide a description into multiple files by replacing any element of the
+target description with an inclusion directive of the form:
+
+     <xi:include href="DOCUMENT"/>
+
+When GDB encounters an element of this form, it will retrieve the named
+XML DOCUMENT, and replace the inclusion directive with the contents of
+that document.  If the current description was read using 'qXfer', then
+so will be the included document; DOCUMENT will be interpreted as the
+name of an annex.  If the current description was read from a file, GDB
+will look for DOCUMENT as a file in the same directory where it found
+the original description.
+
+G.2.2 Architecture
+------------------
+
+An '<architecture>' element has this form:
+
+       <architecture>ARCH</architecture>
+
+   ARCH is one of the architectures from the set accepted by 'set
+architecture' (*note Specifying a Debugging Target: Targets.).
+
+G.2.3 OS ABI
+------------
+
+This optional field was introduced in GDB version 7.0.  Previous
+versions of GDB ignore it.
+
+   An '<osabi>' element has this form:
+
+       <osabi>ABI-NAME</osabi>
+
+   ABI-NAME is an OS ABI name from the same selection accepted by
+'set osabi' (*note Configuring the Current ABI: ABI.).
+
+G.2.4 Compatible Architecture
+-----------------------------
+
+This optional field was introduced in GDB version 7.0.  Previous
+versions of GDB ignore it.
+
+   A '<compatible>' element has this form:
+
+       <compatible>ARCH</compatible>
+
+   ARCH is one of the architectures from the set accepted by 'set
+architecture' (*note Specifying a Debugging Target: Targets.).
+
+   A '<compatible>' element is used to specify that the target is able
+to run binaries in some other than the main target architecture given by
+the '<architecture>' element.  For example, on the Cell Broadband
+Engine, the main architecture is 'powerpc:common' or 'powerpc:common64',
+but the system is able to run binaries in the 'spu' architecture as
+well.  The way to describe this capability with '<compatible>' is as
+follows:
+
+       <architecture>powerpc:common</architecture>
+       <compatible>spu</compatible>
+
+G.2.5 Features
+--------------
+
+Each '<feature>' describes some logical portion of the target system.
+Features are currently used to describe available CPU registers and the
+types of their contents.  A '<feature>' element has this form:
+
+     <feature name="NAME">
+       [TYPE...]
+       REG...
+     </feature>
+
+Each feature's name should be unique within the description.  The name
+of a feature does not matter unless GDB has some special knowledge of
+the contents of that feature; if it does, the feature should have its
+standard name.  *Note Standard Target Features::.
+
+G.2.6 Types
+-----------
+
+Any register's value is a collection of bits which GDB must interpret.
+The default interpretation is a two's complement integer, but other
+types can be requested by name in the register description.  Some
+predefined types are provided by GDB (*note Predefined Target Types::),
+and the description can define additional composite and enum types.
+
+   Each type element must have an 'id' attribute, which gives a unique
+(within the containing '<feature>') name to the type.  Types must be
+defined before they are used.
+
+   Some targets offer vector registers, which can be treated as arrays
+of scalar elements.  These types are written as '<vector>' elements,
+specifying the array element type, TYPE, and the number of elements,
+COUNT:
+
+     <vector id="ID" type="TYPE" count="COUNT"/>
+
+   If a register's value is usefully viewed in multiple ways, define it
+with a union type containing the useful representations.  The '<union>'
+element contains one or more '<field>' elements, each of which has a
+NAME and a TYPE:
+
+     <union id="ID">
+       <field name="NAME" type="TYPE"/>
+       ...
+     </union>
+
+   If a register's value is composed from several separate values,
+define it with either a structure type or a flags type.  A flags type
+may only contain bitfields.  A structure type may either contain only
+bitfields or contain no bitfields.  If the value contains only
+bitfields, its total size in bytes must be specified.
+
+   Non-bitfield values have a NAME and TYPE.
+
+     <struct id="ID">
+       <field name="NAME" type="TYPE"/>
+       ...
+     </struct>
+
+   Both NAME and TYPE values are required.  No implicit padding is
+added.
+
+   Bitfield values have a NAME, START, END and TYPE.
+
+     <struct id="ID" size="SIZE">
+       <field name="NAME" start="START" end="END" type="TYPE"/>
+       ...
+     </struct>
+
+     <flags id="ID" size="SIZE">
+       <field name="NAME" start="START" end="END" type="TYPE"/>
+       ...
+     </flags>
+
+   The NAME value is required.  Bitfield values may be named with the
+empty string, '""', in which case the field is "filler" and its value is
+not printed.  Not all bits need to be specified, so "filler" fields are
+optional.
+
+   The START and END values are required, and TYPE is optional.  The
+field's START must be less than or equal to its END, and zero represents
+the least significant bit.
+
+   The default value of TYPE is 'bool' for single bit fields, and an
+unsigned integer otherwise.
+
+   Which to choose?  Structures or flags?
+
+   Registers defined with 'flags' have these advantages over defining
+them with 'struct':
+
+   * Arithmetic may be performed on them as if they were integers.
+   * They are printed in a more readable fashion.
+
+   Registers defined with 'struct' have one advantage over defining them
+with 'flags':
+
+   * One can fetch individual fields like in 'C'.
+
+          (gdb) print $my_struct_reg.field3
+          $1 = 42
+
+G.2.7 Registers
+---------------
+
+Each register is represented as an element with this form:
+
+     <reg name="NAME"
+          bitsize="SIZE"
+          [regnum="NUM"]
+          [save-restore="SAVE-RESTORE"]
+          [type="TYPE"]
+          [group="GROUP"]/>
+
+The components are as follows:
+
+NAME
+     The register's name; it must be unique within the target
+     description.
+
+BITSIZE
+     The register's size, in bits.
+
+REGNUM
+     The register's number.  If omitted, a register's number is one
+     greater than that of the previous register (either in the current
+     feature or in a preceding feature); the first register in the
+     target description defaults to zero.  This register number is used
+     to read or write the register; e.g. it is used in the remote 'p'
+     and 'P' packets, and registers appear in the 'g' and 'G' packets in
+     order of increasing register number.
+
+SAVE-RESTORE
+     Whether the register should be preserved across inferior function
+     calls; this must be either 'yes' or 'no'.  The default is 'yes',
+     which is appropriate for most registers except for some system
+     control registers; this is not related to the target's ABI.
+
+TYPE
+     The type of the register.  It may be a predefined type, a type
+     defined in the current feature, or one of the special types 'int'
+     and 'float'.  'int' is an integer type of the correct size for
+     BITSIZE, and 'float' is a floating point type (in the
+     architecture's normal floating point format) of the correct size
+     for BITSIZE.  The default is 'int'.
+
+GROUP
+     The register group to which this register belongs.  It can be one
+     of the standard register groups 'general', 'float', 'vector' or an
+     arbitrary string.  Group names should be limited to alphanumeric
+     characters.  If a group name is made up of multiple words the words
+     may be separated by hyphens; e.g. 'special-group' or
+     'ultra-special-group'.  If no GROUP is specified, GDB will not
+     display the register in 'info registers'.
+
+File: gdb.info,  Node: Predefined Target Types,  Next: Enum Target Types,  Prev: Target Description Format,  Up: Target Descriptions
+
+G.3 Predefined Target Types
+===========================
+
+Type definitions in the self-description can build up composite types
+from basic building blocks, but can not define fundamental types.
+Instead, standard identifiers are provided by GDB for the fundamental
+types.  The currently supported types are:
+
+'bool'
+     Boolean type, occupying a single bit.
+
+'int8'
+'int16'
+'int24'
+'int32'
+'int64'
+'int128'
+     Signed integer types holding the specified number of bits.
+
+'uint8'
+'uint16'
+'uint24'
+'uint32'
+'uint64'
+'uint128'
+     Unsigned integer types holding the specified number of bits.
+
+'code_ptr'
+'data_ptr'
+     Pointers to unspecified code and data.  The program counter and any
+     dedicated return address register may be marked as code pointers;
+     printing a code pointer converts it into a symbolic address.  The
+     stack pointer and any dedicated address registers may be marked as
+     data pointers.
+
+'ieee_half'
+     Half precision IEEE floating point.
+
+'ieee_single'
+     Single precision IEEE floating point.
+
+'ieee_double'
+     Double precision IEEE floating point.
+
+'bfloat16'
+     The 16-bit "brain floating point" format used e.g. by x86 and ARM.
+
+'arm_fpa_ext'
+     The 12-byte extended precision format used by ARM FPA registers.
+
+'i387_ext'
+     The 10-byte extended precision format used by x87 registers.
+
+'i386_eflags'
+     32bit EFLAGS register used by x86.
+
+'i386_mxcsr'
+     32bit MXCSR register used by x86.
+
+File: gdb.info,  Node: Enum Target Types,  Next: Standard Target Features,  Prev: Predefined Target Types,  Up: Target Descriptions
+
+G.4 Enum Target Types
+=====================
+
+Enum target types are useful in 'struct' and 'flags' register
+descriptions.  *Note Target Description Format::.
+
+   Enum types have a name, size and a list of name/value pairs.
+
+     <enum id="ID" size="SIZE">
+       <evalue name="NAME" value="VALUE"/>
+       ...
+     </enum>
+
+   Enums must be defined before they are used.
+
+     <enum id="levels_type" size="4">
+       <evalue name="low" value="0"/>
+       <evalue name="high" value="1"/>
+     </enum>
+     <flags id="flags_type" size="4">
+       <field name="X" start="0"/>
+       <field name="LEVEL" start="1" end="1" type="levels_type"/>
+     </flags>
+     <reg name="flags" bitsize="32" type="flags_type"/>
+
+   Given that description, a value of 3 for the 'flags' register would
+be printed as:
+
+     (gdb) info register flags
+     flags 0x3 [ X LEVEL=high ]
+
+File: gdb.info,  Node: Standard Target Features,  Prev: Enum Target Types,  Up: Target Descriptions
+
+G.5 Standard Target Features
+============================
+
+A target description must contain either no registers or all the
+target's registers.  If the description contains no registers, then GDB
+will assume a default register layout, selected based on the
+architecture.  If the description contains any registers, the default
+layout will not be used; the standard registers must be described in the
+target description, in such a way that GDB can recognize them.
+
+   This is accomplished by giving specific names to feature elements
+which contain standard registers.  GDB will look for features with those
+names and verify that they contain the expected registers; if any known
+feature is missing required registers, or if any required feature is
+missing, GDB will reject the target description.  You can add additional
+registers to any of the standard features -- GDB will display them just
+as if they were added to an unrecognized feature.
+
+   This section lists the known features and their expected contents.
+Sample XML documents for these features are included in the GDB source
+tree, in the directory 'gdb/features'.
+
+   Names recognized by GDB should include the name of the company or
+organization which selected the name, and the overall architecture to
+which the feature applies; so e.g. the feature containing ARM core
+registers is named 'org.gnu.gdb.arm.core'.
+
+   The names of registers are not case sensitive for the purpose of
+recognizing standard features, but GDB will only display registers using
+the capitalization used in the description.
+
+* Menu:
+
+* AArch64 Features::
+* ARC Features::
+* ARM Features::
+* i386 Features::
+* LoongArch Features::
+* MicroBlaze Features::
+* MIPS Features::
+* M68K Features::
+* NDS32 Features::
+* OpenRISC 1000 Features::
+* PowerPC Features::
+* RISC-V Features::
+* RX Features::
+* S/390 and System z Features::
+* Sparc Features::
+* TIC6x Features::
+
+File: gdb.info,  Node: AArch64 Features,  Next: ARC Features,  Up: Standard Target Features
+
+G.5.1 AArch64 Features
+----------------------
+
+G.5.1.1 AArch64 core registers feature
+......................................
+
+The 'org.gnu.gdb.aarch64.core' feature is required for AArch64 targets.
+It must contain the following:
+
+   - 'x0' through 'x30', the general purpose registers, with size of 64
+     bits.  Register 'x30' is also known as the "link register", or
+     'lr'.
+   - 'sp', the stack pointer register or 'x31'.  It is 64 bits in size
+     and has a type of 'data_ptr'.
+   - 'pc', the program counter register.  It is 64 bits in size and has
+     a type of 'code_ptr'.
+   - 'cpsr', the current program status register.  It is 32 bits in size
+     and has a custom flags type.
+
+   The semantics of the individual flags and fields in 'cpsr' can change
+as new architectural features are added.  The current layout can be
+found in the aarch64-core.xml file.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.1.2 AArch64 floating-point registers feature
+................................................
+
+The 'org.gnu.gdb.aarch64.fpu' feature is optional.  If present, it must
+contain the following registers:
+
+   - 'v0' through 'v31', the vector registers with size of 128 bits.
+     The type is a custom vector type.
+   - 'fpsr', the floating-point status register.  It is 32 bits in size
+     and has a custom flags type.
+   - 'fpcr', the floating-point control register.  It is 32 bits in size
+     and has a custom flags type.
+
+   The semantics of the individual flags and fields in 'fpsr' and 'fpcr'
+can change as new architectural features are added.
+
+   The types for the vector registers, 'fpsr' and 'fpcr' registers can
+be found in the aarch64-fpu.xml file.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.1.3 AArch64 SVE registers feature
+.....................................
+
+The 'org.gnu.gdb.aarch64.sve' feature is optional.  If present, it means
+the target supports the Scalable Vector Extension and must contain the
+following registers:
+
+   - 'z0' through 'z31', the scalable vector registers.  Their sizes are
+     variable and a multiple of 128 bits up to a maximum of 2048 bit.
+     Their type is a custom union type that helps visualize different
+     sizes of sub-vectors.
+   - 'fpsr', the floating-point status register.  It is 32 bits in size
+     and has a custom flags type.
+   - 'fpcr', the floating-point control register.  It is 32 bits in size
+     and has a custom flags type.
+   - 'p0' through 'p15', the predicate registers.  Their sizes are
+     variable, based on the current vector length, and a multiple of 16
+     bits.  Their types are a custom union to help visualize
+     sub-elements.
+   - 'ffr', the First Fault register.  It has a variable size based on
+     the current vector length and is a multiple of 16 bits.  The type
+     is the same as the predicate registers.
+   - 'vg', the vector granule.  It represents the number of 64 bits
+     chunks in a 'z' register.  It is closely associated with the
+     current vector length.  It has a type of 'int'.
+
+   When GDB sees the SVE feature, it will assume the Scalable Vector
+Extension is supported, and will adjust the sizes of the 'z', 'p' and
+'ffr' registers accordingly, based on the value of 'vg'.
+
+   GDB will also create pseudo-registers equivalent to the 'v' vector
+registers from the 'org.gnu.gdb.aarch64.fpu' feature.
+
+   The first 128 bits of the 'z' registers overlap the 128 bits of the
+'v' registers, so changing one will trigger a change to the other.
+
+   For the types of the 'z', 'p' and 'ffr' registers, please check the
+aarch64-sve.c file.  No XML file is available for this feature because
+it is dynamically generated based on the current vector length.
+
+   The semantics of the individual flags and fields in 'fpsr' and 'fpcr'
+can change as new architectural features are added.
+
+   The types for the 'fpsr' and 'fpcr' registers can be found in the
+aarch64-sve.c file, and should match what is described in
+aarch64-fpu.xml.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.1.4 AArch64 Pointer Authentication registers feature
+........................................................
+
+The 'org.gnu.gdb.aarch64.pauth' optional feature was introduced so GDB
+could detect support for the Pointer Authentication extension.  If
+present, it must contain one of two possible register sets.
+
+   Pointer Authentication masks for user-mode:
+
+   - 'pauth_dmask', the user-mode pointer authentication mask for data
+     pointers.  It is 64 bits in size.
+   - 'pauth_cmask', the user-mode pointer authentication mask for code
+     pointers.  It is 64 bits in size.
+
+   Pointer Authentication masks for user-mode and kernel-mode:
+
+   - 'pauth_dmask', the user-mode pointer authentication mask for data
+     pointers.  It is 64 bits in size.
+   - 'pauth_cmask', the user-mode pointer authentication mask for code
+     pointers.  It is 64 bits in size.
+   - 'pauth_dmask_high', the kernel-mode pointer authentication mask for
+     data pointers.  It is 64 bits in size.
+   - 'pauth_cmask_high', the kernel-mode pointer authentication mask for
+     code pointers.  It is 64 bits in size.
+
+   If GDB sees any of the two sets of registers in this feature, it will
+assume the target is capable of signing pointers.  If so, GDB will
+decorate backtraces with a '[PAC]' marker alongside a function that has
+a signed link register value that needs to be unmasked/decoded.
+
+   GDB will also use the masks to remove non-address bits from pointers.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+   Please note the 'org.gnu.gdb.aarch64.pauth' feature string is
+deprecated and must only be used for backwards compatibility with older
+releases of GDB and 'gdbserver'.  Targets that support Pointer
+Authentication must advertise such capability by using the
+'org.gnu.gdb.aarch64.pauth_v2' feature string instead.
+
+   The 'org.gnu.gdb.aarch64.pauth_v2' feature has the exact same
+contents as feature 'org.gnu.gdb.aarch64.pauth'.
+
+   The reason for having feature 'org.gnu.gdb.aarch64.pauth_v2' is a bug
+in previous versions of GDB (versions 9, 10, 11 and 12).  This bug
+caused GDB to crash whenever the target reported support for Pointer
+Authentication (using feature string 'org.gnu.gdb.aarch64.pauth') and
+also reported additional system registers that were not accounted for by
+GDB.  This is more common when using emulators and on bare-metal
+debugging scenarios.
+
+   It can also happen if a newer gdbserver is used with an old GDB that
+has the bug.  In such a case, the newer gdbserver might report Pointer
+Authentication support via the 'org.gnu.gdb.aarch64.pauth' feature
+string and also report additional registers the older GDB does not know
+about, potentially leading to a crash.
+
+G.5.1.5 AArch64 TLS registers feature
+.....................................
+
+The 'org.gnu.gdb.aarch64.tls' optional feature was introduced to expose
+the TLS registers to GDB.  If present, it must contain either one of the
+following register sets.
+
+   Only 'tpidr':
+
+   - 'tpidr', the software thread id register.  It is 64 bits in size
+     and has a type of 'data_ptr'.
+
+   Both 'tpidr' and 'tpidr2'.
+
+   - 'tpidr', the software thread id register.  It is 64 bits in size
+     and has a type of 'data_ptr'.
+   - 'tpidr2', the second software thread id register.  It is 64 bits in
+     size and has a type of 'data_ptr'.  It may be used in the future
+     alongside the Scalable Matrix Extension for a lazy restore scheme.
+
+   If GDB sees this feature, it will attempt to find one of the
+variations of the register set.  If 'tpidr2' is available, GDB may act
+on it to display additional data in the future.
+
+   There is no XML for this feature as the presence of 'tpidr2' is
+determined dynamically at runtime.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.1.6 AArch64 MTE registers feature
+.....................................
+
+The 'org.gnu.gdb.aarch64.mte' optional feature was introduced so GDB
+could detect support for the Memory Tagging Extension and control memory
+tagging settings.  If present, this feature must have the following
+register:
+
+   - 'tag_ctl', the tag control register.  It is 64 bits in size and has
+     a type of 'uint64'.
+
+   Memory Tagging detection is done via a runtime check though, so the
+presence of this feature and register is not enough to enable memory
+tagging support.
+
+   This restriction may be lifted in the future.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.1.7 AArch64 SME registers feature
+.....................................
+
+The 'org.gnu.gdb.aarch64.sme' feature is optional.  If present, it
+should contain registers 'ZA', 'SVG' and 'SVCR'.  *Note AArch64 SME::.
+
+   - 'ZA' is a register represented by a vector of SVLxSVL bytes.  *Note
+     svl::.
+
+   - 'SVG' is a 64-bit register containing the value of SVG.  *Note
+     svg::.
+
+   - 'SVCR' is a 64-bit status pseudo-register with two valid bits.  Bit
+     0 (SM) shows whether the streaming SVE mode is enabled or disabled.
+     Bit 1 (ZA) shows whether the 'ZA' register state is active (in use)
+     or not.  *Note aarch64 sme svcr::.
+
+     The rest of the unused bits of the 'SVCR' pseudo-register is
+     undefined and reserved.  Such bits should not be used and may be
+     defined by future extensions of the architecture.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+   The 'org.gnu.gdb.aarch64.sme' feature is required when the target
+also reports support for the 'org.gnu.gdb.aarch64.sme2' feature.
+
+G.5.1.8 AArch64 SME2 registers feature
+......................................
+
+The 'org.gnu.gdb.aarch64.sme2' feature is optional.  If present, then
+the 'org.gnu.gdb.aarch64.sme' feature must also be present.  The
+'org.gnu.gdb.aarch64.sme2' feature should contain the following: *Note
+AArch64 SME2::.
+
+   - 'ZT0' is a register of 512 bits (64 bytes).  It is defined as a
+     vector of bytes.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+File: gdb.info,  Node: ARC Features,  Next: ARM Features,  Prev: AArch64 Features,  Up: Standard Target Features
+
+G.5.2 ARC Features
+------------------
+
+ARC processors are so configurable that even core registers and their
+numbers are not predetermined completely.  Moreover, _flags_ and _PC_
+registers, which are important to GDB, are not "core" registers in ARC.
+Therefore, there are two features that their presence is mandatory:
+'org.gnu.gdb.arc.core' and 'org.gnu.gdb.arc.aux'.
+
+   The 'org.gnu.gdb.arc.core' feature is required for all targets.  It
+must contain registers:
+
+   - 'r0' through 'r25' for normal register file targets.
+   - 'r0' through 'r3', and 'r10' through 'r15' for reduced register
+     file targets.
+   - 'gp', 'fp', 'sp', 'r30'(1), 'blink', 'lp_count', 'pcl'.
+
+   In case of an ARCompact target (ARCv1 ISA), the
+'org.gnu.gdb.arc.core' feature may contain registers 'ilink1' and
+'ilink2'.  While in case of ARC EM and ARC HS targets (ARCv2 ISA),
+register 'ilink' may be present.  The difference between ARCv1 and ARCv2
+is the naming of registers _29th_ and _30th_.  They are called 'ilink1'
+and 'ilink2' for ARCv1 and are optional.  For ARCv2, they are called
+'ilink' and 'r30' and only 'ilink' is optional.  The optionality of
+'ilink*' registers is because of their inaccessibility during user space
+debugging sessions.
+
+   Extension core registers 'r32' through 'r59' are optional and their
+existence depends on the configuration.  When debugging GNU/Linux
+applications, i.e. user space debugging, these core registers are not
+available.
+
+   The 'org.gnu.gdb.arc.aux' feature is required for all ARC targets.
+Here is the list of registers pertinent to this feature:
+
+   - mandatory: 'pc' and 'status32'.
+   - optional: 'lp_start', 'lp_end', and 'bta'.
+
+   ---------- Footnotes ----------
+
+   (1) Not necessary for ARCv1.
+
+File: gdb.info,  Node: ARM Features,  Next: i386 Features,  Prev: ARC Features,  Up: Standard Target Features
+
+G.5.3 ARM Features
+------------------
+
+G.5.3.1 Core register set for non-M-profile
+...........................................
+
+The 'org.gnu.gdb.arm.core' feature is required for non-M-profile ARM
+targets.  It must contain the following registers:
+
+   - 'r0' through 'r12'.  The general purpose registers.  They are 32
+     bits in size and have a type of 'uint32'.
+   - 'sp', the stack pointer register, also known as 'r13'.  It is 32
+     bits in size and has a type of 'data_ptr'.
+   - 'lr', the link register.  It is 32 bits in size.
+   - 'pc', the program counter register.  It is 32 bit in size and of
+     type 'code_ptr'.
+   - 'cpsr', the current program status register containing all the
+     status bits.  It is 32 bits in size.  Historically this register
+     was hardwired to number 25, but debugging stubs that report XML do
+     not need to use this number anymore.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.2 Core register set for M-profile
+.......................................
+
+For M-profile targets (e.g. Cortex-M3), the 'org.gnu.gdb.arm.core'
+feature is replaced by 'org.gnu.gdb.arm.m-profile', and it is a required
+feature.  It must contain the following registers:
+
+   - 'r0' through 'r12', the general purpose registers.  They have a
+     size of 32 bits and a type of 'uint32'.
+   - 'sp', the stack pointer register, also known as 'r13'.  It has a
+     size of 32 bits and a type of 'data_ptr'.
+   - 'lr', the link register.  It has a size of 32 bits.
+   - 'pc', the program counter register.  It has a size of 32 bits and a
+     type of 'code_ptr'.
+   - 'xpsr', the program status register containing all the status bits.
+     It has a size of 32 bits.  Historically this register was hardwired
+     to number 25, but debugging stubs that report XML do not need to
+     use this number anymore.
+
+   Upon seeing this feature, GDB will acknowledge that it is dealing
+with an M-profile target.  This means GDB will use hooks and
+configurations that are meaningful to M-profiles.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.3 FPA registers feature (obsolete)
+........................................
+
+The 'org.gnu.gdb.arm.fpa' feature is obsolete and should not be
+advertised by debugging stubs anymore.  It used to advertise registers
+for the old FPA architecture that has long been discontinued in
+toolchains.
+
+   It is kept in GDB for backward compatibility purposes so older
+debugging stubs that don't support XML target descriptions still work
+correctly.  One such example is the KGDB debugging stub from Linux or
+BSD kernels.
+
+   The description below is for historical purposes only.  This feature
+used to contain the following registers:
+
+   - 'f0' through 'f8'.  The floating point registers.  They are 96 bits
+     in size and of type 'arm_fpa_ext'.  'f0' is pinned to register
+     number 16.
+   - 'fps', the status register.  It has a size of 32 bits.
+
+G.5.3.4 M-profile Vector Extension (MVE)
+........................................
+
+Also known as Helium, the M-profile Vector Extension is advertised via
+the optional 'org.gnu.gdb.arm.m-profile-mve' feature.
+
+   It must contain the following:
+
+   - 'vpr', the vector predication status and control register.  It is
+     32 bits in size and has a custom flags type.  The flags type is
+     laid out in a way that exposes the 'P0' field from bits 0 to 15,
+     the 'MASK01' field from bits 16 to 19 and the 'MASK23' field from
+     bits 20 to 23.
+
+     Bits 24 through 31 are reserved.
+
+   When this feature is available, GDB will synthesize the 'p0'
+pseudo-register from 'vpr' contents.
+
+   This feature must only be advertised if the target is M-profile.
+Advertising this feature for targets that are not M-profile may cause
+GDB to assume the target is M-profile when it isn't.
+
+   If the 'org.gnu.gdb.arm.vfp' feature is available alongside the
+'org.gnu.gdb.arm.m-profile-mve' feature, GDB will synthesize the 'q'
+pseudo-registers from 'd' register contents.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.5 XScale iwMMXt feature
+.............................
+
+The XScale 'org.gnu.gdb.xscale.iwmmxt' feature is optional.  If present,
+it must contain the following:
+
+   - 'wR0' through 'wR15', registers with size 64 bits and a custom type
+     'iwmmxt_vec64i'.  'iwmmxt_vec64i' is a union of four other types:
+     'uint64', a 2-element vector of 'uint32', a 4-element vector of
+     'uint16' and a 8-element vector of 'uint8'.
+   - 'wCGR0' through 'wCGR3', registers with size 32 bits and type
+     'int'.
+
+   The following registers are optional:
+
+   - 'wCID', register with size of 32 bits and type 'int'.
+   - 'wCon', register with size 32 bits and type 'int'.
+   - 'wCSSF', register with size 32 bits and type 'int'.
+   - 'wCASF', register with size 32 bit and type 'int'.
+
+   This feature should only be reported if the target is XScale.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.6 Vector Floating-Point (VFP) feature
+...........................................
+
+The 'org.gnu.gdb.arm.vfp' feature is optional.  If present, it should
+contain one of two possible sets of values depending on whether VFP
+version 2 or VFP version 3 is in use.
+
+   For VFP v2:
+
+   - 'd0' through 'd15'.  The double-precision registers.  They are 64
+     bits in size and have type 'ieee_double'.
+   - 'fpscr', the floating-point status and control register.  It has a
+     size of 32 bits and a type of 'int'.
+
+   For VFP v3:
+
+   - 'd0' through 'd31'.  The double-precision registers.  They are 64
+     bits in size and have type 'ieee_double'.
+   - 'fpscr', the floating-point status and control register.  It has a
+     size of 32 bits and a type of 'int'.
+
+   If this feature is available, GDB will synthesize the
+single-precision floating-point registers from halves of the
+double-precision registers as pseudo-registers.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.7 NEON architecture feature
+.................................
+
+The 'org.gnu.gdb.arm.neon' feature is optional.  It does not need to
+contain registers; it instructs GDB to display the VFP double-precision
+registers as vectors and to synthesize the quad-precision registers from
+pairs of double-precision registers.  If this feature is present,
+'org.gnu.gdb.arm.vfp' must also be present and include 32
+double-precision registers.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.8 M-profile Pointer Authentication and Branch Target Identification feature
+.................................................................................
+
+The 'org.gnu.gdb.arm.m-profile-pacbti' feature is optional, and
+acknowledges support for the ARMv8.1-m PACBTI extensions.
+
+   This feature doesn't contain any required registers, and it only
+serves as a hint to GDB that the debugging stub supports the ARMv8.1-m
+PACBTI extensions.
+
+   When GDB sees this feature, it will track return address signing
+states and will decorate backtraces using the [PAC] marker, similar to
+AArch64's PAC extension.  *Note AArch64 PAC::.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.9 M-profile system registers feature
+..........................................
+
+The 'org.gnu.gdb.arm.m-system' optional feature was introduced as a way
+to inform GDB about additional system registers.
+
+   At the moment this feature must contain the following:
+
+   - 'msp', the main stack pointer register.  It is 32 bits in size with
+     type 'data_ptr'.
+   - 'psp', the process stack pointer register.  It is 32 bits in size
+     with type 'data_ptr'.
+
+   This feature must only be advertised for M-profile targets.  When GDB
+sees this feature, it will attempt to track the values of 'msp' and
+'psp' across frames.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.10 M-profile Security Extensions feature
+..............................................
+
+The 'org.gnu.gdb.arm.secext' optional feature was introduced so GDB
+could better support the switching of stack pointers and secure states
+in the Security Extensions.
+
+   At the moment this feature must contain the following:
+
+   - 'msp_ns', the main stack pointer register (non-secure state).  It
+     is 32 bits in size with type 'data_ptr'.
+   - 'psp_ns', the process stack pointer register (non-secure state).
+     It is 32 bits in size with type 'data_ptr'.
+   - 'msp_s', the main stack pointer register (secure state).  It is 32
+     bits in size with type 'data_ptr'.
+   - 'psp_s', the process stack pointer register (secure state).  It is
+     32 bits in size with type 'data_ptr'.
+
+   When GDB sees this feature, it will attempt to track the values of
+all 4 stack pointers across secure state transitions, potentially
+improving unwinding when applications switch between security states.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+G.5.3.11 TLS registers feature
+..............................
+
+The optional 'org.gnu.gdb.arm.tls' feature contains TLS registers.
+
+   Currently it contains the following:
+
+   - 'tpidruro', the user read-only thread id register.  It is 32 bits
+     in size and has type 'data_ptr'.
+
+   At the moment GDB looks for this feature, but doesn't do anything
+with it other than displaying it.
+
+   Extra registers are allowed in this feature, but they will not affect
+GDB.
+
+File: gdb.info,  Node: i386 Features,  Next: LoongArch Features,  Prev: ARM Features,  Up: Standard Target Features
+
+G.5.4 i386 Features
+-------------------
+
+The 'org.gnu.gdb.i386.core' feature is required for i386/amd64 targets.
+It should describe the following registers:
+
+   - 'eax' through 'edi' plus 'eip' for i386
+   - 'rax' through 'r15' plus 'rip' for amd64
+   - 'eflags', 'cs', 'ss', 'ds', 'es', 'fs', 'gs'
+   - 'st0' through 'st7'
+   - 'fctrl', 'fstat', 'ftag', 'fiseg', 'fioff', 'foseg', 'fooff' and
+     'fop'
+
+   The register sets may be different, depending on the target.
+
+   The 'org.gnu.gdb.i386.sse' feature is optional.  It should describe
+registers:
+
+   - 'xmm0' through 'xmm7' for i386
+   - 'xmm0' through 'xmm15' for amd64
+   - 'mxcsr'
+
+   The 'org.gnu.gdb.i386.avx' feature is optional and requires the
+'org.gnu.gdb.i386.sse' feature.  It should describe the upper 128 bits
+of YMM registers:
+
+   - 'ymm0h' through 'ymm7h' for i386
+   - 'ymm0h' through 'ymm15h' for amd64
+
+   The 'org.gnu.gdb.i386.linux' feature is optional.  It should describe
+a single register, 'orig_eax'.
+
+   The 'org.gnu.gdb.i386.segments' feature is optional.  It should
+describe two system registers: 'fs_base' and 'gs_base'.
+
+   The 'org.gnu.gdb.i386.avx512' feature is optional and requires the
+'org.gnu.gdb.i386.avx' feature.  It should describe additional XMM
+registers:
+
+   - 'xmm16' through 'xmm31', only valid for amd64.
+
+   It should describe the upper 128 bits of additional YMM registers:
+
+   - 'ymm16h' through 'ymm31h', only valid for amd64.
+
+   It should describe the upper 256 bits of ZMM registers:
+
+   - 'zmm0h' through 'zmm7h' for i386.
+   - 'zmm0h' through 'zmm15h' for amd64.
+
+   It should describe the additional ZMM registers:
+
+   - 'zmm16h' through 'zmm31h', only valid for amd64.
+
+   It should describe the additional 64-bit K registers:
+
+   - 'k0' through 'k7', valid for amd64 and i386.
+
+   The 'org.gnu.gdb.i386.pkeys' feature is optional.  It should describe
+a single register, 'pkru'.  It is a 32-bit register valid for i386 and
+amd64.
+
+File: gdb.info,  Node: LoongArch Features,  Next: MicroBlaze Features,  Prev: i386 Features,  Up: Standard Target Features
+
+G.5.5 LoongArch Features
+------------------------
+
+The 'org.gnu.gdb.loongarch.base' feature is required for LoongArch
+targets.  It should contain the registers 'r0' through 'r31', 'pc', and
+'badv'.  Either the architectural names ('r0', 'r1', etc) can be used,
+or the ABI names ('zero', 'ra', etc).
+
+   The 'org.gnu.gdb.loongarch.fpu' feature is optional.  If present, it
+should contain registers 'f0' through 'f31', 'fcc', and 'fcsr'.
+
+File: gdb.info,  Node: MicroBlaze Features,  Next: MIPS Features,  Prev: LoongArch Features,  Up: Standard Target Features
+
+G.5.6 MicroBlaze Features
+-------------------------
+
+The 'org.gnu.gdb.microblaze.core' feature is required for MicroBlaze
+targets.  It should contain registers 'r0' through 'r31', 'rpc', 'rmsr',
+'rear', 'resr', 'rfsr', 'rbtr', 'rpvr', 'rpvr1' through 'rpvr11',
+'redr', 'rpid', 'rzpr', 'rtlbx', 'rtlbsx', 'rtlblo', and 'rtlbhi'.
+
+   The 'org.gnu.gdb.microblaze.stack-protect' feature is optional.  If
+present, it should contain registers 'rshr' and 'rslr'
+
+File: gdb.info,  Node: MIPS Features,  Next: M68K Features,  Prev: MicroBlaze Features,  Up: Standard Target Features
+
+G.5.7 MIPS Features
+-------------------
+
+The 'org.gnu.gdb.mips.cpu' feature is required for MIPS targets.  It
+should contain registers 'r0' through 'r31', 'lo', 'hi', and 'pc'.  They
+may be 32-bit or 64-bit depending on the target.
+
+   The 'org.gnu.gdb.mips.cp0' feature is also required.  It should
+contain at least the 'status', 'badvaddr', and 'cause' registers.  They
+may be 32-bit or 64-bit depending on the target.
+
+   The 'org.gnu.gdb.mips.fpu' feature is currently required, though it
+may be optional in a future version of GDB.  It should contain registers
+'f0' through 'f31', 'fcsr', and 'fir'.  They may be 32-bit or 64-bit
+depending on the target.
+
+   The 'org.gnu.gdb.mips.dsp' feature is optional.  It should contain
+registers 'hi1' through 'hi3', 'lo1' through 'lo3', and 'dspctl'.  The
+'dspctl' register should be 32-bit and the rest may be 32-bit or 64-bit
+depending on the target.
+
+   The 'org.gnu.gdb.mips.linux' feature is optional.  It should contain
+a single register, 'restart', which is used by the Linux kernel to
+control restartable syscalls.
+
+File: gdb.info,  Node: M68K Features,  Next: NDS32 Features,  Prev: MIPS Features,  Up: Standard Target Features
+
+G.5.8 M68K Features
+-------------------
+
+''org.gnu.gdb.m68k.core''
+''org.gnu.gdb.coldfire.core''
+''org.gnu.gdb.fido.core''
+     One of those features must be always present.  The feature that is
+     present determines which flavor of m68k is used.  The feature that
+     is present should contain registers 'd0' through 'd7', 'a0' through
+     'a5', 'fp', 'sp', 'ps' and 'pc'.
+
+''org.gnu.gdb.coldfire.fp''
+     This feature is optional.  If present, it should contain registers
+     'fp0' through 'fp7', 'fpcontrol', 'fpstatus' and 'fpiaddr'.
+
+     Note that, despite the fact that this feature's name says
+     'coldfire', it is used to describe any floating point registers.
+     The size of the registers must match the main m68k flavor; so, for
+     example, if the primary feature is reported as 'coldfire', then
+     64-bit floating point registers are required.
+
+File: gdb.info,  Node: NDS32 Features,  Next: OpenRISC 1000 Features,  Prev: M68K Features,  Up: Standard Target Features
+
+G.5.9 NDS32 Features
+--------------------
+
+The 'org.gnu.gdb.nds32.core' feature is required for NDS32 targets.  It
+should contain at least registers 'r0' through 'r10', 'r15', 'fp', 'gp',
+'lp', 'sp', and 'pc'.
+
+   The 'org.gnu.gdb.nds32.fpu' feature is optional.  If present, it
+should contain 64-bit double-precision floating-point registers 'fd0'
+through _fdN_, which should be 'fd3', 'fd7', 'fd15', or 'fd31' based on
+the FPU configuration implemented.
+
+   _Note:_ The first sixteen 64-bit double-precision floating-point
+registers are overlapped with the thirty-two 32-bit single-precision
+floating-point registers.  The 32-bit single-precision registers, if not
+being listed explicitly, will be synthesized from halves of the
+overlapping 64-bit double-precision registers.  Listing 32-bit
+single-precision registers explicitly is deprecated, and the support to
+it could be totally removed some day.
+
+File: gdb.info,  Node: OpenRISC 1000 Features,  Next: PowerPC Features,  Prev: NDS32 Features,  Up: Standard Target Features
+
+G.5.10 Openrisc 1000 Features
+-----------------------------
+
+The 'org.gnu.gdb.or1k.group0' feature is required for OpenRISC 1000
+targets.  It should contain the 32 general purpose registers ('r0'
+through 'r31'), 'ppc', 'npc' and 'sr'.
+
+File: gdb.info,  Node: PowerPC Features,  Next: RISC-V Features,  Prev: OpenRISC 1000 Features,  Up: Standard Target Features
+
+G.5.11 PowerPC Features
+-----------------------
+
+The 'org.gnu.gdb.power.core' feature is required for PowerPC targets.
+It should contain registers 'r0' through 'r31', 'pc', 'msr', 'cr', 'lr',
+'ctr', and 'xer'.  They may be 32-bit or 64-bit depending on the target.
+
+   The 'org.gnu.gdb.power.fpu' feature is optional.  It should contain
+registers 'f0' through 'f31' and 'fpscr'.
+
+   The 'org.gnu.gdb.power.altivec' feature is optional.  It should
+contain registers 'vr0' through 'vr31', 'vscr', and 'vrsave'.  GDB will
+define pseudo-registers 'v0' through 'v31' as aliases for the
+corresponding 'vrX' registers.
+
+   The 'org.gnu.gdb.power.vsx' feature is optional.  It should contain
+registers 'vs0h' through 'vs31h'.  GDB will combine these registers with
+the floating point registers ('f0' through 'f31') and the altivec
+registers ('vr0' through 'vr31') to present the 128-bit wide registers
+'vs0' through 'vs63', the set of vector-scalar registers for POWER7.
+Therefore, this feature requires both 'org.gnu.gdb.power.fpu' and
+'org.gnu.gdb.power.altivec'.
+
+   The 'org.gnu.gdb.power.spe' feature is optional.  It should contain
+registers 'ev0h' through 'ev31h', 'acc', and 'spefscr'.  SPE targets
+should provide 32-bit registers in 'org.gnu.gdb.power.core' and provide
+the upper halves in 'ev0h' through 'ev31h'.  GDB will combine these to
+present registers 'ev0' through 'ev31' to the user.
+
+   The 'org.gnu.gdb.power.ppr' feature is optional.  It should contain
+the 64-bit register 'ppr'.
+
+   The 'org.gnu.gdb.power.dscr' feature is optional.  It should contain
+the 64-bit register 'dscr'.
+
+   The 'org.gnu.gdb.power.tar' feature is optional.  It should contain
+the 64-bit register 'tar'.
+
+   The 'org.gnu.gdb.power.ebb' feature is optional.  It should contain
+registers 'bescr', 'ebbhr' and 'ebbrr', all 64-bit wide.
+
+   The 'org.gnu.gdb.power.linux.pmu' feature is optional.  It should
+contain registers 'mmcr0', 'mmcr2', 'siar', 'sdar' and 'sier', all
+64-bit wide.  This is the subset of the isa 2.07 server PMU registers
+provided by GNU/Linux.
+
+   The 'org.gnu.gdb.power.htm.spr' feature is optional.  It should
+contain registers 'tfhar', 'texasr' and 'tfiar', all 64-bit wide.
+
+   The 'org.gnu.gdb.power.htm.core' feature is optional.  It should
+contain the checkpointed general-purpose registers 'cr0' through 'cr31',
+as well as the checkpointed registers 'clr' and 'cctr'.  These registers
+may all be either 32-bit or 64-bit depending on the target.  It should
+also contain the checkpointed registers 'ccr' and 'cxer', which should
+both be 32-bit wide.
+
+   The 'org.gnu.gdb.power.htm.fpu' feature is optional.  It should
+contain the checkpointed 64-bit floating-point registers 'cf0' through
+'cf31', as well as the checkpointed 64-bit register 'cfpscr'.
+
+   The 'org.gnu.gdb.power.htm.altivec' feature is optional.  It should
+contain the checkpointed altivec registers 'cvr0' through 'cvr31', all
+128-bit wide.  It should also contain the checkpointed registers 'cvscr'
+and 'cvrsave', both 32-bit wide.
+
+   The 'org.gnu.gdb.power.htm.vsx' feature is optional.  It should
+contain registers 'cvs0h' through 'cvs31h'.  GDB will combine these
+registers with the checkpointed floating point registers ('cf0' through
+'cf31') and the checkpointed altivec registers ('cvr0' through 'cvr31')
+to present the 128-bit wide checkpointed vector-scalar registers 'cvs0'
+through 'cvs63'.  Therefore, this feature requires both
+'org.gnu.gdb.power.htm.altivec' and 'org.gnu.gdb.power.htm.fpu'.
+
+   The 'org.gnu.gdb.power.htm.ppr' feature is optional.  It should
+contain the 64-bit checkpointed register 'cppr'.
+
+   The 'org.gnu.gdb.power.htm.dscr' feature is optional.  It should
+contain the 64-bit checkpointed register 'cdscr'.
+
+   The 'org.gnu.gdb.power.htm.tar' feature is optional.  It should
+contain the 64-bit checkpointed register 'ctar'.
+
+File: gdb.info,  Node: RISC-V Features,  Next: RX Features,  Prev: PowerPC Features,  Up: Standard Target Features
+
+G.5.12 RISC-V Features
+----------------------
+
+The 'org.gnu.gdb.riscv.cpu' feature is required for RISC-V targets.  It
+should contain the registers 'x0' through 'x31', and 'pc'.  Either the
+architectural names ('x0', 'x1', etc) can be used, or the ABI names
+('zero', 'ra', etc).
+
+   The 'org.gnu.gdb.riscv.fpu' feature is optional.  If present, it
+should contain registers 'f0' through 'f31', 'fflags', 'frm', and
+'fcsr'.  As with the cpu feature, either the architectural register
+names, or the ABI names can be used.
+
+   The 'org.gnu.gdb.riscv.virtual' feature is optional.  If present, it
+should contain registers that are not backed by real registers on the
+target, but are instead virtual, where the register value is derived
+from other target state.  In many ways these are like GDBs
+pseudo-registers, except implemented by the target.  Currently the only
+register expected in this set is the one byte 'priv' register that
+contains the target's privilege level in the least significant two bits.
+
+   The 'org.gnu.gdb.riscv.csr' feature is optional.  If present, it
+should contain all of the target's standard CSRs.  Standard CSRs are
+those defined in the RISC-V specification documents.  There is some
+overlap between this feature and the fpu feature; the 'fflags', 'frm',
+and 'fcsr' registers could be in either feature.  The expectation is
+that these registers will be in the fpu feature if the target has
+floating point hardware, but can be moved into the csr feature if the
+target has the floating point control registers, but no other floating
+point hardware.
+
+   The 'org.gnu.gdb.riscv.vector' feature is optional.  If present, it
+should contain registers 'v0' through 'v31', all of which must be the
+same size.
+
+File: gdb.info,  Node: RX Features,  Next: S/390 and System z Features,  Prev: RISC-V Features,  Up: Standard Target Features
+
+G.5.13 RX Features
+------------------
+
+The 'org.gnu.gdb.rx.core' feature is required for RX targets.  It should
+contain the registers 'r0' through 'r15', 'usp', 'isp', 'psw', 'pc',
+'intb', 'bpsw', 'bpc', 'fintv', 'fpsw', and 'acc'.
+
+File: gdb.info,  Node: S/390 and System z Features,  Next: Sparc Features,  Prev: RX Features,  Up: Standard Target Features
+
+G.5.14 S/390 and System z Features
+----------------------------------
+
+The 'org.gnu.gdb.s390.core' feature is required for S/390 and System z
+targets.  It should contain the PSW and the 16 general registers.  In
+particular, System z targets should provide the 64-bit registers 'pswm',
+'pswa', and 'r0' through 'r15'.  S/390 targets should provide the 32-bit
+versions of these registers.  A System z target that runs in 31-bit
+addressing mode should provide 32-bit versions of 'pswm' and 'pswa', as
+well as the general register's upper halves 'r0h' through 'r15h', and
+their lower halves 'r0l' through 'r15l'.
+
+   The 'org.gnu.gdb.s390.fpr' feature is required.  It should contain
+the 64-bit registers 'f0' through 'f15', and 'fpc'.
+
+   The 'org.gnu.gdb.s390.acr' feature is required.  It should contain
+the 32-bit registers 'acr0' through 'acr15'.
+
+   The 'org.gnu.gdb.s390.linux' feature is optional.  It should contain
+the register 'orig_r2', which is 64-bit wide on System z targets and
+32-bit otherwise.  In addition, the feature may contain the 'last_break'
+register, whose width depends on the addressing mode, as well as the
+'system_call' register, which is always 32-bit wide.
+
+   The 'org.gnu.gdb.s390.tdb' feature is optional.  It should contain
+the 64-bit registers 'tdb0', 'tac', 'tct', 'atia', and 'tr0' through
+'tr15'.
+
+   The 'org.gnu.gdb.s390.vx' feature is optional.  It should contain
+64-bit wide registers 'v0l' through 'v15l', which will be combined by
+GDB with the floating point registers 'f0' through 'f15' to present the
+128-bit wide vector registers 'v0' through 'v15'.  In addition, this
+feature should contain the 128-bit wide vector registers 'v16' through
+'v31'.
+
+   The 'org.gnu.gdb.s390.gs' feature is optional.  It should contain the
+64-bit wide guarded-storage-control registers 'gsd', 'gssm', and
+'gsepla'.
+
+   The 'org.gnu.gdb.s390.gsbc' feature is optional.  It should contain
+the 64-bit wide guarded-storage broadcast control registers 'bc_gsd',
+'bc_gssm', and 'bc_gsepla'.
+
+File: gdb.info,  Node: Sparc Features,  Next: TIC6x Features,  Prev: S/390 and System z Features,  Up: Standard Target Features
+
+G.5.15 Sparc Features
+---------------------
+
+The 'org.gnu.gdb.sparc.cpu' feature is required for sparc32/sparc64
+targets.  It should describe the following registers:
+
+   - 'g0' through 'g7'
+   - 'o0' through 'o7'
+   - 'l0' through 'l7'
+   - 'i0' through 'i7'
+
+   They may be 32-bit or 64-bit depending on the target.
+
+   Also the 'org.gnu.gdb.sparc.fpu' feature is required for
+sparc32/sparc64 targets.  It should describe the following registers:
+
+   - 'f0' through 'f31'
+   - 'f32' through 'f62' for sparc64
+
+   The 'org.gnu.gdb.sparc.cp0' feature is required for sparc32/sparc64
+targets.  It should describe the following registers:
+
+   - 'y', 'psr', 'wim', 'tbr', 'pc', 'npc', 'fsr', and 'csr' for sparc32
+   - 'pc', 'npc', 'state', 'fsr', 'fprs', and 'y' for sparc64
+
+File: gdb.info,  Node: TIC6x Features,  Prev: Sparc Features,  Up: Standard Target Features
+
+G.5.16 TMS320C6x Features
+-------------------------
+
+The 'org.gnu.gdb.tic6x.core' feature is required for TMS320C6x targets.
+It should contain registers 'A0' through 'A15', registers 'B0' through
+'B15', 'CSR' and 'PC'.
+
+   The 'org.gnu.gdb.tic6x.gp' feature is optional.  It should contain
+registers 'A16' through 'A31' and 'B16' through 'B31'.
+
+   The 'org.gnu.gdb.tic6x.c6xp' feature is optional.  It should contain
+registers 'TSR', 'ILC' and 'RILC'.
+

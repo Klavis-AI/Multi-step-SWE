@@ -1,0 +1,42 @@
+# Documentation. No code reads this file.
+#
+# The alert pins this verifier compares, and the ones it relaxes.
+#
+# The runner's effective expectation for a case is the value in `config.json`'s
+# `TestLocalErrorMap` when the case name is a key there, and the case's own
+# built-in `expectedLocalError` otherwise; that is what `-loose-errors` cannot
+# relax, and it is what this file audits. A pin is kept only where a document
+# in this step's `workdir/docs/specs/` states that alert for the situation the
+# case drives (or where the string is the runner's own, which no candidate can
+# choose). Where the alert is one implementation's pick from a menu the
+# specifications leave open, the pin has been relaxed to the empty string: the
+# case still has to fail, but not with a particular alert. Relaxed names are
+# listed at the bottom with their reason.
+
+## Pins still compared
+
+* `EarlyData-Server-BadFinished-TLS13`
+    pinned: decrypt_error
+    citation: RFC 8446 s6.2 decrypt_error: 'a handshake (not record layer) cryptographic operation failed, including being unable to correctly verify a signature or validate a Finished message or a PSK binder'.
+
+* `EarlyData-UnexpectedHandshake-Server-TLS13`
+    pinned: unexpected_message
+    citation: RFC 8446 s6.2 unexpected_message: 'An inappropriate message (e.g., the wrong handshake message, premature Application Data, etc.) was received'.
+
+* `TLS13-DuplicateTicketEarlyDataSupport`
+    pinned: illegal_parameter
+    citation: RFC 8446 s4.2: 'There MUST NOT be more than one extension of the same type in a given extension block'; s6.2 defines illegal_parameter for a field inconsistent with other fields.
+
+* `TrailingMessageData-TLS13-EndOfEarlyData-TLS`
+    pinned: decode_error
+    citation: the case appends a byte to the body of the EndOfEarlyData message and fixes the header length, so the message declares a body one byte longer than its syntax consumes. RFC 8446 s6's note sends 'a message which cannot be parsed according to the syntax (e.g. have a length extending beyond the message boundary or contain an out-of-range length)' to decode_error, and s6.2 defines decode_error as 'some field was out of the specified range or the length of the message was incorrect'.
+
+* `WrongMessageType-TLS13-EndOfEarlyData-TLS`
+    pinned: unexpected_message
+    citation: the case rewrites the type byte of the EndOfEarlyData message the runner sends, so the receiver reads a message that cannot legitimately appear at that point in the handshake. RFC 8446 s6.2 unexpected_message: 'An inappropriate message (e.g., the wrong handshake message, premature Application Data, etc.) was received'.
+
+## Pins relaxed (the case must still fail; the alert is not compared)
+
+* `EarlyData-SkipEndOfEarlyData-TLS13`
+    reason: RFC 8446 names no alert for a client that omits EndOfEarlyData; bad_record_mac is the consequence BoringSSL observes, while detecting the missing message and aborting with unexpected_message is equally conforming.
+

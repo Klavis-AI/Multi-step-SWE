@@ -1,0 +1,124 @@
+# The shape of every fact the five scanners emit: one row per (scanner, kind),
+# naming each field after the kind. rules.py loads this and requires a rule's
+# selector to name every field of its kind, so a selector can never be off by
+# one column and quietly match nothing.
+#
+# Keyed on scanner as well as kind because `error` is not the same fact in all
+# five -- ast's carries a line number and the other four do not -- and a rule
+# that guessed wrong would be a rule that never fires.
+#
+# scanner	kind	fields (comma separated, in order after the kind)
+ast	file	path,package
+ast	import	path,line,name,kind
+ast	type	path,line,name,kind
+ast	annotation	path,line,name,args
+ast	suppress	path,line,warning,element
+ast	newclass	path,line,type,argc
+ast	call	path,line,method,receiver
+# One row per `read()` in the sources, with what the chain around it says:
+# the format it names (an explicit `.format("x")` where there is one, the
+# terminal method's name otherwise, `load` for a `.load()` with neither),
+# whether a schema was declared, and the `option` keys with their literal
+# values. Anchored on `read()` rather than on the terminal `load`/`csv`/`json`
+# so that a chain broken across statements still emits a row, saying `no`,
+# instead of emitting nothing and leaving an `absent` rule green for want of
+# evidence (AstScan.java). A key or value the parser cannot resolve is `?`,
+# which is a third answer and not a missing one.
+ast	read	path,line,format,schema,options
+ast	strlit	path,line,length,pad
+ast	comment	path,line,marker,text
+# The one ast kind that is a per-file summary: how many `public static void
+# main(String[])` methods the unit declares, how many SparkSessions it
+# builds -- a `getOrCreate()` whose receiver chain starts at
+# `SparkSession.builder()`, because the builder call on its own returns a
+# builder and a file can make one without ever bringing a session into being --
+# and how many of those builds are inside one of the file's own `main`
+# methods. Three counts on one row so an `absent` rule can join them -- "a file
+# with a main and no session in it" is a question no per-site row can answer,
+# and a count over per-site rows answers a different one (AstScan.java). The
+# third is separate from the second because a `getOrCreate()` in a method
+# nothing calls contains the idiom and starts no program's session: on the
+# handed tree 54 sessions are built and 30 of them are in a main, on the golden
+# one 102 and 78.
+ast	unit	path,mains,sessions,mainsessions
+# The sites where a session is built and the value dropped: `discarded` is a
+# bare expression statement, `unused-local` is a local nothing in the unit
+# names again. Reported rather than excluded from the count above, because
+# which of the two readings is right is not a thing the parser can settle:
+# this repository contains one `discarded` site whose session is the only one
+# its program has and is picked up through Spark's active session
+# (SwissProtSequenceToWord2Vec2.java:40, NOTES 6.4.9).
+ast	deadsession	path,line,form
+ast	error	path,line,code,message
+bytecode	container	path,nclasses
+bytecode	in	name,container
+bytecode	class	name,major
+bytecode	classversion	major,count
+bytecode	ref	name,owner,member,descriptor
+bytecode	strconst	value,count
+bytecode	error	path,why
+pom	project	ga_v,packaging
+pom	prop	name,value
+pom	dep	ga,version,scope
+pom	depmgmt	ga,version
+pom	plugin	ga,version
+pom	pluginconfig	ga,key,value
+pom	unpinned	ga,version
+pom	repo	where,id,url,snapshots
+pom	compile	key,value
+pom	jdklevel	key,value,origin
+pom	compilerarg	arg
+# Every argument the forked test JVM is given, one per row, from surefire's
+# <argLine> configuration and from the `argLine` property both: either spelling
+# alone reaches the fork, so a rule that read one of them would be a rule a
+# candidate passes by using the other (pom-scan.py).
+pom	testjvmarg	arg
+pom	resolved	ga,version,scope
+pom	scalasuffix	suffix,count
+pom	error	what,detail
+probe	probe	key,value
+probe	conf	key,value
+probe	setconf	key,value
+# The three derived kinds gate-run.sh adds as it concatenates the per-job probe
+# files. `conf` and `setconf` arrive flattened, and flattened they cannot say
+# *whose* reading a row is: a corpus where every one of this repository's
+# programs sets a key and the harness's own driver does not reads exactly like
+# one where most programs set it and some do not. So each file is judged once,
+# before the flattening, and the rows of the ones that are this repository's
+# programs are re-emitted under these names.
+#
+#   appsession   one row per such file: the label the replay gave it, and
+#                whether a live SparkSession was there to read
+#   appconf      what that session reported for each watched key, or
+#                <no-session> when there was no session to report
+#   appsetconf   what the application's own SparkConf held for each watched
+#                key -- <unset> when the key is not in it at all, <no-session>
+#                when there was no session
+#
+# <unset> matters: `absent` over a dissenting value is a uniformity rule only
+# if a missing key dissents too, and a flat `setconf` table has no row for a
+# key nobody set. These do.
+probe	appsession	label,session
+probe	appconf	key,value
+probe	appsetconf	key,value
+probe	event	key,value
+# `job` is the one probe kind whose key is not the name of a setting: it is
+# <label>#<job id>, where <label> is GATE_PROBE_LABEL -- the replay's row name
+# -- falling back to the application's own name when nothing set it. A gate
+# reads 140 applications' probe files concatenated and job ids restart at 0 in
+# each, so the label is what makes a red row attributable to a row; app names
+# are not unique here (three mains call themselves CustomReportDemo).
+#
+# The value is one of three things, and the third is the point:
+#   <id>          the job ran inside SQL execution <id>, which did start
+#   -             the job ran outside any execution
+#   forged:<id>   the job carried execution id <id> and no such execution ever
+#                 started -- setLocalProperty("spark.sql.execution.id", ...),
+#                 the one-line cheat of NOTES 6.2.5
+probe	job	key,value
+probe	error	key,value
+build	round	n,rc,seconds
+build	artifact	round,name,sha256,entries
+build	repro	name,verdict
+build	stray	path
+build	error	what,detail

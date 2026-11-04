@@ -1,0 +1,84 @@
+# Names the corpus resolves, appended to /etc/hosts by the verifier's test.sh.
+#
+# Docker writes /etc/hosts when the container starts, so these cannot be baked
+# into the image: a RUN line that edits /etc/hosts edits a file that is replaced
+# before anything runs.
+#
+# `dual` is the interesting one. Both of its addresses answer, so which family a
+# program ends up on is the program's decision and not the resolver's -- which is
+# the whole question this migration asks.
+#
+# `v6only` is not what its name suggests to an IPv4 caller, and this is worth
+# knowing before reading anything that uses it. glibc treats `::1` in this file
+# as also answering an `AF_INET` query for the same name, by substituting
+# `127.0.0.1`:
+#
+#     getent ahostsv4 v6only.test   ->  127.0.0.1
+#
+# It is specific to the loopback address -- a name mapped to `2001:db8::77` gets
+# EAI_NONAME from an `AF_INET` query, as expected -- and it does not happen for
+# `AF_UNSPEC`, which returns `::1` alone. So the name still separates the two
+# behaviours, but not in the way it looks like it does: a caller that asks for
+# IPv4 is handed a *different address* and connects to a *different socket*,
+# rather than failing to resolve. Anything scored against `v6only.test` has to
+# put the server on `::1` alone for the distinction to be visible.
+::1             v6only.test
+127.0.0.1       v4only.test
+::1             dual.test
+127.0.0.1       dual.test
+# `multi` has five addresses and only the first three of them are on this host,
+# so whether a connection happens at all depends on the caller walking the list
+# rather than stopping at the head of it. The third is bindable but unbound, so
+# it is reachable only by a scenario that puts a server there on purpose.
+#
+# Every unusable address here is one that *refuses immediately*: the
+# documentation prefix has no IPv6 route out of this container and answers
+# ENETUNREACH, and the unbound loopback address answers ECONNREFUSED. An address
+# in a private or public IPv4 block would instead be routed at the default
+# gateway and time out, which would turn "the caller walked the list" into "the
+# caller waited", and the time it waited is a property of the host.
+::1             multi.test
+127.0.0.1       multi.test
+2001:db8::1     multi.test
+2001:db8::2     multi.test
+127.99.99.1     multi.test
+# A name with no address of the other family, in each direction. `v6only` above
+# is the v6 half; this is a second v4-only name so a scenario can use one for
+# the client and one for the server without either being the same name twice.
+127.0.0.1       legacy.test
+# A second deep name, with a different list shape. In the order the resolver
+# puts them:
+#
+#     ::1, 127.0.0.1, 127.99.99.2, 127.99.99.3, 127.99.99.4, 2001:db8::3
+#
+# -- the same sort as `multi`, for the same reasons: the IPv6 loopback first,
+# then the IPv4 loopback addresses with the one the host actually carries ahead
+# of the rest of 127/8, then the documentation prefix last because it has no
+# route.
+#
+# Three things about it are not true of `multi`. It is longer, and its usable
+# addresses are further in: 127.99.99.2 is third and 127.99.99.4 is fifth, so
+# reaching the second of them means crossing four refusals rather than two, and
+# three of those four in a row within one family rather than one per family.
+# And it has *two* addresses that can carry a server rather than one, at
+# different depths in the same list, which is the whole of what makes "which
+# address did the walk stop at" a question that can be put from outside: put a
+# server on each and the answer names one of them. Neither is ever at the head
+# of the list, and there is an address after both of them, so a caller that
+# takes the resolver's first answer and a caller that runs the list to the end
+# both land nowhere.
+#
+# Like `multi` it ends on an address with no route, and `dual` above ends on one
+# that refuses. That pairing is what makes "if none of them connects, the
+# failure reported is the last one's" answerable without recording any message
+# text: on this name the first address refuses and the last is unreachable, so
+# the *kind* of failure says how far the caller got, and on `dual` every address
+# refuses, so the same word comes back however far it got. Every address here
+# still fails immediately -- none of them is routed at a gateway and none of
+# them can make the caller wait.
+::1             deep-tail.test
+127.0.0.1       deep-tail.test
+127.99.99.2     deep-tail.test
+127.99.99.3     deep-tail.test
+127.99.99.4     deep-tail.test
+2001:db8::3     deep-tail.test

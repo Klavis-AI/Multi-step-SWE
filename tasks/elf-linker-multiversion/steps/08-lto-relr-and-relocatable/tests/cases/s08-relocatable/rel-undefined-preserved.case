@@ -1,0 +1,36 @@
+# arch: x86_64
+# A partial link tolerates an undefined symbol, keeps it UND with its
+# relocation, and hands the diagnosis to whoever links the final image.
+cat > c.c <<'C'
+int missing_fn(int);
+int uses(int x) { return missing_fn(x) + 1; }
+C
+cc_obj c.o c.c
+link_ok part -r c.o
+
+sym=$(symbols part)
+want_has "undefined symbol stays UND" "$sym" 'NOTYPE +GLOBAL +DEFAULT +UND missing_fn'
+want_has "definition survives"        "$sym" 'FUNC +GLOBAL +DEFAULT +[0-9]+ uses'
+want_has "its relocation survives"    "$(relocs part)" 'R_X86_64_PLT32 .* missing_fn'
+
+# The final link is where the hole is reported.
+rt_obj rt.o
+cat > e.c <<'C'
+int uses(int);
+int entry(void) { return uses(1); }
+C
+cc_obj e.o e.c
+link_fails exe rt.o part e.o --no-gc-sections
+want_has "final link names the missing symbol" "$LINK_OUT" 'missing_fn'
+
+# ... and it links once the definition turns up.
+cat > f.c <<'C'
+int missing_fn(int x) { return x + 40; }
+C
+cc_obj f.o f.c
+link_ok exe rt.o part e.o f.o --no-gc-sections
+run_expect exe "" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 4

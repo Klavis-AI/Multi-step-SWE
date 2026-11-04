@@ -1,0 +1,57 @@
+# arch: x86_64
+# A glob pattern in the global list of a version script is matched against
+# symbol names, and the local/global decision follows the pattern, not the
+# order symbols happen to appear in the object.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+nre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" && die "$1: unexpected /$3/"; return 0; }
+cat > vs.c <<'C'
+int api_alpha(void) { return 1; }
+int api_beta(void)  { return 2; }
+int internal(void)  { return 3; }
+int api_table = 4;
+int scratch   = 5;
+C
+cc_obj vs.o vs.c
+cat > v.map <<'M'
+{
+global:
+api_*;
+local:
+*;
+};
+M
+link_ok out -shared --version-script v.map --no-gc-sections vs.o
+DS=$(dynsyms out)
+for s in api_alpha api_beta api_table; do
+  wre "$s matched api_*" "$DS" "[[:space:]]GLOBAL[[:space:]]+DEFAULT[[:space:]]+[0-9]+[[:space:]]+$s\$"
+done
+for s in internal scratch; do
+  nre "$s did not match api_*" "$DS" "[[:space:]]$s\$"
+done
+want "dynsym entry count" "$(grep -cE '^ +[0-9]+: ' <<<"$DS")" "4"
+# A pattern that matches nothing leaves the shared object with no exports at
+# all -- the script is applied, rather than ignored when it selects nothing.
+cat > none.map <<'M'
+{
+global:
+zzz_*;
+local:
+*;
+};
+M
+link_ok empty -shared --version-script none.map --no-gc-sections vs.o
+want "e_type" "$(hdr empty | awk '/^ *Type:/{print $2}')" "DYN"
+ES=$(dynsyms empty)
+for s in api_alpha api_beta api_table internal scratch; do
+  nre "$s not exported by zzz_*" "$ES" "[[:space:]]$s\$"
+done
+want "empty dynsym entry count" "$(grep -cE '^ +[0-9]+: ' <<<"$ES")" "1"
+# The code is still there; only the export list changed.
+v=$(sym_value empty api_alpha)
+[ -n "$v" ] && [ "$(( 16#$v ))" -gt 0 ] || die "api_alpha was discarded, not just unexported"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 13

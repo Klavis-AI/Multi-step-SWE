@@ -1,0 +1,29 @@
+CREATE TABLE x07_30a(a int PRIMARY KEY, b text, c int);
+CREATE PUBLICATION x07_30p FOR TABLE x07_30a (a, b);
+WARNING:  "wal_level" is insufficient to publish logical changes
+HINT:  Set "wal_level" to "logical" before creating subscriptions.
+SELECT attnames FROM pg_publication_tables WHERE pubname='x07_30p';
+ attnames 
+----------
+ {a,b}
+(1 row)
+
+ALTER TABLE x07_30a DROP COLUMN c;
+SELECT attnames FROM pg_publication_tables WHERE pubname='x07_30p';
+ attnames 
+----------
+ {a,b}
+(1 row)
+
+ALTER TABLE x07_30a DROP COLUMN b;
+ERROR:  cannot drop column b of table x07_30a because other objects depend on it
+DETAIL:  publication of table x07_30a in publication x07_30p depends on column b of table x07_30a
+HINT:  Use DROP ... CASCADE to drop the dependent objects too.
+SELECT count(*) FROM pg_publication WHERE pubname='x07_30p';
+ count 
+-------
+     1
+(1 row)
+
+DROP PUBLICATION IF EXISTS x07_30p;
+DROP TABLE x07_30a;

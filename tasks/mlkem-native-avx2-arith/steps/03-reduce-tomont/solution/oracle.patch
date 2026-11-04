@@ -1,0 +1,506 @@
+diff --git a/mlkem/src/native/x86_64/meta.h b/mlkem/src/native/x86_64/meta.h
+index c34a3d8..0400fc3 100644
+--- a/mlkem/src/native/x86_64/meta.h
++++ b/mlkem/src/native/x86_64/meta.h
+@@ -14,6 +14,8 @@
+ #define MLK_USE_NATIVE_REJ_UNIFORM
+ #define MLK_USE_NATIVE_NTT
+ #define MLK_USE_NATIVE_INTT
++#define MLK_USE_NATIVE_POLY_REDUCE
++#define MLK_USE_NATIVE_POLY_TOMONT
+ #define MLK_USE_NATIVE_POLYVEC_BASEMUL_ACC_MONTGOMERY_CACHED
+ #define MLK_USE_NATIVE_POLY_MULCACHE_COMPUTE
+ #define MLK_USE_NATIVE_POLY_TOBYTES
+@@ -74,21 +76,27 @@ static MLK_INLINE int mlk_intt_native(int16_t data[MLKEM_N])
+ MLK_MUST_CHECK_RETURN_VALUE
+ static MLK_INLINE int mlk_poly_reduce_native(int16_t data[MLKEM_N])
+ {
+-  /* No optimized implementation for this target is present. */
+-  (void)data;
+-  return MLK_NATIVE_FUNC_FALLBACK;
+-}
++  if (!mlk_sys_check_capability(MLK_SYS_CAP_X86_64_AVX2))
++  {
++    return MLK_NATIVE_FUNC_FALLBACK;
++  }
+ 
++  mlk_reduce_avx2_asm(data);
++  return MLK_NATIVE_FUNC_SUCCESS;
++}
+ 
+ #if !defined(MLK_CONFIG_NO_KEYPAIR_API)
+ MLK_MUST_CHECK_RETURN_VALUE
+ static MLK_INLINE int mlk_poly_tomont_native(int16_t data[MLKEM_N])
+ {
+-  /* No optimized implementation for this target is present. */
+-  (void)data;
+-  return MLK_NATIVE_FUNC_FALLBACK;
+-}
++  if (!mlk_sys_check_capability(MLK_SYS_CAP_X86_64_AVX2))
++  {
++    return MLK_NATIVE_FUNC_FALLBACK;
++  }
+ 
++  mlk_tomont_avx2_asm(data);
++  return MLK_NATIVE_FUNC_SUCCESS;
++}
+ #endif /* !MLK_CONFIG_NO_KEYPAIR_API */
+ 
+ MLK_MUST_CHECK_RETURN_VALUE
+diff --git a/mlkem/src/native/x86_64/src/arith_native_x86_64.h b/mlkem/src/native/x86_64/src/arith_native_x86_64.h
+index 1f1a42e..a04dfe8 100644
+--- a/mlkem/src/native/x86_64/src/arith_native_x86_64.h
++++ b/mlkem/src/native/x86_64/src/arith_native_x86_64.h
+@@ -76,6 +76,17 @@ __contract__(
+     r[i] == old(*(int16_t (*)[MLKEM_N])r)[j])))
+ );
+ 
++#define mlk_reduce_avx2_asm MLK_NAMESPACE(reduce_avx2_asm)
++MLK_SYSV_ABI
++void mlk_reduce_avx2_asm(int16_t *r)
++/* This must be kept in sync with the HOL-Light specification
++ * in proofs/hol_light/x86_64/proofs/mlkem_reduce_avx2_asm.ml */
++__contract__(
++  requires(memory_no_alias(r, sizeof(int16_t) * MLKEM_N))
++  assigns(memory_slice(r, sizeof(int16_t) * MLKEM_N))
++  ensures(array_bound(r, 0, MLKEM_N, 0, MLKEM_Q))
++);
++
+ #define mlk_poly_mulcache_compute_avx2_asm \
+   MLK_NAMESPACE(poly_mulcache_compute_avx2_asm)
+ MLK_SYSV_ABI
+@@ -168,4 +179,16 @@ __contract__(
+   ensures(array_bound(r, 0, MLKEM_N, 0, MLKEM_UINT12_LIMIT))
+ );
+ 
++#define mlk_tomont_avx2_asm MLK_NAMESPACE(tomont_avx2_asm)
++MLK_SYSV_ABI
++void mlk_tomont_avx2_asm(int16_t *r)
++/* This must be kept in sync with the HOL-Light specification in
++ * proofs/hol_light/x86_64/proofs/mlkem_tomont_avx2_asm.ml.
++ */
++__contract__(
++  requires(memory_no_alias(r, sizeof(int16_t) * MLKEM_N))
++  assigns(memory_slice(r, sizeof(int16_t) * MLKEM_N))
++  ensures(array_abs_bound(r, 0, MLKEM_N, MLKEM_Q))
++);
++
+ #endif /* !MLK_NATIVE_X86_64_SRC_ARITH_NATIVE_X86_64_H */
+diff --git a/b/mlkem/src/native/x86_64/src/mlkem_reduce_avx2_asm.S b/mlkem/src/native/x86_64/src/mlkem_reduce_avx2_asm.S
+new file mode 100644
+index 0000000..4b5edf0
+--- /dev/null
++++ b/mlkem/src/native/x86_64/src/mlkem_reduce_avx2_asm.S
+@@ -0,0 +1,234 @@
++/*
++ * Copyright (c) The mlkem-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Kyber optimized AVX2 implementation
++ *   Bos, Ducas, Kiltz, Lepoint, Lyubashevsky, Schanck, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/kyber/tree/main/avx2
++ */
++
++/*
++ * This file is derived from the public domain
++ * AVX2 Kyber implementation @[REF_AVX2].
++ *
++ * Changes:
++ * - Add call to csub in reduce128_avx to produce outputs
++ *   in [0,1,...,q-1] rather than [0,1,...,q], matching the
++ *   semantics of mlk_poly_reduce(),
++ * - Use a macro instead of a local function call.
++ */
++
++#include "../../../common.h"
++
++#if defined(MLK_ARITH_BACKEND_X86_64_DEFAULT) && \
++    !defined(MLK_CONFIG_MULTILEVEL_NO_SHARED)
++/*yaml
++  Name: reduce_avx2_asm
++  Description: x86_64 AVX2 modular reduction
++  Signature: void mlk_reduce_avx2_asm(int16_t *r)
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 512
++      permissions: read/write
++      c_parameter: int16_t *r
++      description: Input/output polynomial (256 x int16_t)
++*/
++
++
++/*
++ * WARNING: This file is auto-derived from the mlkem-native source file
++ *   dev/x86_64/src/mlkem_reduce_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLK_ASM_NAMESPACE(reduce_avx2_asm)
++MLK_ASM_FN_SYMBOL(reduce_avx2_asm)
++
++        .cfi_startproc
++        movl $0xd010d01, %eax        # imm = 0xD010D01
++        vmovd %eax, %xmm0
++        vpbroadcastd %xmm0, %ymm0
++        movl $0x4ebf4ebf, %eax       # imm = 0x4EBF4EBF
++        vmovd %eax, %xmm1
++        vpbroadcastd %xmm1, %ymm1
++        vmovdqa (%rdi), %ymm2
++        vmovdqa 0x20(%rdi), %ymm3
++        vmovdqa 0x40(%rdi), %ymm4
++        vmovdqa 0x60(%rdi), %ymm5
++        vmovdqa 0x80(%rdi), %ymm6
++        vmovdqa 0xa0(%rdi), %ymm7
++        vmovdqa 0xc0(%rdi), %ymm8
++        vmovdqa 0xe0(%rdi), %ymm9
++        vpmulhw %ymm1, %ymm2, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm2, %ymm2
++        vpmulhw %ymm1, %ymm3, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm3, %ymm3
++        vpmulhw %ymm1, %ymm4, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm4, %ymm4
++        vpmulhw %ymm1, %ymm5, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm5, %ymm5
++        vpmulhw %ymm1, %ymm6, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm6, %ymm6
++        vpmulhw %ymm1, %ymm7, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm7, %ymm7
++        vpmulhw %ymm1, %ymm8, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm8, %ymm8
++        vpmulhw %ymm1, %ymm9, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm9, %ymm9
++        vpsubw %ymm0, %ymm2, %ymm2
++        vpsraw $0xf, %ymm2, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm2, %ymm2
++        vpsubw %ymm0, %ymm3, %ymm3
++        vpsraw $0xf, %ymm3, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm3, %ymm3
++        vpsubw %ymm0, %ymm4, %ymm4
++        vpsraw $0xf, %ymm4, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm4, %ymm4
++        vpsubw %ymm0, %ymm5, %ymm5
++        vpsraw $0xf, %ymm5, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm5, %ymm5
++        vpsubw %ymm0, %ymm6, %ymm6
++        vpsraw $0xf, %ymm6, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm6, %ymm6
++        vpsubw %ymm0, %ymm7, %ymm7
++        vpsraw $0xf, %ymm7, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm7, %ymm7
++        vpsubw %ymm0, %ymm8, %ymm8
++        vpsraw $0xf, %ymm8, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm8, %ymm8
++        vpsubw %ymm0, %ymm9, %ymm9
++        vpsraw $0xf, %ymm9, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm9, %ymm9
++        vmovdqa %ymm2, (%rdi)
++        vmovdqa %ymm3, 0x20(%rdi)
++        vmovdqa %ymm4, 0x40(%rdi)
++        vmovdqa %ymm5, 0x60(%rdi)
++        vmovdqa %ymm6, 0x80(%rdi)
++        vmovdqa %ymm7, 0xa0(%rdi)
++        vmovdqa %ymm8, 0xc0(%rdi)
++        vmovdqa %ymm9, 0xe0(%rdi)
++        vmovdqa 0x100(%rdi), %ymm2
++        vmovdqa 0x120(%rdi), %ymm3
++        vmovdqa 0x140(%rdi), %ymm4
++        vmovdqa 0x160(%rdi), %ymm5
++        vmovdqa 0x180(%rdi), %ymm6
++        vmovdqa 0x1a0(%rdi), %ymm7
++        vmovdqa 0x1c0(%rdi), %ymm8
++        vmovdqa 0x1e0(%rdi), %ymm9
++        vpmulhw %ymm1, %ymm2, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm2, %ymm2
++        vpmulhw %ymm1, %ymm3, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm3, %ymm3
++        vpmulhw %ymm1, %ymm4, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm4, %ymm4
++        vpmulhw %ymm1, %ymm5, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm5, %ymm5
++        vpmulhw %ymm1, %ymm6, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm6, %ymm6
++        vpmulhw %ymm1, %ymm7, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm7, %ymm7
++        vpmulhw %ymm1, %ymm8, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm8, %ymm8
++        vpmulhw %ymm1, %ymm9, %ymm12
++        vpsraw $0xa, %ymm12, %ymm12
++        vpmullw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm9, %ymm9
++        vpsubw %ymm0, %ymm2, %ymm2
++        vpsraw $0xf, %ymm2, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm2, %ymm2
++        vpsubw %ymm0, %ymm3, %ymm3
++        vpsraw $0xf, %ymm3, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm3, %ymm3
++        vpsubw %ymm0, %ymm4, %ymm4
++        vpsraw $0xf, %ymm4, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm4, %ymm4
++        vpsubw %ymm0, %ymm5, %ymm5
++        vpsraw $0xf, %ymm5, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm5, %ymm5
++        vpsubw %ymm0, %ymm6, %ymm6
++        vpsraw $0xf, %ymm6, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm6, %ymm6
++        vpsubw %ymm0, %ymm7, %ymm7
++        vpsraw $0xf, %ymm7, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm7, %ymm7
++        vpsubw %ymm0, %ymm8, %ymm8
++        vpsraw $0xf, %ymm8, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm8, %ymm8
++        vpsubw %ymm0, %ymm9, %ymm9
++        vpsraw $0xf, %ymm9, %ymm12
++        vpand %ymm0, %ymm12, %ymm12
++        vpaddw %ymm12, %ymm9, %ymm9
++        vmovdqa %ymm2, 0x100(%rdi)
++        vmovdqa %ymm3, 0x120(%rdi)
++        vmovdqa %ymm4, 0x140(%rdi)
++        vmovdqa %ymm5, 0x160(%rdi)
++        vmovdqa %ymm6, 0x180(%rdi)
++        vmovdqa %ymm7, 0x1a0(%rdi)
++        vmovdqa %ymm8, 0x1c0(%rdi)
++        vmovdqa %ymm9, 0x1e0(%rdi)
++        retq
++        .cfi_endproc
++
++MLK_ASM_FN_SIZE(reduce_avx2_asm)
++
++#endif /* MLK_ARITH_BACKEND_X86_64_DEFAULT && !MLK_CONFIG_MULTILEVEL_NO_SHARED \
++        */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif
+diff --git a/b/mlkem/src/native/x86_64/src/mlkem_tomont_avx2_asm.S b/mlkem/src/native/x86_64/src/mlkem_tomont_avx2_asm.S
+new file mode 100644
+index 0000000..cf6268b
+--- /dev/null
++++ b/mlkem/src/native/x86_64/src/mlkem_tomont_avx2_asm.S
+@@ -0,0 +1,172 @@
++/*
++ * Copyright (c) The mlkem-native project authors
++ * SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT
++ */
++
++/* References
++ * ==========
++ *
++ * - [REF_AVX2]
++ *   CRYSTALS-Kyber optimized AVX2 implementation
++ *   Bos, Ducas, Kiltz, Lepoint, Lyubashevsky, Schanck, Schwabe, Seiler, Stehlé
++ *   https://github.com/pq-crystals/kyber/tree/main/avx2
++ */
++
++/*
++ * Implementation from Kyber reference repository @[REF_AVX2]
++ *
++ * Changes:
++ * - Add call to csub in reduce128_avx to produce outputs
++ *   in [0,1,...,q-1] rather than [0,1,...,q], matching the
++ *   semantics of mlk_poly_reduce(),
++ * - Use a macro instead of a local function call.
++ */
++
++#include "../../../common.h"
++#if defined(MLK_ARITH_BACKEND_X86_64_DEFAULT) && \
++    !defined(MLK_CONFIG_MULTILEVEL_NO_SHARED) && \
++    !defined(MLK_CONFIG_NO_KEYPAIR_API)
++/*yaml
++  Name: tomont_avx2_asm
++  Description: x86_64 AVX2 Montgomery conversion
++  Signature: void mlk_tomont_avx2_asm(int16_t *r)
++  ABI:
++    Architecture: x86_64
++    CallingConvention: SysV
++    Features: [AVX2]
++    rdi:
++      type: buffer
++      size_bytes: 512
++      permissions: read/write
++      c_parameter: int16_t *r
++      description: Input/output polynomial (256 x int16_t)
++*/
++
++
++/*
++ * WARNING: This file is auto-derived from the mlkem-native source file
++ *   dev/x86_64/src/mlkem_tomont_avx2_asm.S using scripts/simpasm. Do not modify it directly.
++ */
++
++.text
++.balign 4
++.global MLK_ASM_NAMESPACE(tomont_avx2_asm)
++MLK_ASM_FN_SYMBOL(tomont_avx2_asm)
++
++        .cfi_startproc
++        movl $0xd010d01, %eax        # imm = 0xD010D01
++        vmovd %eax, %xmm0
++        vpbroadcastd %xmm0, %ymm0
++        movl $0x50495049, %eax       # imm = 0x50495049
++        vmovd %eax, %xmm1
++        vpbroadcastd %xmm1, %ymm1
++        movl $0x5490549, %eax        # imm = 0x5490549
++        vmovd %eax, %xmm2
++        vpbroadcastd %xmm2, %ymm2
++        vmovdqa (%rdi), %ymm3
++        vmovdqa 0x20(%rdi), %ymm4
++        vmovdqa 0x40(%rdi), %ymm5
++        vmovdqa 0x60(%rdi), %ymm6
++        vmovdqa 0x80(%rdi), %ymm7
++        vmovdqa 0xa0(%rdi), %ymm8
++        vmovdqa 0xc0(%rdi), %ymm9
++        vmovdqa 0xe0(%rdi), %ymm10
++        vpmullw %ymm1, %ymm3, %ymm11
++        vpmulhw %ymm2, %ymm3, %ymm3
++        vpmulhw %ymm0, %ymm11, %ymm11
++        vpsubw %ymm11, %ymm3, %ymm3
++        vpmullw %ymm1, %ymm4, %ymm12
++        vpmulhw %ymm2, %ymm4, %ymm4
++        vpmulhw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm4, %ymm4
++        vpmullw %ymm1, %ymm5, %ymm13
++        vpmulhw %ymm2, %ymm5, %ymm5
++        vpmulhw %ymm0, %ymm13, %ymm13
++        vpsubw %ymm13, %ymm5, %ymm5
++        vpmullw %ymm1, %ymm6, %ymm14
++        vpmulhw %ymm2, %ymm6, %ymm6
++        vpmulhw %ymm0, %ymm14, %ymm14
++        vpsubw %ymm14, %ymm6, %ymm6
++        vpmullw %ymm1, %ymm7, %ymm15
++        vpmulhw %ymm2, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm15, %ymm15
++        vpsubw %ymm15, %ymm7, %ymm7
++        vpmullw %ymm1, %ymm8, %ymm11
++        vpmulhw %ymm2, %ymm8, %ymm8
++        vpmulhw %ymm0, %ymm11, %ymm11
++        vpsubw %ymm11, %ymm8, %ymm8
++        vpmullw %ymm1, %ymm9, %ymm12
++        vpmulhw %ymm2, %ymm9, %ymm9
++        vpmulhw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm9, %ymm9
++        vpmullw %ymm1, %ymm10, %ymm13
++        vpmulhw %ymm2, %ymm10, %ymm10
++        vpmulhw %ymm0, %ymm13, %ymm13
++        vpsubw %ymm13, %ymm10, %ymm10
++        vmovdqa %ymm3, (%rdi)
++        vmovdqa %ymm4, 0x20(%rdi)
++        vmovdqa %ymm5, 0x40(%rdi)
++        vmovdqa %ymm6, 0x60(%rdi)
++        vmovdqa %ymm7, 0x80(%rdi)
++        vmovdqa %ymm8, 0xa0(%rdi)
++        vmovdqa %ymm9, 0xc0(%rdi)
++        vmovdqa %ymm10, 0xe0(%rdi)
++        vmovdqa 0x100(%rdi), %ymm3
++        vmovdqa 0x120(%rdi), %ymm4
++        vmovdqa 0x140(%rdi), %ymm5
++        vmovdqa 0x160(%rdi), %ymm6
++        vmovdqa 0x180(%rdi), %ymm7
++        vmovdqa 0x1a0(%rdi), %ymm8
++        vmovdqa 0x1c0(%rdi), %ymm9
++        vmovdqa 0x1e0(%rdi), %ymm10
++        vpmullw %ymm1, %ymm3, %ymm11
++        vpmulhw %ymm2, %ymm3, %ymm3
++        vpmulhw %ymm0, %ymm11, %ymm11
++        vpsubw %ymm11, %ymm3, %ymm3
++        vpmullw %ymm1, %ymm4, %ymm12
++        vpmulhw %ymm2, %ymm4, %ymm4
++        vpmulhw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm4, %ymm4
++        vpmullw %ymm1, %ymm5, %ymm13
++        vpmulhw %ymm2, %ymm5, %ymm5
++        vpmulhw %ymm0, %ymm13, %ymm13
++        vpsubw %ymm13, %ymm5, %ymm5
++        vpmullw %ymm1, %ymm6, %ymm14
++        vpmulhw %ymm2, %ymm6, %ymm6
++        vpmulhw %ymm0, %ymm14, %ymm14
++        vpsubw %ymm14, %ymm6, %ymm6
++        vpmullw %ymm1, %ymm7, %ymm15
++        vpmulhw %ymm2, %ymm7, %ymm7
++        vpmulhw %ymm0, %ymm15, %ymm15
++        vpsubw %ymm15, %ymm7, %ymm7
++        vpmullw %ymm1, %ymm8, %ymm11
++        vpmulhw %ymm2, %ymm8, %ymm8
++        vpmulhw %ymm0, %ymm11, %ymm11
++        vpsubw %ymm11, %ymm8, %ymm8
++        vpmullw %ymm1, %ymm9, %ymm12
++        vpmulhw %ymm2, %ymm9, %ymm9
++        vpmulhw %ymm0, %ymm12, %ymm12
++        vpsubw %ymm12, %ymm9, %ymm9
++        vpmullw %ymm1, %ymm10, %ymm13
++        vpmulhw %ymm2, %ymm10, %ymm10
++        vpmulhw %ymm0, %ymm13, %ymm13
++        vpsubw %ymm13, %ymm10, %ymm10
++        vmovdqa %ymm3, 0x100(%rdi)
++        vmovdqa %ymm4, 0x120(%rdi)
++        vmovdqa %ymm5, 0x140(%rdi)
++        vmovdqa %ymm6, 0x160(%rdi)
++        vmovdqa %ymm7, 0x180(%rdi)
++        vmovdqa %ymm8, 0x1a0(%rdi)
++        vmovdqa %ymm9, 0x1c0(%rdi)
++        vmovdqa %ymm10, 0x1e0(%rdi)
++        retq
++        .cfi_endproc
++
++MLK_ASM_FN_SIZE(tomont_avx2_asm)
++
++#endif /* MLK_ARITH_BACKEND_X86_64_DEFAULT && !MLK_CONFIG_MULTILEVEL_NO_SHARED \
++          && !MLK_CONFIG_NO_KEYPAIR_API */
++
++#if defined(__ELF__)
++.section .note.GNU-stack,"",%progbits
++#endif

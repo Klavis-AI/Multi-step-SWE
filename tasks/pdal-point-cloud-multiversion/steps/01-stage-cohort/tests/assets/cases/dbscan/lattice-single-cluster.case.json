@@ -1,0 +1,43 @@
+{
+ "doc": "stages/filters.dbscan.rst: 'labels each point with its associated cluster ID. Points that do not belong to a cluster are given a Cluster ID of -1. The remaining clusters are labeled as integers starting from 0.' The 10x10x10 unit lattice is one connected component at eps 1.5 (every interior point has 6 neighbours at distance 1, every corner 3 at 1 plus 3 at sqrt 2), so all 1000 points get ClusterID 0.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\": [\"in.las\", {\"type\": \"filters.dbscan\", \"eps\": 1.5, \"min_points\": 6}, {\"type\": \"writers.las\", \"filename\": \"out.las\", \"extra_dims\": \"ClusterID=int32\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": 1000
+   },
+   "dims": {
+    "ClusterID": {
+     "unique": [
+      0
+     ],
+     "count_equal": {
+      "0": 1000
+     }
+    }
+   }
+  }
+ ]
+}

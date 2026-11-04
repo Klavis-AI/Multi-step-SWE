@@ -1,0 +1,7 @@
+# frozen_string_literal: false
+BSIZ = 120
+class T012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+  end
+h = Hash.new('world')
+    p("hello %{location}" % h)
+    p("hello %<location>s" % h)

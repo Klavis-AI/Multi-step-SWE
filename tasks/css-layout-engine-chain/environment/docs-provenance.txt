@@ -1,0 +1,46 @@
+How environment/docs/ was produced: the build stage below fetched each
+document from its official source, checked it against the pinned sha256,
+and made the text conversions. The files were last fetched on 2026-10-20;
+they are stored in docs/ and the Dockerfile copies them in directly.
+Re-run these steps to refresh a document.
+
+# Reference documents for the agent, whose phase has no network: the
+# specifications the steps cite, fetched here at build time from their
+# publishers (W3C dated /TR/ snapshots, the WHATWG HTML Review Draft) and pinned
+# by sha256. Only /opt/docs leaves this stage. Documents only -- no browser
+# engine, no layout library and no test suite.
+FROM debian:bookworm-slim AS docs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    fetch() { curl -fsSL --retry 3 --max-time 600 -o "$2" "$1"; echo "$3  $2" | sha256sum -c -; }; \
+    D=/opt/docs; TR=https://www.w3.org/TR; \
+    mkdir -p /tmp/dl $D/w3c/REC-CSS2-20110607 $D/whatwg; \
+    fetch $TR/2011/REC-CSS2-20110607/css2.tgz /tmp/dl/css2.tgz \
+          6546858f785a498fa21d1fcd8192907e9cedbd20bf10142bdd5838498f5a46b8; \
+    tar -xzf /tmp/dl/css2.tgz -C $D/w3c/REC-CSS2-20110607 --no-same-owner; \
+    test -s $D/w3c/REC-CSS2-20110607/visuren.html; \
+    fetch $TR/2011/REC-CSS2-20110607/css2.txt $D/w3c/REC-CSS2-20110607/css2.txt \
+          e64d585b03e680b03a1780a47b47c7c6c6c32f052eba0446f652c8c15503a9cf; \
+    for p in \
+        2018/REC-webdriver1-20180605:ab3303983786b260c3fd9409ebe8e28eaba01cdf0254f3a59b6a0e462ba3f388 \
+        2021/WD-cssom-1-20210826:24d77393e4ea56b04570066701d42c9ff6546a6d5e97d433a18cc1deaf6c9cd4 \
+        2026/WD-css-sizing-3-20260904:ca0f1db3d5ad0c9799bf9dc04b9c30b4d9adf8d4d6f222787e4759ed81a6bbad \
+        2024/CRD-css-values-3-20240322:dcce1f2ff24d66a05373696e07dda59727303a421ee4593eb433092029df0094 \
+        2022/CR-css-variables-1-20220616:5ce7b2c106af576328f222dd622598f847881f2ba9a64d53d6681d27d07ea0db \
+        2026/CRD-css-syntax-3-20261001:8dc3adcc2b4e8fd8fa73c0be85cec67f006874ab42010cdf4528af4aa83f2878 \
+        2025/CRD-css-flexbox-1-20251014:b0e3b097bc6db0688d4712968c290cda280f8f750eb998bc358c28df490ff3f5 \
+        2025/CRD-css-grid-1-20250326:53a47980a217f0b976e1ab8fa0b56944421f7e6311deef96a6aa591ddc693317 \
+        2026/WD-css-align-3-20261008:1bec648f3606e2dda5ae1cc95073cad8e942f13c97bb0bbe23c14d26640c7afa; do \
+      v=${p%%:*}; fetch "$TR/$v/" "$D/w3c/${v#*/}.html" "${p#*:}"; \
+    done; \
+    fetch https://html.spec.whatwg.org/review-drafts/2026-07/ \
+          $D/whatwg/html-review-draft-2026-07.html \
+          afa7551cc628a68fc7a1bd80424207209d16637aee8945805bf483b96a14f76f; \
+    rm -rf /tmp/dl; \
+    chmod -R a+rX,go-w $D; \
+    find $D -type f -empty | { ! grep .; }; \
+    (cd $D && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > /tmp/SHA256SUMS) \
+        && mv /tmp/SHA256SUMS $D/SHA256SUMS; \
+    du -sh $D

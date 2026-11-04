@@ -1,0 +1,91 @@
+# arch: x86_64
+# what: placement follows the script, not the inputs -- matchers inside one
+# description emit their input sections in matcher order even when that
+# reverses the order the sections appear in the object file, and two
+# descriptions take the addresses their own dot assignments name. And where the
+# two rules conflict, the bucket rule wins: descriptions with no explicit
+# address are emitted RO -> X -> RELRO -> W whatever order the script lists
+# them in.
+rt_obj rt.o
+cat > z.s <<'S'
+        .section .zone_a,"aw",@progbits
+        .globl za_sym
+za_sym: .byte 0xa1
+        .section .zone_b,"aw",@progbits
+        .globl zb_sym
+zb_sym: .byte 0xb2
+        .section .zone_c,"aw",@progbits
+        .globl zc_sym
+zc_sym: .byte 0xc3
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj z.o z.s
+cat > m.c <<'C'
+#include "rt.h"
+extern unsigned char za_sym, zb_sym, zc_sym;
+int entry(void) { return (za_sym > zb_sym) + (zc_sym & 3); }
+C
+cc_obj m.o m.c
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+    . = 0x700000;
+    zones : {
+        KEEP(*(.zone_b))
+        KEEP(*(.zone_a))
+    }
+    . = 0x710000;
+    latezone : { KEEP(*(.zone_c)) }
+}
+L
+link_ok out -T lay.ld rt.o m.o z.o
+want "zones address"    "$(( 16#$(sec_addr out zones) ))"    "$(( 0x700000 ))"
+want "latezone address" "$(( 16#$(sec_addr out latezone) ))" "$(( 0x710000 ))"
+want "zones size" "$(( 16#$(sec_size out zones) ))" "2"
+# .zone_b is second in the object but first in the script, so it comes first.
+want "zones contents in matcher order" \
+  "$($OBJDUMP -s -j zones out | awk '/^ 700000/{print $2}')" "b2a1"
+want "zb_sym first"  "$(( 16#$(sym_value out zb_sym) ))" "$(( 0x700000 ))"
+want "za_sym second" "$(( 16#$(sym_value out za_sym) ))" "$(( 0x700001 ))"
+want "zc_sym in latezone" "$(( 16#$(sym_value out zc_sym) ))" "$(( 0x710000 ))"
+run_expect out "" 3
+
+# The script above lists its descriptions in an order that already agrees with
+# the bucket rule, so it cannot show the rule doing anything. This one disagrees
+# with it: executable .text is listed FIRST, read-only second, writable third,
+# and no description carries an explicit address, so the linker is free to --
+# and must -- emit them RO, then X, then W.
+cat > b.s <<'S'
+        .section .myro,"a",@progbits
+        .globl ro_sym
+ro_sym: .byte 0x11
+        .section .mywr,"aw",@progbits
+        .globl wr_sym
+wr_sym: .byte 0x22
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj b.o b.s
+cat > bucket.ld <<'L'
+SECTIONS {
+    .text    : { *(.text .text.*) }
+    robucket : { KEEP(*(.myro)) }
+    wbucket  : { KEEP(*(.mywr)) }
+}
+L
+link_ok bout -T bucket.ld rt.o m.o z.o b.o
+# Absolute addresses differ between reference releases; the ORDER does not.
+ro=$(( 16#$(sec_addr bout robucket) ))
+tx=$(( 16#$(sec_addr bout .text) ))
+wr=$(( 16#$(sec_addr bout wbucket) ))
+[ "$ro" -ne 0 ] && [ "$tx" -ne 0 ] && [ "$wr" -ne 0 ] || die "a bucket section is missing from bout"
+want "read-only bucket precedes .text despite being listed after it" \
+  "$(( ro < tx ? 1 : 0 ))" "1"
+want "writable bucket follows .text despite the script order" \
+  "$(( wr > tx ? 1 : 0 ))" "1"
+# The permissions are the reason for the order, so check them rather than
+# trusting the section names.
+want_seg_perm bout robucket R
+want_seg_perm bout .text    RE
+want_seg_perm bout wbucket  RW
+asserts_at_least 12

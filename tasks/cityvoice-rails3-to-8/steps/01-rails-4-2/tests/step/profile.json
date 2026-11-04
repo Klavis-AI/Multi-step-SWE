@@ -1,0 +1,413 @@
+{
+ "step": "01-rails-4-2",
+ "_comment": [
+  "Step 1's requirements, and the only place they live.  `score.py` is the",
+  "arithmetic and `evidence.py` is the join; neither knows what this step is",
+  "about.  Every path below is a probe's own key, unrenamed, so a gate can be",
+  "checked against the report it reads by eye.",
+  "",
+  "Each gate was evaluated against both calibration trees before it was",
+  "written down, because a gate the unmigrated tree already passes is not a",
+  "measurement of this step -- it is a free point that raises the floor.",
+  "",
+  "The eight predicates the untouched baseline *does* satisfy are `guards`",
+  "and not gates, and are worth nothing.  They are the cheap wrong answers to",
+  "the gates above -- silence the scanner, break the file it reads, delete the",
+  "tests it reads, delete the code it reads -- and as guards, failing one",
+  "multiplies the whole gates family by zero instead of costing 1 of 35.",
+  "That also makes the untouched tree score what it did: gates 0/35,",
+  "behaviour 0, reward 0.",
+  "",
+  "  gate                          handed on                                 golden",
+  "  ruby_runtime                  bootprobe: did not run                    '2.3.8'",
+  "  ruby_declared                 null                                      '2.3.8'",
+  "  rails_version                 bootprobe: did not run                    '4.2.11.3'",
+  "  boots                         bootprobe: did not run                    true",
+  "  env_boots                     envboot: did not run                      []",
+  "  eager_load                    bootprobe: did not run                    true",
+  "  secrets_yml                   bootprobe: did not run                    true",
+  "  from_secrets_yml              bootprobe: did not run                    true",
+  "  no_secret_key_base_assignment 1                                         0",
+  "  strong_parameters             7                                         0",
+  "  no_shim                       protected_attributes 1.0.3                none of 1",
+  "  before_action                 9                                         0",
+  "  own_deprecations              depdrive: did not run                     0",
+  "  env_deprecations              envboot: did not run                      []",
+  "  dead_gems                     rails_email_preview 0.2.20, compass-r...  none of 3",
+  "  dead_engine_refs              8                                         0",
+  "  own_suite                     false                                     true",
+  "  suite_size                    null                                      504",
+  "  ---- guards (no weight) ----",
+  "  no_suppression                0                                         0",
+  "  parses                        []                                        []",
+  "  tests_intact                  []                                        []",
+  "  tests_not_gutted              []                                        []",
+  "  tree_intact                   []                                        []",
+  "  tests_not_hollowed            327                                       309",
+  "  tests_not_hollow_files        []                                        []",
+  "  tests_not_emptied             []                                        []",
+  "  db_config_from_example        []                                        []",
+  "",
+  "`ruby_declared` reads `gemgraph.ruby_declared`, which is the one version",
+  "the Gemfile's `ruby` directive, `.ruby-version` and the lockfile's",
+  "`RUBY VERSION` all name, and null when any is missing or they disagree.",
+  "The instruction states the declaration over all three artifacts, so all",
+  "three are read; the lockfile alone was the old path and it measured one",
+  "third of the sentence.",
+  "",
+  "The three secrets gates are one per sentence: the file is there, the",
+  "secret the application boots with came out of it, and nothing in the tree",
+  "assigns `secret_key_base` by hand any more.  The last is a source count",
+  "and not a probe reading, because the Rails 3 initializer it is about is",
+  "not visible at run time once something else has set the key.",
+  "",
+  "`tests_intact` and `tree_intact` are the pristine-path guards.  They are",
+  "the instrument for the instruction's last line -- do not delete the",
+  "repository's own tests -- which was stated in every round and measured by",
+  "nothing.  Nine of the baseline's `before_filter` calls are in `spec/`, so",
+  "`rm -rf spec` was a way to pass `before_action`.  A count of files scanned",
+  "could not see it (a candidate who deletes 78 specs and adds a directory",
+  "still scans more files than they started with), so the paths themselves",
+  "are shipped beside this profile in `pristine.json` and looked for by name.",
+  "",
+  "`own_suite` and `suite_size` are the codebase's own tests, which rule 5",
+  "counts as part of behaviour equivalence.  The letter of that rule is \"run",
+  "from the scorer's pristine copy\", and that is not available here in either",
+  "direction: rspec-rails 2.14 caps activesupport below 4.2 and cannot load at",
+  "all against a correct answer to this step, and a correct answer edits the",
+  "suite itself -- `be_true`, `obj.stub`, the directory-inferred spec type and",
+  "the `attr_accessible` matcher are all rspec-2/Rails-3 spellings.  So the",
+  "suite that is run is the candidate's own, and what keeps that from being",
+  "circular is the pair of guards beside it: `tests_intact` and",
+  "`tests_not_gutted` require every spec path the repository shipped to still",
+  "be there and to still declare examples, and `suite_size` puts a floor under",
+  "the example count itself.  Deleting the failures, emptying the files and",
+  "running nothing are three separate ways to lose the whole family.",
+  "",
+  "The 495 floor is derived, not chosen: the shipped suite is 520 examples,",
+  "and 25 of them -- the `allow_mass_assignment_of` matchers across seven",
+  "model specs -- assert a mechanism this step removes, so they are the ones a",
+  "correct answer may drop without replacing.  520 - 25 = 495 is therefore the",
+  "count of a tree that deleted exactly those and wrote nothing back.  The",
+  "golden writes nine examples back and lands at 504.",
+  "",
+  "`rspec.ok` folds four conditions and the fourth is the one a reader will",
+  "not guess: rspec 3 counts `skip`, `xit` and `pending` in the same column",
+  "and exits 0 for all of them, so a suite whose every failing example was",
+  "marked pending has the same example count, no failures and a zero exit as",
+  "one that passes.  `own_suite` would have been green and `suite_size`",
+  "untouched.  The parser therefore requires `pending == 0`; the repository",
+  "ships none, and the instruction says not to skip any.  That condition has",
+  "its own selftest (`selftest_rspec_parse.py`, 24 checks against real rspec",
+  "tails), which was confirmed to fail when the condition is removed.",
+  "",
+  "Round 3 of the static review raised R5 against the two suite gates: they",
+  "score `rspec`'s summary line, and a summary line is something the agent",
+  "writes.  Keep every path, keep an example declaration in each file, replace",
+  "each body with `expect(true).to eq true`, and the tree reports 504 green",
+  "examples with not one inherited expectation left -- `tests_intact` and",
+  "`tests_not_gutted` both pass, because both ask about declarations.",
+  "`tests_not_hollowed` is the answer: `scan.assertion_lines` counts the",
+  "DISTINCT assertion lines across the 51 shipped `*_spec.rb` files, assembled",
+  "from `Ripper.lex` tokens with comments dropped.  Measured: baseline 327,",
+  "golden 309, and both hollowed fixtures 1 -- the second of those appends a",
+  "unique trailing comment to every example, which is why the line is lexed",
+  "rather than read, since otherwise the count would measure the attacker's",
+  "patience.  The golden is BELOW the baseline because a correct answer drops",
+  "the 25 `allow_mass_assignment_of` one-liners this step's own requirement",
+  "removes; the floor is therefore chosen under the golden and not under the",
+  "baseline.  The floor is 220: 220x the hollowed tree, 89 lines of headroom",
+  "under the golden, and still 67% of the baseline.  It is a guard and not a",
+  "gate because the untouched baseline passes it, and a gate the baseline",
+  "passes is a free point.",
+  "",
+  "Those three numbers replace 212 / 217 / 150, which were wrong.",
+  "`assertion_lines_by_file` joined each line's `Ripper.lex` tokens with no",
+  "separator, so `should eq` came back as `shouldeq` and the `\\bshould\\b` in",
+  "the assertion pattern did not match it -- the repository's dominant",
+  "assertion spelling was invisible, and the reading it produced was low by",
+  "35%.  It had been shipped, reviewed three times and calibrated into a floor",
+  "before any fixture was written for it (notes 7.17).  The floor above was",
+  "re-derived after the fix, not adjusted from the old one.",
+  "",
+  "`tests_not_hollow_files` is the distribution beside the count.  A count is a",
+  "sum, and a sum can be met by a minority: 40 assertions in one spec file and",
+  "40 assertion-free examples in another satisfies any threshold on the total",
+  "while half the suite asserts nothing.  `scan.hollow_tests` names every",
+  "shipped spec file that still declares examples and contains no assertion",
+  "line of its own, and the guard requires that list to be empty -- which the",
+  "baseline, step 1's golden and step 2's golden all are.  Three real trees",
+  "reported 3 to 5 hollow files under the welded reading, and the allowlist",
+  "that would have been calibrated from them is exactly the error this pair",
+  "exists to prevent.",
+  "",
+  "`db_config_from_example` is the same shape for the one instruction sentence",
+  "nothing measured: `config/database.yml` is not in the repository and the",
+  "configuration is produced from `config/database.yml.example`.  `test.sh`",
+  "performs that copy itself, so by the time any gate runs the file exists",
+  "because the scorer made it; `handoff.json` is written immediately before the",
+  "copy and is the only place the handed-on state is visible.  Also a guard and",
+  "not a gate, for the same reason: the baseline satisfies it."
+ ],
+ "weights": {
+  "behaviour": 0.55,
+  "gates": 0.45
+ },
+ "gates": [
+  {
+   "id": "ruby_runtime",
+   "weight": 2,
+   "desc": "the application runs on Ruby 2.3 (the tree's own .ruby-version selects it through rbenv)",
+   "check": {
+    "kind": "regex",
+    "path": "bootprobe.ruby",
+    "pattern": "^2\\.3\\."
+   }
+  },
+  {
+   "id": "ruby_declared",
+   "weight": 1,
+   "desc": "the Gemfile's `ruby` directive, `.ruby-version` and the lockfile's RUBY VERSION all declare the same Ruby, and it is 2.3 -- the gate reads the single version the three agree on, which is null when one of them is missing or they disagree (the baseline's lockfile records no Ruby at all)",
+   "check": {
+    "kind": "regex",
+    "path": "gemgraph.ruby_declared",
+    "pattern": "^2\\.3\\."
+   }
+  },
+  {
+   "id": "rails_version",
+   "weight": 3,
+   "desc": "Rails 4.2 is the framework that boots, not 4.0 and not 5.0",
+   "check": {
+    "kind": "regex",
+    "path": "bootprobe.probes.versions.rails",
+    "pattern": "^4\\.2\\."
+   }
+  },
+  {
+   "id": "boots",
+   "weight": 3,
+   "desc": "the application boots in RAILS_ENV=production",
+   "check": {
+    "kind": "is_true",
+    "path": "bootprobe.booted"
+   }
+  },
+  {
+   "id": "env_boots",
+   "weight": 2,
+   "desc": "the application boots in the `development` and `test` environments too, each in a process of its own -- a configuration key the release renamed or a middleware entry it dropped from the default stack is a boot failure in the environment file that names it, and `production` is the only environment any other gate reads; a named environment whose file the tree no longer has counts as one that does not boot",
+   "check": {
+    "kind": "empty",
+    "path": "envboot.failed"
+   }
+  },
+  {
+   "id": "eager_load",
+   "weight": 2,
+   "desc": "the application boots in production with eager loading on, and every file under the eager-load paths loads without raising",
+   "check": {
+    "kind": "is_true",
+    "path": "bootprobe.probes.eager_load.ok"
+   }
+  },
+  {
+   "id": "secrets_yml",
+   "weight": 2,
+   "desc": "config/secrets.yml is in the tree, at the path the application itself configures -- the mechanism Rails 4.1 introduced and 4.2 reads",
+   "check": {
+    "kind": "is_true",
+    "path": "bootprobe.probes.secrets.secrets_yml_present"
+   }
+  },
+  {
+   "id": "from_secrets_yml",
+   "weight": 1,
+   "desc": "the secret the booted application holds is the one config/secrets.yml supplies -- the value that file gives for the running environment is non-empty and is the value Rails.application.secrets[:secret_key_base] ended up with",
+   "check": {
+    "kind": "is_true",
+    "path": "bootprobe.probes.secrets.effective_from_secrets_yml"
+   }
+  },
+  {
+   "id": "no_secret_key_base_assignment",
+   "weight": 1,
+   "desc": "nothing in the tree assigns secret_key_base by hand: the Rails 3 initializer that set config.secret_key_base is gone and nothing replaced it (assignments are counted, not reads)",
+   "check": {
+    "kind": "at_most",
+    "path": "scan.counts.secret_key_base_assignment",
+    "n": 0
+   }
+  },
+  {
+   "id": "strong_parameters",
+   "weight": 3,
+   "desc": "no attr_accessible or attr_protected remains in the source: the model-level mass-assignment API is gone from the tree",
+   "check": {
+    "kind": "at_most",
+    "path": "scan.counts.attr_accessible",
+    "n": 0
+   }
+  },
+  {
+   "id": "no_shim",
+   "weight": 2,
+   "desc": "the protected_attributes gem is not in the resolved bundle -- keeping the Rails 3 mass-assignment API alive with the compatibility shim is the move this step exists to not make",
+   "check": {
+    "kind": "absent_keys",
+    "path": "gemgraph.specs",
+    "keys": [
+     "protected_attributes"
+    ]
+   }
+  },
+  {
+   "id": "before_action",
+   "weight": 2,
+   "desc": "controller filters are declared with the *_action spelling, not the *_filter one",
+   "check": {
+    "kind": "at_most",
+    "path": "scan.counts.before_filter",
+    "n": 0
+   }
+  },
+  {
+   "id": "own_deprecations",
+   "weight": 3,
+   "desc": "driving the application raises no deprecation warning from its own code (warnings raised from inside a third-party gem's own source are out of scope and are not counted)",
+   "check": {
+    "kind": "at_most",
+    "path": "depdrive.own_count",
+    "n": 0
+   }
+  },
+  {
+   "id": "env_deprecations",
+   "weight": 1,
+   "desc": "booting those environments raises no deprecation warning from a file under `config/environments/` -- the application's own configuration, which the instruction puts in scope and which neither `depdrive` (production, and only production) nor the suite's own gate (files under `spec/`, and only those) can see",
+   "check": {
+    "kind": "empty",
+    "path": "envboot.env_file_deprecations"
+   }
+  },
+  {
+   "id": "dead_gems",
+   "weight": 1,
+   "desc": "rails_email_preview, compass-rails and style-guide are gone from the resolved bundle: all three are Rails-3-era development tools that pin this tree to sass 3.2 and to a Rails version it is leaving",
+   "check": {
+    "kind": "absent_keys",
+    "path": "gemgraph.specs",
+    "keys": [
+     "rails_email_preview",
+     "compass-rails",
+     "style-guide"
+    ]
+   }
+  },
+  {
+   "id": "dead_engine_refs",
+   "weight": 1,
+   "desc": "nothing in the tree still exists only to serve those gems: no reference to the RailsEmailPreview or StyleGuide constants remains in a route, an initializer or anywhere else",
+   "check": {
+    "kind": "at_most",
+    "path": "scan.counts.dead_engine_ref",
+    "n": 0
+   }
+  },
+  {
+   "id": "own_suite",
+   "weight": 3,
+   "desc": "the application's own spec suite runs to completion against the tree as handed on, and every example in it passes",
+   "check": {
+    "kind": "is_true",
+    "path": "rspec.ok"
+   }
+  },
+  {
+   "id": "suite_size",
+   "weight": 2,
+   "desc": "the suite still makes substantially every expectation the repository shipped: at least 495 examples, which is the 520 it shipped less the 25 whose only subject was the mass-assignment protection this step removes",
+   "check": {
+    "kind": "at_least",
+    "path": "rspec.examples",
+    "n": 495
+   }
+  }
+ ],
+ "guards": [
+  {
+   "id": "no_suppression",
+   "desc": "no comment in the source directs a tool to ignore a finding (rubocop:disable, brakeman:ignore, :nocov: and the rest) -- a tree that silenced the checks is not measured by them",
+   "check": {
+    "kind": "at_most",
+    "path": "scan.counts.suppression",
+    "n": 0
+   }
+  },
+  {
+   "id": "parses",
+   "desc": "every Ruby and ERB file in the tree parses under this step's interpreter -- a file the scanner cannot read is a file none of the source gates can see, so their counts would be lower bounds reported as answers",
+   "check": {
+    "kind": "empty",
+    "path": "scan.parse_errors"
+   }
+  },
+  {
+   "id": "tests_intact",
+   "desc": "every file the repository shipped under spec/ is still there (78 of them, listed in pristine.json) -- deleting the application's own tests is not a way to have no findings in them",
+   "check": {
+    "kind": "empty",
+    "path": "scan.missing_tests"
+   }
+  },
+  {
+   "id": "tests_not_gutted",
+   "desc": "every spec file the repository shipped still declares at least one example -- keeping the path and emptying the file is not a way to have no findings in it",
+   "check": {
+    "kind": "empty",
+    "path": "scan.gutted_tests"
+   }
+  },
+  {
+   "id": "tree_intact",
+   "desc": "the application is still there: every file the repository shipped under app/models, app/controllers, app/helpers, lib and db/migrate is still at its path (98 of them, listed in pristine.json) -- the migration removes what the framework removed, not the application's own code",
+   "check": {
+    "kind": "empty",
+    "path": "scan.missing_core"
+   }
+  },
+  {
+   "id": "tests_not_hollowed",
+   "desc": "the shipped spec files still contain at least 220 distinct assertion lines -- the suite the repository shipped has 327 and a correct answer to this step has 309, the difference being the 25 one-line `allow_mass_assignment_of` examples this step's own work removes and the `have(n).items` forms it rewrites; a suite whose examples have been replaced by a tautology has one. Keeping the paths, the declarations and the example count while asserting nothing is not a way to pass the suite",
+   "check": {
+    "kind": "at_least",
+    "path": "scan.assertion_lines",
+    "n": 220
+   }
+  },
+  {
+   "id": "tests_not_hollow_files",
+   "desc": "no spec file the repository shipped has been left declaring examples that assert nothing. The count above is a floor over the union of the tree's distinct assertion lines, and a union has a shape it cannot see: one file carrying every surviving assertion and fifty carrying none reaches the same number as fifty files that each kept their own. Every shipped spec file that is still present and still declares an example has at least one assertion line of its own",
+   "check": {
+    "kind": "empty",
+    "path": "scan.hollow_tests"
+   }
+  },
+  {
+   "id": "tests_not_emptied",
+   "desc": "and every file the suite ships that had content of its own still has some -- `tests_not_gutted`, `tests_not_hollowed` and `tests_not_hollow_files` all judge `*_spec.rb`, because an example declaration and an assertion are things only a spec file has, which leaves the 27 shipped factories, fixtures, helpers and Teaspoon files judged by existence alone. `> spec/factories.rb` keeps the path, keeps the file count and removes every object the suite builds on. The reading is the shipped test files that had a non-blank, non-comment line in the baseline and have none now, and the guard is that it is empty. Measured against the baseline rather than assumed: one shipped file, `spec/javascripts/spec_helper.js`, is Teaspoon commentary and nothing else, so the 77 that had content are what is asked about and the untouched tree passes",
+   "check": {
+    "kind": "empty",
+    "path": "scan.emptied_tests"
+   }
+  },
+  {
+   "id": "db_config_from_example",
+   "desc": "the tree hands on config/database.yml.example and does not hand on config/database.yml -- the instruction says the configuration is produced from the example, and a tree that ships its own database.yml is scored against a database configuration the recording never used",
+   "check": {
+    "kind": "empty",
+    "path": "handoff.db_config_problems"
+   }
+  }
+ ]
+}

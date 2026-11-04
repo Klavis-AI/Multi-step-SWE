@@ -1,0 +1,25 @@
+CREATE TABLE x07_23a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x07_23a1 PARTITION OF x07_23a FOR VALUES FROM (0) TO (10);
+CREATE PUBLICATION x07_23p FOR TABLE x07_23a WHERE (a > 2)
+  WITH (publish_via_partition_root = true);
+WARNING:  "wal_level" is insufficient to publish logical changes
+HINT:  Set "wal_level" to "logical" before creating subscriptions.
+SELECT pubname, tablename, rowfilter FROM pg_publication_tables
+  WHERE pubname='x07_23p' ORDER BY tablename;
+ pubname | tablename | rowfilter 
+---------+-----------+-----------
+ x07_23p | x07_23a   | (a > 2)
+(1 row)
+
+ALTER PUBLICATION x07_23p SET (publish_via_partition_root = false);
+ERROR:  cannot set parameter "publish_via_partition_root" to false for publication "x07_23p"
+DETAIL:  The publication contains a WHERE clause for partitioned table "x07_23a", which is not allowed when "publish_via_partition_root" is false.
+SELECT pubname, tablename, rowfilter FROM pg_publication_tables
+  WHERE pubname='x07_23p' ORDER BY tablename;
+ pubname | tablename | rowfilter 
+---------+-----------+-----------
+ x07_23p | x07_23a   | (a > 2)
+(1 row)
+
+DROP PUBLICATION x07_23p;
+DROP TABLE x07_23a;

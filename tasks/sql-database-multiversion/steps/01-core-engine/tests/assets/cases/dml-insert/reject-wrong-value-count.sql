@@ -1,0 +1,5 @@
+CREATE TABLE t(a, b, c);
+INSERT INTO t VALUES(1,2,3);
+INSERT INTO t VALUES(1,2);
+SELECT a, b, c FROM t ORDER BY a;
+SELECT count(*) FROM t;

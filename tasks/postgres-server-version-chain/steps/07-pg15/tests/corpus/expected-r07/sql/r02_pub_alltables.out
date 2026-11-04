@@ -1,0 +1,27 @@
+CREATE PUBLICATION q2_pal_p FOR ALL TABLES;
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT pubname, puballtables FROM pg_publication WHERE pubname = 'q2_pal_p';
+ pubname  | puballtables 
+----------+--------------
+ q2_pal_p | t
+(1 row)
+
+ALTER PUBLICATION q2_pal_p SET (publish = 'insert');
+SELECT pubinsert, pubupdate, pubdelete FROM pg_publication WHERE pubname = 'q2_pal_p';
+ pubinsert | pubupdate | pubdelete 
+-----------+-----------+-----------
+ t         | f         | f
+(1 row)
+
+DROP PUBLICATION q2_pal_p;
+CREATE PUBLICATION q2_pal_q FOR ALL TABLES WITH (publish = 'delete');
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT puballtables, pubinsert, pubdelete FROM pg_publication WHERE pubname = 'q2_pal_q';
+ puballtables | pubinsert | pubdelete 
+--------------+-----------+-----------
+ t            | f         | t
+(1 row)
+
+DROP PUBLICATION q2_pal_q;

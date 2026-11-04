@@ -1,0 +1,211 @@
+{
+ "step": "01",
+ "comment": [
+  "Step 1 gate spec: React 15 class components -> React 16.8 function components",
+  "with hooks, on a Vite build.",
+  "",
+  "Every `baseline` here is a measured count from the untouched pinned tree, not",
+  "an estimate, so a candidate that has changed nothing scores exactly 0 on every",
+  "graded check and the nop trial is 0 without being arranged.  The `why` field on",
+  "each check is the property the check exists to measure; it is what the step's",
+  "instruction has to state, and run-gates.mjs ignores it.",
+  "",
+  "Weights total 31.  The construct removals that are the actual leap carry 14 of",
+  "them, evidence that the new idiom replaced the old carries 5, the toolchain 7,",
+  "the shipped artifact 3, and the hook-correctness lint 2.",
+  "",
+  "There is deliberately no `source-present` check pinning module paths. Its job",
+  "would be to show the build really contains this application, and the 210",
+  "recorded scenarios replayed against the built site already show that far more",
+  "strongly - while pinning paths would fail a candidate for reorganising files,",
+  "which this step does not forbid.",
+  "",
+  "The spec-level `guard` below applies to every check, and has two parts,",
+  "because a gate score is only about a tree if the scored artifact came from",
+  "that tree and the tree still is the application.",
+  "",
+  "`built-from-source` is the first part. The two scored families read two",
+  "different things - behavior replays dist/, the gates read the source and the",
+  "installed packages - and nothing else here says they have to be the same",
+  "program. They need not be: get the untouched application building under Vite,",
+  "keep that dist/, gut the source down to whatever the gates ask for, and have",
+  "the build script put the kept copy back. Both families are then satisfied by a",
+  "migration nobody performed.",
+  "",
+  "Nothing static can settle it. Everything under dist/ is written by the",
+  "candidate's build script, the source maps included, so a map naming the tree's",
+  "own paths and carrying its own text is a few lines to forge, and a comparison",
+  "between two artifacts the candidate controls establishes only that the",
+  "candidate wrote both. So the question is put to the build. The runner copies",
+  "the tree twice, appends a unique marker assignment to every one of its own",
+  "parseable JS modules, and runs the candidate's own build on each copy: once",
+  "whole, and once with the module index.html loads emptied. A marker that",
+  "reaches the served page in the first run and not in the second belongs to a",
+  "module the build compiled because the entry asked for it. A prebuilt bundle",
+  "stashed aside and copied into dist/ carries its markers in both runs and",
+  "contributes none.",
+  "",
+  "One module. Measured on the reference: of the 83 files the marker index",
+  "covers, 76 carry a marker that reaches the page in the first run and not in",
+  "the second - its whole compiled component layer - while the stash-the-bundle",
+  "build emits every marker it has in both runs and so differences to 0 whatever",
+  "that count is. The per-tree figures live in the author's checklist, against",
+  "the trees and the day they were measured, rather than here where they would",
+  "go stale in silence. The floor is 1 because the question this guard asks is",
+  "the one the instruction asks: is the page the build serves compiled out of",
+  "this tree, or out of something else? `How much of the tree` is a different",
+  "question, and a guard is the wrong instrument for it - the guard is",
+  "cliff-edged, it zeroes all 31 points of the gate family, and no number of",
+  "modules is stated anywhere a candidate can read. A tree that reorganised its",
+  "component layer into fewer, larger modules is an honest tree, and a floor of",
+  "20 would fail it for missing a requirement it was never given. How much of",
+  "the component layer actually runs is bounded instead by the three `ast-min`",
+  "checks at `scope: reachable`, which count hooks, function components and JSX",
+  "only in the modules this guard proved the build compiles: those are scored,",
+  "so a tree that runs less of itself scores proportionally less, rather than",
+  "falling off a cliff at a number nobody published. This guard pins no path,",
+  "forbids no reorganisation, and refuses exactly one thing - a served page with",
+  "none of this tree's own code compiled into it.",
+  "",
+  "`site-is-live` is the second part. Migrated-ness is only",
+  "credited for a tree that still is the application: every removal gate is",
+  "satisfied for free by a tree with no JavaScript in it, so without an anchor",
+  "the gate family pays a candidate for deleting the repository. 10 of 210 is",
+  "far below what any real migration produces - the reference reproduces all 210",
+  "- and far above what a tree that does not run can reach by accident, since a",
+  "tree that does not build or does not serve reproduces none. It is a floor on",
+  "liveness, not a second behavior score: behavior is already scored, out of 210,",
+  "as the other family, and passing this guard earns nothing on its own.",
+  "",
+  "The three minimum gates carry `scope: reachable`, and that scope is the set",
+  "of modules the guard above measured: the files the build compiles into the",
+  "page because the entry asked for them. The removals are asked of the whole",
+  "repository, because a surviving class in a file nothing imports is still a",
+  "surviving class and the step's scope is the repository. The positive evidence",
+  "is asked only of the code that runs, because a file nothing builds is no",
+  "evidence that the component layer was converted - an untouched tree plus one",
+  "file of `useState` calls is not a migration. There is no wider fallback when",
+  "the set cannot be measured: a check that asked for this scope and did not get",
+  "it scores 0, because falling back to the repository is exactly the padding",
+  "the scope exists to refuse."
+ ],
+ "guard": [
+  {
+   "id": "site-is-live",
+   "why": "The tree still builds, serves and behaves like the application, so that what the gates measure is a migration of it rather than its absence.",
+   "kind": "json-flag", "file": "/logs/verifier/behavior.json",
+   "field": "passed", "min": 10,
+   "unmet": "the built site did not reproduce the application, so there is no migrated application to credit: the tree did not build, did not serve, or reproduced almost none of the behavior it must preserve"
+  },
+  {
+   "id": "built-from-source",
+   "why": "The site that is served is built from this repository's own source, so that the behavior the one family reproduces and the code the other family reads are the same program.",
+   "kind": "built-from-source", "minModules": 1,
+   "unmet": "the site that was served is not built from this tree: what the build compiled and what the tree contains are different code, so the behavior it reproduced is no evidence about the tree the gates read"
+  }
+ ],
+ "checks": [
+  {
+   "id": "classes-gone",
+   "why": "No component is defined as a class; the whole component layer is function components.",
+   "kind": "ast-max", "gate": "class-components", "max": 0, "baseline": 59, "weight": 4
+  },
+  {
+   "id": "string-refs-gone",
+   "why": "No element identifies itself to its owner by a string name.",
+   "kind": "ast-max", "gate": "string-refs", "max": 0, "baseline": 89, "weight": 2
+  },
+  {
+   "id": "find-dom-node-gone",
+   "why": "No code reaches a DOM node by asking the renderer to find it.",
+   "kind": "ast-max", "gate": "find-dom-node", "max": 0, "baseline": 222, "weight": 2
+  },
+  {
+   "id": "unsafe-lifecycles-gone",
+   "why": "None of the three lifecycles React deprecated for async rendering survives.",
+   "kind": "ast-max", "gate": "unsafe-lifecycles", "max": 0, "baseline": 63, "weight": 2
+  },
+  {
+   "id": "connect-hoc-gone",
+   "why": "No component receives store state by being wrapped in a higher-order component.",
+   "kind": "ast-max", "gate": "connect-hoc", "max": 0, "baseline": 47, "weight": 2
+  },
+  {
+   "id": "react-proptypes-gone",
+   "why": "Prop validation no longer comes off the React namespace, which React 16 removed.",
+   "kind": "ast-max", "gate": "react-proptypes", "max": 0, "baseline": 47, "weight": 1
+  },
+  {
+   "id": "transition-group-gone",
+   "why": "The React 15-only animation addon is not imported anywhere.",
+   "kind": "ast-max", "gate": "pkg-transition-group", "max": 0, "baseline": 2,
+   "binary": true, "weight": 1
+  },
+
+  {
+   "id": "hooks-present",
+   "why": "State, effects and refs are expressed as hooks, across the whole component layer rather than in a handful of files.",
+   "kind": "ast-min", "gate": "react-hooks", "min": 59, "scope": "reachable", "weight": 3
+  },
+  {
+   "id": "prop-validation-kept",
+   "why": "Prop validation for the props a component still receives survives the conversion, declared from the standalone package rather than dropped along with the class that held it.",
+   "kind": "ast-min", "gate": "prop-types-standalone", "min": 13, "scope": "reachable", "weight": 1
+  },
+  {
+   "id": "memoization-present",
+   "why": "Values and callbacks that used to be recomputed in a lifecycle are memoized rather than rebuilt on every render.",
+   "kind": "ast-min", "gate": "manual-memo", "min": 10, "scope": "reachable", "weight": 1
+  },
+
+  {
+   "id": "react-16",
+   "why": "React itself is a 16.8-or-later 16, the first version with hooks.",
+   "kind": "dep-version", "package": "react", "major": 16, "minMinor": 8, "weight": 2
+  },
+  {
+   "id": "react-dom-16",
+   "why": "The renderer is the same major and minor floor as React.",
+   "kind": "dep-version", "package": "react-dom", "major": 16, "minMinor": 8, "weight": 1
+  },
+  {
+   "id": "vite-declared",
+   "why": "The project's declared build tool is Vite.",
+   "kind": "dep-declared", "package": "vite", "weight": 1
+  },
+  {
+   "id": "retired-toolchain-absent",
+   "why": "The webpack/babel-6/node-sass/browserify/mocha/karma toolchain is not installed at all, so nothing can fall back to it.",
+   "kind": "dep-absent",
+   "packages": ["webpack", "babel-core", "node-sass", "browserify", "mocha", "karma"],
+   "weight": 2
+  },
+  {
+   "id": "parses",
+   "why": "Every file in the repository can be parsed by a current JavaScript parser.",
+   "kind": "parse-errors", "max": 0, "baseline": 1, "binary": true, "weight": 1
+  },
+
+  {
+   "id": "assets-self-contained",
+   "why": "Everything the built page references is inside the build output; the packaged site needs no hand-copied files.",
+   "kind": "assets-self-contained", "weight": 2
+  },
+  {
+   "id": "chunks",
+   "why": "The build still splits its JavaScript rather than emitting one bundle.",
+   "kind": "min-chunks", "min": 2, "weight": 1
+  },
+  {
+   "id": "hook-rules-clean",
+   "why": "Hooks are called unconditionally at the top level of components, never inside conditions, loops or callbacks.",
+   "kind": "lint-rules", "rules": ["react-hooks/rules-of-hooks"], "max": 0, "weight": 2,
+   "guard": [
+    {
+     "id": "has-hooks",
+     "kind": "ast-min", "gate": "react-hooks", "min": 30
+    }
+   ]
+  }
+ ]
+}

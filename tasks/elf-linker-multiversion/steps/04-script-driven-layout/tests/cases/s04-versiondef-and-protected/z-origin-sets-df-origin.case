@@ -1,0 +1,38 @@
+# arch: x86_64
+# what: -z origin sets DF_ORIGIN in DT_FLAGS and DF_1_ORIGIN in DT_FLAGS_1,
+# in both a shared object and a PIE, and changes nothing else in .dynamic.
+fl()  { dynamic "$1" | sed -n 's/.*(FLAGS)[[:space:]]*//p'   | head -1; }
+fl1() { dynamic "$1" | sed -n 's/.*(FLAGS_1)[[:space:]]*//p' | head -1; }
+rt_obj rt.o
+cat > p.c <<'C'
+#include "rt.h"
+int v = 7;
+int *const p = &v;
+int entry(void) { print("origin\n"); return *p; }
+C
+cc_obj p.o p.c -fPIC
+link_ok base.so -shared p.o
+link_ok org.so  -shared -z origin p.o
+# Baseline must not claim ORIGIN, or the option below proves nothing.
+want "baseline DT_FLAGS lacks ORIGIN"   "$(grep -c ORIGIN <<<"$(fl base.so)")"  "0"
+want "baseline DT_FLAGS_1 lacks ORIGIN" "$(grep -c ORIGIN <<<"$(fl1 base.so)")" "0"
+want "baseline still has DT_FLAGS"      "$(dynamic base.so | grep -cE '\(FLAGS\)')" "1"
+want "baseline still has DT_FLAGS_1"    "$(dynamic base.so | grep -cE '\(FLAGS_1\)')" "1"
+# -z origin sets the bit in both tags.
+want "DT_FLAGS gains ORIGIN"   "$(grep -c '\bORIGIN\b' <<<"$(fl org.so)")"  "1"
+want "DT_FLAGS_1 gains ORIGIN" "$(grep -c '\bORIGIN\b' <<<"$(fl1 org.so)")" "1"
+# The flags already there must be preserved, not overwritten.
+want "DT_FLAGS keeps BIND_NOW" "$(grep -c BIND_NOW <<<"$(fl org.so)")" \
+                               "$(grep -c BIND_NOW <<<"$(fl base.so)")"
+want "DT_FLAGS_1 keeps NOW"    "$(grep -c '\bNOW\b' <<<"$(fl1 org.so)")" \
+                               "$(grep -c '\bNOW\b' <<<"$(fl1 base.so)")"
+# Nothing else in .dynamic may move: only the two flag words change.
+want "no other dynamic tag changes" \
+  "$(diff <(dynamic base.so | grep -v 'FLAGS') \
+          <(dynamic org.so  | grep -v 'FLAGS') | grep -c .)" "0"
+# Not shared-object-only: a PIE gets it too, and is still a runnable image.
+link_ok pie -pie -z origin rt.o p.o
+want "PIE DT_FLAGS_1 has ORIGIN" "$(grep -c '\bORIGIN\b' <<<"$(fl1 pie)")" "1"
+want "PIE e_type" "$(hdr pie | awk '/^ *Type:/{print $2}')" "DYN"
+run_expect pie "origin" 7
+asserts_at_least 11

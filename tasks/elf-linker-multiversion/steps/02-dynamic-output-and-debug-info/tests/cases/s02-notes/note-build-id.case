@@ -1,0 +1,45 @@
+# arch: x86_64
+# --build-id writes a well-formed .note.gnu.build-id: namesz/descsz/type and
+# the "GNU\0" namespace are correct, the descriptor is exactly the requested
+# bytes, it sits in a 4-aligned PT_NOTE, and the program still runs.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+secbytes() { local o s
+  o=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+3) } }' | sed -n 1p)
+  s=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+4) } }' | sed -n 1p)
+  [ -n "$o" ] || die "output has no $2 section: $(sections "$1")"
+  dd if="$1" of="$3" bs=1 skip=$(( 16#$o )) count=$(( 16#$s )) status=none
+}
+u32at() { od -An -tx4 -j "$2" -N 4 "$1" | tr -d ' \n'; }
+ID=deadbeef00112233445566778899aabb
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("noted\n"); return 5; }
+C
+cc_obj m.o m.c
+link_ok out --build-id=0x$ID rt.o m.o
+wre ".note.gnu.build-id exists" "$(sections out)" '[[:space:]]\.note\.gnu\.build-id[[:space:]]+NOTE'
+want "section size" "$(( 16#$(sec_size out .note.gnu.build-id) ))" "32"
+secbytes out .note.gnu.build-id n.bin
+want "n_namesz" "$(u32at n.bin 0)" "00000004"
+want "n_descsz" "$(u32at n.bin 4)" "00000010"
+want "n_type NT_GNU_BUILD_ID" "$(u32at n.bin 8)" "00000003"
+want "namespace" "$(dd if=n.bin bs=1 skip=12 count=3 status=none)" "GNU"
+want "namespace NUL" "$(od -An -tx1 -j 15 -N 1 n.bin | tr -d ' \n')" "00"
+want "descriptor" "$(od -An -tx1 -j 16 -N 16 n.bin | tr -d ' \n')" "$ID"
+wre "readelf agrees" "$(notes out)" "Build ID: $ID"
+SEG=$(segments out)
+wre "PT_NOTE" "$SEG" '^ *NOTE +0x'
+want "PT_NOTE align" "$(awk '/^ *NOTE /{print $NF}' <<<"$SEG")" "0x4"
+nbeg=$(( $(awk '/^ *NOTE /{print $3}' <<<"$SEG") ))
+nend=$(( nbeg + $(awk '/^ *NOTE /{print $6}' <<<"$SEG") ))
+sbeg=$(( 16#$(sec_addr out .note.gnu.build-id) ))
+[ "$sbeg" -ge "$nbeg" ] && [ $(( sbeg + 32 )) -le "$nend" ] \
+  || die "the build-id note is not inside PT_NOTE"
+run_expect out "noted" 5
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 11

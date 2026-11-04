@@ -1,0 +1,36 @@
+CREATE TABLE r10tpa(id int4range, valid_at daterange, PRIMARY KEY (id, valid_at WITHOUT OVERLAPS));
+SELECT conname, contype, conperiod FROM pg_constraint WHERE conrelid = 'r10tpa'::regclass ORDER BY conname;
+         conname          | contype | conperiod 
+--------------------------+---------+-----------
+ r10tpa_id_not_null       | n       | f
+ r10tpa_pkey              | p       | t
+ r10tpa_valid_at_not_null | n       | f
+(3 rows)
+
+SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'r10tpa'::regclass AND contype = 'p';
+            pg_get_constraintdef             
+---------------------------------------------
+ PRIMARY KEY (id, valid_at WITHOUT OVERLAPS)
+(1 row)
+
+SELECT indexdef FROM pg_indexes WHERE tablename = 'r10tpa' ORDER BY indexname;
+                                  indexdef                                  
+----------------------------------------------------------------------------
+ CREATE UNIQUE INDEX r10tpa_pkey ON public.r10tpa USING gist (id, valid_at)
+(1 row)
+
+SELECT amname FROM pg_class ci JOIN pg_am am ON am.oid = ci.relam WHERE ci.relname = 'r10tpa_pkey';
+ amname 
+--------
+ gist
+(1 row)
+
+SELECT constraint_type FROM information_schema.table_constraints WHERE table_name = 'r10tpa' ORDER BY 1;
+ constraint_type 
+-----------------
+ CHECK
+ CHECK
+ PRIMARY KEY
+(3 rows)
+
+DROP TABLE r10tpa;

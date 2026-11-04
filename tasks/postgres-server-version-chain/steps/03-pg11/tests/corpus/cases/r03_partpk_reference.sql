@@ -1,0 +1,6 @@
+CREATE TABLE q3_prf(a int, b text, PRIMARY KEY (a)) PARTITION BY RANGE (a);
+CREATE TABLE q3_prf_1 PARTITION OF q3_prf FOR VALUES FROM (1) TO (10);
+CREATE TABLE q3_prf_back(x int REFERENCES q3_prf(a));
+ALTER TABLE q3_prf_back ADD CONSTRAINT q3_prf_back_fk FOREIGN KEY (x) REFERENCES q3_prf(a);
+DROP TABLE q3_prf_back;
+DROP TABLE q3_prf;

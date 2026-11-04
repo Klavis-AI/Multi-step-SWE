@@ -1,0 +1,40 @@
+# arch: riscv64
+# Relaxation is on unless it is turned off: the default link matches --relax,
+# not --no-relax.
+rt_obj rt.o
+cat > c.s <<'S'
+        .text
+        .globl caller
+        .type caller,@function
+caller:
+        addi    sp, sp, -16
+        sd      ra, 8(sp)
+        call    callee
+        ld      ra, 8(sp)
+        addi    sp, sp, 16
+        ret
+        .size caller, .-caller
+        .globl callee
+        .type callee,@function
+callee:
+        li      a0, 22
+        ret
+        .size callee, .-callee
+        .globl entry
+entry:  tail    caller
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj c.o c.s
+link_ok deflt rt.o c.o --no-gc-sections
+link_ok kept --no-relax rt.o c.o --no-gc-sections
+
+szd=$(symbols deflt | awk '$8 == "caller" { print $3; exit }')
+szk=$(symbols kept  | awk '$8 == "caller" { print $3; exit }')
+want "default link relaxes"      "$szd" "14"
+want "--no-relax does not relax" "$szk" "18"
+want "sizes differ" "$([ "$szd" != "$szk" ] && echo differ)" "differ"
+run_expect deflt "" 22
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 3

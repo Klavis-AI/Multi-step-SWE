@@ -1,0 +1,2 @@
+p "".length
+p "".size

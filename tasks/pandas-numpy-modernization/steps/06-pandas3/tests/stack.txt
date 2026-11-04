@@ -1,0 +1,90 @@
+# Step 6's verifier stack.
+#
+# The library pins are character-for-character the ones this step's
+# workdir/setup.sh installs into the agent's /opt/venv. They have to be: this
+# step's expectation is step 1's recording plus 318 declared flips, and a
+# replay under a different numpy or pandas would report the library's own
+# changes as the candidate's regressions -- or, worse, would silently satisfy a
+# flip that the pinned stack does not actually produce.
+#
+# The verifier installs them itself rather than inheriting the agent image, so
+# nothing the candidate did to /opt/venv can reach the scorer.
+#
+# pandas moves to 3.0.5 here and it is the whole point of the step. pandas 3
+# needs CPython 3.10+ and numpy 2.1+, so the interpreter moves to 3.12.11 (from
+# python-build-standalone; see workdir/setup.sh) and numpy to 2.3.5, and scipy,
+# scikit-learn, matplotlib and pyarrow move to the versions that ride with them
+# (scipy 1.16.3, scikit-learn 1.7.2, matplotlib 3.9.4, pyarrow 21.0.0). seaborn
+# holds its step-5 value, 0.13.2. The 318 flips isolate three sources of change
+# so none is charged to the candidate: pandas 3's default string dtype (PDEP-14,
+# future.infer_string on by default -- string columns are the new `str`
+# StringDtype, not object), the numpy 2.1->2.3 changes on top of the 2.0 set
+# step 5 already flipped, and the CPython 3.12 changes (a reworded re error
+# message is the only one that reaches a recorded value).
+#
+# The build system does NOT move here: step 5 already replaced numpy.distutils
+# with meson-python, and that build survives the hop to py3.12/numpy 2.3
+# unchanged -- the Cython _kernel_fast and the f2py dqrsl rebuild against the new
+# numpy with no source change. Cython moves to 3.1.6 (its generated C needs
+# Python 3.8+, which is why the interpreter had to move first) and ninja is
+# named explicitly at 1.13.0; meson-python is 0.18.0. setuptools moves to
+# 80.9.0 and wheel holds at 0.45.1.
+setuptools==80.9.0
+wheel==0.45.1
+numpy==2.3.5
+scipy==1.16.3
+pandas==3.0.5
+scikit-learn==1.7.2
+matplotlib==3.9.4
+seaborn==0.13.2
+pyarrow==21.0.0
+Cython==3.1.6
+meson-python==0.18.0
+ninja==1.13.0
+pytest==8.4.2
+
+# No tomli pin here, unlike steps 1-5.
+#
+# skutil_gates.suppress reads pyproject.toml to count the suppressions
+# configured there, and meson-python reads the same file to drive the build.
+# Steps 1-5 ran on Python 3.9, which has no TOML reader in the stdlib, so they
+# pinned tomli==1.2.3 to give the suppression scan a parser. Python grew tomllib
+# into the stdlib at 3.11; on this step's 3.12 interpreter the scan uses tomllib
+# and needs nothing installed. The suppression ceiling is a carried check, so it
+# matters that the parser did not change out from under it: tomllib is CPython's
+# own vendored copy of tomli and reads the same document to the same table, so
+# the ceiling measured here compares with the one steps 1-5 measured through
+# tomli. (meson-python 0.18.0 likewise uses stdlib tomllib on 3.11+.)
+
+# ---- transitive closure, pinned (tools/pin_closure.py) ----
+#
+# Not named by anything above; pip chose them while resolving it.
+# Written down because the behaviour corpus was recorded against
+# these exact versions and some of them move on their own
+# schedule, so an image rebuilt later would not be the image the
+# recording came from. Regenerate: python tools/pin_closure.py <image> <this file>
+#
+# pytz and tzdata are gone from the closure that steps 1-5 carried: pandas 3.0
+# dropped its pytz dependency and localises through the stdlib zoneinfo, so
+# neither is pulled in any more. exceptiongroup, importlib_resources,
+# typing_extensions and zipp are gone too -- each existed only as a 3.9
+# backport, and 3.12 carries all four in the stdlib. cloudpickle is new here
+# (joblib 1.6.0 declares it) and Pygments is new (pytest 8.4.2 uses it to colour
+# tracebacks).
+cloudpickle==3.1.2
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.65.0
+iniconfig==2.3.0
+joblib==1.6.0
+kiwisolver==1.5.1
+meson==1.12.0
+packaging==26.3
+pillow==12.3.0
+pluggy==1.6.0
+Pygments==2.21.0
+pyparsing==3.3.2
+pyproject-metadata==0.12.1
+python-dateutil==2.9.0.post0
+six==1.17.0
+threadpoolctl==3.7.0

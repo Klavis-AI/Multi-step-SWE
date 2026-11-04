@@ -1,0 +1,54 @@
+# arch: riscv64
+# Shrinking code moves everything after it, so R_RISCV_ALIGN has to be honoured:
+# a .p2align 5 label is still 32-byte aligned in the relaxed output.
+rt_obj rt.o
+cat > x.s <<'S'
+        .text
+        .globl far_call
+        .type far_call,@function
+far_call:
+        addi    sp, sp, -16
+        sd      ra, 8(sp)
+        call    other_fn
+        ld      ra, 8(sp)
+        addi    sp, sp, 16
+        ret
+        .size far_call, .-far_call
+        .p2align 5
+        .globl aligned_marker
+        .type aligned_marker,@function
+aligned_marker:
+        li      a0, 7
+        ret
+        .size aligned_marker, .-aligned_marker
+        .globl entry
+entry:  tail    far_call
+        .section .note.GNU-stack,"",@progbits
+S
+cat > y.s <<'S'
+        .text
+        .globl other_fn
+        .type other_fn,@function
+other_fn:
+        li      a0, 31
+        ret
+        .size other_fn, .-other_fn
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj x.o x.s
+as_obj y.o y.s
+want_has "input carries an alignment relocation" "$(relocs x.o)" 'R_RISCV_ALIGN'
+
+link_ok relaxed --relax rt.o x.o y.o --no-gc-sections
+sz=$(symbols relaxed | awk '$8 == "far_call" { print $3; exit }')
+want "code ahead of the marker shrank" "$sz" "14"
+
+addr=$(sym_value relaxed aligned_marker)
+[ -n "$addr" ] || die "aligned_marker missing from the relaxed output"
+rem=$(python3 -c "import sys; print(int(sys.argv[1], 16) % 32)" "$addr")
+want "aligned_marker is still 32-byte aligned" "$rem" "0"
+run_expect relaxed "" 31
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 3

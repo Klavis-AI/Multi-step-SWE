@@ -1,0 +1,65 @@
+# arch: x86_64
+# --version-script with an explicit global list and `local: *;` decides exactly
+# which symbols a shared object exports; the hidden ones leave .dynsym and
+# .dynstr entirely but are still linked into the image.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+nre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" && die "$1: unexpected /$3/"; return 0; }
+dynstrings() { local o s
+  o=$(sections "$1" | awk '{ for (i=1;i<=NF;i++) if ($i==".dynstr") print $(i+3) }' | sed -n 1p)
+  s=$(sections "$1" | awk '{ for (i=1;i<=NF;i++) if ($i==".dynstr") print $(i+4) }' | sed -n 1p)
+  [ -n "$o" ] || die "no .dynstr in output"
+  dd if="$1" bs=1 skip=$(( 16#$o )) count=$(( 16#$s )) status=none | tr '\0' '\n'
+}
+cat > vs.c <<'C'
+int pub_one(void)  { return 1; }
+int pub_two(void)  { return 2; }
+int priv_one(void) { return 3; }
+int priv_two(void) { return 4; }
+int pub_data  = 11;
+int priv_data = 12;
+C
+cc_obj vs.o vs.c
+cat > v.map <<'M'
+{
+global:
+pub_one;
+pub_two;
+pub_data;
+local:
+*;
+};
+M
+link_ok out -shared --version-script v.map --no-gc-sections vs.o
+DS=$(dynsyms out)
+# The three named symbols are exported...
+for s in pub_one pub_two pub_data; do
+  wre "$s exported" "$DS" "[[:space:]]GLOBAL[[:space:]]+DEFAULT[[:space:]]+[0-9]+[[:space:]]+$s\$"
+done
+# ...and nothing else is, not even as a local .dynsym entry.
+for s in priv_one priv_two priv_data; do
+  nre "$s hidden from .dynsym" "$DS" "[[:space:]]$s\$"
+done
+want "dynsym entry count" "$(grep -cE '^ +[0-9]+: ' <<<"$DS")" "4"
+STR=$(dynstrings out)
+for s in pub_one pub_two pub_data; do
+  want "$s in .dynstr" "$(grep -cx "$s" <<<"$STR")" "1"
+done
+for s in priv_one priv_two priv_data; do
+  want "$s absent from .dynstr" "$(grep -cx "$s" <<<"$STR")" "0"
+done
+# Localising is not discarding: the hidden code and data are still in the image.
+SY=$(symbols out)
+for s in priv_one priv_two priv_data; do
+  wre "$s still present" "$SY" "[[:space:]]$s\$"
+  v=$(sym_value out "$s")
+  [ -n "$v" ] && [ "$(( 16#$v ))" -gt 0 ] || die "$s has no address in the output"
+done
+# Without the script all six are exported, so the script is what did the work.
+link_ok base -shared --no-gc-sections vs.o
+want "unfiltered dynsym entry count" "$(dynsyms base | grep -cE '^ +[0-9]+: ')" "7"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 17

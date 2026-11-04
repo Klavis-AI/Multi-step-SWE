@@ -1,0 +1,2268 @@
+{
+ "checks": [
+  {
+   "expect": {
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "contains:release": true
+   },
+   "id": "g01_proof_of_life",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "args": [
+      "--version"
+     ],
+     "contains": {
+      "release": "0.19.0"
+     },
+     "kind": "cli",
+     "stream": "stdout"
+    }
+   ]
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (sum [0, 0] - [0, 9]\n    (sum [0, 0] - [0, 5]\n      (id [0, 0] - [0, 1])\n      (id [0, 4] - [0, 5]))\n    (id [0, 8] - [0, 9])))"
+   },
+   "id": "s01_left_associativity",
+   "stage": {
+    "s01/pex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.pex",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.pex": "a - b - c\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (power [0, 0] - [0, 9]\n    (id [0, 0] - [0, 1])\n    (power [0, 4] - [0, 9]\n      (id [0, 4] - [0, 5])\n      (id [0, 8] - [0, 9]))))"
+   },
+   "id": "s01_right_associativity",
+   "stage": {
+    "s01/pex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.pex",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.pex": "a ^ b ^ c\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (sum [0, 0] - [0, 9]\n    (id [0, 0] - [0, 1])\n    (power [0, 4] - [0, 9]\n      (id [0, 4] - [0, 5])\n      (id [0, 8] - [0, 9]))))"
+   },
+   "id": "s01_precedence_orders_two_rules",
+   "stage": {
+    "s01/pex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.pex",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.pex": "a - b ^ c\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (sum [0, 0] - [0, 7]\n    (negate [0, 0] - [0, 3]\n      (id [0, 2] - [0, 3]))\n    (id [0, 6] - [0, 7])))"
+   },
+   "id": "s01_unary_precedence_binds_tightest",
+   "stage": {
+    "s01/pex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.pex",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.pex": "- a - b\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (call [0, 0] - [0, 4]\n    (id [0, 0] - [0, 1])\n    (id [0, 2] - [0, 3])))"
+   },
+   "id": "s01_glr_split_resolved_by_dynamic_precedence",
+   "stage": {
+    "s01/pex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.pex",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.pex": "f(x)\n"
+   }
+  },
+  {
+   "expect": {
+    "declared_generate_exit_zero": true,
+    "undeclared_generate_exit_zero": false,
+    "undeclared_generate_reports_a_diagnostic": true
+   },
+   "id": "s01_conflict_must_be_declared",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./undeclared.js"
+     ],
+     "kind": "generate",
+     "prefix": "undeclared_"
+    },
+    {
+     "generate_args": [
+      "./declared.js"
+     ],
+     "kind": "generate",
+     "prefix": "declared_"
+    }
+   ],
+   "write": {
+    "declared.js": "module.exports = grammar({\n  name: 'declared',\n  extras: $ => [/\\s/],\n  conflicts: $ => [[$.x, $.y]],\n  rules: {\n    source_file: $ => choice($.x, $.y),\n    x: $ => $.id,\n    y: $ => $.id,\n    id: $ => /[a-z]+/,\n  }\n});\n",
+    "undeclared.js": "module.exports = grammar({\n  name: 'undeclared',\n  extras: $ => [/\\s/],\n  rules: {\n    source_file: $ => choice($.x, $.y),\n    x: $ => $.id,\n    y: $ => $.id,\n    id: $ => /[a-z]+/,\n  }\n});\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (declaration [0, 0] - [0, 11]\n    (identifier [0, 4] - [0, 10])))"
+   },
+   "id": "s01_longest_match_and_keyword_extraction",
+   "stage": {
+    "s01/lex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.lex",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.lex": "let letter;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "glued_parse_exit_zero": true,
+    "glued_tree": "(source_file [0, 0] - [1, 0]\n  (label [0, 0] - [0, 5]\n    (identifier [0, 0] - [0, 1])\n    (identifier [0, 3] - [0, 4])))",
+    "spaced_parse_exit_zero": false,
+    "spaced_tree": "(source_file [0, 0] - [1, 0]\n  (ERROR [0, 0] - [0, 6]\n    (identifier [0, 0] - [0, 1])\n    (ERROR [0, 2] - [0, 3])\n    (identifier [0, 4] - [0, 5])))"
+   },
+   "id": "s01_token_immediate_requires_adjacency",
+   "stage": {
+    "s01/lex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "glued.lex",
+     "kind": "parse",
+     "prefix": "glued_"
+    },
+    {
+     "input": "spaced.lex",
+     "kind": "parse",
+     "prefix": "spaced_"
+    }
+   ],
+   "write": {
+    "glued.lex": "x: y;\n",
+    "spaced.lex": "x : y;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [2, 0]\n  (declaration [0, 0] - [0, 6]\n    (identifier [0, 4] - [0, 5]))\n  (comment [0, 8] - [0, 16])\n  (declaration [1, 0] - [1, 6]\n    (identifier [1, 4] - [1, 5])))"
+   },
+   "id": "s01_extras_appear_anywhere",
+   "stage": {
+    "s01/lex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.lex",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.lex": "let a;  # a note\nlet b;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (text [0, 0] - [0, 10]\n    (letters [0, 4] - [0, 9])))"
+   },
+   "id": "s01_unicode_class_and_byte_columns",
+   "stage": {
+    "s01/lex": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.lex",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.lex": "say caf\u00e9;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (binding [0, 0] - [0, 10]\n    name: (identifier [0, 4] - [0, 5])\n    value: (number [0, 8] - [0, 9]))\n  (rebinding [0, 11] - [0, 21]\n    name: (target [0, 15] - [0, 16])\n    value: (identifier [0, 19] - [0, 20]))\n  (blank_statement [0, 22] - [0, 27])\n  (terminator [0, 28] - [0, 32]))"
+   },
+   "id": "s01_hidden_rules_fields_and_aliases",
+   "stage": {
+    "s01/shp": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.shp",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.shp": "let a = 1; set b = c; pass; done\n"
+   }
+  },
+  {
+   "expect": {
+    "alias_entry": "target",
+    "generate_exit_zero": true,
+    "hidden_wrapper_absent": null,
+    "subtypes_key": "subtypes",
+    "supertype_entry": "_statement"
+   },
+   "id": "s01_node_types_records_supertypes_and_aliases",
+   "stage": {
+    "s01/shp": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/node-types.json",
+       "name": "supertype_entry",
+       "regex": "\"type\":\\s*\"(_statement)\""
+      },
+      {
+       "file": "src/node-types.json",
+       "name": "subtypes_key",
+       "regex": "\"(subtypes)\"\\s*:"
+      },
+      {
+       "file": "src/node-types.json",
+       "name": "alias_entry",
+       "regex": "\"type\":\\s*\"(target)\""
+      },
+      {
+       "file": "src/node-types.json",
+       "name": "hidden_wrapper_absent",
+       "regex": "\"type\":\\s*\"(_wrapper)\""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "expect": {
+    "conflicts": [],
+    "externals": [],
+    "generate_exit_zero": true,
+    "inline": [
+     "_wrapper"
+    ],
+    "name": "shp",
+    "optional_becomes_choice": "CHOICE",
+    "optional_second_member_is_blank": "BLANK",
+    "precedences": [],
+    "start_rule_type": "REPEAT",
+    "supertypes": [
+     "_statement"
+    ]
+   },
+   "id": "s01_grammar_json_normalisation",
+   "stage": {
+    "s01/shp": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "name"
+       ],
+       "name": "name"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "rules",
+        "source_file",
+        "type"
+       ],
+       "name": "start_rule_type"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "rules",
+        "blank_statement",
+        "members",
+        1,
+        "type"
+       ],
+       "name": "optional_becomes_choice"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "rules",
+        "blank_statement",
+        "members",
+        1,
+        "members",
+        1,
+        "type"
+       ],
+       "name": "optional_second_member_is_blank"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "supertypes"
+       ],
+       "name": "supertypes"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "inline"
+       ],
+       "name": "inline"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "conflicts"
+       ],
+       "name": "conflicts"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "precedences"
+       ],
+       "name": "precedences"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "externals"
+       ],
+       "name": "externals"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "expect": {
+    "extras_type": "PATTERN",
+    "extras_value": "\\s",
+    "generate_exit_zero": true
+   },
+   "id": "s01_extras_default_when_the_key_is_absent",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "extras",
+        0,
+        "type"
+       ],
+       "name": "extras_type"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "extras",
+        0,
+        "value"
+       ],
+       "name": "extras_value"
+      }
+     ]
+    }
+   ],
+   "write": {
+    "grammar.js": "module.exports = grammar({\n  name: 'bare',\n  rules: {\n    source_file: $ => repeat($.word),\n    word: $ => /[a-z]+/,\n  }\n});\n"
+   }
+  },
+  {
+   "expect": {
+    "extras": [],
+    "generate_exit_zero": true,
+    "parse_exit_zero": false,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (word [0, 0] - [0, 1])\n  (ERROR [0, 1] - [0, 2]\n    (ERROR [0, 1] - [0, 2]))\n  (word [0, 2] - [0, 3])\n  (ERROR [0, 3] - [1, 0]\n    (ERROR [0, 3] - [1, 0])))"
+   },
+   "id": "s01_empty_extras_is_not_the_default",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "extras"
+       ],
+       "name": "extras"
+      }
+     ]
+    },
+    {
+     "input": "in.bare",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "grammar.js": "module.exports = grammar({\n  name: 'bare',\n  extras: $ => [],\n  rules: {\n    source_file: $ => repeat($.word),\n    word: $ => /[a-z]+/,\n  }\n});\n",
+    "in.bare": "a b\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": false,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (statement [0, 0] - [0, 11]\n    name: (identifier [0, 4] - [0, 5])\n    (number [0, 8] - [0, 9]))\n  (ERROR [0, 12] - [0, 14]\n    (ERROR [0, 12] - [0, 14]))\n  (statement [0, 15] - [0, 26]\n    name: (identifier [0, 19] - [0, 20])\n    (number [0, 23] - [0, 24])))"
+   },
+   "id": "s01_error_node_and_failed_exit_status",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.rcv",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.rcv": "let a = 1 ; ?? let b = 2 ;\n"
+   }
+  },
+  {
+   "expect": {
+    "bad_cli_exit_code": 1,
+    "bad_cli_exit_zero": false,
+    "generate_exit_zero": true,
+    "good_cli_exit_code": 0,
+    "good_cli_exit_zero": true
+   },
+   "id": "s01_quiet_parse_still_reports_errors",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "args": [
+      "parse",
+      "-q",
+      "good.rcv"
+     ],
+     "kind": "cli",
+     "prefix": "good_"
+    },
+    {
+     "args": [
+      "parse",
+      "-q",
+      "bad.rcv"
+     ],
+     "kind": "cli",
+     "prefix": "bad_"
+    }
+   ],
+   "write": {
+    "bad.rcv": "let = 1 ;\n",
+    "good.rcv": "let a = 1 ;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "a binding to a number",
+     "a binding to an identifier",
+     "a missing semicolon",
+     "an unparsable binding",
+     "recovery between two good statements",
+     "two bindings on two lines"
+    ]
+   },
+   "id": "s01_corpus_runner_accepts_the_grammar",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ]
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": false,
+    "tests_failed": [
+     "an expectation that does not hold"
+    ],
+    "tests_passed": [
+     "a binding to a number",
+     "a binding to an identifier",
+     "two bindings on two lines"
+    ]
+   },
+   "id": "s01_corpus_runner_separates_failures",
+   "remove": [
+    "test/corpus/recovery.txt"
+   ],
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "write": {
+    "test/corpus/wrong.txt": "==================\nan expectation that does not hold\n==================\n\nlet a = 1 ;\n\n---\n\n(source_file\n  (statement\n    (number)\n    (identifier)))\n"
+   }
+  },
+  {
+   "expect": {
+    "edited_parse_exit_zero": true,
+    "edited_tree": "(source_file [0, 0] - [2, 0]\n  (statement [0, 0] - [0, 12]\n    name: (identifier [0, 4] - [0, 5])\n    (identifier [0, 8] - [0, 10]))\n  (statement [1, 0] - [1, 11]\n    name: (identifier [1, 4] - [1, 5])\n    (number [1, 8] - [1, 9])))",
+    "fresh_parse_exit_zero": true,
+    "fresh_tree": "(source_file [0, 0] - [2, 0]\n  (statement [0, 0] - [0, 12]\n    name: (identifier [0, 4] - [0, 5])\n    (identifier [0, 8] - [0, 10]))\n  (statement [1, 0] - [1, 11]\n    name: (identifier [1, 4] - [1, 5])\n    (number [1, 8] - [1, 9])))",
+    "generate_exit_zero": true
+   },
+   "id": "s01_incremental_reparse_matches_a_fresh_parse",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "before.rcv",
+     "kind": "parse",
+     "parse_args": [
+      "--edit",
+      "8 1 zz"
+     ],
+     "prefix": "edited_"
+    },
+    {
+     "input": "after.rcv",
+     "kind": "parse",
+     "prefix": "fresh_"
+    }
+   ],
+   "write": {
+    "after.rcv": "let a = zz ;\nlet b = 2 ;\n",
+    "before.rcv": "let a = 1 ;\nlet b = 2 ;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [2, 0]\n  (entry [0, 0] - [0, 18]\n    (name [0, 0] - [0, 1])\n    (percent_string [0, 4] - [0, 17]))\n  (entry [1, 0] - [1, 7]\n    (name [1, 0] - [1, 1])\n    (number [1, 4] - [1, 6])))"
+   },
+   "id": "s01_external_scanner_produces_its_token",
+   "stage": {
+    "s01/ext": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.ext",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.ext": "a = %hello there%;\nb = 42;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": false,
+    "tree": ""
+   },
+   "id": "s01_external_token_without_a_scanner_cannot_load",
+   "env": {
+    "HOME": "./h"
+   },
+   "remove": [
+    "src/scanner.c"
+   ],
+   "stage": {
+    "s01/ext": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.ext",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.ext": "b = 42;\n"
+   }
+  },
+  {
+   "expect": {
+    "captures": "in.qry\n  pattern: 0\n    capture: lhs, start: (0, 0), text: \"a\"\n    capture: rhs, start: (0, 4), text: \"1\"\n  pattern: 0\n    capture: lhs, start: (1, 0), text: \"b\"\n    capture: rhs, start: (1, 4), text: \"\\\"hi\\\"\"",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   },
+   "id": "s01_query_match_output",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "query": "queries/assignment.scm"
+    }
+   ],
+   "write": {
+    "in.qry": "a = 1;\nb = \"hi\";\nfoo(x);\n"
+   }
+  },
+  {
+   "expect": {
+    "captures": "in.qry\n    pattern: 0, capture: lhs, row: 0, text: \"a\"\n    pattern: 0, capture: rhs, row: 0, text: \"1\"\n    pattern: 0, capture: lhs, row: 1, text: \"b\"\n    pattern: 0, capture: rhs, row: 1, text: \"\\\"hi\\\"\"",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   },
+   "id": "s01_query_captures_output",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "query": "queries/assignment.scm",
+     "query_args": [
+      "--captures"
+     ]
+    }
+   ],
+   "write": {
+    "in.qry": "a = 1;\nb = \"hi\";\nfoo(x);\n"
+   }
+  },
+  {
+   "expect": {
+    "any_captures": "in.qry\n  pattern: 0\n    capture: any, start: (0, 0), text: \"foo\"\n  pattern: 0\n    capture: any, start: (0, 3), text: \"(\"\n  pattern: 0\n    capture: any, start: (0, 4), text: \"x\"\n  pattern: 0\n    capture: any, start: (0, 5), text: \")\"\n  pattern: 0\n    capture: any, start: (0, 6), text: \";\"",
+    "any_query_exit_zero": true,
+    "generate_exit_zero": true,
+    "named_captures": "in.qry\n  pattern: 0\n    capture: named, start: (0, 0), text: \"foo\"\n  pattern: 0\n    capture: named, start: (0, 4), text: \"x\"",
+    "named_query_exit_zero": true
+   },
+   "id": "s01_query_wildcards_distinguish_named_nodes",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "prefix": "named_",
+     "query": "queries/wildcards.scm"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "prefix": "any_",
+     "query": "queries/anonymous.scm"
+    }
+   ],
+   "write": {
+    "in.qry": "foo(x);\n"
+   }
+  },
+  {
+   "expect": {
+    "captures": "in.qry\n  pattern: 1\n    capture: unknown, start: (0, 4), text: \"1\"\n  pattern: 0\n    capture: known, start: (1, 0), text: \"foo\"",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   },
+   "id": "s01_query_predicates",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "query": "queries/predicates.scm"
+    }
+   ],
+   "write": {
+    "in.qry": "a = 1;\nfoo(x);\n"
+   }
+  },
+  {
+   "expect": {
+    "alt_captures": "in.qry\n  pattern: 0\n    capture: literal, start: (0, 4), text: \"1\"\n  pattern: 0\n    capture: literal, start: (1, 4), text: \"\\\"hi\\\"\"",
+    "alt_query_exit_zero": true,
+    "generate_exit_zero": true,
+    "multi_captures": "multi.qry\n  pattern: 0\n    capture: whole, start: (0, 0), end: (1, 4)",
+    "multi_query_exit_zero": true
+   },
+   "id": "s01_query_alternation_and_multiline_capture",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "prefix": "alt_",
+     "query": "queries/alternation.scm"
+    },
+    {
+     "input": "multi.qry",
+     "kind": "query",
+     "prefix": "multi_",
+     "query": "multi.scm"
+    }
+   ],
+   "write": {
+    "in.qry": "a = 1;\nb = \"hi\";\n",
+    "multi.qry": "a =\n  1;\n",
+    "multi.scm": "(assignment) @whole\n"
+   }
+  },
+  {
+   "expect": {
+    "file:Cargo.toml": true,
+    "file:binding.gyp": true,
+    "file:bindings/node/binding.cc": true,
+    "file:bindings/node/index.js": true,
+    "file:bindings/rust/build.rs": true,
+    "file:bindings/rust/lib.rs": true,
+    "file:package.json": true,
+    "file:src/grammar.json": true,
+    "file:src/node-types.json": true,
+    "file:src/parser.c": true,
+    "file:src/tree_sitter/parser.h": true,
+    "generate_exit_zero": true
+   },
+   "id": "s01_generate_writes_the_documented_files",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "expect_files": [
+      "src/parser.c",
+      "src/node-types.json",
+      "src/grammar.json",
+      "src/tree_sitter/parser.h",
+      "binding.gyp",
+      "bindings/node/binding.cc",
+      "bindings/node/index.js",
+      "bindings/rust/lib.rs",
+      "bindings/rust/build.rs",
+      "Cargo.toml",
+      "package.json"
+     ],
+     "kind": "files"
+    }
+   ]
+  },
+  {
+   "expect": {
+    "absent:src/grammar.json": true,
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "file:src/parser.c": true,
+    "parse_exit_zero": false,
+    "tree": ""
+   },
+   "id": "s01_grammar_json_only_without_a_path_argument",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "args": [
+      "generate",
+      "./grammar.js"
+     ],
+     "expect_absent": [
+      "src/grammar.json"
+     ],
+     "expect_files": [
+      "src/parser.c"
+     ],
+     "kind": "cli"
+    },
+    {
+     "input": "in.rcv",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.rcv": "let a = 1 ;\n"
+   }
+  },
+  {
+   "expect": {
+    "absent:src/tree_sitter/parser.h": true,
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "file:src/node-types.json": true,
+    "file:src/parser.c": true,
+    "parse_exit_zero": false,
+    "tree": ""
+   },
+   "id": "s01_prev_abi_omits_the_generated_header",
+   "env": {
+    "HOME": "./h"
+   },
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "args": [
+      "generate",
+      "--prev-abi"
+     ],
+     "expect_absent": [
+      "src/tree_sitter/parser.h"
+     ],
+     "expect_files": [
+      "src/parser.c",
+      "src/node-types.json"
+     ],
+     "kind": "cli"
+    },
+    {
+     "input": "in.rcv",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.rcv": "let a = 1 ;\n"
+   }
+  },
+  {
+   "expect": {
+    "absent_cli_exit_code": 1,
+    "absent_cli_exit_zero": false,
+    "bare_cli_exit_code": 1,
+    "bare_cli_exit_zero": false,
+    "dotted_cli_exit_code": 0,
+    "dotted_cli_exit_zero": true,
+    "ext_cli_exit_code": 1,
+    "ext_cli_exit_zero": false
+   },
+   "id": "s01_grammar_path_resolution",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "args": [
+      "generate",
+      "grammar.js"
+     ],
+     "kind": "cli",
+     "prefix": "bare_"
+    },
+    {
+     "args": [
+      "generate",
+      "./grammar.js"
+     ],
+     "kind": "cli",
+     "prefix": "dotted_"
+    },
+    {
+     "args": [
+      "generate",
+      "./grammar.txt"
+     ],
+     "kind": "cli",
+     "prefix": "ext_"
+    },
+    {
+     "args": [
+      "generate",
+      "./nothing.js"
+     ],
+     "kind": "cli",
+     "prefix": "absent_"
+    }
+   ],
+   "write": {
+    "grammar.txt": "module.exports = grammar({ name: 'bare', rules: { source_file: $ => /[a-z]+/ } });\n"
+   }
+  },
+  {
+   "expect": {
+    "dumplang_cli_exit_code": 0,
+    "dumplang_cli_exit_zero": true,
+    "initconfig_cli_exit_code": 0,
+    "initconfig_cli_exit_zero": true,
+    "none_cli_exit_code": 1,
+    "none_cli_exit_zero": false,
+    "unknown_flag_cli_exit_code": 1,
+    "unknown_flag_cli_exit_zero": false,
+    "unknown_sub_cli_exit_code": 1,
+    "unknown_sub_cli_exit_zero": false
+   },
+   "id": "s01_exit_status_of_the_command_line",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "args": [],
+     "kind": "cli",
+     "prefix": "none_"
+    },
+    {
+     "args": [
+      "frobnicate"
+     ],
+     "kind": "cli",
+     "prefix": "unknown_sub_"
+    },
+    {
+     "args": [
+      "generate",
+      "--frobnicate"
+     ],
+     "kind": "cli",
+     "prefix": "unknown_flag_"
+    },
+    {
+     "args": [
+      "init-config"
+     ],
+     "kind": "cli",
+     "prefix": "initconfig_"
+    },
+    {
+     "args": [
+      "dump-languages"
+     ],
+     "kind": "cli",
+     "prefix": "dumplang_"
+    }
+   ]
+  },
+  {
+   "id": "s01_init_config_writes_the_parser_directories",
+   "stage": {
+    "s01/bare": "."
+   },
+   "env": {
+    "HOME": "./h"
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "init-config"
+     ],
+     "prefix": "initconfig_",
+     "expect_files": [
+      "h/.tree-sitter/config.json"
+     ],
+     "expect_absent": [
+      "h/.config/tree-sitter/config.json"
+     ]
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "parser_directories",
+       "file": "h/.tree-sitter/config.json",
+       "json_path": [
+        "parser-directories"
+       ]
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "initconfig_cli_exit_code": 0,
+    "initconfig_cli_exit_zero": true,
+    "initconfig_file:h/.tree-sitter/config.json": true,
+    "initconfig_absent:h/.config/tree-sitter/config.json": true,
+    "parser_directories": [
+     "./h/github",
+     "./h/src",
+     "./h/source"
+    ]
+   }
+  },
+  {
+   "id": "s01_config_directory_overrides_the_default_home",
+   "stage": {
+    "s01/bare": "."
+   },
+   "env": {
+    "HOME": "./h",
+    "TREE_SITTER_DIR": "./tsd"
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "init-config"
+     ],
+     "prefix": "initconfig_",
+     "expect_files": [
+      "tsd/config.json"
+     ],
+     "expect_absent": [
+      "h/.tree-sitter/config.json",
+      "h/.config/tree-sitter/config.json"
+     ]
+    }
+   ],
+   "expect": {
+    "initconfig_cli_exit_code": 0,
+    "initconfig_cli_exit_zero": true,
+    "initconfig_file:tsd/config.json": true,
+    "initconfig_absent:h/.tree-sitter/config.json": true,
+    "initconfig_absent:h/.config/tree-sitter/config.json": true
+   }
+  },
+  {
+   "id": "s01_default_parser_directories_are_discovered",
+   "stage": {
+    "s01/bare": "h/github/tree-sitter-bare"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "h/github/tree-sitter-bare",
+     "prefix": "gen_"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "dump-languages"
+     ],
+     "prefix": "dumplang_",
+     "stream": "stdout",
+     "env": {
+      "HOME": "./h"
+     },
+     "contains": {
+      "discovered_scope": "source.bare"
+     }
+    }
+   ],
+   "expect": {
+    "gen_generate_exit_zero": true,
+    "dumplang_cli_exit_code": 0,
+    "dumplang_cli_exit_zero": true,
+    "dumplang_contains:discovered_scope": true
+   }
+  },
+  {
+   "id": "s01_compiled_parser_cache_is_name_keyed",
+   "stage": {
+    "s01/bare": "."
+   },
+   "env": {
+    "HOME": "./h"
+   },
+   "write": {
+    "input.bare": "alpha beta\n"
+   },
+   "input": "input.bare",
+   "steps": [
+    {
+     "kind": "generate",
+     "prefix": "gen_"
+    },
+    {
+     "kind": "parse",
+     "prefix": "parse_"
+    },
+    {
+     "kind": "files",
+     "expect_files": [
+      "h/.tree-sitter/bin/bare.so"
+     ],
+     "expect_absent": [
+      "h/.cache/tree-sitter/lib/bare.so",
+      "h/.tree-sitter/bin/tree-sitter-bare.so"
+     ]
+    }
+   ],
+   "expect": {
+    "gen_generate_exit_zero": true,
+    "parse_parse_exit_zero": true,
+    "parse_tree": "(source_file [0, 0] - [1, 0]\n  (word [0, 0] - [0, 5])\n  (word [0, 6] - [0, 10]))",
+    "file:h/.tree-sitter/bin/bare.so": true,
+    "absent:h/.cache/tree-sitter/lib/bare.so": true,
+    "absent:h/.tree-sitter/bin/tree-sitter-bare.so": true
+   }
+  },
+  {
+   "id": "s01_test_without_a_corpus_directory_is_a_pass",
+   "stage": {
+    "s01/bare": "."
+   },
+   "env": {
+    "HOME": "./h"
+   },
+   "steps": [
+    {
+     "kind": "files",
+     "prefix": "pre_",
+     "expect_absent": [
+      "test/corpus",
+      "corpus"
+     ]
+    },
+    {
+     "kind": "generate",
+     "prefix": "gen_"
+    },
+    {
+     "kind": "test",
+     "prefix": "nocorpus_"
+    }
+   ],
+   "expect": {
+    "pre_absent:test/corpus": true,
+    "pre_absent:corpus": true,
+    "gen_generate_exit_zero": true,
+    "nocorpus_test_exit_zero": true,
+    "nocorpus_tests_passed": [],
+    "nocorpus_tests_failed": []
+   }
+  },
+  {
+   "expect": {
+    "absent_cli_exit_code": 1,
+    "absent_cli_exit_zero": false,
+    "directory_cli_exit_code": 1,
+    "directory_cli_exit_zero": false,
+    "generate_exit_zero": true,
+    "negative_cli_exit_code": 1,
+    "negative_cli_exit_zero": false,
+    "scope_cli_exit_code": 1,
+    "scope_cli_exit_zero": false
+   },
+   "id": "s01_parse_rejects_paths_it_cannot_use",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "args": [
+      "parse",
+      "nothing.rcv"
+     ],
+     "kind": "cli",
+     "prefix": "absent_"
+    },
+    {
+     "args": [
+      "parse",
+      "src"
+     ],
+     "kind": "cli",
+     "prefix": "directory_"
+    },
+    {
+     "args": [
+      "parse",
+      "--scope",
+      "source.nothing",
+      "in.rcv"
+     ],
+     "kind": "cli",
+     "prefix": "scope_"
+    },
+    {
+     "args": [
+      "parse",
+      "!*.rcv"
+     ],
+     "kind": "cli",
+     "prefix": "negative_"
+    }
+   ],
+   "write": {
+    "in.rcv": "let a = 1 ;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "main": "bindings/node",
+    "pkg_name": "tree-sitter-rcv",
+    "scope": "source.rcv"
+   },
+   "id": "s01_package_json_is_updated_in_place",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "package.json",
+       "json_path": [
+        "main"
+       ],
+       "name": "main"
+      },
+      {
+       "file": "package.json",
+       "json_path": [
+        "tree-sitter",
+        0,
+        "scope"
+       ],
+       "name": "scope"
+      },
+      {
+       "file": "package.json",
+       "json_path": [
+        "name"
+       ],
+       "name": "pkg_name"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "includes_the_generated_header": "tree_sitter/parser.h",
+    "language_entry_point": "tree_sitter_ext",
+    "scanner_create_declared": "tree_sitter_ext_external_scanner_create",
+    "scanner_deserialize_declared": "tree_sitter_ext_external_scanner_deserialize",
+    "scanner_destroy_declared": "tree_sitter_ext_external_scanner_destroy",
+    "scanner_scan_declared": "tree_sitter_ext_external_scanner_scan",
+    "scanner_serialize_declared": "tree_sitter_ext_external_scanner_serialize"
+   },
+   "id": "s01_parser_c_is_self_contained",
+   "stage": {
+    "s01/ext": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/parser.c",
+       "name": "includes_the_generated_header",
+       "regex": "#include\\s*<(tree_sitter/parser\\.h)>"
+      },
+      {
+       "file": "src/parser.c",
+       "name": "language_entry_point",
+       "regex": "(tree_sitter_ext)\\s*\\(\\s*(?:void)?\\s*\\)"
+      },
+      {
+       "file": "src/parser.c",
+       "name": "scanner_scan_declared",
+       "regex": "(tree_sitter_ext_external_scanner_scan)\\("
+      },
+      {
+       "file": "src/parser.c",
+       "name": "scanner_serialize_declared",
+       "regex": "(tree_sitter_ext_external_scanner_serialize)\\("
+      },
+      {
+       "file": "src/parser.c",
+       "name": "scanner_deserialize_declared",
+       "regex": "(tree_sitter_ext_external_scanner_deserialize)\\("
+      },
+      {
+       "file": "src/parser.c",
+       "name": "scanner_create_declared",
+       "regex": "(tree_sitter_ext_external_scanner_create)\\("
+      },
+      {
+       "file": "src/parser.c",
+       "name": "scanner_destroy_declared",
+       "regex": "(tree_sitter_ext_external_scanner_destroy)\\("
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "expect": {
+    "digit_generate_exit_zero": false,
+    "digit_generate_reports_a_diagnostic": true,
+    "noname_generate_exit_zero": false,
+    "noname_generate_reports_a_diagnostic": true,
+    "norules_generate_exit_zero": false,
+    "norules_generate_reports_a_diagnostic": true
+   },
+   "id": "s01_rejects_an_invalid_grammar_name",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./noname.js"
+     ],
+     "kind": "generate",
+     "prefix": "noname_"
+    },
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./digit.js"
+     ],
+     "kind": "generate",
+     "prefix": "digit_"
+    },
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./norules.js"
+     ],
+     "kind": "generate",
+     "prefix": "norules_"
+    }
+   ],
+   "write": {
+    "digit.js": "module.exports = grammar({ name: '9bad', rules: { source_file: $ => /[a-z]+/ } });\n",
+    "noname.js": "module.exports = grammar({ rules: { source_file: $ => /[a-z]+/ } });\n",
+    "norules.js": "module.exports = grammar({ name: 'bad', rules: {} });\n"
+   }
+  },
+  {
+   "expect": {
+    "hidden_generate_exit_zero": false,
+    "hidden_generate_reports_a_diagnostic": true,
+    "undefined_generate_exit_zero": false,
+    "undefined_generate_reports_a_diagnostic": true
+   },
+   "id": "s01_rejects_a_hidden_start_rule_and_an_undefined_reference",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./hidden.js"
+     ],
+     "kind": "generate",
+     "prefix": "hidden_"
+    },
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./undefined.js"
+     ],
+     "kind": "generate",
+     "prefix": "undefined_"
+    }
+   ],
+   "write": {
+    "hidden.js": "module.exports = grammar({ name: 'bad', rules: { _s: $ => /[a-z]+/, t: $ => /[0-9]+/ } });\n",
+    "undefined.js": "module.exports = grammar({ name: 'bad', rules: { source_file: $ => $.nowhere } });\n"
+   }
+  },
+  {
+   "expect": {
+    "anchor_generate_exit_zero": false,
+    "backref_generate_exit_zero": false,
+    "classop_generate_exit_zero": false,
+    "lookahead_generate_exit_zero": false,
+    "ok_generate_exit_zero": true
+   },
+   "id": "s01_rejects_unsupported_regex_constructs",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "generate_args": [
+      "./anchor.js"
+     ],
+     "kind": "generate",
+     "prefix": "anchor_"
+    },
+    {
+     "generate_args": [
+      "./lookahead.js"
+     ],
+     "kind": "generate",
+     "prefix": "lookahead_"
+    },
+    {
+     "generate_args": [
+      "./backref.js"
+     ],
+     "kind": "generate",
+     "prefix": "backref_"
+    },
+    {
+     "generate_args": [
+      "./classop.js"
+     ],
+     "kind": "generate",
+     "prefix": "classop_"
+    },
+    {
+     "generate_args": [
+      "./ok.js"
+     ],
+     "kind": "generate",
+     "prefix": "ok_"
+    }
+   ],
+   "write": {
+    "anchor.js": "module.exports = grammar({ name: 'bad', rules: { source_file: $ => /^a+/ } });\n",
+    "backref.js": "module.exports = grammar({ name: 'bad', rules: { source_file: $ => /(a)\\1/ } });\n",
+    "classop.js": "module.exports = grammar({ name: 'bad', rules: { source_file: $ => /[a-z&&[^aeiou]]+/ } });\n",
+    "lookahead.js": "module.exports = grammar({ name: 'bad', rules: { source_file: $ => /a(?=b)/ } });\n",
+    "ok.js": "module.exports = grammar({ name: 'bad', rules: { source_file: $ => /[a-z]\\d*/ } });\n"
+   }
+  },
+  {
+   "expect": {
+    "prec_generate_exit_zero": false,
+    "prec_generate_reports_a_diagnostic": true,
+    "token_generate_exit_zero": false,
+    "token_generate_reports_a_diagnostic": true
+   },
+   "id": "s01_rejects_a_nonlexical_token_and_a_bad_precedence",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./token.js"
+     ],
+     "kind": "generate",
+     "prefix": "token_"
+    },
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./prec.js"
+     ],
+     "kind": "generate",
+     "prefix": "prec_"
+    }
+   ],
+   "write": {
+    "prec.js": "module.exports = grammar({ name: 'bad', rules: { source_file: $ => prec(1.5, 'a') } });\n",
+    "token.js": "module.exports = grammar({ name: 'bad', extras: $ => [/\\s/], rules: { source_file: $ => repeat($.x), x: $ => token(seq('a', $.y)), y: $ => 'b' } });\n"
+   }
+  },
+  {
+   "expect": {
+    "bad_generate_exit_zero": false,
+    "bad_generate_reports_a_diagnostic": true,
+    "good_generate_exit_zero": true
+   },
+   "id": "s01_rejects_an_invalid_supertype",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "capture_generate_stderr_class": true,
+     "generate_args": [
+      "./bad.js"
+     ],
+     "kind": "generate",
+     "prefix": "bad_"
+    },
+    {
+     "generate_args": [
+      "./good.js"
+     ],
+     "kind": "generate",
+     "prefix": "good_"
+    }
+   ],
+   "write": {
+    "bad.js": "module.exports = grammar({\n  name: 'bad',\n  extras: $ => [/\\s/],\n  supertypes: $ => [$._thing],\n  rules: {\n    source_file: $ => repeat($._thing),\n    _thing: $ => choice($.a, seq($.a, $.a)),\n    a: $ => /x/,\n  }\n});\n",
+    "good.js": "module.exports = grammar({\n  name: 'good',\n  extras: $ => [/\\s/],\n  supertypes: $ => [$._thing],\n  rules: {\n    source_file: $ => repeat($._thing),\n    _thing: $ => choice($.a, $.b),\n    a: $ => /x/,\n    b: $ => /y/,\n  }\n});\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "good_captures": "in.qry\n  pattern: 0\n    capture: lhs, start: (0, 0), text: \"a\"\n    capture: rhs, start: (0, 4), text: \"1\"",
+    "good_query_exit_zero": true,
+    "unknown_captures": "",
+    "unknown_query_exit_zero": false
+   },
+   "id": "s01_query_rejects_an_unknown_node_type",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "prefix": "good_",
+     "query": "queries/assignment.scm"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "prefix": "unknown_",
+     "query": "bad_node_type.scm"
+    }
+   ],
+   "write": {
+    "bad_node_type.scm": "(nonexistent_node_xyz) @cap\n",
+    "in.qry": "a = 1;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "match_test_exit_zero": true,
+    "match_tests_failed": [],
+    "match_tests_passed": [
+     "a binding to a number"
+    ],
+    "nomatch_test_exit_zero": true,
+    "nomatch_tests_failed": [],
+    "nomatch_tests_passed": []
+   },
+   "id": "s01_test_filter_is_a_substring_match",
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "prefix": "match_",
+     "test_args": [
+      "--filter",
+      "to a number"
+     ]
+    },
+    {
+     "kind": "test",
+     "prefix": "nomatch_",
+     "test_args": [
+      "--filter",
+      "zzz no such test name zzz"
+     ]
+    }
+   ]
+  },
+  {
+   "expect": {
+    "after_test_exit_zero": true,
+    "after_tests_failed": [],
+    "after_tests_passed": [
+     "a binding to a number",
+     "a binding to an identifier",
+     "an expectation to be updated",
+     "two bindings on two lines"
+    ],
+    "before_test_exit_zero": false,
+    "before_tests_failed": [
+     "an expectation to be updated"
+    ],
+    "before_tests_passed": [
+     "a binding to a number",
+     "a binding to an identifier",
+     "two bindings on two lines"
+    ],
+    "generate_exit_zero": true,
+    "update_test_exit_zero": true,
+    "update_tests_failed": [],
+    "update_tests_passed": [
+     "a binding to a number",
+     "a binding to an identifier",
+     "an expectation to be updated",
+     "two bindings on two lines"
+    ]
+   },
+   "id": "s01_test_update_rewrites_a_failing_expectation",
+   "remove": [
+    "test/corpus/recovery.txt"
+   ],
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "prefix": "before_"
+    },
+    {
+     "kind": "test",
+     "prefix": "update_",
+     "test_args": [
+      "--update"
+     ]
+    },
+    {
+     "kind": "test",
+     "prefix": "after_"
+    }
+   ],
+   "write": {
+    "test/corpus/wrong.txt": "==================\nan expectation to be updated\n==================\n\nlet a = 1 ;\n\n---\n\n(source_file\n  (statement\n    (number)\n    (identifier)))\n"
+   }
+  },
+  {
+   "expect": {
+    "extended_parse_exit_zero": true,
+    "extended_tree": "(source_file [0, 0] - [1, 0]\n  (boolean [0, 0] - [0, 4])\n  (word [0, 5] - [0, 10])\n  (number [0, 11] - [0, 13]))",
+    "generate_exit_zero": true,
+    "grammar_name": "gext",
+    "has_extension_rule": true,
+    "inherited_extras_type": "PATTERN",
+    "inherited_parse_exit_zero": true,
+    "inherited_tree": "(source_file [0, 0] - [1, 0]\n  (word [0, 0] - [0, 5])\n  (number [0, 6] - [0, 8]))",
+    "inherited_word_rule": "PATTERN"
+   },
+   "id": "s01_grammar_extension_overrides_and_inherits",
+   "stage": {
+    "s01/gext": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "name"
+       ],
+       "name": "grammar_name"
+      },
+      {
+       "contains": "\"boolean\"",
+       "file": "src/grammar.json",
+       "name": "has_extension_rule"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "rules",
+        "word",
+        "type"
+       ],
+       "name": "inherited_word_rule"
+      },
+      {
+       "file": "src/grammar.json",
+       "json_path": [
+        "extras",
+        0,
+        "type"
+       ],
+       "name": "inherited_extras_type"
+      }
+     ]
+    },
+    {
+     "input": "extended.gext",
+     "kind": "parse",
+     "prefix": "extended_"
+    },
+    {
+     "input": "inherited.gext",
+     "kind": "parse",
+     "prefix": "inherited_"
+    }
+   ],
+   "write": {
+    "extended.gext": "true alpha 42\n",
+    "inherited.gext": "alpha 42\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "interrupted_captures": "interrupted.run\n  pattern: 0\n    capture: run, start: (0, 0), text: \"a = 1;\"\n    capture: run, start: (1, 0), text: \"b = 2;\"",
+    "interrupted_query_exit_zero": true,
+    "run_captures": "three.run\n  pattern: 0\n    capture: run, start: (0, 0), text: \"a = 1;\"\n    capture: run, start: (1, 0), text: \"b = 2;\"\n    capture: run, start: (2, 0), text: \"c = 3;\"",
+    "run_query_exit_zero": true
+   },
+   "id": "s01_query_quantifiers_match_a_run",
+   "stage": {
+    "s01/run": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "three.run",
+     "kind": "query",
+     "prefix": "run_",
+     "query": "queries/run.scm"
+    },
+    {
+     "input": "interrupted.run",
+     "kind": "query",
+     "prefix": "interrupted_",
+     "query": "queries/run.scm"
+    }
+   ],
+   "write": {
+    "interrupted.run": "a = 1;\nb = 2;\n// x\nc = 3;\n",
+    "three.run": "a = 1;\nb = 2;\nc = 3;\n"
+   }
+  },
+  {
+   "expect": {
+    "captures": "one.run\n  pattern: 0\n    capture: args, start: (0, 0), text: \"foo\"",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   },
+   "id": "s01_query_star_quantifier_stops_at_a_sibling",
+   "stage": {
+    "s01/run": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "one.run",
+     "kind": "query",
+     "query": "queries/star.scm"
+    }
+   ],
+   "write": {
+    "one.run": "foo(x);\n"
+   }
+  },
+  {
+   "expect": {
+    "anchor_captures": "one.qry\n  pattern: 0\n    capture: first, start: (0, 0), text: \"foo\"\n  pattern: 1\n    capture: fn, start: (0, 0), text: \"foo\"\n    capture: arg, start: (0, 4), text: \"x\"",
+    "anchor_query_exit_zero": true,
+    "generate_exit_zero": true,
+    "group_captures": "ident.qry\n  pattern: 0\n    capture: name, start: (0, 0), text: \"ab\"\n    capture: eq, start: (0, 3), text: \"=\"\n  pattern: 0\n    capture: name, start: (1, 0), text: \"zz\"\n    capture: eq, start: (1, 3), text: \"=\"",
+    "group_query_exit_zero": true
+   },
+   "id": "s01_query_anchors_and_groups",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "one.qry",
+     "kind": "query",
+     "prefix": "anchor_",
+     "query": "queries/anchors.scm"
+    },
+    {
+     "input": "ident.qry",
+     "kind": "query",
+     "prefix": "group_",
+     "query": "queries/groups.scm"
+    }
+   ],
+   "write": {
+    "ident.qry": "ab = 1;\nzz = 2;\n",
+    "one.qry": "foo(x);\n"
+   }
+  },
+  {
+   "expect": {
+    "eq_captures": "pairs.qry\n  pattern: 0\n    capture: l, start: (0, 0), text: \"aa\"\n    capture: s, start: (0, 3), text: \"=\"\n    capture: r, start: (0, 5), text: \"aa\"",
+    "eq_query_exit_zero": true,
+    "generate_exit_zero": true,
+    "neq_captures": "pairs.qry\n  pattern: 0\n    capture: l, start: (1, 0), text: \"bb\"\n    capture: s, start: (1, 3), text: \"=\"\n    capture: r, start: (1, 5), text: \"cc\"",
+    "neq_query_exit_zero": true
+   },
+   "id": "s01_query_eq_predicates_compare_text",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "pairs.qry",
+     "kind": "query",
+     "prefix": "eq_",
+     "query": "queries/eq_pair.scm"
+    },
+    {
+     "input": "pairs.qry",
+     "kind": "query",
+     "prefix": "neq_",
+     "query": "queries/neq_pair.scm"
+    }
+   ],
+   "write": {
+    "pairs.qry": "aa = aa;\nbb = cc;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "match_captures": "ident.qry\n  pattern: 0\n    capture: m, start: (0, 0), text: \"ab\"",
+    "match_query_exit_zero": true,
+    "nomatch_captures": "ident.qry\n  pattern: 0\n    capture: m, start: (1, 0), text: \"zz\"",
+    "nomatch_query_exit_zero": true
+   },
+   "id": "s01_query_match_predicates_are_unanchored",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "ident.qry",
+     "kind": "query",
+     "prefix": "match_",
+     "query": "queries/match.scm"
+    },
+    {
+     "input": "ident.qry",
+     "kind": "query",
+     "prefix": "nomatch_",
+     "query": "queries/nomatch.scm"
+    }
+   ],
+   "write": {
+    "ident.qry": "ab = 1;\nzz = 2;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "language_version": "13"
+   },
+   "id": "s01_default_language_version_is_thirteen",
+   "stage": {
+    "s01/bare": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/parser.c",
+       "name": "language_version",
+       "regex": "#define LANGUAGE_VERSION (\\d+)"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "expect": {
+    "absent:src/tree_sitter/parser.h": true,
+    "again_absent:src/tree_sitter/parser.h": true,
+    "again_cli_exit_code": 0,
+    "again_cli_exit_zero": true,
+    "again_file:src/parser.c": true,
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "file:src/node-types.json": true,
+    "file:src/parser.c": true,
+    "language_version": "12",
+    "parse_exit_zero": false,
+    "tree": ""
+   },
+   "id": "s01_prev_abi_language_version_and_header_directory",
+   "env": {
+    "HOME": "./h"
+   },
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "args": [
+      "generate",
+      "--prev-abi"
+     ],
+     "expect_absent": [
+      "src/tree_sitter/parser.h"
+     ],
+     "expect_files": [
+      "src/parser.c",
+      "src/node-types.json"
+     ],
+     "kind": "cli"
+    },
+    {
+     "args": [
+      "generate",
+      "--prev-abi"
+     ],
+     "expect_absent": [
+      "src/tree_sitter/parser.h"
+     ],
+     "expect_files": [
+      "src/parser.c"
+     ],
+     "kind": "cli",
+     "prefix": "again_"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/parser.c",
+       "name": "language_version",
+       "regex": "#define LANGUAGE_VERSION (\\d+)"
+      }
+     ]
+    },
+    {
+     "input": "in.rcv",
+     "kind": "parse"
+    }
+   ],
+   "write": {
+    "in.rcv": "let a = 1 ;\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "include_is_angle_bracketed": "tree_sitter/parser.h",
+    "quoted_relative_include": null
+   },
+   "id": "s01_parser_c_compiles_against_the_emitted_header",
+   "stage": {
+    "s01/ext": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "file": "src/parser.c",
+       "name": "include_is_angle_bracketed",
+       "regex": "#include\\s*<(tree_sitter/parser\\.h)>"
+      },
+      {
+       "file": "src/parser.c",
+       "name": "quoted_relative_include",
+       "regex": "#include\\s*\"(tree_sitter/parser\\.h)\""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": false,
+    "tests_failed": [
+     "missing semicolon, not the parse rendering"
+    ],
+    "tests_passed": [
+     "unexpected token, quoted"
+    ]
+   },
+   "id": "s01_corpus_renderer_normalises_missing_and_unexpected",
+   "remove": [
+    "test/corpus/recovery.txt",
+    "test/corpus/statements.txt"
+   ],
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "write": {
+    "test/corpus/rendering.txt": "==================\nmissing semicolon, not the parse rendering\n==================\n\nlet a = 1\n\n---\n\n(source_file\n  (statement\n    name: (identifier)\n    (number)\n    (MISSING \"; [0, 9] - [0, 9]\")))\n\n==================\nunexpected token, quoted\n==================\n\nlet a = 1 ; ?? let b = 2 ;\n\n---\n\n(source_file\n  (statement\n    (identifier)\n    (number))\n  (ERROR\n    (UNEXPECTED '?'))\n  (statement\n    (identifier)\n    (number)))\n"
+   }
+  },
+  {
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": false,
+    "tests_failed": [
+     "wrong field name"
+    ],
+    "tests_passed": [
+     "right field name"
+    ]
+   },
+   "id": "s01_corpus_fields_compared_only_when_prefixed",
+   "remove": [
+    "test/corpus/recovery.txt",
+    "test/corpus/statements.txt"
+   ],
+   "stage": {
+    "s01/rcv": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "write": {
+    "test/corpus/prefixed.txt": "==================\nright field name\n==================\n\nlet a = 1 ;\n\n---\n\n(source_file\n  (statement\n    name: (identifier)\n    (number)))\n\n==================\nwrong field name\n==================\n\nlet a = 1 ;\n\n---\n\n(source_file\n  (statement\n    wrong: (identifier)\n    (number)))\n"
+   }
+  },
+  {
+   "expect": {
+    "captures": "in.qry\n  pattern: 0\n    capture: stmt, start: (0, 0), text: \"x = 1;\"\n  pattern: 1\n    capture: left, start: (0, 0), text: \"x\"",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   },
+   "id": "s01_query_overlapping_captures_are_both_reported",
+   "stage": {
+    "s01/qry": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.qry",
+     "kind": "query",
+     "query": "queries/overlap.scm"
+    }
+   ],
+   "write": {
+    "in.qry": "x = 1;\n",
+    "queries/overlap.scm": "(assignment) @stmt\n(assignment left: (identifier) @left)\n"
+   }
+  },
+  {
+   "expect": {
+    "empty_parse_exit_zero": true,
+    "empty_tree": "(source_file [0, 0] - [0, 0])",
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (pair [0, 0] - [0, 5]\n    (word [0, 0] - [0, 2])\n    (tail [0, 3] - [0, 4])))"
+   },
+   "id": "s01_sym_refers_to_a_named_rule_and_blank_matches_empty",
+   "stage": {
+    "s01/alt": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "input": "in.alt",
+     "kind": "parse"
+    },
+    {
+     "input": "empty.alt",
+     "kind": "parse",
+     "prefix": "empty_"
+    }
+   ],
+   "write": {
+    "empty.alt": "",
+    "in.alt": "ab 1;\n"
+   }
+  }
+ ],
+ "per_check_timeout": 300,
+ "total_budget": 1800
+}

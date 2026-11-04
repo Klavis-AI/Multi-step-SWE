@@ -1,0 +1,36 @@
+# arch: x86_64
+# The output is identified as a 64-bit little-endian SysV x86-64 EXEC whose
+# e_entry is _start, and a static link carries no dynamic-linking machinery.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("id\n"); return 0; }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o
+h=$(hdr out)
+want_has  "e_ident class"    "$h" "Class: +ELF64"
+want_has  "e_ident data"     "$h" "Data: +2's complement, little endian"
+want_has  "e_ident osabi"    "$h" "OS/ABI: +UNIX - System V"
+want_has  "e_ident abiver"   "$h" "ABI Version: +0"
+want_has  "e_version"        "$h" "Version: +1 \(current\)"
+want_has  "e_machine"        "$h" "Machine: +Advanced Micro Devices X86-64"
+want "e_type" "$(printf '%s' "$h" | awk '/^ *Type:/{print $2}')" "EXEC"
+ep=$(printf '%s' "$h" | awk '/Entry point address:/{print $NF}' | tr 'A-F' 'a-f' | sed 's/^0x0*//')
+st=$(sym_value out _start | tr 'A-F' 'a-f' | sed 's/^0*//')
+[ -n "$st" ] || die "_start missing from the output symbol table"
+want "e_entry is _start" "$ep" "$st"
+# A static non-PIE link has no interpreter and no dynamic linking tables.
+want_not "no PT_INTERP"  "$(segments out)" "INTERP"
+want_not "no PT_DYNAMIC" "$(segments out)" "^ *DYNAMIC"
+for s in .interp .dynsym .dynstr .dynamic; do
+  has_section out "$s" && die "static output unexpectedly has $s"
+done
+want_not "no leftover output relocations" "$(sections out)" " RELA +"
+run_expect out "id" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 11

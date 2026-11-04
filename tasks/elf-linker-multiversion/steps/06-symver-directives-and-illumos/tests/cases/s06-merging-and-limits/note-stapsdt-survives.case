@@ -1,0 +1,92 @@
+# arch: x86_64
+# .note.stapsdt must reach the output with its note framing intact and its
+# probe address relocated to the real address of the probe site. It is a
+# non-allocated note, so it gets sh_addr 0 and keeps sh_addralign 4, and an
+# unknown note section (.note.mything) is carried through without complaint.
+# The same must hold with --gc-sections in effect.
+rt_obj rt.o
+cat > n.s <<'S'
+        .text
+        .globl probe_site
+probe_site:
+        nop
+        .section .note.stapsdt,"?","note"
+        .balign 4
+        .4byte 1f - 0f
+        .4byte 3f - 2f
+        .4byte 3
+0:      .asciz "stapsdt"
+1:      .balign 4
+2:      .quad probe_site
+        .quad 0
+        .quad 0
+        .asciz "myprov"
+        .asciz "myprobe"
+        .asciz "-4@%rax"
+3:      .balign 4
+        .section .note.mything,"a","note"
+        .balign 4
+        .4byte 5
+        .4byte 4
+        .4byte 77
+        .asciz "mine"
+        .balign 4
+        .4byte 0xdeadbeef
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj n.o n.s
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("probed\n"); return 3; }
+C
+cc_obj m.o m.c
+link_ok out --no-gc-sections rt.o n.o m.o
+
+secs=$(sections out)
+want_has ".note.stapsdt kept as SHT_NOTE" "$secs" '\.note\.stapsdt +NOTE'
+want "note section size unchanged" "$(( 16#$(sec_size out .note.stapsdt) ))" "68"
+
+nt=$(notes out)
+want_has "note owner intact"     "$nt" 'stapsdt'
+want_has "note descsz intact"    "$nt" '0x0000002f'
+want_has "note read from the right section" "$nt" 'Displaying notes found in: \.note\.stapsdt'
+want_has "probe strings intact"  "$nt" '6d 79 70 72 6f 76 00 6d 79 70 72 6f 62 65 00'
+
+# The first 8 description bytes are the relocated address of probe_site.
+want_has "description present" "$nt" 'description data:'
+hexle=$(sed -n 's/.*description data: \(\([0-9a-f][0-9a-f] \)\{8\}\).*/\1/p' <<<"$nt" | head -1)
+[ -n "$hexle" ] || die "no description bytes in: $nt"
+be=$(tr ' ' '\n' <<<"$hexle" | grep -v '^$' | tac | tr -d '\n')
+want "probe address == probe_site" "$(( 16#$be ))" "$(( 16#$(sym_value out probe_site) ))"
+[ "$(( 16#$be ))" -ne 0 ] || die "probe address was left unrelocated"
+run_expect out "probed" 3
+
+# Non-allocated: no address, and the alignment survives. The unknown allocated
+# note next to it does get an address, so the two are handled by kind and not
+# by name.
+want "stapsdt is non-allocated" "$(( 16#$(sec_addr out .note.stapsdt) ))" "0"
+want "stapsdt keeps sh_addralign 4" \
+     "$(awk '/\.note\.stapsdt/ { print $NF; exit }' <<<"$secs")" "4"
+want_has "the unknown note was carried through" "$secs" '\.note\.mything +NOTE'
+[ "$(( 16#$(sec_addr out .note.mything) ))" -ne 0 ] \
+  || die ".note.mything is SHF_ALLOC but got no address: $secs"
+unt=$(notes out)
+want_has "the unknown note keeps its owner"   "$unt" 'mine'
+want_has "the unknown note keeps its payload" "$unt" 'description data: ef be ad de'
+
+# --gc-sections must not change any of that. The contract forbids special-casing
+# the name, so what matters is that the section is still there, still framed,
+# and still carries the relocated probe address.
+link_ok gc --gc-sections rt.o n.o m.o
+want_has ".note.stapsdt survives --gc-sections" "$(sections gc)" '\.note\.stapsdt +NOTE'
+want "note size unchanged under GC" "$(( 16#$(sec_size gc .note.stapsdt) ))" "68"
+gnt=$(notes gc)
+want_has "owner still intact under GC"  "$gnt" 'stapsdt'
+want_has "probe strings intact under GC" "$gnt" '6d 79 70 72 6f 76 00 6d 79 70 72 6f 62 65 00'
+ghex=$(sed -n 's/.*description data: \(\([0-9a-f][0-9a-f] \)\{8\}\).*/\1/p' <<<"$gnt" | head -1)
+[ -n "$ghex" ] || die "no description bytes under GC in: $gnt"
+gbe=$(tr ' ' '\n' <<<"$ghex" | grep -v '^$' | tac | tr -d '\n')
+want "probe address relocated under GC" "$(( 16#$gbe ))" "$(( 16#$(sym_value gc probe_site) ))"
+run_expect gc "probed" 3
+
+asserts_at_least 18

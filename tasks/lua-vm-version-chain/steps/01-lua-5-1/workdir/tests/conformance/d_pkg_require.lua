@@ -1,0 +1,7 @@
+local m = require("mymod")
+print(type(m), m.name, m.twice(21))
+print(require("mymod") == m)
+print(package.loaded.mymod == m)
+print(type(package.path), type(package.loaded), type(package.preload))
+print(pcall(require, "no_such_module_here"))
+print(package.path)

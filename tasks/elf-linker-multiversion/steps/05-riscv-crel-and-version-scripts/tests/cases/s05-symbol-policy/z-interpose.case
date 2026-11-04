@@ -1,0 +1,29 @@
+# arch: x86_64
+# what: -z interpose must set DF_1_INTERPOSE in DT_FLAGS_1 without disturbing
+# the other flag bits, and the bit must be absent when the option is not given.
+cat > s.c <<'C'
+int pubfun(void) { return 1; }
+int pubvar = 2;
+C
+cc_obj s.o s.c -fPIC
+flags1() { dynamic "$1" > dy.txt; awk '/FLAGS_1/ { $1 = ""; $2 = ""; print }' dy.txt; }
+link_ok plain.so -shared s.o
+want_not "no INTERPOSE without the option" "$(flags1 plain.so)" "INTERPOSE"
+want "there is a DT_FLAGS_1 to compare against" "$(grep -c 'FLAGS_1' dy.txt)" "1"
+base=$(flags1 plain.so)
+link_ok int.so -shared -z interpose s.o
+want_has "INTERPOSE is set" "$(flags1 int.so)" "INTERPOSE"
+want "the other flag bits are unchanged" \
+  "$(flags1 int.so | sed 's/ *INTERPOSE//')" "$base"
+# The library itself is otherwise identical in shape.
+dynsyms int.so > ds.txt
+want "still exports its symbols" \
+  "$(awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' ')" \
+  "pubfun pubvar "
+want "e_type" "$(hdr int.so | awk '/^ *Type:/{print $2}')" "DYN"
+# -z interpose composes with other -z options rather than replacing them.
+link_ok both.so -shared -z interpose -z now s.o
+want_has "INTERPOSE survives another -z" "$(flags1 both.so)" "INTERPOSE"
+want_has "NOW is still there"             "$(flags1 both.so)" "NOW"
+# 8 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 8

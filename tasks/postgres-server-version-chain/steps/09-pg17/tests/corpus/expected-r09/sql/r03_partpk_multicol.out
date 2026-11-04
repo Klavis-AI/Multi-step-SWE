@@ -1,0 +1,20 @@
+CREATE TABLE q3_ppm(a int, b int, t text, PRIMARY KEY (a, b)) PARTITION BY RANGE (a);
+CREATE TABLE q3_ppm_1 PARTITION OF q3_ppm FOR VALUES FROM (1) TO (10);
+INSERT INTO q3_ppm VALUES (1,1,'x'),(1,2,'y');
+INSERT INTO q3_ppm VALUES (1,1,'dup');
+ERROR:  duplicate key value violates unique constraint "q3_ppm_1_pkey"
+DETAIL:  Key (a, b)=(1, 1) already exists.
+SELECT a, b, t FROM q3_ppm ORDER BY a, b;
+ a | b | t 
+---+---+---
+ 1 | 1 | x
+ 1 | 2 | y
+(2 rows)
+
+SELECT conname FROM pg_constraint WHERE conrelid = 'q3_ppm_1'::regclass ORDER BY conname;
+    conname    
+---------------
+ q3_ppm_1_pkey
+(1 row)
+
+DROP TABLE q3_ppm;

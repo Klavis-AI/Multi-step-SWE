@@ -1,0 +1,45 @@
+# arch: x86_64
+# DEFINED(sym) reports whether a symbol has a definition: 1 for one the objects
+# define, 0 for a name nothing defines, and a name only DEFINED() mentions must
+# not become an undefined-symbol error.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+extern char sum[];
+int g = 5;
+int entry(void) { print("defined\n"); return (int)(long)sum; }
+C
+cc_obj m.o m.c
+mkscript() { cat > t.ld <<L
+$1
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .data : { *(.data .data.*) }
+}
+L
+}
+# Control: the same carrier without DEFINED, so a failure below is DEFINED
+# itself rather than the assignment form.
+mkscript 'sum = 1 + 1;'
+link_ok ctl -T t.ld rt.o m.o
+run_expect ctl "defined" 2
+
+mkscript 'has_g     = DEFINED(g);
+has_entry = DEFINED(entry);
+has_ghost = DEFINED(no_such_symbol_anywhere);
+sum       = DEFINED(g) + DEFINED(entry) + DEFINED(no_such_symbol_anywhere);'
+link_ok out -T t.ld rt.o m.o
+want "DEFINED(g)"      "$(( 16#$(sym_value out has_g) ))"     "1"
+want "DEFINED(entry)"  "$(( 16#$(sym_value out has_entry) ))" "1"
+want "DEFINED(absent)" "$(( 16#$(sym_value out has_ghost) ))" "0"
+want "DEFINED sums"    "$(( 16#$(sym_value out sum) ))"       "2"
+syms=$(symbols out)
+want_not "the probed name was not made undefined" "$syms" 'UND +no_such_symbol_anywhere'
+run_expect out "defined" 2
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 5

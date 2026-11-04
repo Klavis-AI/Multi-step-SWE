@@ -1,0 +1,30 @@
+# arch: riscv64
+# The RISC-V spelling of the same rule: STO_RISCV_VARIANT_CC on an imported
+# symbol must produce DT_RISCV_VARIANT_CC.
+cat > v.s <<'S'
+        .text
+        .globl vfunc
+        .type vfunc, @function
+        .variant_cc vfunc
+vfunc:  li a0, 7
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj v.o v.s
+want_has "the input marks vfunc VARIANT_CC" "$(symbols v.o)" 'VARIANT_CC.* vfunc'
+link_ok libv.so -shared --no-gc-sections v.o
+want_has "the marking survives into .dynsym" "$(dynsyms libv.so)" 'VARIANT_CC.* vfunc'
+
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int vfunc(void);
+int entry(void) { return vfunc(); }
+C
+cc_obj m.o m.c
+link_ok out --no-gc-sections -pie -dynamic-linker /lib/ld.so rt.o m.o libv.so
+d=$(dynamic out)
+want_has "libv.so is NEEDED" "$d" 'NEEDED.*libv\.so'
+want_has "DT_RISCV_VARIANT_CC is present" "$d" 'RISCV_VARIANT_CC'
+
+asserts_at_least 4

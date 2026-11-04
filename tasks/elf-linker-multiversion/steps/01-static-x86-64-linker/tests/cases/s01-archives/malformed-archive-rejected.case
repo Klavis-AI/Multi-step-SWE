@@ -1,0 +1,37 @@
+# arch: x86_64
+# A file found through -L/-l that is not an archive must be diagnosed, not
+# skipped silently and not half-read into an output. Deliberately NOT asserted:
+# the exit status (0.3.0 returns 0 on input errors) and the text of the
+# message. Measured: the early tags report a member name parsed out of the
+# garbage rather than the archive's own name, and 0.10.0 reports the full path,
+# so the only portable claims are that some diagnostic is produced and that no
+# file appears at the -o path.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("m\n"); return 0; }
+C
+cc_obj m.o m.c
+mkdir -p libdir
+printf 'this is definitely not an ar archive\n' > libdir/libbroken.a
+link out rt.o m.o -L libdir -lbroken
+[ -e out ] && die "a failed link left a file at the -o path: $(ls -l out)"
+# The diagnostic must be on stderr, not stdout (spec/00 8). Measured: stderr
+# non-empty and stdout empty at all nine tags.
+[ -n "$LINK_ERR" ] || die "a malformed archive was accepted with no diagnostic on stderr at all"
+want "nothing was printed on stdout" "$LINK_STDOUT" ""
+# A well-formed archive in the same directory links and its member is pulled.
+cat > lib.c <<'C'
+int fn(void) { return 3; }
+C
+cc_obj lib.o lib.c
+mkar libdir/libgood.a lib.o
+cat > m2.c <<'C'
+#include "rt.h"
+int fn(void);
+int entry(void) { print("g\n"); return fn(); }
+C
+cc_obj m2.o m2.c
+link_ok out2 rt.o m2.o -L libdir -lgood
+run_expect out2 "g" 3
+asserts_at_least 1

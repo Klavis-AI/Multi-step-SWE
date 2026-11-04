@@ -1,0 +1,30 @@
+The BoGo delta for this step is large and therefore coarse.
+
+of the 1306 cases this step scores, the 0.23.31 shim -- run under this
+step's own 0.23.45 harness and graded the loose-errors way this step
+grades -- passes 925; the 381 it does not are this step's delta, frozen
+here as the seven bogo-*-new groups. Across the full 2099-case BoGo suite
+the same shim passes 1036, fails 415 and skips 648; every one of the 381
+delta cases is among those 415 failures and every one of the 925 inherited
+cases is among the 1036 it passes, checked case by case against the frozen
+lists.
+
+The delta is a valid discriminating set -- this step's Oracle passes
+every case in it and the previous step's does not -- but it is decided
+by a rustls-library change, not by a shim or harness migration. This
+measurement holds the 0.23.45 harness fixed on both sides and varies
+only the library under the shim, whose own call site is byte-identical
+at both levels. 372 of the 381 fail the 0.23.31 shim with an empty-OCSP
+decode error ("tls: error decoding CertificateStatus message" or
+"... Certificate message"), and two more (RejectEmptyOCSPResponse-
+TLS12/13) are the same mechanism seen from the peer: 0.23.31's
+with_single_cert_with_ocsp sets certified_key.ocsp = Some(ocsp)
+unconditionally and emits an empty CertificateStatus the newer test
+client rejects, while 0.23.45 guards it with `if !ocsp.is_empty()`,
+backed by PayloadU24<NonEmpty> in msgs/handshake.rs. The remaining
+seven are further 0.23.31-to-0.23.45 library changes (four
+cert-compression, three where the old shim drops the connection on a
+key-share hint or legacy-connect case). None of this is the step's
+headline behaviour (GHSA-2mjx-qc3c-rqvc, encryption-level alignment),
+so this step also carries non-BoGo new-capability groups aimed directly
+at that behaviour.

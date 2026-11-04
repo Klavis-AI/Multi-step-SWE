@@ -1,0 +1,41 @@
+// DESC: One custom option extension attached to every construct that accepts options
+syntax = "proto2";
+package c2.options.options_on_every_construct;
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FileOptions { optional string f_opt = 50801; }
+extend google.protobuf.MessageOptions { optional string m_opt = 50802; }
+extend google.protobuf.FieldOptions { optional string fld_opt = 50803; }
+extend google.protobuf.OneofOptions { optional string o_opt = 50804; }
+extend google.protobuf.EnumOptions { optional string e_opt = 50805; }
+extend google.protobuf.EnumValueOptions { optional string ev_opt = 50806; }
+extend google.protobuf.ServiceOptions { optional string s_opt = 50807; }
+extend google.protobuf.MethodOptions { optional string mth_opt = 50808; }
+extend google.protobuf.ExtensionRangeOptions { optional string er_opt = 50809; }
+
+option (f_opt) = "file";
+
+message Everything {
+  option (m_opt) = "message";
+  optional int32 a = 1 [(fld_opt) = "field"];
+  oneof pick {
+    option (o_opt) = "oneof";
+    int32 b = 2 [(fld_opt) = "oneof member"];
+  }
+  map<string, int32> m = 3 [(fld_opt) = "map field"];
+  optional group Grp = 4 [(fld_opt) = "group field"] { optional int32 v = 1; }
+  extensions 100 to 200 [(er_opt) = "extension range"];
+}
+
+extend Everything { optional int32 ext = 100 [(fld_opt) = "extension"]; }
+
+enum E {
+  option (e_opt) = "enum";
+  E_ZERO = 0 [(ev_opt) = "enum value"];
+}
+
+service S {
+  option (s_opt) = "service";
+  rpc Call(Everything) returns (Everything) { option (mth_opt) = "method"; }
+}

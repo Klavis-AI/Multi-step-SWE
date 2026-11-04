@@ -1,0 +1,4 @@
+CREATE TABLE t(a);
+INSERT INTO t VALUES(1);
+SELECT coalesce(1);
+SELECT a FROM t;

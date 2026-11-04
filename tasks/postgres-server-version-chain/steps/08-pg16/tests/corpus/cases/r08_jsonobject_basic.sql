@@ -1,0 +1,5 @@
+SELECT JSON_OBJECT('a': 1, 'b': 'x');
+SELECT JSON_OBJECT('a' VALUE 1, 'b' VALUE 'x');
+SELECT JSON_OBJECT();
+SELECT JSON_OBJECT('a': JSON_OBJECT('b': 1));
+SELECT JSON_OBJECT('a': '{"n":1}'::jsonb);

@@ -1,0 +1,214 @@
+{
+ "gates": [
+  {
+   "go": "1.17",
+   "id": "module",
+   "kind": "module",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 2,
+   "why": "The step's subject. The module path has to be the tree's own import path, because every first-party import in the repository already spells it; anything else compiles only by rewriting 163 files. The `go` directive is exact: 1.17 is the release that introduced the build-constraint syntax this step adopts, and a module that declares a later version has skipped the ladder rather than climbed it -- `go mod init` writes the toolchain's own version there, which is precisely the line a migration has to decide rather than accept. Both are read back out of the built binary with `go version -m`, so a go.mod that claims one thing while the build says another cannot pass."
+  },
+  {
+   "id": "build-all",
+   "kind": "build-all",
+   "weight": 1,
+   "why": "`go build ./...` over the repository, which is a different question from the single-binary build the behavior family needs: that one compiles `./cli/lss/lss-linux` and whatever it imports, so a package no main reaches -- a platform driver, an unused import set -- can stop compiling while the server binary is still produced and the recorded suite still passes. This is the check behind the instruction's \"go build ./... succeeds\". The module cache is warm from that earlier build, so it costs a compile of the tree and nothing else."
+  },
+  {
+   "kind": "no-vendored-source",
+   "module": "github.com/codedellemc/libstorage",
+   "weight": 1,
+   "why": "Computed from the import graph, not from the presence of a directory: a dependency copied to third_party/ and rewired with a replace directive is still third-party source in the repository. This is the one gate that carries the vendoring policy, which is why the syntactic gates below are scoped to first-party source rather than punishing a kept vendor tree twice. The same requirement has a second reading, because the graph cannot see a dependency whose source has been copied *into* the main module and given a first-party import path: every first-party file is also hashed, whitespace removed, against every .go file in the module cache the image ships, and a file that matches one of them is that dependency's source under another name."
+  },
+  {
+   "baseline": 21,
+   "kind": "gofmt",
+   "scope": "own",
+   "weight": 1,
+   "why": "21 first-party files are not `gofmt -s` clean at the baseline, measured over an explicit file list from the filesystem walk. Fourteen of them are the build-constraint files: Go 1.17 gofmt wants the //go:build line added, which is the same work the two build-tag gates below grade from the other side."
+  },
+  {
+   "baseline": 2,
+   "kind": "vet",
+   "weight": 1,
+   "why": "Both baseline findings are `fmt.Fprintln arg list ends with redundant newline` at cli/lss/lss.go:198 and :199."
+  },
+  {
+   "baseline": 15,
+   "checks": "SA1019",
+   "floor": 10,
+   "kind": "staticcheck",
+   "weight": 1,
+   "why": "15 SA1019 findings at the baseline: 10 io/ioutil import deprecations and 5 uses of httptest.ResponseRecorder.HeaderMap. Retiring io/ioutil is step 4's headline construct, so those 10 are the floor and this step is graded on its own 5. The HeaderMap five are a plain deprecation here: both the live map (Header()) and the snapshot (Result().Header) were measured against the recorded suite and both pass 1118/1118, because all three call sites read the headers after WriteHeader and before anything mutates them. The gate asks for the deprecated identifier to be gone and does not prescribe which accessor replaces it."
+  },
+  {
+   "baseline": 14,
+   "field": "legacy_build_tags",
+   "id": "count:legacy-build-tags",
+   "kind": "count",
+   "scope": "own",
+   "weight": 1,
+   "why": "14 `// +build` lines, one in each of 14 first-party files. Counted from the filesystem walk rather than from `go list`, because four of those files -- the mock driver behind `// +build mock`, the darwin OS driver, and the darwin and windows mains -- are invisible to `go list` on linux and would otherwise be permanently ungated."
+  },
+  {
+   "baseline": 14,
+   "direction": "up",
+   "field": "converted_build_tags",
+   "id": "count:converted-build-tags",
+   "kind": "count",
+   "scope": "own",
+   "weight": 1,
+   "why": "The paired half of the gate above, counted per file: a file is converted when it carries the modern constraint and no legacy line beside it. Counting the modern comments on their own would score a tree that has been through nothing but `gofmt`, which writes the //go:build line and leaves the // +build line in place; counting per file also fails a tree that deleted the constraint instead of converting it, since that file has neither form and silently changed what each platform builds."
+  },
+  {
+   "baseline": 1,
+   "field": "getenv_gopath",
+   "id": "count:getenv-gopath",
+   "kind": "count",
+   "scope": "own",
+   "weight": 1,
+   "why": "api/tests/tests_config.go builds the TLS fixture path out of os.Getenv(\"GOPATH\"). Outside GOPATH that is the empty string and the path silently becomes /src/github.com/codedellemc/libstorage/.tls, which the behavior family catches as 30 failing ginkgo specs while `go build ./...` stays green."
+  },
+  {
+   "id": "glide",
+   "kind": "files-absent",
+   "paths": [
+    "glide.yaml",
+    "glide.lock",
+    "glide.mk"
+   ],
+   "weight": 1,
+   "why": "The glide scaffolding the module graph replaces. glide.mk is included because the Makefile still includes it, so leaving it behind leaves a build path that resolves dependencies the old way."
+  }
+ ],
+ "module": "github.com/codedellemc/libstorage",
+ "regression": [
+  {
+   "baseline": 0,
+   "field": "suppressions",
+   "id": "floor:suppressions",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "why": "//lint:ignore, //nolint and friends. The tree has none, and a gate that can be passed by silencing it is not a gate."
+  },
+  {
+   "baseline": 1,
+   "field": "skips",
+   "id": "floor:skips",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "why": "A call that stops a test or a spec from running without deleting it, counted in the three shapes this tree can write one. The method form on any receiver -- t.Skip, t.Skipf, t.SkipNow -- which is where the single baseline site is, drivers/storage/mock/tests/mock_test.go calling t.SkipNow(). The bare identifier form, because the suites here alias the ginkgo DSL into package scope (`var Skip = ginkgo.Skip` in api/tests/tests_suite.go and in api/utils/utils_suite_test.go), so what an author in this repository actually writes inside a spec body is `Skip(\"...\")`, which is an identifier and not a selector; a bound that read only the selector would be one the repository's own idiom walks straight around. And ginkgo v1's pending constructors -- PIt and XIt with their Describe, Context, Specify and Measure counterparts -- in that same identifier form and qualified as ginkgo.PIt, because each pushes its node with types.FlagTypePending, so the spec is registered and its body never runs: a skip written as a declaration instead of as a call inside the body. They are not counted as specs, so rewriting an It as a PIt spends one against the spec floor above to buy one here and both bounds see it. The focus constructors, FIt and FDescribe and their siblings, are deliberately absent: RunSpecsWithCustomReporters exits GINKGO_FOCUS_EXIT_CODE, 197, when a suite passes with specs focused, so go test reports that package FAIL and narrowing a suite that way loses the package it was meant to save. One skip at the baseline; acquiring more is how a failing test becomes a passing suite."
+  },
+  {
+   "baseline": 97,
+   "field": "blank_discards",
+   "id": "floor:blank-discards",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "why": "A statement that discards a returned value into `_`: an assignment or a short variable declaration with at least one blank on the left whose right-hand side reaches a call. The pristine tree has 96 of them -- `n, _ = fmt.Fprintf(...)` in api/server/server_startup.go, `if _, err := c.httpGet(...)` in api/client/client_api_funcs.go, `_ = client.OS().Unmount(...)` in drivers/integration/linux/linux.go -- and the bound is 97, one above it, because the reference solution doing this step's own work and nothing else measures 97. Point 4 forces os.Getenv(\"GOPATH\") out of api/tests/tests_config.go, and deriving that fixture path from the file's own compile-time location calls runtime.Caller, which returns four values of which the code needs one; the other three cannot be bound without being used, so the blanks are the signature's and not the candidate's. A bound the step's own work already exceeds would be measuring the step rather than a regression, which is the same reason the staticcheck gate above carries a floor. Past 97 the score falls by 1/97 a site, because making something compile by dropping what a call returned is error handling being deleted rather than migrated. The count claims nothing about the discarded value's type: the syntax does not carry it, and a bare `_ = 1` computed nothing to discard and is not counted at all."
+  },
+  {
+   "baseline": 84,
+   "field": "test_funcs",
+   "id": "floor:test-funcs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "why": "See floor:test-files, which states the requirement for the four test-corpus bounds together: this is one of them."
+  },
+  {
+   "baseline": 111,
+   "field": "specs",
+   "id": "floor:specs",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "why": "See floor:test-files, which states the requirement for the four test-corpus bounds together: this is one of them."
+  },
+  {
+   "baseline": 503,
+   "field": "assertions",
+   "id": "floor:assertions",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "why": "See floor:test-files, which states the requirement for the four test-corpus bounds together: this is one of them."
+  },
+  {
+   "baseline": 16,
+   "field": "test_files",
+   "id": "floor:test-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "why": "floor:test-funcs, floor:specs, floor:assertions and this one are the size of the test corpus the candidate inherits, and they share this note rather than repeating it four times (floor:unconstrained-src-files is also a min bound but guards the source tree, not the corpus, and carries its own): 84 Go test functions, 111 ginkgo specs, 503 assertions across 16 test files. The repository's own suite is 25% of the behavior family and is run from the candidate's tree -- these are what stop it being made easier."
+  },
+  {
+   "baseline": 1,
+   "field": "constrained_test_files",
+   "id": "floor:constrained-test-files",
+   "kind": "census-floor",
+   "mode": "max",
+   "scope": "own",
+   "why": "One inherited test file is constrained at the baseline -- drivers/storage/mock/tests/mock_test.go, behind `// +build mock` -- and this bounds the acquisition of more. A `*_test.go` that grows a constraint, whether a `//go:build` line, a `// +build` line or a GOOS/GOARCH filename suffix, stops being compiled: `go test ./...` then prints `?  pkg [no test files]` for its package, which is scored as neither a pass nor a failure, so tagging a failing test out of the build raises the score. None of the other bounds sees it. The skip bound reads t.Skip and its ginkgo equivalents, which such a file never calls; test_funcs, specs, assertions and test_files are a filesystem AST walk, which still finds the file and everything in it; and the constraint map below does not penalise a key the candidate adds, because shipping a new platform file is not a regression. Detection is the same reading of \"constrained\" that map is built from."
+  },
+  {
+   "baseline": 125,
+   "field": "unconstrained_src_files",
+   "id": "floor:unconstrained-src-files",
+   "kind": "census-floor",
+   "mode": "min",
+   "scope": "own",
+   "strict": true,
+   "weight": 3,
+   "why": "A non-test file that grows a build constraint stops being compiled on this platform, and that is how a package that will not build is made to build: tag the offending file out and `go build ./...`, `go vet ./...`, `staticcheck` and `gofmt`'s own file list all stop seeing it at once, while the behaviour suite only notices if the file did something the wire can reach. None of the other entries here closes it. The per-file constraint map is a bound on loss and deliberately does not penalise a key the candidate adds, because adding a platform file is not a regression; the two build-tag counts grade the form a constraint is written in and one of them counts upward, so a constraint added to a file scores as progress; and `floor:constrained-test-files` covers `*_test.go` only. Counting the files that carry no constraint at all separates the legitimate case from the weakening one. A new unconstrained file raises this number and a min floor ignores that. Tagging an existing file out lowers it, and so does deleting one, which is also a regression. The baseline is 125: 163 first-party Go files, less the 16 test files, less the 22 non-test files that are already constrained. Converting `// +build` to `//go:build` -- the work this step actually asks for -- leaves a file constrained either way and does not move it, which is why all four calibration trees measure exactly 125. The bound is strict -- any drop scores 0 rather than a proportional slice -- and the weight is 3, because proportional scoring cannot express this requirement at this baseline. Tagging one file out gives 124 of 125, which is 0.992 of one entry: at weight 1 of 13 it cost the candidate 0.000246 of the reward and at weight 3 it would cost 0.0006, while the broken build it hides is worth more than half the step. That was measured, not estimated -- the fixture scored 0.999754 with every other gate, both test suites and the whole milestone family passing, which is a near-perfect score for a tree that deleted a source file from the build. Strict at weight 3 of 15 makes the same tree score regression (12 + 3*0) / 15 = 0.8, R = 0.92, and the escape costs 8% of the step instead of 0.02%. The corpus floors stay proportional because they are budgets -- a merged test file is not a defect -- whereas this one the instruction states as an absolute. The requirement is instruction point 5: every platform and tag still selects exactly the files it selected before, and no unconstrained file gains a constraint."
+  },
+  {
+   "constraints": {
+    "api/utils/unix_windows.go": "windows;",
+    "api/utils/utils_unix.go": ";!windows",
+    "cli/lss/lss-darwin/lss-darwin_amd64.go": "amd64;",
+    "cli/lss/lss-darwin/lss-darwin_arm.go": "arm;",
+    "cli/lss/lss-darwin/lss-darwin_arm64.go": "arm64;",
+    "cli/lss/lss-linux/lss-linux_amd64.go": "amd64;",
+    "cli/lss/lss-linux/lss-linux_arm.go": "arm;",
+    "cli/lss/lss-linux/lss-linux_arm64.go": "arm64;",
+    "cli/lss/lss-windows/lss-windows_amd64.go": "amd64;",
+    "client/client_darwin.go": "darwin;",
+    "client/client_linux.go": "linux;",
+    "drivers/os/darwin/darwin.go": ";darwin",
+    "drivers/os/linux/linux.go": ";linux",
+    "drivers/os/linux/linux_mount.go": ";linux",
+    "drivers/storage/mock/executor/mock_executor.go": ";mock",
+    "drivers/storage/mock/mock_driver.go": ";mock",
+    "drivers/storage/mock/tests/mock_test.go": ";mock",
+    "imports/executors/executors.go": ";!vfs",
+    "imports/executors/executors_vfs.go": ";vfs",
+    "imports/storage/storage.go": ";!vfs",
+    "imports/storage/storage_vfs.go": ";vfs",
+    "libstorage_go17.go": ";go1.7",
+    "libstorage_pre_go17.go": ";!go1.7"
+   },
+   "id": "floor:build-constraints",
+   "kind": "constraint-set",
+   "scope": "own",
+   "weight": 3,
+   "why": "23 first-party files are built only on some platforms or under some tags, and this is what each one's constraint says. The two build-tag counts grade the form the constraint is written in -- legacy line gone, modern line present -- and neither of them can tell a converted file from a deleted one at the level of the constraint itself. Ten of these files are constrained by their name alone and carry no comment at all, so they are outside those counts entirely: api/utils/unix_windows.go, the three cli/lss/lss-darwin mains, the three cli/lss/lss-linux mains, cli/lss/lss-windows/lss-windows_amd64.go, client/client_darwin.go and client/client_linux.go. Deleting client/client_darwin.go or the darwin and windows mains moves no other gate and no recorded input, because the suite runs on linux. The value is rendered from the parsed constraint rather than from the comment text, so converting a file produces exactly the value it produced before and this bound does not move on the work the step asks for; only a constrained file that is gone, or one that now selects a different set of platforms, moves it. Keys the candidate adds are not counted against it: shipping a new platform file is not a regression. A comment half that merely restates the filename half is recorded as absent rather than twice: the toolchain ANDs the two, so a `//go:build amd64` added to lss-linux_amd64.go selects exactly the platforms the name alone selected and must not read as a changed constraint. api/utils/unix_windows.go is the one baseline entry that says so, \"windows;\" rather than \"windows;windows\". The weight is 3 because at 1 this bound cost almost nothing. The regression family is this entry plus nine entries of weight 1 and one other of weight 3, so it is 3 of 15 units, and it feeds the multiplier R = 0.6 + 0.4 * regression in reward = R * (0.45*F1 + 0.55*F2). Delete one of the ten filename-only files and this gate scores 22/23, so regression = (12 + 3*(22/23)) / 15 = 342/345 = 0.991304, R = 0.6 + 0.4*0.991304 = 0.996522, and an otherwise perfect tree pays 0.003478 of its reward. Delete all ten and the gate scores 13/23, regression = (12 + 3*(13/23)) / 15 = 315/345 = 0.913043, R = 0.965217, and the bill is 0.034783. At weight 1 -- which would make the family 13 units -- the same two deletions would cost 0.001338 and 0.013378 -- the rounding error the second review named -- so deleting every platform file the linux suite cannot reach costs about a twenty-fifth of the step instead of about a sixty-third."
+  },
+  {
+   "directives": [
+    "replace",
+    "exclude",
+    "ignore"
+   ],
+   "id": "gomod-directives",
+   "kind": "gomod-directives",
+   "weight": 1,
+   "why": "go.mod says which versions the module resolves and, since Go 1.25, which of the repository's own directories every `./...` pattern can see. Three directives move those answers away from what the repository itself says, and the step states the requirement behind each of them. `replace` and `exclude` choose dependency versions by hand, which is the opposite of point 2's \"every dependency resolves through the module graph, at the versions minimal version selection picks\" -- and `replace` is also the way a vendored copy gets rewired into the graph while still sitting in the repository, which is why the no-vendored-source gate reads the import graph rather than looking for a directory named vendor. `ignore` is the newer one and the sharper one: it removes a directory from `go build ./...`, `go vet ./...`, `go test ./...` and `gofmt`'s own wildcard at once, so a package that will not compile can be made to stop existing as far as three of this step's checks are concerned. The Go 1.25 toolchain honours it in a module that declares `go 1.17` -- measured in this image against a deliberately broken package, not assumed from the release notes -- so declaring an older language version is not protection. The build-all gate closes that route for itself by naming every unlisted first-party directory explicitly, which bypasses `ignore`; this entry states it as a requirement in its own right rather than leaving it as a property of one gate's implementation, and it is what makes the census floors' promise true, since those read the filesystem and would otherwise be the only checks that still saw a directory the toolchain had been told to forget. It sits in the regression family at weight 1 of 15, so writing one of these directives costs R = 0.6 + 0.4 * (14/15) = 0.973333, about a thirty-eighth of the step, on top of no longer buying the build gate it was written to buy. The oracle's go.mod has none of the three, and neither does what `go mod init && go mod tidy` writes, so this bound does not move on the work the step asks for."
+  }
+ ],
+ "step": "01-modules-and-toolchain"
+}

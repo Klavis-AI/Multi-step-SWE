@@ -1,0 +1,219 @@
+schema_version = "1.4"
+
+# Task reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Nothing is excluded: the verifier rebuilds the
+# binary it grades from the candidate's source, and the gates also inspect any
+# build directory left behind in /app.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/libstorage-gopath-to-go1.25"
+version = "1.0.0"
+description = "Modernize libStorage (thecodeteam/libstorage, 2017) from a GOPATH-era project to Go 1.25, one milestone at a time. Each step is graded on the behavior of the tree it produces -- a recorded HTTP/CLI suite replayed against a binary built from the candidate's source, plus the repository's own tests -- and on the constructs the milestone retires."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["go", "migration", "modules", "legacy-modernization", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["go", "golang", "migration", "refactoring", "multi-step", "legacy"]
+
+[environment]
+# The Go 1.25 toolchain, the 2017 tree, and an offline module mirror carrying
+# exactly the versions the glide lockfile pinned. Building the image warms the
+# module cache, which is why the build timeout is generous.
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 10240
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Network access is available but not needed: the module mirror is in the
+# image.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/ as the
+# Docker build context.
+[verifier]
+environment_mode = "separate"
+
+# Sizes the verifier containers; without this section Harbor silently reuses a
+# copy of [environment]. The scoring run builds the candidate's tree, replays
+# 1 118 recorded inputs across 6 workers, runs the repository's own suite, and
+# runs staticcheck over the whole package graph.
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+# Public, like the agent environment. Grading does not use the network: the
+# image carries its own module mirror and every tool it runs.
+network_mode = "public"
+
+# Each verifier writes a binary {"reward": 0 or 1} to reward.json. No
+# min_reward: a zero score never stops the trial.
+[[steps]]
+name = "01-modules-and-toolchain"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Measured oracle scoring run: 3 min 42 s on 7 vCPU. The rest of this budget is
+# the verifier image build and the /app artifact round trip.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-context-propagation"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 1's scoring run plus four verifier-owned probe packages. The probes
+# spend most of their time watching real timeouts fire rather than computing.
+# Measured end to end on 7 vCPU: 5 m 32 s on the reference solution, and
+# 18 m 00 s on a tree that deadlocks its own shutdown, where every probe pays
+# out its give-up budget, every probe then pays a further 30 s per test of
+# bounded teardown for a close that will never return, and the repository's
+# own vfs suite runs into its 300 s package timeout. This budget clears that
+# worst case twice over.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-error-wrapping"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 2's scoring run plus two more verifier-owned probe packages. One of them
+# stands a real server up and drives twelve error routes through it, which is
+# the expensive half. Measured end to end on 7 vCPU: 6 m 06 s on the reference
+# solution, 6 m 43 s on the tree step 2 leaves behind, and 6 m 49 s on the
+# slowest tree measured (a mechanical error-linter autofix, which compiles the
+# most and clears the least). This budget clears that more than five times
+# over. A probe package is run once however many gates read it, so the four
+# control gates carried in the regression family cost nothing beyond the run
+# their graded siblings already paid for.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-generics-and-stdlib"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 3's scoring run plus two more verifier-owned probe packages and one more
+# verifier-owned Go tool (dupscan, which type-checks the whole repository and
+# erases types before comparing declaration bodies). Neither probe stands a
+# server up, so this step is barely more expensive than step 3. Measured end to
+# end on 7 vCPU: 5 m 29 s on the reference solution, 5 m 43 s on the tree
+# step 3 leaves behind, and 8 m 01 s on the slowest run (host contention; the
+# same tree also measured 5 m 26 s). This budget clears 8 m 01 s more than four
+# times over.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-go122-runtime-and-slog"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 4's scoring run plus two more verifier-owned probe packages -- one of
+# which stands a real server up and drives 26 routes and six routing edge cases
+# through it -- and one more verifier-owned Go tool (astcount, a pure AST walk
+# that costs nothing measurable). Measured end to end on 7 vCPU: 5 m 28 s to
+# 6 m 57 s, the spread being mostly host contention. The worst case, 6 m 57 s,
+# is a tree whose log lines all render through the wrong handler; this budget
+# clears it more than four times over.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-range-over-func-iterators"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 5's scoring run plus two more verifier-owned probe packages. Neither is
+# expensive in work: `sequences` is twelve compile-time declarations and six
+# short tests, and `earlyexit` is four. What they cost is waiting. Both of
+# earlyexit's symptoms are absences -- a goroutine that has not gone away and a
+# registration that has not returned -- and an absence can only be observed by
+# giving it a deadline and reaching it, so a tree that fails this package pays
+# five seconds per abandoned registration where a tree that passes pays
+# microseconds. That makes the failing trees the slow ones here, which is the
+# opposite of every other step's shape. Measured end to end on 7 vCPU: 6 m 34 s
+# for the reference solution and 6 m 28 s to 8 m 27 s for other trees. The
+# worst, 8 m 27 s, is the unmodified step-5 tree, which fails both new probes
+# and waits out every deadline in earlyexit; this budget clears it more than
+# four times over.
+#
+# One package, `routing`, is run a second time when the first run compiled and
+# something in it failed; the gate specification says so and says why. A tree
+# that answers correctly never pays it, a tree that fails that package pays
+# about 1 s, and the bound is one more execution of one package.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-rooted-fs-and-simulated-time"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 6's scoring run plus three more verifier-owned probe packages, and the
+# cheapest set of them so far in work: `rooted` is seven tests that each make
+# a handful of syscalls under a temporary directory, `sweeper` is one test,
+# and `simtime` is five, three of which run inside a synthetic-time bubble
+# where a two-minute sleep costs nothing. The one real cost is the interleave
+# test's deadline: a tree that has not fixed the store's snapshot read blocks
+# and is only released at 10 s, so the failing trees pay about ten seconds
+# more in `simtime` than the passing ones (13.6 s against 3.6 s for the whole
+# package). Measured end to end on 7 vCPU: 364 s to 410 s. The worst, 410 s
+# (6 m 50 s), is the reference solution, because it is the tree on which every
+# probe actually builds and runs to completion rather than bailing out early.
+# This budget clears it more than eight times over.
+#
+# Nothing in this step is retried. `simtime` and `sweeper` are graded on
+# whether named tests report PASS, and a package that panics -- which is what
+# an unfixed sweeper does, since its cleanup goroutine outlives the bubble --
+# reports neither PASS nor FAIL and scores zero for every test it declares,
+# at no time cost at all.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-leak-and-race-hardening"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 7's scoring run plus one more verifier-owned probe package, `cleanup`.
+# It is the only probe in the task whose cost is fixed rather than tree-
+# dependent: its tests measure goroutine counts as differences against an
+# in-process baseline, and a goroutine count is only trustworthy after the
+# scheduler has been given time to finish what it was doing, so each
+# measurement pays a settling loop of sixty yields at ten milliseconds
+# apiece, and each hand-over of work pays a quarter second of watching for a
+# second unit that should not run yet. That is deliberate and it is the same
+# on every tree -- a tree that leaks and a tree that does not both pay it --
+# so the package lands within a tenth of a second of itself everywhere:
+# 24.5 s on the reference solution and 24.5 s on the untouched step-7 tree.
+# A tree that never runs the work it is given costs more rather than less,
+# because it waits out a fifteen-second deadline in each test instead:
+# measured at 68 s, which is still an order inside the probe's own 6 m
+# budget. Measured end to end on 7 vCPU: 392 s to 468 s, the spread being
+# host contention. The worst, 468 s (7 m 48 s), is cleared seven times over.
+#
+# Nothing in this step is retried. `cleanup` is graded on whether named tests
+# report PASS, and it is built against already-exported API only, so the one
+# way it can report neither PASS nor FAIL is a tree that has changed an
+# exported signature out from under it -- which the instruction forbids in
+# its own terms, and which costs no time when it happens because the package
+# fails to compile immediately.
+timeout_sec = 3600.0

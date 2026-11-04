@@ -1,0 +1,34 @@
+# arch: x86_64
+# what: two objects each defining the same strong (non-weak, non-COMDAT)
+# symbol must fail the link and name both offending objects. Through step 3
+# the reference implementation silently keeps the first definition; duplicate-
+# symbol detection is a step-4 capability (measured: rc 0 at 0.4.0, rc 255 with
+# a diagnostic at 0.5.0 onward).
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int shared_sym(void);
+int entry(void) { return shared_sym(); }
+C
+cc_obj m.o m.c
+cat > a.c <<'C'
+int shared_sym(void) { return 1; }
+C
+cat > b.c <<'C'
+int shared_sym(void) { return 2; }
+C
+cc_obj a.o a.c
+cc_obj b.o b.c
+link_fails out rt.o m.o a.o b.o
+# Compatibility profile 8, third column: a failed link leaves no file that
+# could be mistaken for a successful output. `link_fails` only checks the exit
+# status, so the output half is asserted here.
+want "no output file on failure" "$([ -e out ] && echo present || echo absent)" "absent"
+# Never assert the diagnostic's prefix (bare "Error: " through 0.5.0, then
+# "wild: error: " from 0.6.0) or a specific exit status -- only the body and
+# the presence of both offending object names.
+want_has "names the clash"   "$LINK_OUT" "Duplicate symbols detected"
+want_has "names shared_sym"  "$LINK_OUT" "shared_sym"
+want_has "names a.o"         "$LINK_OUT" "a\.o"
+want_has "names b.o"         "$LINK_OUT" "b\.o"
+asserts_at_least 5

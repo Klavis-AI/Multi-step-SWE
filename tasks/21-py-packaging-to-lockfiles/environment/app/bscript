@@ -1,0 +1,169 @@
+import os
+import sys
+import subprocess
+import shutil
+
+import os.path as op
+
+import bento
+
+from bento._config \
+    import \
+        DISTCHECK_DIR
+from bento.errors \
+    import \
+        CommandExecutionFailure
+from bento.commands.core \
+    import \
+        Command
+from bento.compat.api \
+    import \
+        rename, TarFile
+from bento.utils.utils \
+    import \
+        pprint, cmd_is_runnable
+
+from bento.commands import hooks
+
+_BENTOMAKER_SCRIPT = [op.join(op.dirname(bento.__file__), os.pardir, "bentomaker")]
+
+def compute_git_revision(top_node):
+    git_repo_node = top_node.find_node(".git")
+    if git_repo_node and cmd_is_runnable(["git", "--version"]):
+        s = subprocess.Popen(["git", "rev-parse", "HEAD"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=top_node.abspath())
+        out = s.communicate()[0]
+        return out.decode().strip()
+    else:
+        return ""
+
+def try_decode(s):
+    try:
+        return s.decode()
+    except UnicodeError:
+        return s
+
+class TestCommand(Command):
+    def run(self, ctx):
+        pprint('BLUE', "Running test command....")
+
+        p = ctx.options_context.parser
+        o, a = p.parse_args(ctx.command_argv)
+        if sys.version_info[:2] < (2, 5):
+            # XXX: would be good to understand why shell=True is necessary here
+            cmd = [sys.executable, "-c", "'import nose; nose.core.main()'"]
+            shell = True
+            if not cmd_is_runnable(" ".join(cmd) + " -h", shell=shell):
+                raise CommandExecutionFailure(
+                        "nose not available for program %r - needed to test bento !" % cmd[0])
+            cmd = " ".join(cmd)
+        else:
+            cmd = [sys.executable]
+            if not cmd_is_runnable(cmd + ["-h"]):
+                raise CommandExecutionFailure(
+                        "program %r not found - needed to test bento !" % cmd[0])
+            cmd.extend(["-m", "nose.core"])
+            if not cmd_is_runnable(cmd + ["-h"]):
+                raise CommandExecutionFailure(
+                        "nose not available for program %r - needed to test bento !" % cmd[0])
+            cmd.extend(["-s", "-v", "bento", "bentomakerlib"])
+            shell = False
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=shell)
+        stdout, stderr = p.communicate()
+        if p.returncode != 0:
+            print(try_decode(stderr))
+            sys.exit(p.returncode)
+        else:
+            for stream in [stdout, stderr]:
+                print(try_decode(stream))
+
+class DistCheckCommand(Command):
+    long_descr = """\
+Purpose: configure, build and test the project from sdist output
+Usage:   bentomaker distcheck [OPTIONS]."""
+    short_descr = "check that sdist output is buildable."
+    def run(self, ctx):
+        pprint('BLUE', "Distcheck...")
+
+        def _call(cmd):
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = p.communicate()
+            stdout = stdout.strip()
+            stderr = stderr.strip()
+            if stdout:
+                print(stdout.decode())
+            if stderr:
+                print(stderr.decode())
+            if p.returncode != 0:
+                raise subprocess.CalledProcessError(p.returncode, cmd)
+
+        def _ensure_bootstrap_script():
+            if sys.version_info[0] < 3:
+                bootstrap = os.path.join(os.getcwd(), "bootstrap.py")
+                _call([sys.executable, bootstrap])
+                bentomaker_script = _BENTOMAKER_SCRIPT
+            else:
+                bentomaker_script = [sys.executable, "-m", "bentomakerlib.bentomaker"]
+            return bentomaker_script
+
+        pprint('PINK', "\t-> Running sdist...")
+        bentomaker_script = _ensure_bootstrap_script()
+
+        archive_name = "foo.tar.gz"
+        archive_dest = "dist"
+        archive_root = "%s-%s" % (ctx.pkg.name, ctx.pkg.version)
+        archive_fullpath = os.path.join(os.getcwd(), archive_dest,
+                archive_name)
+        _call(bentomaker_script + ["sdist", "--output-file=%s" % archive_name])
+
+        distcheck_dir = ctx.build_node.make_node(DISTCHECK_DIR)
+        if os.path.exists(distcheck_dir.abspath()):
+            shutil.rmtree(distcheck_dir.abspath())
+        distcheck_dir.mkdir()
+        target = distcheck_dir.make_node(archive_name)
+        rename(archive_fullpath, target.abspath())
+        archive_node = os.path.basename(target.abspath())
+
+        saved = os.getcwd()
+        os.chdir(distcheck_dir.abspath())
+        try:
+            pprint('PINK', "\t-> Extracting sdist...")
+            tarball = TarFile.gzopen(archive_node)
+            tarball.extractall()
+            os.chdir(archive_root)
+
+            bentomaker_script = _ensure_bootstrap_script()
+
+            pprint('PINK', "\t-> Configuring from sdist...")
+            _call(bentomaker_script + ["configure", "--prefix=%s" % os.path.abspath("tmp")])
+
+            pprint('PINK', "\t-> Building from sdist...")
+            _call(bentomaker_script + ["build", "-i"])
+
+            pprint('PINK', "\t-> Building egg from sdist...")
+            _call(bentomaker_script + ["build_egg"])
+
+            if sys.platform == "win32":
+                pprint('PINK', "\t-> Building wininst from sdist...")
+                _call(bentomaker_script + ["build_wininst"])
+
+            pprint('PINK', "\t-> Testing from sdist...")
+            try:
+                _call(bentomaker_script + ["test"])
+            except subprocess.CalledProcessError:
+                raise CommandExecutionFailure("test command failed")
+        finally:
+            os.chdir(saved)
+
+@hooks.pre_build
+def pre_build(context):
+    context.register_metadata("git_revision", compute_git_revision(context.top_node))
+
+@hooks.pre_sdist
+def pre_sdist(context):
+    context.register_metadata("git_revision", compute_git_revision(context.top_node))
+
+@hooks.startup
+def startup(context):
+    context.register_command("distcheck", DistCheckCommand())
+    context.register_command("test", TestCommand())

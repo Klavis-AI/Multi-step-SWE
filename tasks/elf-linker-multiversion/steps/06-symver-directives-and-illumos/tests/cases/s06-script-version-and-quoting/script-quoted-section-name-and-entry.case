@@ -1,0 +1,36 @@
+# arch: x86_64
+# Double-quoted tokens in a script: the quotes are grammar, not part of the
+# name, for both an output-section name and ENTRY's symbol.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+char msg[8] = { 'q', 'u', 'o', 't', 'e', 'd', '\n', 0 };
+int entry(void) { sys_write(1, msg, 7); return 9; }
+C
+cc_obj m.o m.c
+cat > t.ld <<'L'
+ENTRY("_start")
+SECTIONS {
+  . = 0x400000;
+  "code.sec" : { *(.text) *(.text.*) }
+  "data.sec" : { *(.data) *(.data.*) *(.bss) }
+}
+L
+link_ok out -T t.ld rt.o m.o
+
+secs=$(sections out)
+want_has "output section named without the quotes" "$secs" '[[:space:]]code\.sec[[:space:]]+PROGBITS'
+want_has "second quoted output section too"        "$secs" '[[:space:]]data\.sec[[:space:]]+PROGBITS'
+want_not "no quote character survived into a name" "$secs" '"'
+want_has "code.sec is executable" "$secs" 'code\.sec +PROGBITS( +[0-9a-f]+){4} +AX'
+want_has "data.sec is writable"   "$secs" 'data\.sec +PROGBITS( +[0-9a-f]+){4} +WA'
+[ "$(( 16#$(sec_size out code.sec) ))" -gt 16 ] || die "code.sec is empty: $secs"
+want "msg lives in data.sec" \
+     "$(sym_value out msg)" "$(sec_addr out data.sec)"
+
+# ENTRY("_start") must resolve to _start, not to a symbol spelled "_start".
+ep=$(hdr out | awk '/Entry point/{print $NF}')
+want "entry is _start" "$(( ep ))" "$(( 16#$(sym_value out _start) ))"
+run_expect out "quoted" 9
+
+asserts_at_least 7

@@ -1,0 +1,35 @@
+{
+ "doc": "PROFILE.md 7.2: '**`filters.assign` accepts unary maths** in an assignment expression. The page lists only the arithmetic operators, so the accepted function names are named here, because they are what the binary parses and an unknown one is refused outright (`Invalid function name '<name>'`): `floor`, `ceil`, `round`, `abs`, `fabs`, `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `log` (natural), `log2`, `log10`, `exp`, `exp2`.'  `nosuchfn` is not on that list, so the pipeline must be refused and no output written.  This is the one place in the step where the **wording** is graded, and only because 7.2 quotes it verbatim as part of the requirement -- the message is the profile's, not an observation copied from a binary.  The regex is deliberately unanchored: `driver.py` passes no flags to `re.search`, so `^` would anchor at the start of the whole captured stream, and the quoted text appears after the stage prefix the application adds.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"value\": \"NewDim=nosuchfn(Intensity)\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\", \"minor_version\": 4, \"extra_dims\": \"NewDim=float64\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "Invalid function name 'nosuchfn'"
+  },
+  {
+   "kind": "file_absent",
+   "file": "out.las"
+  }
+ ]
+}

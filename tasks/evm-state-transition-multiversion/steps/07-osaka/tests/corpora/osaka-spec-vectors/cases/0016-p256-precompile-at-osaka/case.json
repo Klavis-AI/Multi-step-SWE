@@ -1,0 +1,56 @@
+{
+  "chainid": 1,
+  "expect": {
+    "checks": [
+      "rejected"
+    ],
+    "rejected": [],
+    "storage": {
+      "0x0000000000000000000000000000000000001000": {
+        "0x0": "0x1",
+        "0x1": "0x20",
+        "0x2": "0x1",
+        "0x3": "0x1"
+      }
+    }
+  },
+  "note": "EIP-7951: `0x0100` is a plain empty account *before* Osaka. The caller CALLs it with a 160-byte input that is a **valid** P-256 signature, then stores the CALL's success, `RETURNDATASIZE`, and the first word of the return data. Below Osaka there is no code and no precompile at that address: the CALL succeeds, returns no data, and the caller's slots 1 and 2 stay unset. At Osaka the same call returns the 32-byte `0x..01`.\n\nThis case is graded **at Osaka**, the group's own fork, and it is the positive control for the precompile: it fails any tool that does not install it. The pre-Osaka half of the requirement is recorded in `source` as measured contrast rather than asserted here, for two measured reasons. (1) The shipped expectation is the Oracle's Osaka result, so a Prague run of this very case fails the Oracle -- the fork whose numbers the case asserts cannot be the fork it runs at. (2) The below-Osaka gating claim is already asserted, for the opcode, by 0015. Every number below was measured on `evm-v1.16.2`, on `evm-v1.15.0` and on `evm-v1.17.5` before this case was written.",
+  "source": {
+    "measured": {
+      "evm-v1.15.0": {
+        "Cancun": "no return data",
+        "Osaka": "no return data -- FAILS (slot1 0x0 want 0x20)",
+        "Prague": "no return data"
+      },
+      "evm-v1.16.2": {
+        "Cancun": "no return data",
+        "Osaka": "returndatasize 0x20, slot2 0x1 -- PASSES",
+        "Prague": "no return data"
+      },
+      "evm-v1.17.5": {
+        "Cancun": "no return data",
+        "Osaka": "returndatasize 0x20, slot2 0x1 -- PASSES",
+        "Prague": "no return data"
+      }
+    },
+    "rows": {
+      "Cancun": {
+        "0x0": "0x1",
+        "0x3": "0x1",
+        "returndatasize": "0x0"
+      },
+      "Osaka": {
+        "0x0": "0x1",
+        "0x1": "0x20",
+        "0x2": "0x1",
+        "0x3": "0x1"
+      },
+      "Prague": {
+        "0x0": "0x1",
+        "0x3": "0x1",
+        "returndatasize": "0x0"
+      }
+    },
+    "why": "The naive half of this case is the CALL's success, and it does NOT discriminate: a call to an account with no code succeeds on both binaries at every fork. What discriminates is the *return data*. `RETURNDATASIZE` is unset below Osaka and `0x20` at Osaka on the Oracle, and slot 2 -- the low byte of the returned word -- is unset below Osaka and `0x1` at Osaka. Measured, not assumed: the first version of this case named `Prague` as its fork and expected Osaka's numbers there, which the Oracle refutes -- at Prague the Oracle reports no return data, exactly as a correct implementation must. The case is therefore graded at Osaka, where it is the positive control for the precompile and fails any tool that does not install it."
+  }
+}

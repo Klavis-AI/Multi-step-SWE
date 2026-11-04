@@ -1,0 +1,1306 @@
+# TEST_INTERFACE.md — the test interface of `seedcalc`
+
+This document is the contract the automated checker holds you to. Everything the
+checker asserts is stated here or in a specification shipped under `specs/`. If
+the checker appears to require something this document does not state, the
+document is the defect — but the document as written is what governs.
+
+## 1. What you are building
+
+`seedcalc` is a Go library implementing an **OOXML SpreadsheetML document and
+formula engine**: it reads and writes `.xlsx`-family packages, models their
+parts, and — from milestone 06 onward — evaluates formulas in them.
+
+It is a **library**, not a program. There is no command-line entry point at any
+milestone and none is in scope. Everything observable is reached through exported
+Go identifiers in the package at the repository root.
+
+## 2. Fixed facts about the workspace
+
+| Fact | Value |
+| --- | --- |
+| Module path | `github.com/harbor-bench/seedcalc` (declared in `/app/go.mod`) |
+| Package name | `seedcalc`, one package, at the repository root |
+| Go toolchain | the image's `go`; `GOTOOLCHAIN=local`, `GOPROXY=off` |
+| Dependency set | frozen; `/app/vendor/` plus `/app/go.mod` and `/app/go.sum` |
+| Build command the checker runs | `go build ./...` with `-mod=vendor` |
+| Build the checker must see succeed | the whole module, before any test runs |
+
+**The dependency set is frozen for the entire ladder.** `go.mod`, `go.sum` and
+`vendor/` are seeded at milestone 01 and no milestone changes them. Every
+package you are permitted to import is already vendored; `go mod tidy`,
+`go get` and any edit to `go.mod` will break the build, because the checker runs
+with the network off. If a dependency you want is not in `vendor/`, the answer
+is to write the code yourself.
+
+Do not delete `vendor/`, `go.mod`, `go.sum`, `TEST_INTERFACE.md`,
+`WORKSPACE_HANDOFF.md` or `specs/`. Do not create a directory named
+`ooxmlverify/` at the repository root — the checker plants its own there and
+will remove yours first.
+
+## 3. How this milestone is checked
+
+Each milestone is checked on its own, by a container that sees only `/app` as
+you left it. Each group is a set of Go test cases compiled against your library
+through its public interface, and within a group every case must pass. A group
+whose case count differs from the number the checker expects — because your
+library failed to compile, panicked, timed out, or made a case unreachable —
+fails as a whole.
+
+Groups come in two kinds.
+
+**Gate groups add no requirement of their own; a failure there means the
+milestone is not satisfied.** The whole-module build is always one of them, and
+from milestone 02 onward so is every *inherited-regression* group — the
+behaviour earlier milestones established, which this milestone's changes are
+most likely to break. Every case in every gate group must pass.
+
+**Requirement groups carry this milestone's new work.** They are this
+milestone's *new capability* together with the *peripheral breadth* that keeps
+the milestone from being passable by special-casing its headline feature. Every
+case in every requirement group must pass too.
+
+The gate takes precedence and is all-or-nothing: breaking a single inherited
+behaviour means the milestone is not satisfied, however much of the new
+capability you finished. Conversely, preserving every inherited behaviour while
+adding nothing new satisfies none of the new work.
+
+Milestones are cumulative. Everything an earlier milestone required is still
+required in every later milestone — but it is enforced there as a gate rather
+than counted as new work.
+
+## 4. Per-milestone interface
+
+Each subsection below fixes the interface that arrives at that milestone. A
+subsection is added when its milestone starts and its text is not rewritten
+afterwards, so section `4.NN` always describes milestone `NN` and nothing
+later. Where a later milestone supersedes a statement, that subsection states
+the change and the earlier text may also carry a marked note naming it; either
+way the superseding subsection governs.
+
+Types and functions named here must exist with the spelling, receiver, arity
+and result shape given. Where a signature names a spec clause, that clause is
+in `specs/` and is normative.
+
+Errors are checked in one of three ways, and which one applies is decided by how
+this document states the error, never by the checker's taste:
+
+- **By identity**, where a subsection names a defined error *value* — one of the
+  `Err*` sentinels milestone 09 exports, or a standard-library sentinel it says
+  is wrapped, such as `archive/zip`'s `ErrFormat`. What is checked is what
+  `errors.Is` answers. The message text is not checked at all.
+- **By its whole message**, where a subsection quotes one: `err.Error()`
+  must equal the quoted string exactly. That is how the seven spreadsheet
+  error strings work from milestone 06 onward — §4.06.1 makes `=1/0` return an
+  error whose message *is* `#DIV/0!` — and how a scattering of specific
+  diagnostics work, each quoted in the subsection that introduces it.
+- **By a phrase it must report**, where a subsection quotes a phrase rather
+  than a whole message: the message has to contain it, and the rest of the
+  wording is yours.
+
+An error this document describes only in prose, with no value named and nothing
+quoted, is checked on being non-nil and on nothing else.
+
+### 4.01 OPC package and the SpreadsheetML writer
+
+Milestone 01 is the whole document layer: an in-memory workbook model, a reader
+and a writer for the `.xlsx` package around it, and the worksheet features —
+cells, styles, geometry, merges, tables, filters, conditional formats, comments
+and drawings — that a spreadsheet document can carry. Nothing evaluates a
+formula at this milestone; a formula is stored text with an optional cached
+result beside it.
+
+#### 4.01.0 Two conventions that govern every signature below
+
+**Worksheets are addressed by their part name, not their display name.** Every
+method whose first parameter is `sheet string` resolves it to the worksheet
+part `xl/worksheets/<sheet>.xml`, lower-cased. The first worksheet is therefore
+`"Sheet1"`, the second `"Sheet2"`, and so on, in the order the parts were
+created, whatever the sheets are *called*. `GetSheetName`, `GetSheetMap` and
+`GetSheetIndex` deal in display names and are the only place display names
+appear. A sheet renamed to `"Summary"` is still reached as `"Sheet1"`. (Superseded from §4.02.1 on: from that milestone every entry point whose `sheet` argument identifies a worksheet is keyed by that worksheet's **name** — the name `NewSheet` or `SetSheetName` gave it — and the part-name resolution described here no longer applies.)
+
+**Mutating methods do not report errors.** With the exceptions listed
+explicitly below (`NewStyle`, `NewConditionalStyle`, `AddPicture`, `AutoFilter`,
+`CopySheet`, `SetSheetBackground`, `Write`, `Save`, `SaveAs`), a method that
+changes the workbook returns nothing. An argument it cannot act on is ignored,
+not rejected, and the workbook is left as it was. No method may panic on any
+input described here.
+
+#### 4.01.1 Opening, writing and saving a package
+
+```go
+type File struct{ /* unexported */ }
+
+func NewFile() *File
+func OpenFile(name string) (*File, error)
+func OpenReader(r io.Reader) (*File, error)
+func ReadZipReader(r *zip.Reader) (map[string]string, int, error)
+
+func (f *File) Write(w io.Writer) error
+func (f *File) Save() error
+func (f *File) SaveAs(name string) error
+```
+
+`NewFile` returns a workbook holding exactly one worksheet: display name
+`Sheet1`, part `xl/worksheets/sheet1.xml`, and one entry in `GetSheetMap`.
+
+`Write` serialises the workbook as an OPC package — a ZIP container built per
+ECMA-376 Part 2 §6.2.2/§6.2.3 (part names and media types), §6.5 (package
+relationships, including `/_rels/.rels` and `/xl/_rels/workbook.xml.rels`),
+§7.2.3 (the `[Content_Types].xml` `Default`/`Override` markup) and §7.3 (the
+mapping onto a ZIP file). Every package this library writes carries at least
+
+* `[Content_Types].xml`, `_rels/.rels`, `xl/workbook.xml`,
+  `xl/_rels/workbook.xml.rels`, one `xl/worksheets/sheetN.xml` per worksheet,
+  and the two document-property parts `docProps/app.xml` and
+  `docProps/core.xml`. Both property parts are written from this milestone
+  onwards, so a package that omits one is incomplete even though nothing in
+  this contract reads their contents;
+* in `[Content_Types].xml`, a `Default` for the `rels` extension with content
+  type `application/vnd.openxmlformats-package.relationships+xml` and a
+  `Default` for the `xml` extension with content type `application/xml`; an
+  `Override` for `/xl/workbook.xml` with
+  `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml`,
+  an `Override` for each worksheet part with
+  `application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml`,
+  an `Override` for `/xl/styles.xml` with
+  `application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml`, one
+  for `/xl/theme/theme1.xml` with
+  `application/vnd.openxmlformats-officedocument.theme+xml`, and one for each
+  document-property part — `/docProps/core.xml` with
+  `application/vnd.openxmlformats-package.core-properties+xml` and
+  `/docProps/app.xml` with
+  `application/vnd.openxmlformats-officedocument.extended-properties+xml`;
+* in `_rels/.rels`, a relationship of type
+  `http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument`
+  with a non-empty `Id` whose `Target` is a part that exists in the package,
+  and a relationship to `docProps/core.xml` of type
+  `http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties`;
+* in `xl/_rels/workbook.xml.rels`, one relationship per worksheet of type
+  `http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet`
+  whose `Target` is that worksheet's part, a relationship to `xl/styles.xml` of
+  type
+  `http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles`,
+  and one to `xl/theme/theme1.xml` of type
+  `http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme`.
+
+Those strings are written out in full deliberately. Every content type and
+relationship type this document names is compared literally, character for
+character, wherever a test inspects the package, so an abbreviation or a
+plausible synonym fails. The same holds for the constants named in 4.01.9
+below. This list is the whole set for a workbook with no tables, comments or
+drawings; each feature that adds a part names its own constants where that
+feature is described.
+
+Two further parts, `xl/styles.xml` and `xl/theme/theme1.xml`, are written into
+every package as well. They are named here so that a reader who lists a written
+package and finds nine parts against a required list of seven is not left
+wondering which of the two lists is wrong: neither appears in the required
+list above, but both are written into every package this library produces, and
+a written package that omits either is incomplete. `xl/styles.xml` is read
+wherever a style definition — or a rejected definition — is checked. Whatever a
+package does contain must still be covered by the content-type stream — an
+`Override` for the part or a `Default` for its extension, with no part left
+uncovered — so a package that writes a part this list does not name takes on
+the obligation to declare it.
+
+Every XML part this library writes opens with an XML declaration naming
+version 1.0 and encoding UTF-8 — the `<?xml version="1.0" encoding="UTF-8"?>`
+form — with whatever further pseudo-attributes this milestone's writer chooses
+beside them; the declaration is part of the written form, not an optional
+header.
+
+Everything the workbook holds survives `Write` followed by `OpenReader`.
+
+`OpenReader` returns an error for input that is not a ZIP container: empty
+input, arbitrary text, a truncated archive, or a stream that begins with the
+ZIP local-file signature but ends there. `OpenFile` returns an error for a path
+that does not exist. Neither is required to validate the OPC declarations
+inside a well-formed ZIP; see 4.01.10.
+
+`ReadZipReader` reports the container's parts as a map from part name to part
+text, together with the number of worksheets it found and an error. On a
+package this library wrote it returns no error, names `[Content_Types].xml`,
+`_rels/.rels`, `xl/workbook.xml`, `xl/_rels/workbook.xml.rels` and
+`xl/worksheets/sheet1.xml` among its keys, and reports one worksheet.
+
+`Save` writes the workbook back to the path it was opened from, and returns an
+error when there is no such path — a workbook from `NewFile` has none.
+`SaveAs` writes to the named path; the package it produces reads back through
+`OpenFile` with its values intact, and the workbook that `OpenFile` returns can
+then be `Save`d.
+
+#### 4.01.2 Column titles and A1 references
+
+```go
+func ToAlphaString(value int) string
+func TitleToNumber(s string) int
+```
+
+The bijection of ECMA-376 Part 1 clause 18.17.2.3.1 between a **zero-based** column
+ordinal and its bicameral base-26 title. `ToAlphaString(0) == "A"`,
+`25 → "Z"`, `26 → "AA"`, `27 → "AB"`, `51 → "AZ"`, `52 → "BA"`, `701 → "ZZ"`,
+`702 → "AAA"`, `16383 → "XFD"`. `TitleToNumber` is its inverse over upper-case
+titles, so `TitleToNumber(ToAlphaString(i)) == i` for every ordinal from 0
+upward. A negative ordinal yields the empty title; the empty title yields `-1`.
+
+A cell is named by an A1-style axis, `"A1"`, `"B2"`, `"AA5"`. Row numbers in an
+axis are one-based; the column ordinals `TitleToNumber` produces are zero-based
+and index `GetRows`' inner slice directly.
+
+#### 4.01.3 Cell values
+
+```go
+func (f *File) SetCellValue(sheet, axis string, value interface{})
+func (f *File) SetCellInt(sheet, axis string, value int)
+func (f *File) SetCellStr(sheet, axis, value string)
+func (f *File) SetCellDefault(sheet, axis, value string)
+func (f *File) SetCellFormula(sheet, axis, formula string)
+func (f *File) GetCellValue(sheet, axis string) string
+func (f *File) GetCellFormula(sheet, axis string) string
+func (f *File) GetRows(sheet string) [][]string
+```
+
+`GetCellValue` always returns text — the cell's value rendered through its
+number format (4.01.4). A cell that was never written reads as the empty
+string, and so does its formula.
+
+`SetCellValue` accepts, and coerces as follows:
+
+| Go value | Stored as | `GetCellValue` |
+| --- | --- | --- |
+| `string` | a string cell, byte-for-byte, including leading and trailing spaces, XML metacharacters and non-ASCII text | the same string |
+| `bool` | a cell written so that it reads back as the boolean's text (see the note below the table) | `"true"` / `"false"` |
+| any signed or unsigned integer type | a numeric cell in decimal, exactly — `int64(9007199254740993)` does not lose its last digit | the decimal text |
+| `float32`, `float64` | a numeric cell in the shortest decimal form that round-trips | e.g. `"1.5"`, `"3.14159"` |
+| `time.Time` | the serial date, with a style whose number format is the built-in 22 | the date rendered through that format, e.g. `"7/4/17 12:00"` |
+| `nil` | an empty cell | `""` |
+
+A `bool` is stored so that the round trip above holds: reading a cell this
+library wrote for a `bool` gives `"true"` or `"false"`, never `"1"` or `"0"`.
+Which `t` attribute the writer chooses for it is this milestone's business;
+4.01.4's rule for `t="b"` describes how a cell that carries that attribute is
+read, not a shape a written boolean has to take. (**Superseded from §4.02.4
+on**: from that milestone a `bool` is the `t="b"` cell 4.01.4 describes,
+carrying `1` or `0`, so neither this note nor the `bool` row above it holds.)
+
+`SetCellInt` and `SetCellStr` write a number and a string respectively;
+`SetCellStr` stores its text as the `t="str"` cell 4.01.4 defines — the string
+goes into `v` with no `f` element, not into the shared string table — and
+`SetCellDefault` writes raw cell text with no type attribute. All survive the
+write/read round trip unchanged.
+
+`SetCellFormula` stores the formula text and nothing else: `GetCellFormula`
+returns it, `GetCellValue` on that cell returns the empty string until a cached
+result is supplied — `SetCellDefault` on the same cell supplies one — and the
+formula survives the round trip. A cell with no formula returns the empty
+string from `GetCellFormula`.
+
+```go
+func (f *File) UpdateLinkedValue()
+```
+
+Drops the cached result of every formula cell in the workbook, leaving the
+formula in place: after it, such a cell reads as the empty string while
+`GetCellFormula` still returns the formula. Cells with no formula are
+untouched. It operates over the worksheets the workbook knows about, so it
+applies to a workbook read back from a package.
+
+`GetRows` returns the worksheet as a rectangle of rendered text, outer index by
+row in order and inner index by zero-based column ordinal, with gaps filled by
+empty strings.
+
+#### 4.01.4 Stored cell types
+
+A cell's `t` attribute (ECMA-376 Part 1 clause 18.18.11) selects how its `v` is
+read:
+
+* `t="s"` — `v` is a zero-based index into the shared string table of
+  `xl/sharedStrings.xml` (clause 18.4). The `si` at that index supplies the
+  text, with `xml:space="preserve"` honoured so insignificant whitespace is
+  kept. An `si` built from several `r` runs reads as its runs concatenated in
+  order when the worksheet is read through `GetRows`.
+* no `t` — `v` is a number.
+* `t="b"` — `v` is the stored boolean literal (`"1"` / `"0"`) and is returned
+  as stored.
+* `t="e"` — `v` is an error literal such as `#DIV/0!` and is returned as
+  stored.
+* `t="str"` — a string held in `v` rather than in the shared string table:
+  either a formula cell's cached string result — `GetCellFormula` returns the
+  formula and `GetCellValue` the cached result — or a cell written by
+  `SetCellStr`, whose text sits in `v` with no `f` element.
+
+Whatever the type, a cell whose `s` attribute selects a `cellXfs` record with a
+non-default `numFmtId` is rendered through that number format, using the
+built-in format codes of clause 18.8.30: format 22 (`m/d/yy h:mm`) renders the
+serial `42920.5` as `7/4/17 12:00`, format 2 (`0.00`) renders `1234.5678` as
+`1234.57`. A cell with style 0 is returned exactly as stored.
+
+#### 4.01.5 Styles
+
+```go
+func (f *File) NewStyle(style string) (int, error)
+func (f *File) SetCellStyle(sheet, hcell, vcell string, styleID int)
+func (f *File) GetCellStyle(sheet, axis string) int
+```
+
+`NewStyle` takes a JSON style definition, appends the records it needs to
+`xl/styles.xml`, and returns the index of the new `cellXfs` record. Index 0 is
+the default format and is never returned for a valid definition; each distinct
+definition gets its own index, and `cellXfs` ends up holding the default plus
+one record per accepted definition. A definition that is not well-formed JSON
+is rejected: the call returns `(0, err)` and leaves `xl/styles.xml` unchanged.
+
+The same reservation applies one level down, in the collections `NewStyle`
+draws its records from. A freshly created workbook's `xl/styles.xml` already
+holds one `font` (the workbook default, `Calibri`), one `border` (all edges
+unset) and two `fill`s (the required `none` and `gray125` presets) before any
+style is defined, so `fonts/font[0]`, `borders/border[0]` and the first `fill`
+a caller-visible definition can occupy are never index 0 for a definition
+`NewStyle` accepts: a `font`, `fill` or `border` a style definition adds gets
+an index of 1 or greater, parallel to `cellXfs`'s own reserved index 0.
+
+The keys this milestone fixes:
+
+| Key | Effect on `xl/styles.xml` |
+| --- | --- |
+| `{"number_format": n}` | the `xf`'s `numFmtId` is the built-in format `n` (clause 18.8.30), and values in cells carrying the style are rendered through it |
+| `{"custom_number_format": "…"}` | a `numFmt` is registered with an id at or above 164 (the first id clause 18.8.30 leaves to applications) and the given `formatCode`, and the `xf` points at it |
+| `{"font": {"family":…, "size":…, "color":"#RRGGBB", "bold":…}}` | a `font` record whose `name/@val`, `sz/@val` and `color/@rgb` carry the requested family, size and colour; a `#RRGGBB` colour becomes the opaque eight-digit form `FFRRGGBB` |
+| `{"fill": {"type":"pattern","color":["#RRGGBB"],"pattern":1}}` | a `fill` record holding a `patternFill` with `patternType="solid"` and that foreground colour |
+| `{"border": [{"type":"left","color":"RRGGBB","style":n}, …]}` | a `border` record whose named edge carries a line style selected by `n` and that colour written in the opaque eight-digit form — `"0000FF"` becomes `FF0000FF`, exactly as the font and fill colours do; different `style` numbers select different line styles |
+| `{"alignment": {"horizontal":…, "vertical":…, "wrap_text":…, "text_rotation":…}}` | an `alignment` child on the `xf`, with `applyAlignment` set, carrying `horizontal`, `vertical`, `wrapText` and `textRotation` |
+
+`SetCellStyle` applies a style identifier to every cell of the rectangle whose
+opposite corners are `hcell` and `vcell`, inclusive. `GetCellStyle` returns the
+identifier in force at a cell, and `0` for a cell outside every styled range.
+
+#### 4.01.6 Worksheets
+
+```go
+func (f *File) NewSheet(index int, name string)
+func (f *File) GetSheetName(index int) string
+func (f *File) GetSheetIndex(name string) int
+func (f *File) GetSheetMap() map[int]string
+func (f *File) SetSheetName(oldName, newName string)
+func (f *File) CopySheet(from, to int) error
+func (f *File) DeleteSheet(name string)
+func (f *File) SetActiveSheet(index int)
+func (f *File) GetActiveSheetIndex() int
+func (f *File) SetSheetVisible(name string, visible bool)
+func (f *File) GetSheetVisible(name string) bool
+```
+
+**`NewSheet` is keyed by index.** The caller supplies the one-based position the
+new sheet takes in the workbook, and its display name. Creating it adds, in one
+step: the part `xl/worksheets/sheetN.xml` (N being the index the caller
+supplied, so a call for the second sheet is `sheet2.xml`), its `Override` in
+`[Content_Types].xml`, a worksheet relationship in `xl/_rels/workbook.xml.rels`
+whose `Target` resolves to `worksheets/sheetN.xml`, and a `sheet` element in
+`xl/workbook.xml` naming it and carrying that relationship id.
+
+`GetSheetMap` maps one-based index to display name and agrees with
+`GetSheetName` and `GetSheetIndex` in both directions. `GetSheetIndex` returns
+`0` for a name the workbook does not have; `GetSheetName` returns the empty
+string for an index it does not have.
+
+Sheet names are sanitised on the way in, by both `NewSheet` and `SetSheetName`.
+The characters `:` `\` `/` `?` `*` `[` `]` are removed, and what remains is
+truncated to **31 characters** — counted in characters, not bytes, so a name of
+31 multi-byte characters survives whole and is still valid UTF-8. A name that
+is already short and clean is stored unaltered. `SetSheetName` on a name the
+workbook does not have changes nothing.
+
+`CopySheet(from, to)` copies the content of the worksheet at one-based index
+`from` onto the one at index `to`; afterwards the destination holds the
+source's cell values and the two are independent, so writing to one does not
+change the other. It returns an error, and changes nothing, when either index
+is below 1, when the two are equal, or when either does not name a sheet.
+
+`DeleteSheet(name)` removes the named sheet from `xl/workbook.xml` and drops
+its worksheet relationship from `xl/_rels/workbook.xml.rels`; afterwards the
+name appears in neither `GetSheetMap` nor `GetSheetIndex`, the remaining sheets
+are still reachable by name, and the workbook lists one fewer sheet. It is a
+no-op for a name the workbook does not have, and a no-op when it would leave
+the workbook with no worksheet at all.
+
+`SetActiveSheet(index)` records the one-based index as the active tab: the
+`workbookView` element of `xl/workbook.xml` carries `activeTab` set to the
+zero-based equivalent, the chosen worksheet's `sheetView` is marked
+`tabSelected`, and every other worksheet's is not.
+
+`GetActiveSheetIndex` reports the one-based index of whichever worksheet's
+`sheetView` currently carries `tabSelected`, by reading that flag back out of
+the worksheet parts — it does not consult `workbookView`/`activeTab`. A
+workbook from `NewFile` reports **1**: its single worksheet template already
+carries `sheetView tabSelected="1"` before any call to `SetActiveSheet`. If no
+worksheet's `sheetView` carries `tabSelected` — which cannot happen to a
+workbook produced by this library, but can happen to one read from an
+arbitrary package — it returns `0`.
+
+Every sheet starts visible. `GetSheetVisible` is `true` for the sheet a new
+workbook is created with and for every sheet added afterwards, without anything
+having to set it; a test checks that a freshly added sheet does not report
+itself hidden, so the default is a requirement and not an implementation
+detail. `SetSheetVisible(name, false)` hides a sheet and `GetSheetVisible` then
+reports it hidden while its siblings stay visible; the hidden state survives
+the write/read round trip, and setting it back to `true` restores it. A hidden
+sheet is still a member of the workbook and still appears in `GetSheetMap`.
+`GetSheetVisible` reports a name the workbook does not have as not visible,
+which is the same answer it gives for a hidden one — the two cases are not
+distinguishable through this call.
+
+#### 4.01.7 Merged cells
+
+```go
+func (f *File) MergeCell(sheet, hcell, vcell string)
+```
+
+Merges the rectangle whose opposite corners are `hcell` and `vcell`. The range
+is written to the worksheet's `mergeCells` (clause 18.3.1.55) as a single
+normalised reference — top-left first — whichever order the corners were given
+in, so `MergeCell(sheet, "C3", "A1")` yields `A1:C3`. Every cell inside a merged
+range reads the anchor's value, and writing to any cell inside the range writes
+to the anchor, so the whole range reads back as the new value. Cells outside
+are unaffected. Several merged ranges coexist in the order they were added, and
+all of this survives the round trip.
+
+#### 4.01.8 Rows, columns and their geometry
+
+```go
+func (f *File) SetColWidth(sheet, startcol, endcol string, width float64)
+func (f *File) GetColWidth(sheet, column string) float64
+func (f *File) SetRowHeight(sheet string, rowIndex int, height float64)
+func (f *File) GetRowHeight(sheet string, row int) float64
+func (f *File) SetColVisible(sheet, column string, visible bool)
+func (f *File) GetColVisible(sheet, column string) bool
+func (f *File) SetRowVisible(sheet string, rowIndex int, visible bool)
+func (f *File) GetRowVisible(sheet string, rowIndex int) bool
+func (f *File) InsertRow(sheet string, row int)
+func (f *File) RemoveRow(sheet string, row int)
+func (f *File) InsertCol(sheet, column string)
+func (f *File) RemoveCol(sheet, column string)
+```
+
+**The `row` parameter of these methods is a zero-based row index**, unlike the
+one-based row number inside an A1 axis. Columns are named by title.
+
+A default worksheet reports row height `20` and column width `64`. `SetColWidth`
+applies to every column of the inclusive range and to no column outside it;
+`SetRowHeight` applies to exactly one row. Both are recorded in the worksheet
+(`cols/col` and `row`, clauses 18.3.1.13 and 18.3.1.73) and survive the round
+trip.
+
+`SetColVisible` / `SetRowVisible` hide and show one column or row; the state is
+readable back, does not spill onto neighbours, survives the round trip, and is
+reversible.
+
+`InsertRow(sheet, n)` inserts a blank row before the row at zero-based index
+`n`, shifting that row and everything below it down one; `RemoveRow(sheet, n)`
+deletes it and shifts everything below up one. `InsertCol` and `RemoveCol` do
+the same for the named column and the columns to its right. Cell contents move
+with their row or column.
+
+#### 4.01.9 Tables, filters, conditional formats, comments and drawings
+
+```go
+func (f *File) AddTable(sheet, hcell, vcell, format string)
+func (f *File) AutoFilter(sheet, hcell, vcell, format string) error
+```
+
+`AddTable` writes the range as a table part, `xl/tables/tableN.xml`, numbered
+from 1 in the order tables are added. The part carries a non-empty `displayName`
+and `id`, both distinct between tables, the `ref` of the range, and a `tableColumns` whose count matches the range, whose members carry a non-empty `id` counting from 1, and whose column names are taken from the range's header row. The worksheet gains a relationship of type
+`http://schemas.openxmlformats.org/officeDocument/2006/relationships/table`
+targeting `../tables/tableN.xml` and a `tableParts` element carrying `count` equal to the number of tables on the worksheet and a `tablePart` entry with that relationship id, and `[Content_Types].xml` gains an `Override` declaring
+`application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml`.
+The format keys `table_style`, `show_first_column` and `show_row_stripes` are
+recorded on the part's `tableStyleInfo`, whose four boolean flags
+`showFirstColumn`, `showLastColumn`, `showRowStripes` and `showColumnStripes`
+are written on every table whether or not the format set named them, in the Go
+boolean spelling: a table written from `{"show_row_stripes":false}` carries
+`showRowStripes="false"` on the part, and one whose format set is silent about a
+flag carries that flag as `"false"` too — the attributes are never omitted.
+
+`AutoFilter` records an auto filter over the range: the worksheet's `autoFilter`
+carries the `ref` and the `sheetPr` element gains `filterMode="true"`. The format
+is `{"column":"<title>","expression":"<expr>"}`; a descriptor that names both
+also writes a `filterColumn` for the named column. A descriptor that names no
+column or no expression — the empty string among them — is not an error: it
+records the range with no `filterColumn` and returns `nil`, so
+`AutoFilter(sheet, "A1", "C1", "")` leaves the range recorded and the sheet
+unfiltered. The call fails when the named column lies outside the filtered
+range, and when the expression is present but not a complete criterion (its
+token count is neither 3 nor 7); a malformed descriptor is not otherwise
+validated.
+
+```go
+func (f *File) NewConditionalStyle(style string) (int, error)
+func (f *File) SetConditionalFormat(sheet, area, formatSet string)
+```
+
+`NewConditionalStyle` registers a differential format in the `dxfs` collection
+of `xl/styles.xml` (clause 18.8.15) and returns its index. **Differential format
+indices start at 0**, unlike cell style indices; distinct definitions get
+distinct indices, and `dxfs`' `count` matches the number registered. The font
+and fill keys are those of 4.01.5, with `#RRGGBB` again becoming `FFRRGGBB`; the
+fill's colour lands on the `patternFill`'s `bgColor`. A definition that is not
+well-formed JSON is rejected with `(0, err)` and registers nothing.
+
+`SetConditionalFormat` writes a `conditionalFormatting` element (clause
+18.3.1.18) whose `sqref` is the given area, holding one `cfRule` per entry of
+the JSON array:
+
+* `{"type":"cell","criteria":">","format":<dxf>,"value":"6"}` — a `cfRule` of
+  type `cellIs` with `operator="greaterThan"`, a non-empty `priority`, a
+  `dxfId` equal to the identifier `NewConditionalStyle` returned, and a
+  `formula` child holding the value.
+* `{"type":"2_color_scale", "min_type":…, "max_type":…, "min_color":…,
+  "max_color":…}` — a `cfRule` of type `colorScale` (clause 18.3.1.16) holding
+  a `colorScale` with two `cfvo` of the requested types and the two colours in minimum-then-maximum order, each written in the opaque eight-digit form 4.01.5 gives (`#RRGGBB` becomes `FFRRGGBB`).
+* `{"type":"3_color_scale", …, "mid_type":"percentile", "mid_color":…}` — the same with three `cfvo` — the midpoint one carrying `val="50"` — and three colours in minimum, midpoint, maximum order, written in the same eight-digit form.
+
+```go
+func (f *File) AddComment(sheet, cell, format string)
+```
+
+Adds a comment, `{"author":"…","text":"…"}`, and with it both parts a comment
+needs. `xl/commentsN.xml` (clause 18.7), one per worksheet that has comments and
+numbered in worksheet order, lists the author in `authors` and the comment in
+`commentList` with the cell's `ref`, an `authorId`, and text runs that carry
+both the author and the comment text. `xl/drawings/vmlDrawingN.vml` holds the
+comment's legacy shape, with client data of `ObjectType="Note"`. The worksheet gains relationships to both parts — one of type `http://schemas.openxmlformats.org/officeDocument/2006/relationships/vmlDrawing` resolving to the VML part, one of type `http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments` resolving to the comments part — and a `legacyDrawing` element (Annex L.5.5.2,
+the worked SpreadsheetML Comments example — this edition's Strict schema
+dropped the VML shape, so the annex is the reference) whose relationship id
+resolves to the VML part, and
+`[Content_Types].xml` gains a `Default` for the `vml` extension with content
+type `application/vnd.openxmlformats-officedocument.vmlDrawing` and an
+`Override` for the comments part declaring
+`application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml`.
+
+```go
+func (f *File) AddPicture(sheet, cell, picture, format string) error
+func (f *File) GetPicture(sheet, cell string) (string, []byte)
+func (f *File) AddShape(sheet, cell, format string)
+func (f *File) AddChart(sheet, cell, format string)
+func (f *File) SetSheetBackground(sheet, picture string) error
+```
+
+Pictures, shapes and charts share the worksheet drawing of ECMA-376 Part 1
+clause 20.5: `xl/drawings/drawingN.xml` holds one anchor per object — a `pic`,
+an `sp` or a `graphicFrame` — the worksheet points at it through a `drawing`
+relationship, and `[Content_Types].xml` declares it as
+`application/vnd.openxmlformats-officedocument.drawing+xml`.
+
+`AddPicture` copies the image file into `xl/media/imageN.<ext>` byte for byte and relates the drawing to it with a relationship of the image type, `http://schemas.openxmlformats.org/officeDocument/2006/relationships/image`. It returns
+an error, storing nothing, for a path that does not exist and for a file whose
+extension is not a supported image type. The supported extensions, matched
+case-sensitively against the source path's suffix, are exactly `.png`, `.jpg`,
+`.jpeg` and `.gif`; anything else (including the same extensions upper-cased)
+is unsupported. It decodes the image to size the anchor, so the caller is
+expected to have registered the relevant decoders — in Go that means
+blank-importing `image/png` and friends. `format` follows the same JSON shape
+as `AddShape`'s below, minus `type`/`color`/`paragraph`: `{"print_obj": bool,
+"lock_aspect_ratio": bool, "locked": bool, "x_offset": n, "y_offset": n,
+"x_scale": x, "y_scale": y}`, every key optional and defaulting to `true`/
+`false`/`0`/`1.0` as shown for `AddShape` below.
+
+`GetPicture` returns the stored file name and the image bytes for the cell a
+picture was anchored to, both before and after the round trip, and `("", nil)`
+for a cell with no picture.
+
+`AddShape` draws one DrawingML autoshape (an `sp`) anchored at `cell`. Its
+`format` JSON:
+
+| Key | Effect | Default when the key is omitted |
+| --- | --- | --- |
+| `{"type": "…"}` | the preset geometry name, written verbatim to `prstGeom/@prst`; the library does not validate it against the DrawingML preset list | the empty string (still emits an `sp`, with an empty preset name) |
+| `{"width": n, "height": n}` | the shape's extent in points, before the scale below is applied | `160`, `160` |
+| `{"format": {"print_obj":…, "locked":…, "lock_aspect_ratio":…, "x_offset":…, "y_offset":…, "x_scale":…, "y_scale":…}}` | the same offset/scale/print/lock keys `AddPicture` takes at its top level | `true`, `false`, `false`, `0`, `0`, `1.0`, `1.0` |
+| `{"color": {"line": "#RRGGBB", "fill": "#RRGGBB", "effect": "…"}}` | the shape's outline and fill colour | unset — no `ln` or `solidFill` is written |
+| `{"paragraph": [{"text": "…", "font": {"bold":…, "italic":…, "underline":…, "family":…, "size":…, "color":"#RRGGBB"}}]}` | one text run per array entry, inside the shape | no text |
+
+`width` and `height` are multiplied by `x_scale`/`y_scale` before conversion
+to EMU for the anchor extent.
+
+`SetSheetBackground` stores the image as a media part under `xl/media/imageN.<ext>` — the convention `AddPicture` follows — and relates the worksheet to it with a relationship of the image type, `http://schemas.openxmlformats.org/officeDocument/2006/relationships/image`, adding a `picture` element to the worksheet carrying that relationship id. It returns an error for input it cannot use.
+
+`AddChart` writes the chart as its own part, `xl/charts/chartN.xml`, numbered
+from 1 in the order charts are added and declared in `[Content_Types].xml` as
+`application/vnd.openxmlformats-officedocument.drawingml.chart+xml`. The drawing holds one `graphicFrame` per chart and relates to each chart part under a distinct relationship id of type `http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart`. The chart's `plotArea` holds the plot element of
+its family. The families and their constants:
+
+```go
+const (
+    Bar      = "bar"      // c:barChart
+    Bar3D    = "bar3D"    // c:bar3DChart
+    Line     = "line"     // c:lineChart
+    Radar    = "radar"    // c:radarChart
+    Scatter  = "scatter"  // c:scatterChart
+    Pie      = "pie"      // c:pieChart
+    Pie3D    = "pie3D"    // c:pie3DChart
+    Doughnut = "doughnut" // c:doughnutChart
+)
+```
+
+The format is `{"type":"<family>","series":[{"name":…,"categories":…,"values":…}]}`.
+`Bar`, `Bar3D`, `Line`, `Radar` and `Scatter` charts declare axes (`c:catAx`
+and `c:valAx`); `Pie`, `Pie3D` and `Doughnut` charts declare none.
+
+#### 4.01.10 Packages that are not well formed
+
+Reading must be total: a ZIP container that is not a usable SpreadsheetML
+package opens without error and without panicking, and simply has nothing in
+it.
+
+* A ZIP with no `[Content_Types].xml` and no workbook part opens successfully;
+  `GetSheetMap` is empty, `GetSheetName(1)` is the empty string, and
+  `GetSheetIndex` finds nothing.
+* A package whose workbook declares a worksheet but whose worksheet part is
+  missing — a dangling relationship — opens successfully and reports that one
+  sheet in `GetSheetMap`; reading a cell of it returns the empty string and
+  `GetRows` returns no rows.
+
+Malformed input is rejected only where 4.01.1 says it is: at the container
+level, by `OpenFile` and `OpenReader`.
+
+#### 4.01.11 Hyperlinks and pane views
+
+```go
+func (f *File) SetCellHyperLink(sheet, axis, link, linkType string)
+func (f *File) GetCellHyperLink(sheet, axis string) (bool, string)
+func (f *File) SetPanes(sheet, panes string)
+```
+
+At this milestone neither setter returns an error; both are unconditional
+functions that either store something or silently do nothing. (A later
+milestone gives `SetCellHyperLink` and `SetPanes` an `error` return and adds a
+capacity limit on hyperlinks — neither is true of this checkpoint, and neither
+is documented here.)
+
+A `hyperlink` element (ECMA-376 Part 1 clause 18.3.1.47) is appended to the
+worksheet's `hyperlinks` collection (clause 18.3.1.48). `SetCellHyperLink`'s
+`linkType` is a closed, case-sensitive enum of exactly two members:
+
+| `linkType` | Effect on the worksheet |
+| --- | --- |
+| `"External"` | a relationship to `link` is added to the worksheet's part-relationships, and a `hyperlink` element is appended to the worksheet's `hyperlinks` collection with `ref` set to `axis` and `r:id` pointing at that relationship; `link` is stored as-is and never validated as a URL |
+| `"Location"` | a `hyperlink` element is appended with `ref` set to `axis` and `location` set to `link` verbatim (typically an in-workbook reference such as `"Sheet2!A1"`, but nothing enforces that shape); no relationship is created |
+
+Any other `linkType` value is a no-op: nothing is appended, no relationship is
+created, and the call returns nothing to signal it. An `axis` inside a merged
+range is redirected to the range's anchor first, the same redirection 4.01.7
+describes for a write to any cell of a merged range.
+
+`GetCellHyperLink(sheet, axis)` applies the same merged-range redirection `SetCellHyperLink` does, so an `axis` inside a merged range is read at the range's anchor and answers for the anchor's hyperlink. It reports `(true, target)` for an `axis` that matches some stored hyperlink's `ref` — `target` is the `location` value for a
+`"Location"` link, and the relationship's resolved `Target` for an
+`"External"` one — and `(false, "")` when `axis` matches no stored hyperlink
+or the worksheet has none.
+
+`SetPanes(sheet, panes)` takes a JSON descriptor and replaces the worksheet's
+current pane/selection state outright — it does not merge with a prior call. It
+writes the `sheetView`'s `pane` child (clause 18.3.1.66) and `selection`
+children (clause 18.3.1.78). The keys:
+
+| Key | Effect |
+| --- | --- |
+| `{"freeze": bool}` | when `true`, the `pane` element carries `state="frozen"` |
+| `{"split": bool}` | when `true` (and `freeze` is `false`), a `pane` element is still written but without `state="frozen"` |
+| `{"x_split": n, "y_split": n}` | the `pane`'s `xSplit`/`ySplit` attributes |
+| `{"top_left_cell": "…"}` | the `pane`'s `topLeftCell` attribute, an A1 axis |
+| `{"active_pane": "…"}` | the `pane`'s `activePane` attribute |
+| `{"panes": [{"sqref": "…", "active_cell": "…", "pane": "…"}, …]}` | one `selection` element per array entry, carrying `sqref`, `activeCell` and `pane` respectively |
+
+`active_pane` and each `panes[].pane` are a closed, case-sensitive enum of
+four members: `"topLeft"`, `"topRight"`, `"bottomLeft"`, `"bottomRight"` —
+naming which quadrant of a frozen or split view the pane occupies. When both
+`freeze` and `split` are `false`, the `pane` element is removed entirely (so a
+prior call's freeze/split is undone), but any `panes` selections in the same
+call are still written.
+
+### 4.02 Worksheet features and iteration
+
+This milestone turns a worksheet from something you write one cell at a time
+into something you can stream, group, constrain, protect, search and draw on.
+It also makes one change to the shape of the interface itself, stated first
+because everything else in this section depends on it.
+
+#### 4.02.1 The migration: the interface is keyed by worksheet name
+
+Every entry point whose parameter *identifies which worksheet to act on* now
+takes that worksheet's **name** in place of the `"sheet"`-plus-index shape
+4.01 used for the same purpose — most visibly, `NewSheet(index int, name
+string)` from 4.01.6 becomes `NewSheet(name string) int` below.
+
+```go
+func (f *File) NewSheet(name string) int
+```
+
+`NewSheet` takes the name of the worksheet to create and **returns** the index
+that worksheet then has. The returned index is positive and satisfies
+`f.GetSheetName(idx) == name` and `f.GetSheetIndex(name) == idx`, and
+`f.GetSheetMap()[idx] == name`. Calling `NewSheet` with a name that already
+exists does **not** create a second worksheet: the workbook still has the same
+number of worksheets, the existing worksheet keeps its index and its cell
+values, and the returned index is the existing one.
+
+**This changes only the worksheet-identifying key; it does not remove every
+integer parameter from the interface.** Five entry points from 4.01.6 keep
+exactly the index they already had, because that index was never the
+worksheet-identifying key: `CopySheet(from, to int) error` still copies by
+one-based worksheet index; `SetActiveSheet(index int)` and
+`GetActiveSheetIndex() int` still set and read the active tab by that same
+index; `GetSheetName(index int) string` and `GetSheetIndex(name string) int`
+still convert between index and name in both directions. None of the five is
+renamed, re-keyed, or removed. A `viewIndex`, such as
+`SetSheetViewOptions`'s (4.02.8), selects one of a *named* worksheet's own
+views and is a different thing again — it is not a worksheet number.
+
+Row heights move to the same one-based numbering the markup uses:
+
+```go
+func (f *File) SetRowHeight(sheet string, row int, height float64)
+func (f *File) GetRowHeight(sheet string, row int) float64
+```
+
+`row` is the one-based row number. `SetRowHeight(sheet, 1, 50)` sets the height
+of the row whose `r` attribute is `1` — it writes `ht="50"` and
+`customHeight="true"` on that row and on no other — and `GetRowHeight(sheet, 1)`
+reads it back. Setting a height for row 3 leaves rows 1 and 2 without one.
+
+**Only the height moved.** `SetRowVisible`, `GetRowVisible`,
+`SetRowOutlineLevel` and `GetRowOutlineLevel` keep the zero-based `rowIndex`
+they already had: `rowIndex` 2 is the row whose `r` attribute is `3`. Column
+entry points continue to take a column title (`"D"`), not a number.
+
+These worksheet mutators return an `error` when the JSON format descriptor they
+are given cannot be parsed: `AddChart(sheet, cell, format string) error`,
+`AddComment(sheet, cell, format string) error`,
+`AddShape(sheet, cell, format string) error`,
+`AddTable(sheet, hcell, vcell, format string) error`,
+`SetConditionalFormat(sheet, area, formatSet string) error`. An empty `format`
+is not one of those: it is the empty descriptor, the same as `"{}"`, and it
+selects the documented defaults rather than returning an error. `AutoFilter`
+takes a descriptor too but is not validated as JSON at all — no descriptor it is
+given is a parse error — and its empty form is the case §4.02.1 records for it.
+
+#### 4.02.2 The row iterator
+
+```go
+type Rows struct{ ... }
+func (f *File) Rows(sheet string) (*Rows, error)
+func (rows *Rows) Next() bool
+func (rows *Rows) Columns() []string
+func (rows *Rows) Error() error
+```
+
+`Rows` returns an iterator positioned **before** the first row: `Columns()`
+returns an empty slice until `Next()` has been called at least once. `Next()`
+advances to the next row and reports whether there is one; it returns `false`
+at the end of the worksheet and keeps returning `false` on every later call.
+Reaching the end is not a failure — `Error()` returns `nil` after exhaustion —
+and `Error()` reports only a failure that occurred while reading.
+
+`Columns()` returns the current row's values **positioned by column**: a value
+sits at the index its column letter implies, and columns with no cell are the
+empty string. A row with values in A and C is `[]string{"a", "", "c"}`. The
+slice is not padded beyond the rightmost cell that has a value. Rows are
+visited in worksheet order.
+
+`Rows` on a worksheet that does not exist returns a `nil` iterator and an
+error:
+
+```go
+type ErrSheetNotExist struct{ SheetName string }
+func (err ErrSheetNotExist) Error() string
+```
+
+The error either is, or unwraps to (`errors.As`), an `ErrSheetNotExist` whose
+`SheetName` field is the name that was asked for. Its message text is not
+checked; its identity and its `SheetName` field are.
+
+#### 4.02.3 Inline strings and shared formulas
+
+Two cell shapes this library does not itself write must now be **read**.
+
+`GetCellValue` on a cell whose type is `inlineStr` returns the text held in the
+cell's own `is` element, and the row iterator returns the same value. ECMA-376
+Part 1 clause 18.18.11 (`ST_CellType`) fixes `inlineStr` as the cell type, and
+clause 18.3.1.53 (`is`) fixes where the text lives.
+
+A shared formula (ECMA-376 Part 1 clause 18.3.1.40, `f` with `t="shared"`) is
+written once on the cell that defines it, carrying `ref` and `si`; every other
+member of the group carries only `si`. `GetCellFormula` returns the defining
+cell's formula text for **every** member of the group, not only for the cell
+that spells it out. The constant `STCellFormulaTypeShared` has the value
+`"shared"`.
+
+#### 4.02.4 What a cell can hold
+
+```go
+func (f *File) SetCellBool(sheet, axis string, value bool)
+```
+
+A boolean cell carries the cell type `b` and the value `1` or `0`;
+`GetCellValue` returns `"1"` or `"0"`. `SetCellValue` accepts a `bool` and
+produces exactly the same cell. **This is a behaviour change from 4.01.3**,
+whose coercion table gave a `bool` as a plain string cell rendering `"true"` /
+`"false"` — 4.01 had no `SetCellBool` and no `t="b"` cell type for a
+Go-level boolean. From this milestone on, a `bool` is stored the way 4.01.4
+already described a `t="b"` cell being read, and `"true"`/`"false"` no longer
+appear for a `bool` value.
+
+`SetCellValue` also accepts a `time.Duration`, which is stored as a **number**
+— a fraction of a day — with an elapsed-time number format applied. Four hours
+thirty minutes is stored as `0.1875`, the cell carries no `t` attribute, the
+cell's style index is non-zero, and `GetCellValue` returns `"04:30:00"`.
+
+```go
+func (f *File) SetSheetRow(sheet, axis string, slice interface{})
+```
+
+`SetSheetRow` writes consecutive cells across one row, starting at `axis` and
+moving right, one cell per element. `slice` must be a **pointer to a slice**;
+anything else — including a slice passed by value — is ignored and writes
+nothing, without panicking. A `nil` element leaves its cell empty. Only the
+addressed row is touched, and the row is only as wide as the slice.
+
+Cell-level protection is carried by a style: `NewStyle` accepts a
+`"protection"` object with `"locked"` and `"hidden"` members, and the resulting
+entry in `cellXfs` sets `applyProtection` together with a `protection` element
+carrying those two attributes (ECMA-376 Part 1 clause 18.8.33).
+
+#### 4.02.5 Outline levels and worksheet properties
+
+```go
+func (f *File) SetRowOutlineLevel(sheet string, rowIndex int, level uint8)
+func (f *File) GetRowOutlineLevel(sheet string, rowIndex int) uint8
+func (f *File) SetColOutlineLevel(sheet, column string, level uint8)
+func (f *File) GetColOutlineLevel(sheet, column string) uint8
+```
+
+A row's outline level is written as `row/@outlineLevel` on exactly one row —
+the row whose `r` attribute is `rowIndex + 1` — and on no other. A column's
+outline level is written as `col/@outlineLevel` on exactly one `col` element
+whose `min` and `max` are both that column's number (`"D"` gives `min="4"
+max="4"`). Both read back the level that was set, including after being set a
+second time; a row or column that was never grouped reads back `0`, and so does
+a row that was never written at all.
+
+```go
+type SheetPrOption interface{ ... }
+type SheetPrOptionPtr interface{ ... }
+func (f *File) SetSheetPrOptions(name string, opts ...SheetPrOption) error
+func (f *File) GetSheetPrOptions(name string, opts ...SheetPrOptionPtr) error
+```
+
+The options are named types, each of which satisfies `SheetPrOption` by value
+and `SheetPrOptionPtr` by pointer, so the same type both sets and reads:
+
+| Option | Underlying type | Default | Markup |
+| --- | --- | --- | --- |
+| `CodeName` | `string` | `""` | `sheetPr/@codeName` |
+| `EnableFormatConditionsCalculation` | `bool` | `true` | `sheetPr/@enableFormatConditionsCalculation` |
+| `Published` | `bool` | `true` | `sheetPr/@published` |
+| `FitToPage` | `bool` | `false` | `sheetPr/pageSetUpPr/@fitToPage` |
+| `AutoPageBreaks` | `bool` | `false` | `sheetPr/pageSetUpPr/@autoPageBreaks` |
+| `OutlineSummaryBelow` | `bool` | `true` | `sheetPr/outlinePr/@summaryBelow` |
+
+`OutlineSummaryBelow` is the group summary direction: it reads back `true` on a
+fresh worksheet, and setting it to `false` writes `summaryBelow="false"` on
+`sheetPr/outlinePr` in the saved worksheet (ECMA-376 Part 1 clauses 18.3.1.61
+`outlinePr` and 18.3.1.82 `sheetPr`). Every option round-trips through
+`SetSheetPrOptions` then `GetSheetPrOptions`.
+
+#### 4.02.6 Data validation
+
+```go
+type DataValidationType int
+type DataValidationOperator int
+type DataValidationErrorStyle int
+
+type DataValidation struct {
+    AllowBlank       bool
+    ShowDropDown     bool
+    ShowInputMessage bool
+    ShowErrorMessage bool
+    Type             string
+    Operator         string
+    Formula1         string
+    Formula2         string
+    Sqref            string
+    ErrorStyle       *string
+    ErrorTitle       *string
+    Error            *string
+    PromptTitle      *string
+    Prompt           *string
+}
+
+func NewDataValidation(allowBlank bool) *DataValidation
+func (dd *DataValidation) SetDropList(keys []string) error
+func (dd *DataValidation) SetRange(f1, f2 int, t DataValidationType, o DataValidationOperator) error
+func (dd *DataValidation) SetInput(title, msg string)
+func (dd *DataValidation) SetError(style DataValidationErrorStyle, title, msg string)
+func (dd *DataValidation) SetSqref(sqref string)
+func (dd *DataValidation) SetSqrefDropList(sqref string, isCurrentSheet bool) error
+func (f *File) AddDataValidation(sheet string, dv *DataValidation)
+```
+
+`DataValidationType`, `DataValidationOperator` and `DataValidationErrorStyle`
+are each their own defined type over `int`, not an alias — code outside this
+package can declare named constants of these types but cannot pass a bare
+`int` where one is expected. `ErrorStyle`, `ErrorTitle`, `Error`,
+`PromptTitle` and `Prompt` are the five optional string pointers: all five are
+`nil` until a setter below fills them in.
+
+`NewDataValidation(b)` sets `AllowBlank` to `b` and leaves both
+`ShowInputMessage` and `ShowErrorMessage` false, and `Sqref` empty.
+
+`SetDropList` sets `Type` to `"list"` and `Formula1` to the members joined by
+commas inside **one** quoted literal: `[]string{"red","green","blue"}` gives
+`"red,green,blue"` (fourteen characters of payload between two `"`
+characters — one literal, the members joined by commas).
+
+`SetRange` sets `Formula1` and `Formula2` to the decimal forms of `f1` and
+`f2`, `Type` to the name of the type and `Operator` to the name of the
+operator. The type constants are `DataValidationTypeCustom`,
+`DataValidationTypeDate`, `DataValidationTypeDecimal`,
+`DataValidationTypeTextLeng`, `DataValidationTypeTime`,
+`DataValidationTypeWhole`, spelt in the markup as `custom`, `date`, `decimal`,
+`textLength`, `time`, `whole`. The operator constants are
+`DataValidationOperatorBetween`, `…Equal`, `…GreaterThan`,
+`…GreaterThanOrEqual`, `…LessThan`, `…LessThanOrEqual`, `…NotBetween`,
+`…NotEqual`, spelt `between`, `equal`, `greaterThan`, `greaterThanOrEqual`,
+`lessThan`, `lessThanOrEqual`, `notBetween`, `notEqual`. A validation formula
+is limited to 255 characters plus the two enclosing quotes; `SetRange` returns
+an error, and changes nothing, when the rule's existing `Formula1` or
+`Formula2` is already longer than 257 characters.
+
+`SetInput` records `PromptTitle` and `Prompt` and sets `ShowInputMessage`.
+`SetError` records `ErrorStyle`, `ErrorTitle` and `Error` and sets
+`ShowErrorMessage`; the style constants `DataValidationErrorStyleStop`,
+`DataValidationErrorStyleWarning` and `DataValidationErrorStyleInformation` are
+spelt `stop`, `warning` and `information`.
+
+`SetSqref` **accumulates**: each call appends the new reference to `Sqref`
+separated by a single space, so three calls give `"A1:B2 D4 F6:F9"`.
+`SetSqrefDropList` takes a cell range to use as the list source; with
+`isCurrentSheet` true it sets `Type` to `"list"` and `Formula1` to the range,
+and with `isCurrentSheet` false it returns an error and leaves `Formula1`
+unset, because a source on another worksheet is not supported.
+
+`AddDataValidation` appends the rule to the worksheet. The saved worksheet
+carries one `dataValidations` element whose `count` attribute equals the number
+of rules, each rule written as a `dataValidation` with its `type`, `operator`,
+`sqref`, `allowBlank`, `showInputMessage`, `showErrorMessage`, `errorStyle`,
+`errorTitle`, `error`, `promptTitle` and `prompt` attributes and its `formula1`
+and `formula2` child elements (ECMA-376 Part 1 clauses 18.3.1.32 and 18.3.1.33).
+
+#### 4.02.7 Worksheet protection, search, merged ranges and saving
+
+```go
+type FormatSheetProtection struct {
+    AutoFilter, DeleteColumns, DeleteRows, EditObjects, EditScenarios,
+    FormatCells, FormatColumns, FormatRows, InsertColumns, InsertHyperlinks,
+    InsertRows, PivotTables, SelectLockedCells, SelectUnlockedCells,
+    Sort bool
+    Password string
+}
+func (f *File) ProtectSheet(sheet string, settings *FormatSheetProtection)
+func (f *File) UnprotectSheet(sheet string)
+```
+
+`ProtectSheet` writes a `sheetProtection` element (ECMA-376 Part 1 clause
+18.3.1.85) whose `sheet` attribute is always `true` and whose remaining attributes mirror the requested fields, in the lower-camel spellings of clause 18.3.1.85 — the field's name with its first letter lower-cased, except that `EditObjects` is written `objects` and `EditScenarios` is written `scenarios`; a field that was not requested is `false`. `ProtectSheet(sheet, nil)` applies the default restriction set, in
+which `objects`, `scenarios` and `selectLockedCells` are true and the
+structural permissions such as `deleteRows` are false. A non-empty `Password`
+is stored **hashed**, never as the plaintext and never containing it, and the
+same password always produces the same stored value; an empty `Password` writes
+no password attribute. `UnprotectSheet` removes the `sheetProtection` element
+entirely, and is harmless on a worksheet that was never protected.
+
+```go
+func (f *File) SearchSheet(sheet, value string, reg ...bool) []string
+```
+
+`SearchSheet` returns the coordinates (`"A1"`, `"C3"`) of every cell that
+matches. By default the match is **exact and whole-value**: `"appl"` does not
+find `"apple"`. Passing `true` for the optional `reg` argument makes `value` a
+regular expression, so `"^ap"` finds `"apple"` and `"apricot"` and `"an+a"`
+finds `"banana"`. A value that matches nothing returns nothing.
+
+```go
+type MergeCell []string
+func (f *File) GetMergeCells(sheet string) []MergeCell
+func (m MergeCell) GetStartAxis() string
+func (m MergeCell) GetEndAxis() string
+func (m MergeCell) GetCellValue() string
+```
+
+`MergeCell` is its own defined type, not an alias for `[]string` — only a
+defined type can carry the three methods above.
+
+`GetMergeCells` returns one entry per merged range on the worksheet, each
+reporting the range's start axis, its end axis and the value of its upper-left
+cell. An unknown worksheet returns nothing rather than failing.
+
+```go
+func (f *File) WriteTo(w io.Writer) (int64, error)
+func (f *File) WriteToBuffer() (*bytes.Buffer, error)
+```
+
+`WriteTo` makes `*File` an `io.WriterTo`: it writes the package to `w` and
+returns the number of bytes written, which equals the number of bytes `w`
+received. `WriteToBuffer` returns the same package in a new buffer, the same
+length as `WriteTo` produced, and both results are packages `OpenReader` reads
+back to the values that were written.
+
+```go
+func ReadZipReader(r *zip.Reader) (map[string][]byte, int, error)
+```
+
+**This supersedes the `ReadZipReader` signature 4.01.1 declared** —
+`map[string]string, int, error` — which was milestone 01's shape and is no
+longer the one a later milestone's build must satisfy; 4.01.1's text stands
+only as the historical record of what v1.1.0 returned. From this milestone on,
+`ReadZipReader` returns every part of an open OPC container keyed by part
+name, as raw bytes, together with the number of worksheets the workbook
+declares.
+
+This is also why `File` gains one exported field this milestone, superseding
+4.01.1's `type File struct{ /* unexported */ }` for this field alone — every
+other member of `File` stays unexported:
+
+```go
+type File struct {
+    XLSX map[string][]byte // part name -> part content
+    /* every other member remains unexported */
+}
+```
+
+The map `ReadZipReader` returns is the same content a `*File` opened from the
+same bytes holds in that `XLSX` field.
+
+#### 4.02.8 Sheet view options
+
+```go
+type SheetViewOption interface{ ... }
+type SheetViewOptionPtr interface{ ... }
+func (f *File) SetSheetViewOptions(name string, viewIndex int, opts ...SheetViewOption) error
+func (f *File) GetSheetViewOptions(name string, viewIndex int, opts ...SheetViewOptionPtr) error
+```
+
+`viewIndex` selects one of the worksheet's views. It may be negative, counting
+back from the last view, so on a worksheet with a single view both `0` and `-1`
+address it and any other index — `1`, `-2` — is an error from both functions.
+
+| Option | Underlying type | Default | Markup |
+| --- | --- | --- | --- |
+| `DefaultGridColor` | `bool` | `true` | `sheetView/@defaultGridColor` |
+| `RightToLeft` | `bool` | `false` | `sheetView/@rightToLeft` |
+| `ShowFormulas` | `bool` | `false` | `sheetView/@showFormulas` |
+| `ShowGridLines` | `bool` | `true` | `sheetView/@showGridLines` |
+| `ShowRowColHeaders` | `bool` | `true` | `sheetView/@showRowColHeaders` |
+| `TopLeftCell` | `string` | `""` | `sheetView/@topLeftCell` |
+| `ZoomScale` | `float64` | `0` | `sheetView/@zoomScale` |
+
+Every option round-trips, and a value that is set reaches the saved worksheet's
+single `sheetView` element (ECMA-376 Part 1 clauses 18.3.1.87 and 18.3.1.88).
+`ZoomScale` is restricted to the closed interval **10..400**: a value outside
+it is **silently ignored** — `SetSheetViewOptions` still returns `nil` and the
+previous zoom is retained — while `10` and `400` themselves are accepted.
+
+#### 4.02.9 Theme colours
+
+```go
+type HSL struct{ H, S, L float64 }
+var HSLModel color.Model
+func RGBToHSL(r, g, b uint8) (h, s, l float64)
+func HSLToRGB(h, s, l float64) (r, g, b uint8)
+func (c HSL) RGBA() (uint32, uint32, uint32, uint32)
+func ThemeColor(baseColor string, tint float64) string
+```
+
+`RGBToHSL` returns hue, saturation and luminance each in `0..1`. Pure red is
+`(0, 1, 0.5)`, pure green is `(1/3, 1, 0.5)`, a grey has saturation `0` and hue
+`0`, black has luminance `0` and white has luminance `1`. `HSLToRGB` is its
+exact inverse for every 8-bit triple: `HSLToRGB(RGBToHSL(r,g,b))` returns the
+original bytes.
+
+`HSL` implements `color.Color`: `RGBA()` returns alpha-premultiplied 16-bit
+channels with an opaque alpha, so `HSL{0,1,0.5}.RGBA()` is
+`(0xffff, 0, 0, 0xffff)`. `HSLModel` is the matching `color.Model`: it converts
+a `color.Color` to an `HSL` value and leaves an `HSL` unchanged.
+
+`ThemeColor(base, tint)` applies a tint to a six-character RGB colour and
+returns the result as **eight** hex characters, `AARRGGBB`, with an opaque
+alpha. A tint of `0` returns the base colour unchanged (`"000000"` gives
+`"FF000000"`). A positive tint lightens towards white and a negative tint
+darkens towards black, by scaling the luminance in the HSL model: `("000000",
+0.5)` and `("FFFFFF", -0.5)` both give `"FF808080"`. This is the conversion
+ECMA-376 Part 1 clause 18.8.19 describes for a colour's `tint` attribute, over
+the ARGB value of clause 18.3.1.15.
+
+#### 4.02.10 Pictures and comments
+
+```go
+func (f *File) AddPictureFromBytes(sheet, cell, format, name, extension string, file []byte) error
+func (f *File) GetPicture(sheet, cell string) (string, []byte)
+```
+
+`AddPictureFromBytes` adds an image held in memory. `extension` selects the
+image type and must be one of `.png`, `.jpg`, `.jpeg`, `.gif`; any other
+extension is an error, as is a `format` descriptor that is not valid JSON. A successful call stores the bytes **verbatim** as a part under `xl/media/` keeping the extension, and creates `xl/drawings/drawing1.xml` together with `xl/drawings/_rels/drawing1.xml.rels`. `[Content_Types].xml` gains a `Default` for each of the four image extensions — `jpeg`, `png`, `gif`, `tiff` — that it does not already declare, so the media part is covered by its extension. `GetPicture` returns the stored file
+name and those same bytes for a cell that carries a picture, and an empty name
+with no bytes for a cell that does not.
+
+The `format` descriptor's `"positioning"` member records how the image moves
+with the cells beneath it, as the `editAs` attribute of the anchor (ECMA-376
+Part 1 clause 20.5.2.33, `twoCellAnchor`). `"oneCell"` writes
+`editAs="oneCell"` and `"absolute"` writes `editAs="absolute"`; the default
+positioning writes **no** `editAs` attribute at all. Every picture is anchored
+with a `twoCellAnchor` element regardless of positioning, and the drawing part
+serialises it with the spreadsheet-drawing namespace prefix — the written form
+is `<xdr:twoCellAnchor …>`, as it is for every other anchor in that part.
+
+The descriptor's `"hyperlink"` and `"hyperlink_type"` members attach a link to
+the image: the drawing carries an `hlinkClick` element (ECMA-376 Part 1
+clause 21.1.2.3.5, the hyperlink-on-click property of a non-visual drawing
+property set) and the drawing's relationship part gains a relationship of the
+hyperlink type whose `Target` is the given URL and whose `TargetMode` is
+`External`.
+
+```go
+type Comment struct { Author string; AuthorID int; Ref string; Text string }
+func (f *File) GetComments() (comments map[string][]Comment)
+```
+
+`GetComments` returns the comments of the whole workbook keyed by **worksheet
+name**, one map entry per worksheet that has at least one comment, and an empty
+map for a workbook with none. Each `Comment` reports the cell it is attached to
+in `Ref`, the author in `Author`, and the comment body in `Text`; `Text`
+contains the text that was supplied. `AuthorID` is the comment's index into
+that worksheet's own `authors` list — the list of the comments part the comment
+is stored in — so with a single author on a worksheet it is `0`.
+
+#### 4.02.11 Charts: 3D, stacked and axis scaling
+
+`AddChart` accepts these further chart types. The plot element and the
+`c:grouping` value each type produces are fixed (ECMA-376 Part 1 clauses
+21.2.2.16 `barChart`, 21.2.2.15 `bar3DChart`, 21.2.2.5 `areaChart`, 21.2.2.4
+`area3DChart`, 21.2.2.17 `barDir`, 21.2.2.77 `grouping`):
+
+| `type` | Plot element | `grouping` | `barDir` |
+| --- | --- | --- | --- |
+| `bar`, `barStacked`, `barPercentStacked` | `c:barChart` | `clustered`, `stacked`, `percentStacked` | `bar` |
+| `col`, `colStacked`, `colPercentStacked` | `c:barChart` | `clustered`, `stacked`, `percentStacked` | `col` |
+| `bar3DClustered`, `bar3DStacked`, `bar3DPercentStacked` | `c:bar3DChart` | `clustered`, `stacked`, `percentStacked` | `bar` |
+| `col3DClustered`, `col3DStacked`, `col3DPercentStacked` | `c:bar3DChart` | `clustered`, `stacked`, `percentStacked` | `col` |
+| `area`, `areaStacked`, `areaPercentStacked` | `c:areaChart` | `standard`, `stacked`, `percentStacked` | — |
+| `area3DStacked`, `area3DPercentStacked` | `c:area3DChart` | `stacked`, `percentStacked` | — |
+
+Bar and column charts differ only in `c:barDir`; an area chart declares no
+`c:barDir` at all.
+
+**`Bar3D = "bar3D"`, which frozen 4.01.9 declared, is removed at this
+milestone** — it is one of the ten symbols v1.4.1 drops relative to v1.1.0 —
+and is superseded by the `bar3DClustered`/`bar3DStacked`/`bar3DPercentStacked`
+row of the table above; nothing in this checkpoint accepts `"bar3D"` as a
+`type` value any longer. The v1.4.1 checkpoint also exports two bare
+constants, `Col3D = "col3D"` and `Area3D = "area3D"` (with no `Clustered`,
+`Stacked` or `PercentStacked` suffix), that name no distinct plot of their
+own — they are not one of the `type` values in the table above — and are out
+of scope for what this milestone covers; only the seventeen `type` strings the
+table lists are chart types in scope.
+
+Each of those seventeen `type` strings is also exported as a constant of the
+same name with its first letter capitalised, and those identifiers are part of
+the contract — a test may name any of them:
+`Bar = "bar"`, `BarStacked = "barStacked"`, `BarPercentStacked`,
+`Col = "col"`, `ColStacked`, `ColPercentStacked`,
+`Bar3DClustered = "bar3DClustered"`, `Bar3DStacked`, `Bar3DPercentStacked`,
+`Col3DClustered = "col3DClustered"`, `Col3DStacked`, `Col3DPercentStacked`,
+`Area = "area"`, `AreaStacked`, `AreaPercentStacked`,
+`Area3DStacked = "area3DStacked"`, `Area3DPercentStacked`.
+
+The `format` descriptor's `"x_axis"` and `"y_axis"` objects carry the axis
+settings. `"reverse_order": true` reverses that axis: its `c:orientation`
+becomes `maxMin` instead of the default `minMax`, and its position moves — the
+category axis from `c:axPos val="b"` to `val="t"`, the value axis from
+`val="l"` to `val="r"` (clause 21.2.2.130, `orientation`). `"maximum"` and
+`"minimum"` fix the axis bounds, written as `c:max` and `c:min` inside
+`c:scaling` (clauses 21.2.2.160, 21.2.2.107 and 21.2.2.108); a chart with no
+bounds set carries neither element.
+
+#### 4.02.12 Column geometry: inserting a column no longer widens the sheet
+
+```go
+func (f *File) InsertCol(sheet, column string)
+func (f *File) RemoveCol(sheet, column string)
+```
+
+These two are inherited from 4.01.8 unchanged in signature, and one of the
+three places where this milestone deliberately changes an inherited
+behaviour.
+
+Milestone 01 shifted the named column and everything to its right, and then
+widened every row by one further trailing empty cell that it never reclaimed:
+one `InsertCol("Sheet1", "B")` on a three-column sheet produced rows of five
+cells rather than four, and removing the inserted column afterwards left
+rows of four. **At this milestone an insert adds exactly one column.** On a
+three-column, two-row sheet, `InsertCol("Sheet1", "B")` leaves the row count
+at two, gives every row exactly four cells, and reads back as
+`[a1, "", b1, c1]`: the blank is where B was, and there is nothing past the
+old last column. Inserting before the first column behaves the same way —
+`InsertCol("Sheet1", "A")` on that sheet gives two rows of four with `A1`
+empty and the old `A1`, `B1`, `C1` now at `B1`, `C1`, `D1`.
+
+The correction is not a one-off adjustment applied to the first insert only:
+the extra cell is never appended, so repeated inserts do not accumulate.
+Three consecutive `InsertCol("Sheet1", "B")` calls on the same three-column
+sheet give rows of six, reading `[a1, "", "", "", b1, c1]`, and not rows of
+nine.
+
+Because the width is now exact, **`InsertCol` and `RemoveCol` are inverses**:
+inserting a column and then removing the same column restores the grid
+`GetRows` returns, cell for cell and width for width. The restored width is a
+property of the worksheet and not of the in-memory grid alone, so it survives
+serialisation — an insert, a matching remove, a `WriteToBuffer` and an
+`OpenReader` return the grid the workbook started with.
+
+The row identity inherited from 4.01.8 — insert a row, remove the same row,
+get the values back — is unaffected and is still checked as inherited
+behaviour; it is the column identity that is new here.
+
+Checked against ECMA-376 Part 1 clause 18.3.1.73 (`row`, and the `spans`
+attribute that records how wide a row is) and clause 18.3.1.4 (`c`, and the
+`r` attribute that fixes a cell's column).
+
+#### 4.02.13 What is unchanged
+
+Everything milestone 01 established still holds, now reached by worksheet name:
+the OPC container and its content types and relationships, the typed cell model
+with its values, formulas, hyperlinks and styles, the A1 coordinate helpers,
+row and column geometry and visibility apart from the column-insert
+correction of §4.02.12, merged cells, the sheet lifecycle and
+the 31-character sheet-name limit counted in runes. In particular, a workbook
+must keep at least one visible worksheet: a request to hide the only worksheet
+in a workbook leaves it visible.
+
+**Out of scope at this milestone, though present in the v1.4.1 checkpoint:**
+`(f *File) DuplicateRow(sheet string, row int)` is added at v1.4.1, but row
+duplication is in scope starting at the milestone that documents its reference-
+adjustment behaviour (§2 assigns "row duplication to an arbitrary target row"
+to milestone 03); nothing here should be read as specifying `DuplicateRow`'s
+behaviour, and a workdir that leaves it unimplemented until milestone 03 is
+conforming. `XMLHeaderByte`, `File.Theme *xlsxTheme`,
+`StrictNameSpaceSpreadSheet` and the four `StrictSourceRelationship*`
+constants (`StrictSourceRelationship`, `StrictSourceRelationshipChart`,
+`StrictSourceRelationshipComments`, `StrictSourceRelationshipImage`), and
+`STCellFormulaTypeArray`/`STCellFormulaTypeDataTable`/`STCellFormulaTypeNormal`
+are likewise new exported symbols at this checkpoint that no milestone-02
+entry point exercises; the symbols themselves are out of scope here, and nothing
+calls them by name. (`XMLHeaderByte` holds the XML declaration every written
+part opens with — §4.01.1 — but the declaration is checked as part of the
+written part, not through that symbol.)

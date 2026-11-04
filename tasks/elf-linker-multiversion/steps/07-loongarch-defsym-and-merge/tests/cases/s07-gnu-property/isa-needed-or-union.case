@@ -1,0 +1,39 @@
+# arch: x86_64
+# GNU_PROPERTY_X86_ISA_1_NEEDED is an OR-class property: the level asked for on
+# the command line is unioned with whatever the inputs declare. Requesting a
+# level *below* an input's is explicitly not an error here.
+cat > c.c <<'C'
+int fa(int x) { return x + 1; }
+C
+cc_obj c.o c.c -fPIC
+cat > pn.s <<'S'
+        .section .note.gnu.property,"a",@note
+        .p2align 3
+        .long 4
+        .long 0x10
+        .long 5
+        .asciz "GNU"
+        .p2align 3
+        .long 0xc0008002        /* GNU_PROPERTY_X86_ISA_1_NEEDED */
+        .long 4
+        .long 2                 /* x86-64-v2 */
+        .long 0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj pn.o pn.s
+want_has "the input really declares ISA needed v2" "$(notes pn.o)" 'x86-64-v2'
+
+# CLI level above the input's: both bits must survive.
+link_ok up -shared -z x86-64-v4 --no-gc-sections pn.o c.o
+n=$(notes up)
+want_has "input level kept"     "$n" 'x86-64-v2'
+want_has "requested level added" "$n" 'x86-64-v4'
+want "still a single 16-byte property" "$(( 0x$(sec_size up .note.gnu.property) ))" "32"
+want_has "PT_GNU_PROPERTY describes it" "$(segments up)" '^ *GNU_PROPERTY '
+
+# CLI level below the input's is a union too, not a rejection.
+link_ok down -shared -z x86-64-v2 --no-gc-sections pn.o c.o
+want_has "linking a v2 request against a v2 input succeeds" "$(notes down)" 'x86-64-v2'
+want "e_type is DYN" "$(hdr down | awk '/^ *Type:/{print $2}')" "DYN"
+
+asserts_at_least 7

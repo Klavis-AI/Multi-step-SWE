@@ -1,0 +1,59 @@
+# arch: x86_64
+# what: protected symbols in a versioned shared object bind directly inside the
+# defining object -- no PLT, no GOT, no dynamic relocation -- and an executable
+# that imports them gets GLOB_DAT, never a copy relocation into its own .bss.
+rt_obj rt.o
+cat > a.c <<'C'
+__attribute__((visibility("protected"))) int pdata = 41;
+__attribute__((visibility("protected"))) int pfun(void) { return pdata + 1; }
+C
+cat > b.c <<'C'
+int pfun(void); extern int pdata;       /* declared plain: the linker decides */
+int use_fun(void)  { return pfun(); }
+int use_data(void) { return pdata; }
+C
+cc_obj a.o a.c -fPIC
+cc_obj b.o b.c -fPIC
+cat > v.map <<'M'
+VERS_1.0 { global: pfun; pdata; use_fun; use_data; local: *; };
+M
+link_ok libp.so -shared --version-script v.map -soname libp.so.1 a.o b.o
+# Inside the defining object protected symbols are not preemptible, so the
+# cross-object references must be resolved at link time and nothing indirect
+# may be left behind.
+want "protected FUNC is PROTECTED in .dynsym" \
+  "$(dynsyms libp.so | grep -cE 'FUNC +GLOBAL PROTECTED .* pfun@@VERS_1\.0')" "1"
+want "protected OBJECT is PROTECTED in .dynsym" \
+  "$(dynsyms libp.so | grep -cE 'OBJECT +GLOBAL PROTECTED .* pdata@@VERS_1\.0')" "1"
+want "no PLT in the defining object"  "$(sections libp.so | grep -cE ' \.plt')" "0"
+# An unused GOT slot that the linker chose to keep is explicitly permitted
+# (x86-64 relocations 4.2: "keeping it is harmless") and shows up as a
+# symbol-less R_X86_64_RELATIVE. What a protected symbol must never leave
+# behind is a dynamic relocation that still NAMES it, because that is a
+# run-time lookup and protected symbols are not preemptible inside their own
+# component (Symbols and archives 1).
+want "no dynamic relocation beyond a kept GOT slot's RELATIVE" \
+  "$(relocs libp.so | grep -E 'R_X86_64_' | grep -cvE 'R_X86_64_RELATIVE')" "0"
+# ... and the call really is direct, not a jump through a stub.
+tgt=$($OBJDUMP -d --no-show-raw-insn libp.so \
+      | awk '/<use_fun>:/{f=1;next} f&&/^$/{exit} f' \
+      | sed -n 's/.*\(jmp\|call\|callq\)[[:space:]]*0x\([0-9a-f]*\).*/\2/p' | head -1)
+[ -n "$tgt" ] || die "use_fun contains no direct branch at all"
+want "use_fun branches straight to pfun" "$(( 16#$tgt ))" "$(( 16#$(sym_value libp.so pfun) ))"
+# An executable importing them takes the address through the GOT, never a copy.
+cat > m.c <<'C'
+#include "rt.h"
+extern int pdata; int pfun(void);
+int entry(void) { print("prot\n"); return pdata + pfun(); }
+C
+cc_obj m.o m.c -fPIC
+link_ok exe -pie -dynamic-linker /nonexistent rt.o m.o libp.so
+R=$(relocs exe)
+want "no copy relocation" "$(grep -c 'R_X86_64_COPY' <<<"$R")" "0"
+want "pdata via GLOB_DAT" "$(grep -cE 'R_X86_64_GLOB_DAT .* pdata@VERS_1\.0' <<<"$R")" "1"
+want "pfun  via GLOB_DAT" "$(grep -cE 'R_X86_64_GLOB_DAT .* pfun@VERS_1\.0'  <<<"$R")" "1"
+want "pdata stays undefined in the exe" \
+  "$(dynsyms exe | grep -cE 'UND pdata@VERS_1\.0')" "1"
+want "no .dynbss-style copy landing pad" \
+  "$(sections exe | awk '{for(i=1;i<=NF;i++) if ($i==".bss") print $(i+4)}' | grep -cvE '^0*$')" "0"
+asserts_at_least 10

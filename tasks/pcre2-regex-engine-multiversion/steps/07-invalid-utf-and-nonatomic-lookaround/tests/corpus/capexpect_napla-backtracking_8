@@ -1,0 +1,66 @@
+# Non-atomic positive lookaround assertions (*napla: and (*naplb:.
+# A non-atomic assertion that has succeeded can be re-entered when a later
+# part of the pattern fails, so a capture made inside it takes a new value.
+
+/(*napla:\w*(\w))\1\w*$/
+    abcd
+ 0: abcd
+ 1: a
+    xyzx
+ 0: xyzx
+ 1: x
+    q
+ 0: q
+ 1: q
+
+# The atomic equivalent keeps the first value it found and cannot be re-entered.
+/(*pla:\w*(\w))\1\w*$/
+    abcd
+ 0: d
+ 1: d
+    xyzx
+ 0: xyzx
+ 1: x
+
+# The long spelling means the same thing.
+/(*non_atomic_positive_lookahead:\w*(\w))\1\w*$/
+    abcd
+ 0: abcd
+ 1: a
+
+# Non-atomic lookbehind: the second branch is reached only on re-entry.
+/(*naplb:(\w\w)|(\w)(\w))\3/
+    qzz
+ 0: z
+ 1: <unset>
+ 2: q
+ 3: z
+
+/(*plb:(\w\w)|(\w)(\w))\3/
+    qzz
+No match
+
+/(*non_atomic_positive_lookbehind:(\w\w)|(\w)(\w))\3/
+    qzz
+ 0: z
+ 1: <unset>
+ 2: q
+ 3: z
+
+# There is no non-atomic negative assertion.
+/(*nanla:pq)rs/
+Failed: error 195 at offset 7: (*alpha_assertion) not recognized
+    rs
+
+/(*naplb_foo:pq)rs/
+Failed: error 195 at offset 11: (*alpha_assertion) not recognized
+    rs
+
+# The short synonyms (?* and (?<* do not exist at this release (step 8).
+/(?*pq)rs/
+Failed: error 111 at offset 2: unrecognized character after (? or (?-
+    rs
+
+/(?<*pq)rs/
+Failed: error 162 at offset 3: subpattern name expected
+    rs

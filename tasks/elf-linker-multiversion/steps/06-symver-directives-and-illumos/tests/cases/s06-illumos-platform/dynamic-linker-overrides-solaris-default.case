@@ -1,0 +1,52 @@
+# arch: x86_64
+# An explicit --dynamic-linker beats the Solaris emulation's default whichever
+# order the two options appear in, and --no-dynamic-linker clears a path that
+# was already set -- including the one -m elf_x86_64_sol2 installed.
+rt_obj rt.o
+cat > lib.c <<'C'
+int libfn(void) { return 5; }
+C
+cc_obj lib.o lib.c -fPIC
+cat > m.c <<'C'
+#include "rt.h"
+int libfn(void);
+int entry(void) { return libfn(); }
+C
+cc_obj m.o m.c
+link_ok libx.so -shared -soname libx.so lib.o
+
+interp_of() {
+  local t; t=$($READELF -p .interp "$1" 2>/dev/null)
+  awk '/^\[/ { sub(/^\[ *[0-9]+\] */, ""); print }' <<<"$t"
+}
+
+# Option after the emulation.
+link_ok after -m elf_x86_64_sol2 --dynamic-linker /opt/il/ld.so.1 \
+        --no-gc-sections rt.o m.o libx.so
+want "explicit path wins when it comes second" "$(interp_of after)" "/opt/il/ld.so.1"
+
+# Option before the emulation: the Solaris default only applies when no
+# --dynamic-linker has been seen yet, so it must not overwrite this one.
+link_ok before --dynamic-linker /opt/il/ld.so.1 -m elf_x86_64_sol2 \
+        --no-gc-sections rt.o m.o libx.so
+want "explicit path wins when it comes first" "$(interp_of before)" "/opt/il/ld.so.1"
+
+# Both outputs really do carry a PT_INTERP.
+has_segment after INTERP || die "no PT_INTERP in 'after': $(segments after)"
+has_segment before INTERP || die "no PT_INTERP in 'before': $(segments before)"
+
+# --no-dynamic-linker clears the Solaris default.
+link_ok cleared -m elf_x86_64_sol2 --no-dynamic-linker \
+        --no-gc-sections rt.o m.o libx.so
+want_not "--no-dynamic-linker clears the Solaris default" "$(segments cleared)" 'INTERP'
+want_not "and leaves no .interp section" "$(sections cleared)" '\.interp'
+
+# It also clears an explicitly given path.
+link_ok cleared2 --dynamic-linker /opt/il/ld.so.1 -m elf_x86_64_sol2 \
+        --no-dynamic-linker --no-gc-sections rt.o m.o libx.so
+want_not "--no-dynamic-linker clears an explicit path" "$(segments cleared2)" 'INTERP'
+
+# Clearing does not disturb the rest of the dynamic link.
+want_has "cleared output still records its dependency" "$(dynamic cleared)" 'NEEDED.*libx\.so'
+
+asserts_at_least 6

@@ -1,0 +1,50 @@
+# The inherited test classes whose recorded cases the corroboration harness can
+# never re-run, on any tree, because the frozen 2011 run produced them under a
+# TestNG provider and the harness jar carries the Jupiter and vintage engines
+# and no TestNG one.
+#
+# Why this file exists. B-7's corroboration re-runs each class in
+# baseline/tests.txt under the JUnit Platform and charges `unloadable` when a
+# class the frozen run DID record cases for now has nothing the platform can
+# discover -- the reasoning being that such a class lost its runnable methods,
+# or throws on the way in, in THIS tree. That reasoning holds for 53 of the 55.
+# It does not hold here, and the difference is visible in the frozen data alone:
+#
+#   baseline/tests.txt records four methods on TestNGTestRunnerTestCase --
+#     shouldReturnPassedTest, shouldReturnExceptionOnPassedTest   (org.junit.Test)
+#     shouldProvidePassingTestToRunner,
+#     shouldProvideExpectedExceptionToRunner   (@org.testng.annotations.Test)
+#
+#   baseline/testresults.txt records cases for exactly the second pair. They are
+#   the FIXTURE methods TestNGTestRunner is pointed at; surefire ran that module
+#   under the TestNG provider in 2011, so the class's own two JUnit 4 tests
+#   produced no case there and the two TestNG fixtures did.
+#
+# So the two ids this class contributes to baseline-cased.txt are ids no JUnit
+# engine can execute anywhere -- including on the golden tree, where the class
+# IS discovered, and where what the harness then runs is its other two methods.
+# The charge was measuring class loadability as a proxy for those two ids and
+# never corroborated them on any tree. A candidate that moves the class's own
+# two tests onto TestNG as well -- which requirement 8 invites, since the module
+# goes on running its suite with useTestNG(), and which is what restores the two
+# fixture ids to the XML if an earlier step dropped them -- lands the whole
+# class in rc=2 and was charged for it. Measured: blind run m04-s02-blind,
+# reward 0.982500 against the oracle's 1.000000, the entire loss at B-7.
+#
+# What the exemption does NOT cost. The two ids remain covered by
+# gate.testrun.uncovered (they must appear in the tree's own XML report), by
+# B-5 (the class must still exist and be compiled), and by gate.testxml.stale
+# (the report must be written by this run). The only thing it gives up is the
+# power to tell "this class became pure TestNG" from "this class became broken"
+# -- a distinction the harness could not draw for these two ids on the golden
+# tree either.
+#
+# Derivation, mechanical: the classes in baseline/testresults.txt whose package
+# is the arquillian-testng module's. That is one class.
+# TestNGDeploymentAppenderTestCase is in the same module and is deliberately NOT
+# listed: the frozen run recorded no case for it, so it is outside
+# baseline-cased.txt already and reaches the free `notloadable` bucket without
+# help.
+#
+# One dotted class name per line. Blank lines and #-comments are ignored.
+org.jboss.arquillian.testng.TestNGTestRunnerTestCase

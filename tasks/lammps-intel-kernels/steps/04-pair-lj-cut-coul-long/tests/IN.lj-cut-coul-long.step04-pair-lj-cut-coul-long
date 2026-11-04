@@ -1,0 +1,40 @@
+# Scored input: LJ + long-range Coulomb with PPPM. Verifier-owned.
+#
+# The direct sibling of the plain cut style: the same Lennard-Jones term with a
+# real-space Coulomb term and a particle-particle particle-mesh mesh solve, on a
+# charged simple melt. The mesh order is pinned with `kspace_modify` so neither
+# configuration can win by using a cheaper mesh.
+#
+# The first 50 steps are warm-up; the compared window (the grader compares the
+# first 25 printed timesteps) lies inside them and inside the timed run, so the
+# compared window and the timed run are the same trajectory.
+
+units           lj
+atom_style      charge
+newton          on
+
+lattice         fcc 0.8442
+region          box block 0 12 0 12 0 12
+create_box      1 box
+create_atoms    1 box
+mass            1 1.0
+set             group all charge 0.05
+
+velocity        all create 1.0 87287 loop geom
+
+pair_style      lj/cut/coul/long 2.5 2.5
+pair_coeff      1 1 1.0 1.0 2.5
+
+kspace_style    pppm 1.0e-4
+kspace_modify   order 5
+
+neighbor        0.3 bin
+neigh_modify    delay 0 every 20 check no
+
+fix             1 all nve
+timestep        0.005
+thermo          1
+thermo_style    custom step temp pe ke etotal press
+
+run             50
+run             250

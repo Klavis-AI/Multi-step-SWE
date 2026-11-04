@@ -1,0 +1,40 @@
+# [:xdigit:] in UCP mode now also matches the fullwidth hex digits, and
+# PCRE2_EXTRA_ASCII_DIGIT / PCRE2_EXTRA_ASCII_POSIX restrict classes back.
+# ChangeLog 10.43 items 17 and 33; pcre2pattern.3, "POSIX CHARACTER CLASSES";
+# pcre2api.3, "COMPILING A PATTERN".
+
+/^[[:xdigit:]]+$/utf,ucp
+    bEeF07
+    \x{ff21}\x{ff10}
+    \x{ff46}
+    \x{ff47}
+    \x{660}
+
+# ascii_digit keeps [:digit:] and [:xdigit:] ASCII while leaving the rest.
+/^[[:xdigit:]]+$/utf,ucp,ascii_digit
+    \x{ff21}
+    bEeF07
+
+/^[[:digit:]]+$/utf,ucp,ascii_digit
+    \x{ff11}
+    1907
+
+/^[[:alpha:]]+$/utf,ucp,ascii_digit
+    caf\x{e9}
+
+# ascii_posix restricts every POSIX class.
+/^[[:word:]]+$/utf,ucp
+    tie\x{2040}bar
+
+/^[[:word:]]+$/utf,ucp,ascii_posix
+    tie\x{2040}bar
+    tiebar
+
+/^[[:alpha:]]+$/utf,ucp,ascii_posix
+    caf\x{e9}
+    cafes
+
+# Without UCP nothing here applies.
+/^[[:xdigit:]]+$/utf
+    \x{ff21}
+    bEeF07

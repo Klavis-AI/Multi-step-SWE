@@ -1,0 +1,36 @@
+# arch: x86_64
+# `.symver impl, api@LIB_1` (single `@`, non-default) leaves the implementation
+# name itself exported and versioned by the script, so one address is reachable
+# under two dynamic names with different default-ness.
+cat > a.s <<'S'
+        .text
+        .globl impl
+impl:   mov     $7, %eax
+        ret
+        .symver impl, api@LIB_1
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj a.o a.s
+cat > vs.txt <<'V'
+LIB_1 { global: api; impl; local: *; };
+V
+link_ok libz.so -shared -soname libz.so --version-script=vs.txt a.o
+
+ds=$(dynsyms libz.so)
+want_has "non-default api@LIB_1 exported" "$ds" 'GLOBAL DEFAULT +[0-9]+ api@LIB_1$'
+want_has "default impl@@LIB_1 exported"   "$ds" 'GLOBAL DEFAULT +[0-9]+ impl@@LIB_1$'
+want_not "api must not be default-versioned" "$ds" 'api@@LIB_1'
+va=$(printf '%s' "$ds" | awk '$8 == "api@LIB_1"   { print $2 }')
+vi=$(printf '%s' "$ds" | awk '$8 == "impl@@LIB_1" { print $2 }')
+[ -n "$va" ] && [ -n "$vi" ] || die "missing dynsym entries: $ds"
+want "both names are the same address" "$va" "$vi"
+want "alias points at impl" "$va" "$(sym_value libz.so impl)"
+
+vn=$(vernum libz.so)
+want_has "api@LIB_1 carries the hidden bit" "$vn" '[0-9]+h\(LIB_1\)'
+want_has "impl@@LIB_1 does not"             "$vn" '[0-9]+ \(LIB_1\)'
+want_has "version_d defines LIB_1" "$vn" 'Name: LIB_1'
+want "only one defined version besides the base" \
+     "$(printf '%s' "$vn" | grep -c 'Rev: 1')" "2"
+
+asserts_at_least 9

@@ -1,0 +1,111 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. A step's reward is
+# `correctness x mean_f( ln(max(1, speedup_f)) )` over the entry points in its
+# scope -- i.e. correctness x ln(geometric mean of the per-function speedups).
+# Correctness is binary and multiplies, so a tree that changes behaviour scores
+# 0 however fast it is; a correct but unimproved tree scores 0 too.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. `build` is the candidate's own cmake output tree;
+# excluding it means the verifier rebuilds from source rather than grading a
+# stale binary the candidate left behind.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = ["build"] },
+]
+
+[task]
+name = "harbor/stringzilla-text-ingest"
+version = "1.0.0"
+description = "Optimize one kernel family at a time in StringZilla's multilingual text-ingest pass -- indexing, line and sentence segmentation, case folding, case-insensitive search, and hashing. Six cumulative steps, each scored per entry point on the implementation the library installs, gated on byte-identical output."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["performance", "optimization", "simd", "utf8", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["performance-optimization", "multi-step", "c", "c++", "simd", "unicode"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+# The verifier builds the candidate with cmake and runs the project's suite
+# under ctest, then times each scoped entry point five times per side on cores
+# 0,1 (see tests/helpers.sh: `ROUNDS` invocations, each a median of seven
+# repetitions, alternating both trees). The envelope must stay >= 2 cpus.
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# Per-step ceiling: the verifier image build (clone, strip, cmake build of the
+# base, ctest, reference harness) happens once per image and is not charged
+# here; what is charged is the candidate cmake build (~4 min), ctest (~3 min),
+# and 5 alternating timing rounds per scoped entry point over a 2 MB corpus.
+# The slowest entry point on the portable path is the line-break scanner at
+# ~0.42 s per repetition, so 7 repetitions are ~3 s and 5 rounds ~15 s per
+# side: 6 scoped entry points is under 4 minutes of timing. 3600 s is roughly
+# four times the sum, and a ceiling that cannot be reached costs nothing.
+[[steps]]
+name = "01-utf8-runes"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-utf8-linebreaks"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-utf8-sentences"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-utf8-uncased-fold"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-utf8-uncased"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-hash"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"

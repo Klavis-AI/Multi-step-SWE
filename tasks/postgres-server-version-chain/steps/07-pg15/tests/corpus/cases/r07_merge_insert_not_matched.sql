@@ -1,0 +1,8 @@
+CREATE TABLE x07_03a(id int PRIMARY KEY, v int, tag text DEFAULT 'dflt');
+CREATE TABLE x07_03b(id int PRIMARY KEY, v int);
+INSERT INTO x07_03a VALUES (1,10,'old');
+INSERT INTO x07_03b VALUES (1,100),(2,200),(3,300);
+MERGE INTO x07_03a t USING x07_03b s ON t.id = s.id
+  WHEN NOT MATCHED THEN INSERT (id, v) VALUES (s.id, s.v);
+SELECT id, v, tag FROM x07_03a ORDER BY id;
+DROP TABLE x07_03a, x07_03b;

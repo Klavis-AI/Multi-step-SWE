@@ -1,0 +1,46 @@
+# arch: x86_64
+# spec/00 8 lists `e_ident[EI_CLASS] != ELFCLASS64` and
+# `e_ident[EI_DATA] != ELFDATA2LSB` as conditions that MUST be diagnosed
+# failures from 0.2.0. Both are exercised here by patching the two bytes of a
+# object this case just compiled, so the input differs from a good one in
+# exactly one byte and nothing else can explain the rejection.
+#
+# Deliberately NOT asserted: the exit status, and the text of the message.
+# Measured across the nine reference tags, an input-identification error exits
+# 1 at 0.2.0, *0* at 0.3.0 and 255 from 0.4.0 on -- so `link_fails` would fail
+# at 0.3.0 -- and the message is `Only 64 bit ELF is currently supported` /
+# `Only little endian is currently supported` up to 0.9.0 but
+# `Failed to identify FILE` at 0.10.0, so no token is portable. What every tag
+# agrees on is that something is said on stderr, nothing on stdout, and no
+# file is left at the -o path.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("i\n"); return 0; }
+C
+cc_obj m.o m.c
+
+# The control: the unpatched object links, runs, and prints.
+link_ok good rt.o m.o
+run_expect good "i" 0
+
+# EI_CLASS is e_ident byte 4, EI_DATA is byte 5 (01-elf-container.md 2).
+cp m.o class32.o
+printf '\001' | dd of=class32.o bs=1 seek=4 count=1 conv=notrunc status=none
+cp m.o databe.o
+printf '\002' | dd of=databe.o bs=1 seek=5 count=1 conv=notrunc status=none
+want "class32.o really is marked ELFCLASS32" "$(od -An -tu1 -j4 -N1 class32.o | tr -d ' ')" "1"
+want "databe.o really is marked ELFDATA2MSB" "$(od -An -tu1 -j5 -N1 databe.o | tr -d ' ')" "2"
+
+for bad in class32.o databe.o; do
+  rm -f out
+  link out rt.o "$bad"
+  want_has "$bad is diagnosed on stderr" "$LINK_ERR" '.'
+  want "$bad produces nothing on stdout" "$LINK_STDOUT" ""
+  [ -e out ] && die "the rejected link left a file at the -o path for $bad: $(ls -l out)"
+done
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. Measured identical at every tag where
+# this case passes.
+asserts_at_least 6

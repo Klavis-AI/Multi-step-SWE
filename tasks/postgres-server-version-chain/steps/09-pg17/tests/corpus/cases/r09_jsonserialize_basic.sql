@@ -1,0 +1,5 @@
+SELECT JSON_SERIALIZE(json '{"a":1}');
+SELECT JSON_SERIALIZE(json '{"a":1}' RETURNING text);
+SELECT JSON_SERIALIZE('{"a": 1}' RETURNING varchar(20));
+SELECT pg_typeof(JSON_SERIALIZE(json '1'));
+SELECT length(JSON_SERIALIZE(json '[1, 2]'));

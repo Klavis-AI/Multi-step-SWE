@@ -1,0 +1,25 @@
+CREATE TABLE r10ra4(id int primary key, v int);
+INSERT INTO r10ra4 VALUES (1,10);
+UPDATE r10ra4 SET v = 2 WHERE id = 1 RETURNING WITH (OLD AS o, OLD AS p) o.v;
+ERROR:  OLD cannot be specified multiple times
+LINE 1: ... SET v = 2 WHERE id = 1 RETURNING WITH (OLD AS o, OLD AS p) ...
+                                                             ^
+UPDATE r10ra4 SET v = 3 WHERE id = 1 RETURNING WITH (BOGUS AS o) o.v;
+ERROR:  syntax error at or near "BOGUS"
+LINE 1: ...ATE r10ra4 SET v = 3 WHERE id = 1 RETURNING WITH (BOGUS AS o...
+                                                             ^
+UPDATE r10ra4 SET v = 4 WHERE id = 1 RETURNING WITH (OLD AS o) old.v;
+ERROR:  missing FROM-clause entry for table "old"
+LINE 1: ...0ra4 SET v = 4 WHERE id = 1 RETURNING WITH (OLD AS o) old.v;
+                                                                 ^
+UPDATE r10ra4 SET v = 5 WHERE id = 1 RETURNING WITH () v;
+ERROR:  syntax error at or near ")"
+LINE 1: UPDATE r10ra4 SET v = 5 WHERE id = 1 RETURNING WITH () v;
+                                                             ^
+SELECT id, v FROM r10ra4 ORDER BY id;
+ id | v  
+----+----
+  1 | 10
+(1 row)
+
+DROP TABLE r10ra4;

@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""A protoc plugin that grades the `parameter` half of the request.
+
+The candidate's own protoc has to build a CodeGeneratorRequest and hand it over
+on stdin. This reads that request, checks the properties that were measured off
+protoc 32.1, and answers with an error response when they do not hold -- which
+makes the candidate's protoc exit non-zero. The candidate's generator is never
+involved, so this isolates the compiler side.
+
+Parses the wire itself: the verifier image has no protobuf module.
+
+It does NOT require source_code_info. protoc always sends it, but a candidate
+that omits it has not got the compiler side wrong -- it has skipped a feature
+that costs nothing here, and failing it would fail this reference too.
+"""
+import sys
+
+def varint(b, i):
+    v = s = 0
+    while True:
+        c = b[i]; i += 1
+        v |= (c & 0x7F) << s; s += 7
+        if not c & 0x80:
+            return v, i
+
+def records(b):
+    i = 0
+    while i < len(b):
+        tag, i = varint(b, i)
+        num, wt = tag >> 3, tag & 7
+        if wt == 0:
+            _, i = varint(b, i)
+            yield num, None
+        elif wt == 1:
+            yield num, b[i:i+8]; i += 8
+        elif wt == 5:
+            yield num, b[i:i+4]; i += 4
+        elif wt == 2:
+            n, j = varint(b, i)
+            yield num, b[j:j+n]; i = j + n
+        else:
+            raise ValueError("wire type %d" % wt)
+
+def first(msg, want):
+    for num, val in records(msg):
+        if num == want:
+            return val
+    return None
+
+def all_of(msg, want):
+    return [v for num, v in records(msg) if num == want]
+
+def fdp_name(fdp):
+    v = first(fdp, 1)
+    return v.decode("utf-8") if v else None
+
+def check(req):
+    """Invoked as --reqparam_out=alpha,beta:DIR.
+
+    protoc 32.1 splits the flag value at its FIRST colon
+    (command_line_interface.cc, value.find_first_of(':')), so the parameter is
+    "alpha,beta". A two-colon form would send "alpha,beta" too and point protoc
+    at a relative directory named after the rest."""
+    errs = []
+    param = first(req, 2)
+    if param is None:
+        errs.append("parameter absent; --reqparam_out=alpha,beta:DIR must send one")
+    else:
+        got = param.decode("utf-8")
+        if got != "alpha,beta":
+            errs.append("parameter %r != 'alpha,beta' "
+                        "(the value is everything left of the first colon)" % got)
+    if not [v.decode("utf-8") for v in all_of(req, 1)]:
+        errs.append("file_to_generate is empty")
+    return errs
+
+def wvar(v):
+    out = bytearray()
+    while True:
+        c = v & 0x7F; v >>= 7
+        out.append(c | (0x80 if v else 0))
+        if not v:
+            return bytes(out)
+
+def main():
+    req = sys.stdin.buffer.read()
+    try:
+        errs = check(req)
+    except Exception as e:                     # a malformed request is a failure
+        errs = ["request did not parse: %s" % e]
+    if errs:
+        msg = "; ".join(errs).encode("utf-8")
+        resp = wvar(1 << 3 | 2) + wvar(len(msg)) + msg
+        sys.stdout.buffer.write(resp)
+        sys.stderr.write("reqparam: " + "; ".join(errs) + "\n")
+        return 0          # protoc turns an error response into a non-zero exit
+    sys.stdout.buffer.write(b"")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

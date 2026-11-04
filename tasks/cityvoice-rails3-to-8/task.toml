@@ -1,0 +1,399 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score: a step the
+# agent cannot finish costs that step's share and nothing more, and the steps
+# after it still measure what they measure.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. `exclude` is empty because the scorer needs the tree
+# exactly as the agent left it, including `.bundle/`, `Gemfile.lock` and
+# `public/assets/`: whether those are consistent with the migrated source is
+# part of what each step checks.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/cityvoice-rails3-to-8"
+version = "1.0.0"
+description = """\
+Migrate codeforamerica/cityvoice -- a civic IVR application on Rails 4.0.0 / \
+Ruby 2.1.7, pinned at commit 7308d4ee (2016-01-19, the repository's last \
+commit) -- forward to Rails 8.1 on Ruby 3.4, one release at a time. Every step \
+keeps the application's recorded behaviour on its own HTTP, rake, CSV and mail \
+surfaces, and must leave the tree genuinely on the new release rather than \
+compatible with it."""
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["rails", "ruby", "migration", "multi-step", "upgrade"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["rails", "ruby", "framework-upgrade", "multi-step"]
+
+# Agent environment, built from environment/Dockerfile: the eight Ruby versions
+# the thirteen steps target, PostgreSQL, and the repository at its pinned
+# commit.
+[environment]
+build_timeout_sec = 5400.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 24576
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet: every step resolves and installs gems from rubygems.org.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. Nothing is inherited from the
+# agent image: each step's verifier installs the one interpreter that step
+# targets, and only that one.
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# The verifier image compiles a Ruby from source and, on the early steps, an
+# OpenSSL to go with it; 90 minutes is the ceiling, ~11 minutes is the measured
+# cold build of the widest one (step 1).
+build_timeout_sec = 5400.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 24576
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# ---------------------------------------------------------------------------
+# Steps
+# ---------------------------------------------------------------------------
+# Each verifier writes {"reward": <step-local 0-1>} to reward.json and exits 0.
+# No min_reward anywhere.
+#
+# `[steps.verifier] timeout_sec` bounds the verifier *command* and nothing else:
+# harbor wraps only `verifier.verify()` in the timer (`trial/trial.py:705`,
+# `asyncio.wait_for`), while the verifier image build, the container start and
+# the /app artifact upload all happen outside it, inside the
+# `_separate_verifier_env` context and under `[verifier.environment]
+# build_timeout_sec`.  So the 1800 here is 1800 seconds of `test.sh`: a
+# `bundle install` against the warm cache, the full recorded suite and the
+# gates.  On a busy machine the wall clock can be well above the figures
+# recorded per step below.
+#
+# `test.sh` knows this number as `CV_DEADLINE` (default 1500) and shortens
+# whatever phase is running when the time is gone, because a verifier Harbor
+# kills writes no reward.json and a step with no reward.json is not a zero --
+# it is absent from the mean.  The two numbers are meant to differ by the ~5
+# minutes phase 5 could ever need; if this timeout changes, that default
+# changes with it.
+#
+# Each step's comment below gives the wall clock its verifier took, end to
+# end, on the golden tree (`--cpus 7`, warm gem cache), and the margin -- the
+# ratio the timeout leaves over that figure.
+
+[[steps]]
+name = "01-rails-4-2"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 377 s of `test.sh` -- 34 s to bring postgres up and lay down
+# the environment, 1 s of warm-cache `bundle install`, 309 s to record 386
+# behaviour cases across 10 worlds, 20 s of gates, 13 s of the application's
+# own rspec suite, under 1 s to score.  Other runs of the same tree took
+# 443 s, 415 s and 404 s; the margin is stated on the slowest observation:
+# 1800 / 443 = 4.0x.
+#
+# 1800 and not the 3600 hard cap: a timeout sitting on the cap gives a hung
+# phase 53 minutes to burn before anything is scored.  `test.sh` carries its
+# own `CV_DEADLINE` of 1500 s, which fires first and lets phase 5 write a
+# reward.json out of whatever the earlier phases managed -- so the Harbor kill
+# here is the second line of defence, not the first.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "02-rails-5-0"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 409 s of `test.sh` -- 31 s to bring postgres up and lay down
+# the environment, under 1 s of warm-cache `bundle install`, 334 s to record
+# 386 behaviour cases across 10 worlds, 25 s of gates, 19 s of the
+# application's own rspec suite, under 1 s to score.  Other runs of the same
+# tree took 474 s and 464 s; on the slowest, 1800 / 474 = 3.8x.
+#
+# Steps 1 and 2 record the same 386 cases and land within about 10% of each
+# other (377 s and 409 s), which is inside the run-to-run spread.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "03-rails-5-1"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 430 s of `test.sh` -- 30 s to bring postgres up and lay down
+# the environment, 1 s of warm-cache `bundle install`, 363 s to record 386
+# behaviour cases across 10 worlds, 22 s of gates, 14 s of the application's
+# own rspec suite, under 1 s to score.  1800 / 430 = 4.2x.
+#
+# This is the first step whose verifier image is the same recipe as the one
+# before it -- step 3 does not move the interpreter -- so the figure is
+# directly comparable with step 2's 409 s.  The 21 s between them sits inside
+# the spread the *same* tree shows between runs, and neither number is a
+# measurement of 5.1 against 5.0.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "04-rails-5-2"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 462 s of `test.sh` -- 28 s to bring postgres up and lay down
+# the environment, 1 s of warm-cache `bundle install`, 385 s to record 386
+# behaviour cases across 10 worlds, 37 s of gates up to and including the
+# suite, 11 s for the two-database primary-key drift check, under 1 s to
+# score.  Another run of the same tree took 458 s; on the slower of them,
+# 1800 / 462 = 3.9x.
+#
+# This step's verifier does the most work of the four so far -- it is the
+# first whose gate phase both drives the application for its response headers
+# and rebuilds the database twice to compare a loaded schema against a
+# migrated one -- and it is still within 8% of step 3's 430 s, because phase 3
+# is 83% of the clock at every step and phase 3 does not change.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "05-rails-6-0"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 639 s of `test.sh` -- 34 s to bring postgres up and lay down
+# the environment, 1 s of warm-cache `bundle install`, 521 s to record 386
+# behaviour cases across 10 worlds, 69 s of gates up to and including the
+# suite (16 s of which is rspec's 504 examples), 14 s for the two-database
+# primary-key drift check, under 1 s to score.  Another run of the same tree
+# took 696 s; on the slower of them, 1800 / 696 = 2.6x.
+#
+# Phase 3 is the whole of the growth and it is the framework's, not the
+# harness's: the same 386 cases took 385 s at step 4 on Rails 5.2 and 521-696 s
+# here on 6.0, because every one of the 10 worlds pays for a Zeitwerk-eager-
+# loaded boot and a 130-gem bundle where step 4 paid for a classic-autoloader
+# boot and 123 gems.
+#
+# `test.sh` carries its own CV_DEADLINE=1500 and cuts the behaviour budget
+# against it, so a runaway recording is stopped by the verifier with a report
+# rather than by Harbor without one; 1800 is the outer bound on that, not the
+# mechanism.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "06-rails-6-1"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 637 s of `test.sh` -- 35 s to bring postgres up and lay down
+# the environment, under 1 s of warm-cache `bundle install`, 510 s to record
+# 386 behaviour cases across 10 worlds, 92 s of gates up to and including the
+# suite (23 s of which is rspec's 504 examples, 24 s depdrive's four driven
+# boots), 22 s for the two-database primary-key drift check, under 1 s to
+# score.  Another run of the same tree took 645 s.
+#
+# Flat against step 5's 639 s: the 385 s -> 521 s jump at step 5 was Zeitwerk
+# eager-loading a 130-gem bundle ten times, and 6.1 adds no boot cost on top
+# of it.  The one phase that grew is depdrive, from three driven boots to
+# four -- this step's preloading requirement is read by driving two real pages
+# and counting their queries, which costs a boot each.
+#
+# `test.sh` carries its own CV_DEADLINE=1500 and cuts the behaviour budget
+# against it, so a runaway recording is stopped by the verifier with a report
+# rather than by Harbor without one; 1800 is the outer bound on that, not the
+# mechanism.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "07-rails-7-0"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 701 s of `test.sh` -- 39 s to bring postgres up and lay down
+# the environment, 1 s of warm-cache `bundle install`, 585 s to record 386
+# behaviour cases across 10 worlds, 76 s of gates (28 s depdrive's four driven
+# boots plus this step's six encryption readings, 16 s rspec's 504 examples,
+# 12 s the two-database primary-key drift check, 4 s bootprobe, 5 s envboot,
+# 8 s of database resets between them), and under 1 s to score.  Another run
+# of the same tree took 691 s.
+#
+# Up from step 6's 637 s, and the whole of the growth is in the behaviour
+# recording: 510 s -> 585 s.  It is not concentrated in the two worlds this
+# step changes -- the migrate world gains a 44th migration and the
+# subscriptions world gains one accepted submission and the mail that
+# follows it, which together are a handful of requests out of 386 cases.
+# The recording boots the application once per world, and that is where a
+# release's own cost lands; no per-world timing is kept, so the total is not
+# broken down further.
+#
+# `test.sh` carries its own CV_DEADLINE=1500 and cuts the behaviour budget
+# against it, so a runaway recording is stopped by this step with a report
+# rather than by Harbor without one; 1800 is the outer bound on that, not
+# the mechanism.  The floor run -- step 6's own output tree, which does not
+# get a bundle on this image -- takes 42 s, so a tree that cannot start
+# costs nothing like the budget.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "08-rails-7-1"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 599 s of `test.sh` -- 33 s to bring postgres up and lay down
+# the environment, 1 s of warm-cache `bundle install`, 494 s to record 386
+# behaviour cases across 10 worlds, 70 s of gates (26 s depdrive's four driven
+# boots plus this step's nine header readings and its fourteen strict-locals
+# probes, 14 s rspec's 504 examples, 13 s the two-database primary-key drift
+# check, 4 s bootprobe, 5 s envboot, 2 s scan/gemgraph/assets, 5 s of
+# database resets between them), and under 1 s to score.  Another run of the
+# same tree took 661 s.
+#
+# DOWN from step 7's 701 s, and all of the difference is in the behaviour
+# recording: 585 s -> 494 s.  This step adds no world, no case and no
+# migration -- the 386 cases are the same 386 -- so nothing in the step
+# accounts for it; it is the release and the machine together.  The budget
+# below is set against step 7's larger number rather than this one, because
+# a timeout that only holds on the faster of two adjacent releases is not a
+# budget.
+#
+# `test.sh` carries its own CV_DEADLINE=1500 and cuts the behaviour budget
+# against it, so a runaway recording is stopped by this step with a report
+# rather than by Harbor without one; 1800 is the outer bound on that, not
+# the mechanism.  The floor run -- step 7's own output tree, which names an
+# interpreter this image does not carry and so never reaches `bundle
+# install` -- takes 47 s, so a tree that cannot start costs nothing like
+# the budget.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "09-rails-7-2"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Golden tree: 689 s of `test.sh` -- 35 s to bring postgres up and lay down
+# the environment, under 1 s of warm-cache `bundle install`, 568 s to record
+# 386 behaviour cases across 10 worlds, 85 s of gates (28 s depdrive's four
+# driven boots, 15 s bootprobe -- up from 4 s at step 8, which is this step's
+# two new probes, the `fork_hooks` load of config/unicorn.rb against a stubbed
+# configurator and the live `SELECT CURRENT_DATE` the date-decoder gate reads,
+# 13 s rspec's 504 examples, 11 s the two-database primary-key drift check,
+# 5 s envboot's two boots, 4 s the rspec database, 2 s scan/gemgraph/assets,
+# 6 s of database resets between them), and under 1 s to score.
+#
+# Up from step 8's 599 s, and most of that is the machine rather than the
+# step.  Another run of the same tree took 652 s (495 s behaviour, 121 s
+# gates): the two phases moved in OPPOSITE directions by more than the step's
+# own additions could account for.  What is attributable is the 11 s of new
+# bootprobe work above, which is the same on both runs.  The budget below is
+# unchanged at 1800 s, set against the largest number any step has recorded
+# rather than against this one.
+#
+# THE FLOOR COSTS A FULL RUN HERE, and this is the first step since 04 where
+# that is true.  The interpreter does not move -- 3.2.11 carries steps 08, 09,
+# 10 and 11 -- so the tree step 08 hands on selects an interpreter, resolves
+# its bundle and boots instead of dying at `rbenv: version not installed` in
+# 47 s.  The floor run takes 624 s: 386/386 behaviour, 0 of 7 gates, reward
+# 0.450000 -- well inside this budget.
+#
+# `test.sh` carries its own CV_DEADLINE=1500 and cuts the behaviour budget
+# against it, so a runaway recording is stopped by this step with a report
+# rather than by Harbor without one; 1800 is the outer bound on that, not
+# the mechanism.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "10-rails-8-0"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Measured end to end, including the verifier image build, at 7 cpus with one
+# scored run at a time:
+#
+#   golden tree                      834 s   reward 1.000000
+#   floor (step 09's golden tree)    788 s   reward 0.448834
+#
+# The slowest run recorded for this step took 883 s.  The first run against a
+# new verifier image pays for building it.  883 s against the 1800 s outer
+# bound below and the CV_DEADLINE=1500 `test.sh` carries inside it is a little
+# under half, which is the margin every step from 05 on has kept.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "11-rails-8-1"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Measured end to end, including the verifier image build, at 7 cpus with one
+# scored run at a time, twice:
+#
+#   golden tree                      852 s then 766 s    reward 1.000000 both times
+#   floor (step 10's golden tree)    714 s then 793 s    reward 0.450000 both times
+#
+# Step 11 adds no probe that drives a boot and no behaviour case, so its
+# verifier costs what step 10's did: 852+714 against step 10's 834+788, with
+# the order inside each pair set by which run pays for the image rather than
+# by anything in the step.  1800 is the same outer bound every step from 05
+# on has used, and `test.sh` carries its own CV_DEADLINE=1500 inside it.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "12-ruby-3-4"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Measured at 7 cpus: the golden tree reaches `reward: 1.000000` at 618 s and
+# the floor (step 11's golden tree) at 46 s.  The golden spends 37 s on the
+# bundle, 495 s driving the recorded behaviour and the suite, and 86 s in the
+# gates; the floor is 46 s because on this rung a tree that declares 3.2.11
+# finds no interpreter to run on and nothing boots at all.  618 s is below
+# step 11's 852 s because 3.4.10 runs this suite faster than 3.2.11 does, and
+# compiling the interpreter is a build cost paid once per image rather than a
+# run cost.  1800 is the same outer bound every step from 05 on has used,
+# which leaves the golden a factor of 2.9; `test.sh` carries its own
+# CV_DEADLINE=1500 inside it, so a run that overshoots reports a partial
+# score rather than being killed by the harness.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "13-hardening"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Measured at --cpus 7, one scored run at a time:
+#
+#   golden tree                      748 s   reward 1.000000   0 failing guards of 111
+#   floor (step 12's golden tree)    877 s   reward 0.450000   0 failing guards of 111
+#
+# The floor is the LONGER of the two and that is the right way round: the floor
+# tree fails all four gates, which means the audit reader has 31 advisories over
+# 7 gems to resolve and report rather than none, and the log reader has 142
+# matching lines to sample rather than none.  Step 12's golden was 625 s, so
+# the two static probes this step adds cost about 120 s between them: the
+# audit reads 470 directories of YAML once and the log reader walks 280 KB of
+# text the behaviour phase has already written.  No new boot, no new drive, no
+# new fixture, and the interpreter is the same 3.4.10 step 12 compiles, so the
+# image build costs what step 12's did.  1800 is the same outer bound every
+# step from 05 on has used -- 2.05x the slower measured run -- and `test.sh`
+# carries its own CV_DEADLINE=1500 inside it, so a run that overshoots reports
+# a partial score rather than being killed by the harness.
+timeout_sec = 1800.0

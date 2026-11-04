@@ -1,0 +1,36 @@
+# Jobs whose *exit status* is recorded but not compared. One row per job, and
+# the list is meant to stay at nothing-or-nearly-nothing: an unscored status is
+# a hole in the behavior family, so each row has to earn its place here rather
+# than in the ladder.
+#
+# The output of these jobs is still compared, under the same projection as
+# every other job. Only `rc` is exempt, and only for the named job.
+#
+# WHY A ROW CAN BE HERE
+#
+# `run-suite.sh` records rc and asserts it against jobs.tsv's wantrc, so a
+# status that moves is still a *finding* in every census -- this file is read by
+# the scorer, not by the recorder, and the rung sweep goes on seeing red=1.
+# What it says is that the scorer must not charge a candidate for a status the
+# candidate did not choose.
+#
+# A row is legitimate only when all four hold:
+#
+#   1. the status is decided by a mechanism the migration guides do not
+#      document, so it cannot be turned into a must-flip expectation (rule 5:
+#      an undocumented change is not something the instruction may demand);
+#   2. the same mechanism already costs the job's *output* lines, which the
+#      projection drops for the same reason -- scoring the status that those
+#      dropped lines determine would be incoherent;
+#   3. the status is not a proxy for "the job ran": the job still has to
+#      produce a recording, and its projected output still has to match;
+#   4. it is unscored at *every* step, uniformly. A status that is exempt at
+#      step 3 and graded at step 4 is a trap, not a measurement.
+#
+# score.py cross-checks 3 and the shape; mk-step-tests.sh cross-checks that
+# every job named here is also a job projection.tsv projects and jobs.tsv
+# plans, and copies this one file to all ten steps so that 4 holds by
+# construction.
+#
+# job	reason
+DatasetClassifier	SPARK-23643 changed how a random split's rows land in partitions, and DatasetBalancer.java:52 downsamples with sample(false, minCount/c[i], seed) before training. The balanced set goes from 3 rows to 1 at Spark 3.0, the one-row training set then decides whether the fit converges, and the job exits 0 or 1 on a 1-in-16 draw that any partitioning change moves. projection.tsv already refuses this job's output past line 9 for that exact mechanism (NOTES 4.9.1); the status is decided by the lines it refuses. Nothing in any Spark migration guide documents a Dataset.sample change, so this cannot be must-flipped either.

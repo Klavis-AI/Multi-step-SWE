@@ -1,0 +1,4 @@
+SELECT EXTRACT(nosuchfield FROM date '2020-01-01');
+SELECT EXTRACT(year FROM 'notadate');
+SELECT EXTRACT(epoch FROM 1);
+SELECT EXTRACT(FROM date '2020-01-01');

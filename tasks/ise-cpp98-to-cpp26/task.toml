@@ -1,0 +1,158 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward
+# gate, so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Nothing is excluded -- the verifier rebuilds from
+# source, so build output in /app is ignored rather than trusted.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/ise-cpp98-to-cpp26"
+version = "1.0.0"
+description = "Migrate the ise C++98 server framework to C++26 in eleven steps, preserving its recorded behaviour byte for byte at every step."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["cpp", "migration", "modernization", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["cpp", "cpp26", "migration", "cmake", "multi-step"]
+
+[environment]
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 24576
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench: withholding the network is not a
+# legitimate way to make a task harder. A C++26 migration needs the standard
+# library documentation and the compilers' own diagnostics reference.
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 24576
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# One [[steps]] entry per authored step, added as the step was authored
+# (build-process item 4.4): a step was never declared here before its verifier,
+# solution and instruction existed, because a declared step with a template
+# verifier would be scored, averaged into the mean, and would make an oracle
+# run report a number that is about the template rather than about the task.
+# All eleven milestones of NOTES-authoring.md section 1.5 are now authored and
+# all eleven are declared below.
+#
+# No [[steps]] entry overrides [environment]. /app is therefore cumulative:
+# each step is handed the tree the previous step left, which is what makes the
+# line a migration rather than eleven unrelated exercises.
+
+# Configure and build under CMake 4 and Clang 22 with the project's own warning set clean
+[[steps]]
+name = "01-build-baseline-cmake"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Move to C++11 and make object lifetime the language's job: no delete-expression in the project's own sources, every allocation held by a handle, Boost's smart pointers gone, clean under allocation checking
+[[steps]]
+name = "02-ownership-raii"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Write the project in the language it is compiled as: nullptr, override, scoped enumerations, std::function and lambdas in place of Boost's callable machinery, range-based for, and move operations on the value types that copy
+[[steps]]
+name = "03-cxx11-language"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Make the concurrency the language's own: std::atomic in place of volatile and the __sync_* builtins, std::recursive_mutex, std::condition_variable_any, std::call_once, std::thread, and <chrono> on a monotonic clock -- with cancellation, the counting semaphore and the scheduling parameter kept and reached through native_handle()
+[[steps]]
+name = "04-cxx11-concurrency"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Take the vocabulary C++17 gave the standard library: std::any for the one genuinely dynamic value, std::optional for the answers that may be absent, std::string_view for the helpers that only read their text, and <filesystem> with its error-code overloads in place of the hand-written POSIX layer -- keeping the one access call and the one stat call that <filesystem> has no spelling for
+[[steps]]
+name = "05-cxx17-vocabulary"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+# Replace C's variadic mechanism and the runtime branches around it with work the compiler does: parameter packs and fold expressions for the three variadic entry points, if constexpr for the branch that chose an integer width, structured bindings for the pairs, static_assert where a template's requirement was only a comment, and [[nodiscard]] on the helpers whose answer is the whole point
+[[steps]]
+name = "06-cxx17-compile-time"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Move to C++20 and put every template's requirement on its declaration where the compiler reads it: four named concepts for the properties the standard cannot name, constraints on all six class templates and all nine function templates, no requirement left as a static_assert in a body, and noexcept in place of the throw() the language removed
+[[steps]]
+name = "07-cxx20-concepts"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Adopt the four C++20 library facilities this codebase has a use for: std::format for every message it composes, a defaulted operator<=> for the three value types that wrote their ordering out by hand, std::span for every buffer that crossed an interface as a pointer and a separate length, and the ranges algorithms for the hand-written search loops
+[[steps]]
+name = "08-cxx20-library"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Turn the library's twenty-one non-configuration headers into named C++20 modules with one interface unit each, make all nineteen library translation units import rather than include them, keep the declarations globally attached so the frozen driver and the fifteen examples still include the same headers and link against the same entities, and declare the interface units to CMake as a FILE_SET CXX_MODULES
+[[steps]]
+name = "09-cxx20-modules"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Make each TCP session a single C++20 coroutine instead of a set of completion callbacks: the three per-completion entry points go, send and recv become [[nodiscard]] awaitables that resume the one suspended frame exactly once on every path including abort and shutdown, the HTTP server's two state enumerations and its per-connection context are deleted rather than ported, the response body comes from a move-only single-pass generator, and all ten example programs are rewritten as sessions
+[[steps]]
+name = "10-cxx20-coroutines"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+
+# Close the last two boundaries that report failure without reporting why -- the seven filesystem helpers and the inspector's command-url parse -- by returning std::expected, make the three library call sites act on what comes back, move all forty diagnostics from iostreams and printf to std::print so <iostream> leaves the library entirely, and set the project's dialect to C++26
+[[steps]]
+name = "11-cxx23-26"
+[steps.agent]
+timeout_sec = 14400.0
+[steps.verifier]
+timeout_sec = 3600.0

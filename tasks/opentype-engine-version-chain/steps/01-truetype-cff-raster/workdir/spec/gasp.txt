@@ -1,0 +1,303 @@
+Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+ gasp — Grid-fitting and Scan-conversion Procedure Table
+
+ Feedback
+
+ Summarize this article for me
+
+ This table contains information which describes the preferred rasterization techniques for the typeface when it is rendered on grayscale-capable devices. This table also has some use for monochrome devices, which may use the table to turn off hinting at very large or small sizes, to improve performance.
+
+At very small sizes, the best appearance on grayscale devices can usually be achieved by rendering the glyphs in grayscale without using hints. At intermediate sizes, hinting and monochrome rendering will usually produce the best appearance. At large sizes, the combination of hinting and grayscale rendering will typically produce the best appearance.
+
+If the 'gasp' table is not present in a typeface, the rasterizer may apply default rules to decide how to render the glyphs on grayscale devices.
+
+Two versions of the 'gasp' table have been defined: both versions use the same formats, except that two new flags were defined in version 1, as documented below. All new fonts and applications should use version 1.
+
+'gasp' Table Formats
+
+The 'gasp' table consists of a header followed by groupings of 'gasp' records.
+
+'gasp' Header
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+uint16 | 
+version | 
+Version number (0 or 1—set to 1 in new fonts) | 
+
+ROW 
+uint16 | 
+numRanges | 
+Number of records to follow | 
+
+ROW 
+GaspRange | 
+gaspRanges[numRanges] | 
+Sorted by ppem | 
+
+The array of GaspRange records provides recommended behaviors for various ppem sizes.
+
+GaspRange Record
+
+ROW 
+Type | 
+Name | 
+Description | 
+
+ROW 
+uint16 | 
+rangeMaxPPEM | 
+Upper limit of range, in PPEM | 
+
+ROW 
+uint16 | 
+rangeGaspBehavior | 
+Flags describing desired rasterizer behavior. | 
+
+There are four RangeGaspBehavior flags defined.
+
+RangeGaspBehavior flags
+
+ROW 
+Mask | 
+Name | 
+Description | 
+
+ROW 
+0x0001 | 
+GASP_GRIDFIT | 
+Use gridfitting | 
+
+ROW 
+0x0002 | 
+GASP_DOGRAY | 
+Use grayscale rendering | 
+
+ROW 
+0x0004 | 
+GASP_SYMMETRIC_GRIDFIT | 
+Use gridfitting with ClearType symmetric smoothing
+Only supported in version 1 | 
+
+ROW 
+0x0008 | 
+GASP_SYMMETRIC_SMOOTHING | 
+Use smoothing along multiple axes with ClearType®
+Only supported in version 1 | 
+
+ROW 
+0xFFF0 | 
+Reserved | 
+Reserved flags — set to 0 | 
+
+The set of bit flags may be extended in the future. The first two bit flags operate independently of the following two bit flags. If font smoothing is enabled, then the first two bit flags are used. If ClearType is enabled, then the following two bit flags are used. The seven currently defined values of rangeGaspBehavior would have the following uses:
+
+ROW 
+Flag | 
+Value | 
+Meaning | 
+
+ROW 
+GASP_DOGRAY | 
+0x0002 | 
+small sizes, typically ppem < 9 | 
+
+ROW 
+GASP_GRIDFIT | 
+0x0001 | 
+medium sizes, typically 9 <= ppem <= 16 | 
+
+ROW 
+GASP_DOGRAY | GASP_GRIDFIT | 
+0x0003 | 
+large sizes, typically ppem > 16 | 
+
+ROW 
+GASP_SYMMETRIC_GRIDFIT | 
+0x0004 | 
+typically always enabled | 
+
+ROW 
+GASP_SYMMETRIC_SMOOTHING | 
+0x0008 | 
+larger screen sizes, typically ppem > 15, most commonly used with the gridfit flag. | 
+
+ROW 
+GASP_SYMMETRIC_SMOOTHING | GASP_SYMMETRIC_GRIDFIT | 
+0x000C | 
+larger screen sizes, typically ppem > 15 | 
+
+ROW 
+(no flags) | 
+0x0000 | 
+optional for very large sizes, typically ppem > 2048 | 
+
+The records in the gaspRange[] array must be sorted in order of increasing rangeMaxPPEM value. The last record should use 0xFFFF as a sentinel value for rangeMaxPPEM and should describe the behavior desired at all sizes larger than the previous record’s upper limit. If the only entry in 'gasp' is the 0xFFFF sentinel value, the behavior described will be used for all sizes.
+
+'gasp' Table and OpenType Font Variations
+
+In a variable font, the threshold sizes at which rasterizer behaviors are changed may need to be adjusted for different variation instances. Variation data for adjusting the rangeMaxPPEM value of up to ten GaspRange records can be provided in the metrics variations (MVAR) table, referenced using value tags 'gsp0' to 'gsp9'. Note that the rasterizer behavior for a given GaspRange record cannot be changed for different variation instances; only the rangeMaxPPEM value can be adjusted.
+
+The last GaspRange record in a 'gasp' table is assumed to have a rangeMaxPPEM value of 0xFFFF (effectively infinity). The rangeMaxPPEM value of the last record is never adjusted for different instances; the number of value records in the MVAR table that are associated with 'gasp' entries must never be more than numRanges minus one.
+
+For general information on OpenType Font Variations, see the chapter, OpenType Font Variations Overview.
+
+Sample 'gasp' table
+
+ROW 
+Field | 
+Value | 
+Font smoothing meaning | 
+ClearType with symmetric smoothing meaning | 
+
+ROW 
+version | 
+0x0001 | 
+ | 
+ | 
+
+ROW 
+numRanges | 
+0x0004 | 
+ | 
+ | 
+
+ROW 
+gaspRanges[0] | 
+ | 
+ | 
+ | 
+
+ROW 
+rangeMaxPPEM | 
+0x0008 | 
+ppem <= 8 | 
+ppem <= 8 | 
+
+ROW 
+rangeGaspBehavior | 
+0x000A | 
+grayscale only | 
+symmetric ClearType only | 
+
+ROW 
+gaspRanges[1] | 
+ | 
+ | 
+ | 
+
+ROW 
+rangeMaxPPEM | 
+0x0010 | 
+9 <= ppem <= 16 | 
+9 <= ppem <= 16 | 
+
+ROW 
+rangeGaspBehavior | 
+0x0005 | 
+gridfit only | 
+symmetric gridfit only | 
+
+ROW 
+gaspRanges[2] | 
+ | 
+ | 
+ | 
+
+ROW 
+rangeMaxPPEM | 
+0x0013 | 
+17 <= ppem <= 19 | 
+17 <= ppem <= 19 | 
+
+ROW 
+rangeGaspBehavior | 
+0x0007 | 
+gridfit and grayscale | 
+symmetric gridfit | 
+
+ROW 
+gaspRanges[3] | 
+ | 
+ | 
+ | 
+
+ROW 
+rangeMaxPPEM | 
+0xFFFF | 
+20 <= ppem | 
+20 <= ppem | 
+
+ROW 
+rangeGaspBehavior | 
+0x000F | 
+gridfit and grayscale | 
+symmetric gridfit and symmetric smoothing | 
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ OpenType specification
+
+ Open a documentation issue
+
+ Provide product feedback
+
+ Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2024-05-31

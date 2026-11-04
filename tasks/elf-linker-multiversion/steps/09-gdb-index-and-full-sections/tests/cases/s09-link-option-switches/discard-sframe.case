@@ -1,0 +1,56 @@
+# arch: x86_64
+# --discard-sframe drops .sframe input sections instead of emitting an output
+# .sframe, and is honoured even when SFrame generation is explicitly enabled.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("sframe\n"); return 3; }
+C
+cc_obj m.o m.c
+# clang-16 emits no .sframe, so supply a minimal valid v2 section by hand:
+# magic 0xdee2, version 2, flags 1, x86-64 ABI, then an all-zero 0x1c header.
+cat > sf.s <<'S'
+        .section .sframe,"a",@progbits
+        .balign 8
+        .2byte  0xdee2
+        .byte   2
+        .byte   1
+        .byte   1
+        .byte   0
+        .byte   0
+        .byte   0
+        .4byte  0
+        .4byte  0
+        .4byte  0
+        .4byte  0
+        .4byte  0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj sf.o sf.s
+
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+magic() { local o; o=$(sec_off "$1" .sframe); [ -n "$o" ] || die "$1 has no .sframe"
+          od -An -tx1 -j "$((16#$o))" -N 2 -- "$1" | tr -d ' \n'; }
+
+# Baseline: with SFrame generation on, the section survives and carries magic.
+link_ok keep --wild-experimental-sframe --no-gc-sections rt.o m.o sf.o
+want "sframe kept when generation is enabled" "$(has_section keep .sframe && echo y)" "y"
+want "kept .sframe starts with the SFrame magic" "$(magic keep)" "e2de"
+run_expect keep "sframe" 3
+
+# --discard-sframe wins over the enabling flag.
+link_ok drop --wild-experimental-sframe --discard-sframe --no-gc-sections rt.o m.o sf.o
+want_not "no .sframe after --discard-sframe" "$(sections drop)" "\.sframe"
+want "the rest of the link is unaffected" "$(has_section drop .text && echo y)" "y"
+run_expect drop "sframe" 3
+
+# The option also stands alone, where it merely agrees with the default.
+link_ok alone --discard-sframe --no-gc-sections rt.o m.o sf.o
+want_not "no .sframe with --discard-sframe alone" "$(sections alone)" "\.sframe"
+run_expect alone "sframe" 3
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 5

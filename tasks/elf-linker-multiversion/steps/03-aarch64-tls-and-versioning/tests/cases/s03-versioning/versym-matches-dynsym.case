@@ -1,0 +1,62 @@
+# arch: x86_64
+# .gnu.version is a parallel array to .dynsym: same entry count, sh_link
+# pointing at .dynsym, and slot i carrying the version that slot i of .dynsym
+# is tagged with.
+rt_obj rt.o
+cat > v.s <<'S'
+        .text
+        .globl alpha_1
+alpha_1: movl $1, %eax; ret
+        .globl alpha_2
+alpha_2: movl $2, %eax; ret
+        .globl beta_1
+beta_1:  movl $3, %eax; ret
+        .symver alpha_1, alpha@A_1
+        .symver alpha_2, alpha@@A_2
+        .symver beta_1,  beta@@B_1
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj v.o v.s -fPIC
+cat > v.map <<'M'
+A_1 { global: alpha; local: *; };
+A_2 { global: alpha; } A_1;
+B_1 { global: beta; local: *; };
+M
+ld -shared -soname libab.so.1 --version-script=v.map -o libab.so v.o 2> ld.err \
+  || die "fixture ld failed: $(tail -2 ld.err)"
+cat > m.c <<'C'
+__asm__(".symver alpha_old, alpha@A_1");
+int alpha_old(void); int alpha(void); int beta(void);
+int entry(void) { return alpha_old() + alpha() + beta(); }
+C
+cc_obj m.o m.c
+link_ok out rt.o m.o libab.so -dynamic-linker /lib64/ld-linux-x86-64.so.2
+sections out > sec.txt; vernum out > ver.txt; dynsyms out > dsym.txt
+# columns after the "[ N]" prefix: name type addr off size es flg link info align
+sed -n 's/^ *\[ *\([0-9]\+\)\] */\1 /p' sec.txt > secs.txt
+dsnum=$(awk '$2 == ".dynsym" && $3 == "DYNSYM" { print $1; exit }' secs.txt)
+vslink=$(awk '$2 == ".gnu.version" && $3 == "VERSYM" { print $9; exit }' secs.txt)
+[ -n "$dsnum" ] || die "no .dynsym section: $(cat secs.txt)"
+want ".gnu.version sh_link points at .dynsym" "$vslink" "$dsnum"
+awk '/^ +[0-9]+:/ { print ($8 == "" ? "-" : $8) }' dsym.txt > names.txt
+sed -n '/Version symbols section/,/^$/p' ver.txt | sed -n 's/^ *[0-9]\+: *//p' | grep -oE '\([^)]+\)' | tr -d '()' > vers.txt
+want "one version slot per dynsym entry" "$(wc -l < vers.txt)" "$(wc -l < names.txt)"
+n=0
+while read -r nm; do
+  n=$((n + 1))
+  v=$(sed -n "${n}p" vers.txt)
+  case "$nm" in
+    *@*) want "versym[$((n-1))] for $nm" "$v" "${nm#*@}" ;;
+    *)   [ "$v" = "*local*" ] || [ "$v" = "*global*" ] \
+           || die "versym[$((n-1))] for unversioned '$nm' is '$v'" ;;
+  esac
+done < names.txt
+grep -q 'alpha@A_1' names.txt || die "explicit @A_1 reference lost its version: $(cat names.txt)"
+grep -q 'alpha@A_2' names.txt || die "unversioned alpha did not bind to the @@ default: $(cat names.txt)"
+grep -q 'beta@B_1'  names.txt || die "beta was not bound to B_1: $(cat names.txt)"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 5

@@ -1,0 +1,47 @@
+# arch: x86_64
+# Non-string merging works across archive members and alongside ordinary
+# string merging, and the merged constants are still readable at runtime.
+rt_obj rt.o
+mkmem() { # mkmem <out.o> <fn> <sym>
+  cat > "$2.s" <<S
+        .text
+        .globl $2
+$2:     lea $3(%rip), %rax
+        ret
+        .section .mergeconst,"aM",@progbits,8
+        .globl $3
+$3:     .quad 0x00000000cafebabe
+        .section .rodata.str1.1,"aMS",@progbits,1
+        .globl s_$2
+s_$2:   .asciz "shared-text"
+        .section .note.GNU-stack,"",@progbits
+S
+  as_obj "$1" "$2.s"
+}
+mkmem m1.o get1 k1
+mkmem m2.o get2 k2
+mkar libk.a m1.o m2.o
+cat > m.c <<'C'
+#include "rt.h"
+unsigned long *get1(void); unsigned long *get2(void);
+extern char s_get1[], s_get2[];
+int entry(void) {
+    putdec((long)*get1()); print("\n");
+    putdec(get1() == get2()); print("\n");
+    print(s_get1); print("\n");
+    putdec(s_get1 == s_get2);
+    return 0;
+}
+C
+cc_obj m.o m.c
+link_ok out --no-gc-sections rt.o m.o libk.a
+want "both members were pulled in" "$(( 0x$(sec_size out .mergeconst) ))" "8"
+want "k1 and k2 share one merged slot" "$(sym_value out k1)" "$(sym_value out k2)"
+want "the merge string was deduplicated too" "$(sym_value out s_get1)" "$(sym_value out s_get2)"
+# 0xcafebabe == 3405691582; both pointer comparisons are done at runtime.
+run_expect out "3405691582
+1
+shared-text
+1" 0
+
+asserts_at_least 3

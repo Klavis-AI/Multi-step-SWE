@@ -1,0 +1,38 @@
+# arch: x86_64
+# Referencing __start_SECNAME / __stop_SECNAME must define those symbols at
+# the bounds of the output section and must keep the section alive through
+# garbage collection.
+rt_obj rt.o
+cat > s.c <<'C'
+__attribute__((section("mysec"), used)) static const long e1 = 7;
+__attribute__((section("mysec"), used)) static const long e2 = 9;
+C
+cat > u.c <<'C'
+#include "rt.h"
+extern const long __start_mysec[];
+extern const long __stop_mysec[];
+int entry(void) {
+    long n = __stop_mysec - __start_mysec, s = 0;
+    for (long i = 0; i < n; i++) s += __start_mysec[i];
+    putdec(n); print(","); putdec(s);
+    return 0;
+}
+C
+cc_obj s.o s.c; cc_obj u.o u.c
+link_ok out rt.o u.o s.o
+sections out > sec.txt; symbols out > sym.txt
+grep -qE '(^| )mysec +PROGBITS' sec.txt || die "the mysec section was collected: $(cat sec.txt)"
+a=$(sec_addr out mysec); z=$(sec_size out mysec)
+want "mysec holds both entries" "$((0x$z))" "16"
+st=$(sym_value out __start_mysec); sp=$(sym_value out __stop_mysec)
+[ -n "$st" ] || die "__start_mysec was not defined: $(grep mysec sym.txt)"
+[ -n "$sp" ] || die "__stop_mysec was not defined: $(grep mysec sym.txt)"
+want "__start_mysec == section start" "$((0x$st))" "$((0x$a))"
+want "__stop_mysec == section end"    "$((0x$sp))" "$((0x$a + 0x$z))"
+run_expect out "2,16" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

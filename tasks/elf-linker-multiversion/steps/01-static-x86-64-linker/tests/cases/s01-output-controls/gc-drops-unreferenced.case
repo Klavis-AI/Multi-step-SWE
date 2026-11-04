@@ -1,0 +1,42 @@
+# arch: x86_64
+# Sections are garbage-collected by default: a function nothing reaches is
+# absent from the output, code and symbol alike, while everything on a live
+# path survives.
+rt_obj rt.o
+cat > lib.s <<'S'
+        .section .text.reached,"ax",@progbits
+        .globl  reached_fn
+reached_fn:
+        mov     $11, %eax
+        ret
+        .section .text.unreached,"ax",@progbits
+        .globl  unreached_fn
+unreached_fn:
+        mov     $22, %eax
+        ret
+        .section .rodata.dead,"a",@progbits
+        .globl  dead_datum
+dead_datum:
+        .quad   0xdeadbeefcafe
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj lib.o lib.s
+cat > m.c <<'C'
+#include "rt.h"
+int reached_fn(void);
+int entry(void) { int r = reached_fn(); putdec(r); print("\n"); return r; }
+C
+cc_obj m.o m.c
+link_ok out rt.o lib.o m.o
+want "the live function survived" "$(symbols out | awk '$8=="reached_fn"' | grep -c .)" "1"
+want_not "the dead function was collected"   "$(symbols out)" "unreached_fn"
+want_not "the dead datum was collected"      "$(symbols out)" "dead_datum"
+want "the dead code is not in the image" \
+     "$($OBJDUMP -d out | grep -c '\$0x16,%eax')" "0"
+run_expect out "11" 11
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

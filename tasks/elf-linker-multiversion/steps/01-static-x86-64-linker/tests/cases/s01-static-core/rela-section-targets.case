@@ -1,0 +1,54 @@
+# arch: x86_64
+# SHT_RELA sections are parsed with their sh_info: relocations are applied to
+# the section each .rela.* names, not only to .text, and their sh_link symbol
+# table is the one used to resolve them.
+rt_obj rt.o
+cat > t.s <<'S'
+        .section .rodata.tbl,"a",@progbits
+        .globl  rotab
+rotab:  .quad   leaf_a
+        .quad   leaf_b
+        .data
+        .globl  rwtab
+rwtab:  .quad   leaf_b
+        .quad   leaf_a
+        .text
+        .globl  leaf_a
+leaf_a: mov     $3, %eax
+        ret
+        .globl  leaf_b
+leaf_b: mov     $4, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj t.o t.s
+# The input really does carry separate RELA sections for .rodata.tbl and .data
+r=$(sections t.o)
+want_has  "input .rela.rodata.tbl" "$r" "\.rela\.rodata\.tbl +RELA"
+want_has  "input .rela.data"       "$r" "\.rela\.data +RELA"
+ri=$(relocs t.o)
+want_has  "rodata relocation is R_X86_64_64" "$ri" "R_X86_64_64 +[0-9a-f]+ +leaf_a"
+cat > m.c <<'C'
+#include "rt.h"
+typedef int (*fp)(void);
+extern fp rotab[2];
+extern fp rwtab[2];
+int leaf_a(void); int leaf_b(void);
+int entry(void) {
+  int ok = 0;
+  if (rotab[0] == leaf_a && rotab[1] == leaf_b) ok |= 1;
+  if (rwtab[0] == leaf_b && rwtab[1] == leaf_a) ok |= 2;
+  if (rotab[0]() == 3 && rwtab[0]() == 4) ok |= 4;
+  putdec(ok); print("\n");
+  return ok;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o t.o m.o
+run_expect out "7" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

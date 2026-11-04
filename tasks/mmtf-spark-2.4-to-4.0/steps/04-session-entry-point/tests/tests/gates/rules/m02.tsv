@@ -1,0 +1,226 @@
+# Step 2 (02-rdd-to-dataset): m1..m4, and the four rules that are not
+# requirements.
+#
+# The step's claim is one sentence: fifteen named classes take their terminal
+# result through the SQL engine instead of taking it off an RDD. The evidence is
+# two facts about each class, and each requirement below asks for both.
+#
+# The first is the runtime one -- `probe job <row>#<id>`, whose value is the SQL
+# execution the job ran inside, `-` for no execution, and `forged:<id>` for an
+# execution id that no execution ever started (gates/schema.tsv, NOTES 6.2.4).
+# It says a job of that class *did* run inside an execution.
+#
+# The second is a fact about the artifact: the class no longer references
+# `count` or `reduce` on anything in `org.apache.spark.api.java`. It says the
+# terminal result is no longer taken off an RDD. It is deliberately not an AST
+# rule about how the Dataset was built -- `createDataset` and `createDataFrame`
+# and `toDF` and `as(Encoders...)` are all the same migration and a gate that
+# named one of them would be marking a style. It is a rule about what went
+# away, read from the constant pool, where the receiver's type is already
+# resolved and a rename cannot hide it.
+#
+# Neither fact alone is the claim, which is the round-1 review's finding and the
+# reason the pair exists. A job inside an execution, alone, is bought by one
+# `SparkSession.range(1).count()` beside an untouched `pdb.count()` -- or by
+# writing the listener's own output file, since a candidate's code runs in that
+# same driver. An absent `JavaPairRDD.count`, alone, is bought by printing a
+# constant. Together they are the step: the count that used to be an RDD action
+# is gone, and a job of that class ran inside a SQL execution.
+#
+# Why fifteen and not a hundred and forty. Measured (NOTES 6.2.5): 650 jobs run
+# on the golden step-1 tree, 342 of them outside any SQL execution, and most of
+# those 342 cannot move -- MMTF Hadoop sequence-file reads, CSV schema
+# inference and MLlib internals submit execution-less jobs from code that is
+# already fully Dataset-shaped. A rule over all 140 rows would be a rule the
+# golden solution itself fails. So the denominator is named, and the names are
+# the four requirements below: 15 classes, 20 scored rows, 16 of them with a
+# Spark job in them.
+#
+# The four rows of the twenty with no job to read are named here rather than
+# omitted, because an omission is indistinguishable from an oversight:
+#
+#   MmtfBenchmark-missing   prints its usage line and then builds a context
+#   MmtfBenchmark-noargs    anyway, dying on args[0]: a full probe file, no jobs
+#   ReadLocalMmtf-usage     System.exit(1) before the context exists, so the
+#   ReadLocalMmtfHadoopFile-usage   probe never runs and there is no file at all
+#
+# Two forms of job rule, and which one a row gets is a measurement and not a
+# preference. A row whose only terminal action is the count gets the strict
+# form -- *no* job of that row outside an execution -- because after the move
+# there is exactly one job and it is inside one (the terminal Dataset action
+# drags the whole RDD lineage into the execution rather than adding a job
+# beside it: NOTES 6.2.5, four shapes, all one job). A row that also prints
+# every record with `foreach`, or writes a sequence file, keeps a second job
+# that this step does not ask to move -- §6.2.1's argument for leaving the
+# reader alone applies to the writer and to a print -- so those rows get the
+# weaker form: at least one job inside an execution. Naming which rows are
+# which is the whole content of the two `absent` rules.
+#
+# id	mode	selector	counterexample	reason
+
+# --- what is true of the tree before the step, and must still be true after --
+# Nine rules, and seven of them read like requirements and are deliberately
+# not requirements: no id here begins `m<digit>-`, so score.py reads them as
+# standing rules and a FAIL voids the whole reading instead of costing a
+# share. That is the right price for each of them.
+#
+# The nine prohibitions this step needs are not here: they are in cheats.tsv,
+# included beside this file, because their price is different. A red one of
+# those zeroes both families rather than voiding this one, and score.py reads
+# that list out of the file itself so the two cannot drift apart.
+#
+# `reader-returns-rdd` and `reader-not-rewritten` are the other direction: the
+# step must not be answered by moving the *reader* into the SQL engine and
+# calling the demos migrated. MmtfReader's contract is a JavaPairRDD keyed by
+# structure id, 57 of the library's 78 mains are written against it, and a
+# Dataset reader over an opaque interface is the Kryo cheat with a different
+# owner.
+#
+# `replay-probed` is the instrument check, and it is here because every rule in
+# this file reads a fact that only exists if the replay ran with the listener
+# attached. Without it the reading has two probe files instead of 125, every
+# `absent probe.job` rule passes over nothing, and the forgery rule passes
+# hardest of all. 100 rather than 125 because a candidate's tree may legitimately
+# lose a probe file or two to a class that now exits earlier; a fifth below the
+# real number is a check on the verifier, not on the tree.
+#
+# `probe-submit-clean` replaces common.tsv's `probe-submit-ok` for this step,
+# and the reason is arithmetic rather than strictness. `probe-submit-ok` asks
+# for *at least one* `submit.rc 0`, which was the whole reading when the gate
+# saw one probe file. At this step it also sees the verifier's own control run
+# -- gate.GateMain, which exits 0 by construction -- so a candidate session
+# probe that died would leave `probe-submit-ok` green on the control's row.
+# This rule asks the other question, over the same fact: no submit reported
+# anything but 0. It is stated here rather than as an `override:` because it is
+# a different claim, and common.tsv's line is still worth keeping: one says a
+# submit happened, this one says none of them failed.
+replay-probed	atleast:100	probe.probe\tapp.label\t.+	probe-thin.tsv	fewer than 100 applications are in this probe reading; the replay ran without gate.GateProbe attached and every job rule below is void
+probe-submit-clean	absent	probe.probe\tsubmit.rc\t(?!0).*	probe-submit-fail.tsv	a spark-submit run by this verifier exited non-zero; the facts beside it came from a job that failed, and common.tsv's probe-submit-ok is satisfied by the control run alone
+reader-returns-rdd	atleast:1	bytecode.ref\t*\tedu/sdsc/mmtf/spark/io/MmtfReader\t(read|download).*\t.*Lorg/apache/spark/api/java/JavaPairRDD;	bytecode-reader-gone.tsv	nothing in the artifact calls an MmtfReader method that returns a JavaPairRDD; the reader was replaced rather than read from
+reader-not-rewritten	absent	bytecode.ref\t*\tedu/sdsc/mmtf/spark/io/MmtfReader\t(read|download).*\t(?!.*JavaPairRDD;).*	bytecode-reader-dataset.tsv	an MmtfReader read/download method is called that does not return a JavaPairRDD: the reader itself was moved into the SQL engine, which is not the step
+
+# --- M1  the reader's own count, through the engine ------------------------
+# Seven classes whose body is: read MMTF, maybe filter it, print `count()`.
+# Five of them do nothing else and get the strict form. ReadLocalMmtf and
+# ReadLocalMmtfHadoopFile also print every structure with a `foreach`, which
+# stays an RDD job, so they get the weak form -- and ReadLocalMmtfHadoopFile is
+# two scored rows, the plain one and `-rosetta`, because the replay runs it
+# twice and a rule keyed on the row name cannot see the difference otherwise.
+m1-reader-count-outside	absent	probe.job\t(FilterByResolution|FilterBySequenceRegex|MmtfBenchmark|ReadMmtfFull|ReadMmtfReduced)#[0-9]+\t-	probe-rdd-terminal.tsv	a class whose only terminal action is its count still submits a Spark job outside every SQL execution
+m1-filterbyresolution	atleast:1	probe.job\tFilterByResolution#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	FilterByResolution never ran a job inside a SQL execution: its terminal count is still an RDD action
+m1-filterbysequenceregex	atleast:1	probe.job\tFilterBySequenceRegex#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	FilterBySequenceRegex never ran a job inside a SQL execution: its terminal count is still an RDD action
+m1-mmtfbenchmark	atleast:1	probe.job\tMmtfBenchmark#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	MmtfBenchmark never ran a job inside a SQL execution: its terminal count is still an RDD action
+m1-readmmtffull	atleast:1	probe.job\tReadMmtfFull#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	ReadMmtfFull never ran a job inside a SQL execution: its terminal count is still an RDD action
+m1-readmmtfreduced	atleast:1	probe.job\tReadMmtfReduced#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	ReadMmtfReduced never ran a job inside a SQL execution: its terminal count is still an RDD action
+m1-readlocalmmtf	atleast:1	probe.job\tReadLocalMmtf#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	ReadLocalMmtf never ran a job inside a SQL execution: its count is still an RDD action beside the foreach this step leaves alone
+m1-readlocalmmtfhadoopfile	atleast:1	probe.job\tReadLocalMmtfHadoopFile#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	ReadLocalMmtfHadoopFile never ran a job inside a SQL execution: its count is still an RDD action beside the foreach this step leaves alone
+m1-readlocalmmtfhadoopfile-rosetta	atleast:1	probe.job\tReadLocalMmtfHadoopFile-rosetta#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	the -rosetta row of ReadLocalMmtfHadoopFile never ran a job inside a SQL execution; the plain row is scored separately and may have passed
+
+m1-filterbyresolution-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/filters/demos/FilterByResolution\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	FilterByResolution still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so whatever Dataset it also built, the printed number is not the engine's answer
+m1-filterbysequenceregex-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/filters/demos/FilterBySequenceRegex\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	FilterBySequenceRegex still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so whatever Dataset it also built, the printed number is not the engine's answer
+m1-mmtfbenchmark-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/MmtfBenchmark\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	MmtfBenchmark still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so whatever Dataset it also built, the printed number is not the engine's answer
+m1-readmmtffull-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadMmtfFull\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	ReadMmtfFull still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so whatever Dataset it also built, the printed number is not the engine's answer
+m1-readmmtfreduced-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadMmtfReduced\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	ReadMmtfReduced still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so whatever Dataset it also built, the printed number is not the engine's answer
+m1-readlocalmmtf-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadLocalMmtf\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	ReadLocalMmtf still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so whatever Dataset it also built, the printed number is not the engine's answer
+m1-readlocalmmtfhadoopfile-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadLocalMmtfHadoopFile\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	ReadLocalMmtfHadoopFile still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so whatever Dataset it also built, the printed number is not the engine's answer
+
+# The same seven classes, the other half of the artifact claim. `-rdd-gone` says
+# the old terminal is gone; it does not say a new one arrived, and a tree that
+# deletes `pdb.count()` and prints the number it used to print passes it -- the
+# corpus is fixed, so stdout still matches the recordings, and a forged probe
+# row supplies the rest. These two say where the printed number now comes from:
+# the class hands an *RDD* to `createDataset`/`createDataFrame` -- the
+# descriptor is pinned to the overloads that take one, so a one-row Dataset
+# built from a literal list is not this fact -- and it takes a result back off
+# `Dataset`. NOTES 6.2.7 records what the pair does and does not close: nothing
+# a candidate's own JVM writes down is unforgeable, which is why the migrated
+# family rests on the artifact and the probe together and not on the probe.
+m1-filterbyresolution-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/filters/demos/FilterByResolution\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	FilterByResolution builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m1-filterbyresolution-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/filters/demos/FilterByResolution\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	FilterByResolution takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m1-filterbysequenceregex-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/filters/demos/FilterBySequenceRegex\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	FilterBySequenceRegex builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m1-filterbysequenceregex-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/filters/demos/FilterBySequenceRegex\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	FilterBySequenceRegex takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m1-mmtfbenchmark-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/MmtfBenchmark\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	MmtfBenchmark builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m1-mmtfbenchmark-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/MmtfBenchmark\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	MmtfBenchmark takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m1-readmmtffull-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadMmtfFull\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	ReadMmtfFull builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m1-readmmtffull-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadMmtfFull\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	ReadMmtfFull takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m1-readmmtfreduced-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadMmtfReduced\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	ReadMmtfReduced builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m1-readmmtfreduced-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadMmtfReduced\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	ReadMmtfReduced takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m1-readlocalmmtf-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadLocalMmtf\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	ReadLocalMmtf builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m1-readlocalmmtf-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadLocalMmtf\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	ReadLocalMmtf takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m1-readlocalmmtfhadoopfile-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadLocalMmtfHadoopFile\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	ReadLocalMmtfHadoopFile builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m1-readlocalmmtfhadoopfile-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/io/demos/ReadLocalMmtfHadoopFile\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	ReadLocalMmtfHadoopFile takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+
+# --- M2  a mapper's output count, through the engine -----------------------
+# The same move one stage further down: the count is of what a
+# `flatMapToPair(StructureTo*)` produced, so the Dataset has to be built from
+# the mapped RDD rather than from the reader's. MapToBioAssembly2 is in scope
+# although it exits 1: it dies *inside* its count job, so the execution has
+# already started when the stage throws, and the row's job rows are readable
+# (the distinction NOTES 6.2.1 predicted and 6.2.5 measured -- MapToCathDomains
+# dies in a `foreach` *before* its count and is out of scope for that reason).
+# CreateRepresentativeSet gets the weak form: after the count it coalesces and
+# writes a sequence file, and the write is a job this step leaves alone.
+m2-mapper-count-outside	absent	probe.job\t(MapToBioAssembly|MapToBioAssembly2|MapToProteinDimers)#[0-9]+\t-	probe-rdd-terminal.tsv	a mapper demo whose only terminal action is its count still submits a Spark job outside every SQL execution
+m2-maptobioassembly	atleast:1	probe.job\tMapToBioAssembly#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	MapToBioAssembly never ran a job inside a SQL execution: the count of the mapped bioassemblies is still an RDD action
+m2-maptobioassembly2	atleast:1	probe.job\tMapToBioAssembly2#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	MapToBioAssembly2 never ran a job inside a SQL execution: the count of the mapped bioassemblies is still an RDD action
+m2-maptoproteindimers	atleast:1	probe.job\tMapToProteinDimers#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	MapToProteinDimers never ran a job inside a SQL execution: the count of the mapped dimers is still an RDD action
+m2-createrepresentativeset	atleast:1	probe.job\tCreateRepresentativeSet#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	CreateRepresentativeSet never ran a job inside a SQL execution: the count of representative chains is still an RDD action beside the write this step leaves alone
+
+m2-maptobioassembly-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToBioAssembly\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	MapToBioAssembly still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so the mapped pairs are still being counted outside the engine
+m2-maptobioassembly2-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToBioAssembly2\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	MapToBioAssembly2 still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so the mapped pairs are still being counted outside the engine
+m2-maptoproteindimers-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToProteinDimers\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	MapToProteinDimers still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so the mapped pairs are still being counted outside the engine
+m2-createrepresentativeset-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/CreateRepresentativeSet\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	CreateRepresentativeSet still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so the mapped pairs are still being counted outside the engine
+
+# The same pair over the four mapper-count classes.
+m2-maptobioassembly-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToBioAssembly\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	MapToBioAssembly builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m2-maptobioassembly-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToBioAssembly\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	MapToBioAssembly takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m2-maptobioassembly2-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToBioAssembly2\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	MapToBioAssembly2 builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m2-maptobioassembly2-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToBioAssembly2\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	MapToBioAssembly2 takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m2-maptoproteindimers-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToProteinDimers\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	MapToProteinDimers builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m2-maptoproteindimers-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapToProteinDimers\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	MapToProteinDimers takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m2-createrepresentativeset-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/CreateRepresentativeSet\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	CreateRepresentativeSet builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m2-createrepresentativeset-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/CreateRepresentativeSet\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	CreateRepresentativeSet takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+
+# --- M3  the aggregate, which is not a count -------------------------------
+# MapReduceExample is one class and its own requirement because it is the one
+# row where the move is not `count()`: it is `map(t -> numAtoms).reduce(+)`, and
+# the engine-side answer is an aggregate over a typed column whose printed
+# value has to come back the same Java long. A candidate who did the other
+# fourteen rows by rote and stopped here has not met the API; a candidate who
+# did this one has.
+m3-mapreduce-outside	absent	probe.job\tMapReduceExample#[0-9]+\t-	probe-rdd-terminal.tsv	MapReduceExample still submits a Spark job outside every SQL execution: its map/reduce is an RDD aggregate
+m3-mapreduce-inside	atleast:1	probe.job\tMapReduceExample#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	MapReduceExample never ran a job inside a SQL execution: the total number of atoms is still reduced off an RDD
+
+m3-mapreduce-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapReduceExample\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	MapReduceExample still references count or reduce on an org.apache.spark.api.java type: the total is still an RDD aggregate whatever else the class now builds
+
+# The same pair over MapReduceExample, whose Dataset terminal is the
+# aggregate rather than a count -- which is why the member list is the
+# same generous one for all fifteen rather than `count` alone.
+m3-mapreduce-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapReduceExample\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	MapReduceExample builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m3-mapreduce-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/mappers/demos/MapReduceExample\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	MapReduceExample takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the total it prints did not come back from the engine
+
+# --- M4  the three web-filtered counts -------------------------------------
+# These three already have SQL executions in them before the step begins, and
+# that is why they are a separate requirement rather than nine more rows of M1:
+# `new PdbjMineSearch(sql)` queries a web service and reads the answer through
+# the engine, which is three jobs, two of them inside executions. So the strict
+# form is impossible (one of PdbjMineSearch's own jobs is outside one and this
+# step does not touch PdbjMineSearch), and the weak form is already satisfied
+# by a tree that did nothing. The rule is therefore a count: two executions
+# before, three after, the third being the demo's own `count()`. A candidate who
+# reads the evidence rather than the shape of the other rules is the one who
+# gets this right -- which is the point of pricing it at 0.16.
+m4-authorsearchdemo	atleast:3	probe.job\tAuthorSearchDemo#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	fewer than three of AuthorSearchDemo's jobs ran inside a SQL execution: two of them are PdbjMineSearch's own and the demo's count is not the third
+m4-keywordsearch	atleast:3	probe.job\tKeywordSearch#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	fewer than three of KeywordSearch's jobs ran inside a SQL execution: two of them are PdbjMineSearch's own and the demo's count is not the third
+m4-kinasesearch	atleast:3	probe.job\tKinaseSearch#[0-9]+\t[0-9]+	probe-rdd-terminal.tsv	fewer than three of KinaseSearch's jobs ran inside a SQL execution: two of them are PdbjMineSearch's own and the demo's count is not the third
+m4-authorsearchdemo-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/AuthorSearchDemo\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	AuthorSearchDemo still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so the third execution is something other than the demo's own count
+m4-keywordsearch-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/KeywordSearch\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	KeywordSearch still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so the third execution is something other than the demo's own count
+m4-kinasesearch-rdd-gone	absent	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/KinaseSearch\torg/apache/spark/api/java/.*\t(count|reduce)\t*	bytecode-rdd-terminal.tsv	KinaseSearch still takes a count off an RDD: the artifact references count on an org.apache.spark.api.java type, so the third execution is something other than the demo's own count
+
+# The same pair over the three web-filtered counts.
+m4-authorsearchdemo-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/AuthorSearchDemo\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	AuthorSearchDemo builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m4-authorsearchdemo-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/AuthorSearchDemo\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	AuthorSearchDemo takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m4-keywordsearch-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/KeywordSearch\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	KeywordSearch builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m4-keywordsearch-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/KeywordSearch\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	KeywordSearch takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine
+m4-kinasesearch-dataset-built	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/KinaseSearch\torg/apache/spark/sql/(SparkSession|SQLContext)\t(createDataset|createDataFrame)\t\((Lorg/apache/spark/rdd/RDD;|Lorg/apache/spark/api/java/JavaRDD;).*	bytecode-no-dataset.tsv	KinaseSearch builds no Dataset from an RDD: the artifact references no createDataset or createDataFrame overload that takes an org.apache.spark.rdd.RDD or a JavaRDD, so whatever the probe reported, the data this class read never reached the engine
+m4-kinasesearch-dataset-terminal	atleast:1	bytecode.ref\tedu/sdsc/mmtf/spark/webfilters/demos/KinaseSearch\torg/apache/spark/sql/Dataset\t(count|reduce|agg|head|first|collect|collectAsList|take)\t*	bytecode-dataset-unused.tsv	KinaseSearch takes no result off a Dataset: the artifact references no count, reduce, agg, head, first, collect, collectAsList or take on org.apache.spark.sql.Dataset, so the count it prints did not come back from the engine

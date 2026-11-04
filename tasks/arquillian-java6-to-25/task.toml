@@ -1,0 +1,183 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. No min_reward anywhere, so a
+# weak or zero step never stops the trial and the mean is over all [[steps]].
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Nothing is excluded — the verifier decides for itself
+# what to rebuild, and an exclusion here would be invisible at grading time.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/arquillian-java6-to-25"
+version = "0.1.0"
+description = "Migrate the 2011 Arquillian core (Java 6, Maven, JUnit 4) to Java 25, one era at a time, preserving its recorded behaviour at every step."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["java", "migration", "multi-step", "legacy"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["java", "jdk", "gradle", "jpms", "jakarta", "migration", "multi-step"]
+
+[environment]
+# One agent image serves every step: five JDKs (8, 11, 17, 21, 25), Maven and
+# Gradle, a warm dependency cache, and the pinned upstream tree at
+# /app/arquillian. No JDK 6 — the retired toolchain is absent by construction.
+# Building it pulls five Temurin images and two Gradle distributions.
+build_timeout_sec = 2400.0
+# 7, not 8: Harbor GKE requests this many millicores and an e2-standard-8 node
+# only has 7910m allocatable, so cpus = 8 never gets a pod.
+cpus = 7
+memory_mb = 8192
+storage_mb = 16384
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench: withholding the network is not a
+# legitimate way to make a task harder.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. Each step's verifier image
+# carries exactly the one JDK that step's tree is built and run with.
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 2400.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 16384
+gpus = 0
+workdir = "/app"
+# Grading needs the network, and `public` is not decoration here. Each verifier
+# image bakes the dependency caches, but one coordinate is not in them:
+# junit:junit:3.8.2, reached with no version through shrinkwrap-resolver ->
+# aether-connector-wagon -> plexus-container-default and pinned by that parent.
+# Measured on an unchanged tree the harness scored 1.000000: the same image and
+# command under `--network=none` fails the build on that one .pom and scores
+# 0.498684. Do not narrow this to "none".
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local 0–1>} to reward.json. No
+# min_reward: a zero or partial score never stops the trial.
+[[steps]]
+name = "01-gradle-jdk8"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-junit5-testing"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-java7"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-java8-lang"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-java8-lib"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-java9-10"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-java11-jakarta"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-jpms"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "09-java17"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "10-java21"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "11-security-api-removal"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "12-java25"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "13-static-closure"
+[steps.agent]
+# Keep synchronized with environment/timer.sh (STEP_TIMEOUT_SEC).
+timeout_sec = 10800.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0

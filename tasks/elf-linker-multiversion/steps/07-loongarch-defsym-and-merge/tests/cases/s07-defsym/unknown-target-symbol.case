@@ -1,0 +1,28 @@
+# arch: x86_64
+# --defsym against a symbol that does not exist must be diagnosed and must name
+# the symbol; the same link without that switch still succeeds, so the failure
+# is attributable to --defsym and not to the inputs. Only the non-zero status
+# and the offending token are graded -- the rest of the wording is the
+# implementation's own (TEST_INTERFACE.md section 2).
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int real_fn(int);
+int entry(void) { putdec(real_fn(3)); print("\n"); return 0; }
+C
+cc_obj m.o m.c
+cat > f.c <<'C'
+int real_fn(int x) { return x + 39; }
+C
+cc_obj f.o f.c
+# Positive control first: the alias works, which is what fails before this
+# release regardless of the diagnostic below.
+link_ok good --defsym=an_alias=real_fn --no-gc-sections rt.o m.o f.o
+want "the alias resolved" "$(sym_value good an_alias)" "$(sym_value good real_fn)"
+run_expect good "42" 0
+
+link_fails bad --defsym=an_alias=no_such_symbol_here --no-gc-sections rt.o m.o f.o
+printf '%s\n' "$LINK_OUT" > err.txt
+grep -q 'no_such_symbol_here' err.txt || die "diagnostic does not name the symbol: $(cat err.txt)"
+
+asserts_at_least 1

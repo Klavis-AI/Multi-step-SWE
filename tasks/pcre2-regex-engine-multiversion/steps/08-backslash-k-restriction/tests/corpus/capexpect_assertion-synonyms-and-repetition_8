@@ -1,0 +1,52 @@
+# (?* and (?<* are synonyms for (*napla: and (*naplb:.
+/(?*\w*(\w))\1\w*$/
+    abcd
+ 0: abcd
+ 1: a
+    xyzx
+ 0: xyzx
+ 1: x
+
+/(?<*(\w\w)|(\w)(\w))\3/
+    qzz
+ 0: z
+ 1: <unset>
+ 2: q
+ 3: z
+
+# The atomic forms still behave atomically.
+/(?=\w*(\w))\1\w*$/
+    abcd
+ 0: d
+ 1: d
+
+# A non-atomic assertion containing (*ACCEPT) is treated as atomic.
+/(?*\w*(\w)(*ACCEPT))\1\w*$/
+    abcd
+ 0: d
+ 1: d
+
+# A repeated assertion is no longer clamped to one repetition; the callouts
+# count how many times the assertion is actually run.
+/(?=(?C2)a|(?C3)b){2}b/
+    ab
+--->ab
+  2  ^     a
+  3  ^     b
+  2  ^     a
+  3  ^     b
+ 0: b
+
+/(?!(?C4)z){3}a/
+    a
+--->a
+  4 ^     z
+  4 ^     z
+  4 ^     z
+ 0: a
+
+/(?=(?C5)a){2,}b/
+    ab
+--->ab
+  5  ^     a
+No match

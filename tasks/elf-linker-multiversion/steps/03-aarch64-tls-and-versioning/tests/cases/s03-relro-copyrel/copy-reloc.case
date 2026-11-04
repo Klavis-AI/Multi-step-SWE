@@ -1,0 +1,48 @@
+# arch: x86_64
+# A non-PIC executable taking the address of a data object defined by a shared
+# library gets an R_X86_64_COPY: space is reserved in .bss, the executable's
+# definition of the symbol takes that address with the library's size, and the
+# symbol is emitted into both .dynsym and .symtab -- and the result RUNS: the
+# real loader copies st_size bytes from the library into the reserved .bss,
+# which is the only check that the reservation is actually usable.
+rt_obj rt.o
+cat > lib.c <<'C'
+long shared_data[4] = {11, 22, 33, 44};
+long libfn(void) { return shared_data[0]; }
+C
+cc_obj lib.o lib.c -fPIC
+ld -shared -soname liby.so.1 -o liby.so.1 lib.o 2> ld.err || die "fixture ld failed: $(tail -2 ld.err)"
+cat > m.c <<'C'
+extern long shared_data[4];
+int entry(void) { return (int)shared_data[1]; }
+C
+cc_obj m.o m.c -fno-pic
+relocs m.o > in.rel
+grep -q 'R_X86_64_PC32 .* shared_data' in.rel || die "input is not a direct reference: $(cat in.rel)"
+link_ok out rt.o m.o liby.so.1 -dynamic-linker /lib64/ld-linux-x86-64.so.2 -rpath '$ORIGIN'
+relocs out > r.txt; symbols out > sym.txt; sections out > sec.txt
+grep -qE 'R_X86_64_COPY .* shared_data' r.txt || die "no copy relocation was created: $(cat r.txt)"
+want "exactly one copy relocation" "$(grep -c 'R_X86_64_COPY' r.txt)" "1"
+co=$(awk '/R_X86_64_COPY/ { print $1; exit }' r.txt)
+sv=$(sym_value out shared_data)
+want "the copy relocation targets the executable's symbol" "$((0x$co))" "$((0x$sv))"
+ba=$(sec_addr out .bss); bz=$(sec_size out .bss)
+[ -n "$ba" ] || die "no .bss section: $(cat sec.txt)"
+[ $((0x$sv)) -ge $((0x$ba)) ] && [ $((0x$sv + 32)) -le $((0x$ba + 0x$bz)) ] \
+  || die "the copy at 0x$sv does not fit in .bss [0x$ba +0x$bz)"
+grep -qE '\.bss +NOBITS' sec.txt || die ".bss is not NOBITS: $(grep bss sec.txt)"
+want "size carried over from the library" \
+  "$(awk '$8 == "shared_data" { print $3; exit }' sym.txt)" "32"
+want "shared_data in both .dynsym and .symtab" "$(grep -c ' shared_data$' sym.txt)" "2"
+grep -qE 'OBJECT +GLOBAL +DEFAULT +[0-9]+ shared_data' sym.txt \
+  || die "shared_data is still undefined in the executable: $(grep shared_data sym.txt)"
+# Run it. shared_data[1] is 22 in the library's initialiser, so a loader that
+# could apply the copy relocation exits 22; DT_RUNPATH $ORIGIN finds the
+# library beside the executable without touching the environment.
+run_expect out "" 22
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

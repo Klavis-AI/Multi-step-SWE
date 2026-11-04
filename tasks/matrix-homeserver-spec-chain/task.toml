@@ -1,0 +1,119 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/matrix-homeserver-spec-chain"
+version = "1.0.0"
+description = "Carry a Matrix homeserver written in C from Client-Server API v1.1 to v1.15, adding federation, end-to-end-encryption surfaces, threads and spaces, authenticated media, sliding sync and next-generation auth."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["matrix", "homeserver", "protocol", "c", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["matrix", "protocol", "federation", "c", "multi-step"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# The verifier image is a plain Debian toolchain: it builds the collected
+# workspace and replays recorded transcripts against it.  No reference
+# homeserver runs at grading time.
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# No network: the graded build compiles C against the image's own libraries,
+# every server the scenarios start (the candidate, the step-2 federation partner
+# baked into the image, the fake federation peers) binds 127.0.0.1, and the
+# scorer fetches nothing.  So the verifier needs no network, and nothing (a real
+# homeserver included) can be downloaded at grade time.  The agent's
+# [environment] stays public.
+network_mode = "no-network"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-cs-v1.1"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-federation"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-e2ee-surfaces"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-v1.4-v1.6"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-v1.7-v1.9"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-v1.10-v1.11"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "07-v1.12-v1.13"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "08-v1.14-v1.15"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+

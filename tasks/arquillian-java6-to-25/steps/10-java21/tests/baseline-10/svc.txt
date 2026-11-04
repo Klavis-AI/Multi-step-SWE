@@ -1,0 +1,34 @@
+# Step 08 -- C-3's population: every method on this tree that resolves
+# something by name at run time, tagged by what must happen to it.
+#
+#     legacy <bucket>   a service lookup that must stop scanning by hand
+#     arrive <bucket>   the same, which must call java.util.ServiceLoader.load
+#     keep   <bucket>   a by-name class load that must NOT move
+#
+# 2 service lookups, 11 by-name loads, derived by
+# mk-baseline-step08.sh from the svcload records of baseline-step08-source.txt
+# and partitioned by the SERVICE list stated at the head of that script.
+#
+# WHY THE ELEVEN ARE NOT A STYLE QUESTION. java.util.ServiceLoader answers
+# "give me every provider of this interface". It cannot answer "is this one
+# class on the classpath" (SecurityActions#isClassPresent, four projects), "load
+# the class this string names" (ServiceLoader#createInstance, JMXTestRunner's
+# constructor, ServletTestRunner#doGet, the EJB and resource enrichers) or
+# "delegate this resource lookup to a parent" (FilteredURLClassLoader's two
+# overrides). A tree that rewrote them would not compile, and if it did it would
+# fail family A in five subsystems.
+legacy impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java#load
+legacy spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java#reload
+arrive impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java#load
+arrive spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java#reload
+keep impl-base/src/main/java/org/jboss/arquillian/impl/domain/FilteredURLClassLoader.java#getResource
+keep impl-base/src/main/java/org/jboss/arquillian/impl/domain/FilteredURLClassLoader.java#loadClass
+keep impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java#isClassPresent
+keep protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXTestRunner.java#<init>
+keep protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/ServletTestRunner.java#doGet
+keep spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java#createInstance
+keep testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java#isClassPresent
+keep testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/EJBInjectionEnricher.java#injectClass
+keep testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java#isClassPresent
+keep testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricher.java#injectClass
+keep testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java#isClassPresent

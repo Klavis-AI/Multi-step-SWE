@@ -1,0 +1,5 @@
+print(string.format("%s|%10s|%-10s|%.2s|", "hi", "hi", "hi", "hello"))
+print(string.format("%q", "a\nb"))
+print(string.format("%q", 'quote" back\\slash'))
+print(string.format("%q", "nul\0end"))
+print(string.format("%%"))

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Copyright (C) 2009 The Android Open Source Project
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.madgag</groupId>
+    <artifactId>mini-git-server-parent</artifactId>
+    <version>0.5-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>mini-git-server-app</artifactId>
+  <name>mini-git-server - Application</name>
+  <packaging>jar</packaging>
+
+  <description>
+    mini-git-server packaged as a self-contained executable jar
+  </description>
+
+  <dependencies>
+    <!-- log4j is declared once, below, and takes its version and its four
+         exclusions from the parent's dependencyManagement. This module used to
+         declare it twice: once with an inline 1.2.16 and the exclusions
+         repeated, once bare. Maven 3.9 reports that as a malformed model
+         ("must be unique") and later Maven versions may refuse it. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-log4j12</artifactId>
+      <!-- At 2.0.18 this artifact is still a relocation to slf4j-reload4j,
+           the same one it became at 1.7.36, and it still
+           pulls in reload4j: a fork of log4j 1.2 carrying the same
+           org.apache.log4j packages as the log4j this reactor compiles
+           against. Two jars offering one package is a coin toss at class
+           load time, so the fork is excluded and log4j stays the single
+           provider. Which of the two to keep is a logging question, and
+           logging is not what this step is changing. -->
+      <exclusions>
+        <exclusion>
+          <groupId>ch.qos.reload4j</groupId>
+          <artifactId>reload4j</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>log4j</groupId>
+      <artifactId>log4j</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.madgag</groupId>
+      <artifactId>mini-git-server-sshd</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.madgag</groupId>
+      <artifactId>mini-git-server-httpd</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+
+  <profiles>
+    <profile>
+      <id>include-documentation-profile</id>
+      <activation>
+        <property>
+          <name>gerrit.include-documentation</name>
+        </property>
+      </activation>
+    </profile>
+  </profiles>
+
+  <build>
+    <finalName>mini-git-server-${project.version}</finalName>
+    <plugins>
+      <plugin>
+        <!-- Rewrites this module's jar into a self-contained executable one:
+             the application's own classes under BOOT-INF/classes, every
+             dependency under BOOT-INF/lib, and a manifest naming the class
+             with main(). `java -jar` is then the whole deployment. -->
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

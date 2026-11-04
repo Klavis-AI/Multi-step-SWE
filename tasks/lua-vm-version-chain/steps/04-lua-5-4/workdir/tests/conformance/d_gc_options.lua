@@ -1,0 +1,6 @@
+print(type(collectgarbage("count")))
+print(collectgarbage("collect"))
+print(collectgarbage("stop") ~= nil, collectgarbage("restart") ~= nil)
+print(pcall(collectgarbage, "nosuchoption"))
+print(tostring(collectgarbage("isrunning")))
+print(select("#", collectgarbage("count")))

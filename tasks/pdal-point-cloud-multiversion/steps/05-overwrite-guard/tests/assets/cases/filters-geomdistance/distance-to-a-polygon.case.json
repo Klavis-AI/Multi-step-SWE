@@ -1,0 +1,47 @@
+{
+  "doc": "stages/filters.geomdistance.rst: 'The geomdistance filter computes the distance between a given polygon and points.' -- against the square [0,4]x[0,4] the 10x10x10 lattice splits cleanly: the 5x5 columns inside the square are at distance 0 (250 points) and the farthest corner (9,9) is sqrt(5^2+5^2) = sqrt(50) away. Assigning the distance to Z lets the LAS read-back see it at the writer's 0.01 scale.",
+  "files": {
+    "in.las": {
+      "fixture": "grid.las"
+    },
+    "p.json": {
+      "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.geomdistance\",\"geometry\":\"POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0))\"},{\"type\":\"filters.assign\",\"value\":\"Z = distance\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"
+    }
+  },
+  "run": [
+    {
+      "argv": [
+        "pipeline",
+        "p.json"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "kind": "exit",
+      "run": 0,
+      "equals": 0
+    },
+    {
+      "kind": "las",
+      "file": "out.las",
+      "header": {
+        "point_count": 1000
+      },
+      "dims": {
+        "Z": {
+          "min": {
+            "equals": 0.0
+          },
+          "max": {
+            "approx": 7.0710678,
+            "tol": 0.011
+          },
+          "count_equal": {
+            "0": 250
+          }
+        }
+      }
+    }
+  ]
+}

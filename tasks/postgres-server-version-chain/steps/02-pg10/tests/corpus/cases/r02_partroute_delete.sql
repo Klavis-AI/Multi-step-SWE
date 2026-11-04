@@ -1,0 +1,11 @@
+CREATE TABLE q2_rtd(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q2_rtd_1 PARTITION OF q2_rtd FOR VALUES FROM (1) TO (10);
+CREATE TABLE q2_rtd_2 PARTITION OF q2_rtd FOR VALUES FROM (10) TO (20);
+INSERT INTO q2_rtd SELECT g, 'v' || g FROM generate_series(1,19) g;
+DELETE FROM q2_rtd WHERE a % 2 = 0;
+SELECT count(*) FROM q2_rtd;
+DELETE FROM q2_rtd WHERE a = 11 RETURNING a, b;
+SELECT a FROM q2_rtd ORDER BY a;
+TRUNCATE q2_rtd;
+SELECT count(*) FROM q2_rtd, q2_rtd_1;
+DROP TABLE q2_rtd;

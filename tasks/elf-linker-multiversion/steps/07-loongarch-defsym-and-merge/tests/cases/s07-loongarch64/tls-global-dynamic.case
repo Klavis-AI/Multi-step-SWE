@@ -1,0 +1,42 @@
+# arch: loongarch64
+# The general-dynamic TLS sequence (R_LARCH_TLS_GD_PC_HI20 + a call to
+# __tls_get_addr) must allocate two consecutive GOT slots per symbol -- module
+# id first, then the offset within the module's block -- and relocate them with
+# R_LARCH_TLS_DTPMOD64 and R_LARCH_TLS_DTPREL64.
+cat > t.c <<'C'
+__thread int tv1 = 11;
+__thread int tv2 = 22;
+int getsum(void) { return tv1 + tv2; }
+C
+cc_obj t.o t.c -fPIC -O1 -ftls-model=global-dynamic
+relocs t.o > t.rel
+grep -q 'R_LARCH_TLS_GD_PC_HI20' t.rel || die "input lacks TLS_GD_PC_HI20: $(cat t.rel)"
+link_ok gd.so -shared --no-gc-sections t.o
+r=$(relocs gd.so)
+want_has "tv1 gets a module-id slot" "$r" 'R_LARCH_TLS_DTPMOD64 .* tv1 \+ 0'
+want_has "tv1 gets an offset slot"   "$r" 'R_LARCH_TLS_DTPREL64 .* tv1 \+ 0'
+want_has "tv2 gets a module-id slot" "$r" 'R_LARCH_TLS_DTPMOD64 .* tv2 \+ 0'
+want_has "tv2 gets an offset slot"   "$r" 'R_LARCH_TLS_DTPREL64 .* tv2 \+ 0'
+# The pair is two adjacent 8-byte GOT slots, module id before offset.
+mod=$(awk '/R_LARCH_TLS_DTPMOD64/ && / tv1 /{print $1; exit}' <<<"$r")
+off=$(awk '/R_LARCH_TLS_DTPREL64/ && / tv1 /{print $1; exit}' <<<"$r")
+[ -n "$mod" ] && [ -n "$off" ] || die "tv1's GD pair is missing from .rela.dyn: $r"
+want "tv1's offset slot follows its module-id slot" "$(( 16#$off - 16#$mod ))" "8"
+has_section gd.so '\.got' || die "no .got in the output: $(sections gd.so)"
+want_has "a PT_TLS segment describes the template" "$(segments gd.so)" '^ *TLS '
+want "shared e_type" "$(hdr gd.so | awk '/^ *Type:/{print $2}')" "DYN"
+
+# The ABI's local-dynamic model is under-specified and the reference treats
+# R_LARCH_TLS_LD_* as general dynamic, so the same source compiled local-dynamic
+# must produce the same pair of dynamic relocations per symbol.
+cc_obj l.o t.c -fPIC -O1 -ftls-model=local-dynamic
+relocs l.o > l.rel
+grep -q 'R_LARCH_TLS_LD_PC_HI20' l.rel || die "input lacks TLS_LD_PC_HI20: $(cat l.rel)"
+link_ok ld.so -shared --no-gc-sections l.o
+lr=$(relocs ld.so)
+want_has "local-dynamic tv1 gets a module-id slot" "$lr" 'R_LARCH_TLS_DTPMOD64 .* tv1 \+ 0'
+want_has "local-dynamic tv1 gets an offset slot"   "$lr" 'R_LARCH_TLS_DTPREL64 .* tv1 \+ 0'
+want_has "local-dynamic tv2 gets a module-id slot" "$lr" 'R_LARCH_TLS_DTPMOD64 .* tv2 \+ 0'
+want_has "local-dynamic tv2 gets an offset slot"   "$lr" 'R_LARCH_TLS_DTPREL64 .* tv2 \+ 0'
+
+asserts_at_least 11

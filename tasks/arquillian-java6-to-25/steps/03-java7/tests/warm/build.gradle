@@ -1,0 +1,54 @@
+plugins { id 'base' }
+
+// The two repositories the pinned reactor's own dependencies actually live in.
+// Measured, not assumed: 68 of the 73 coordinates in deps.txt are on Maven
+// Central and five are not -- jboss.web:servlet-api, org.jboss.osgi:*,
+// org.jboss.osgi.jmx:*, org.jboss.osgi.vfs:* (x2) -- which is why the second
+// one is here. Both are named with the URLs a candidate would write, so the
+// cache entries this warms are the ones a candidate's own `mavenCentral()`
+// will hit.
+repositories {
+   if (project.hasProperty('offlineRepo')) {
+      maven { url = uri(project.property('offlineRepo')) }
+   } else if (project.hasProperty('useMavenLocal')) {
+      // The control that matters most: `mavenLocal()` is what a candidate's
+      // build will actually declare, and it resolves ~/.m2/repository from the
+      // JVM's user.home -- which on Linux comes from the passwd entry, not from
+      // $HOME. Exercising the real mechanism is the only way to catch a home
+      // directory that does not exist.
+      mavenLocal()
+   } else {
+      mavenCentral()
+      maven { url = uri('https://repository.jboss.org/nexus/content/groups/public/') }
+   }
+}
+
+configurations { warm }
+
+dependencies {
+   // deps.txt is `mvn dependency:list -DincludeScope=test` over the pinned
+   // reactor, minus the reactor's own modules: 73 coordinates.
+   //
+   // Resolved transitively rather than as a flat list, because Maven and Gradle
+   // do not pick the same versions. Maven's nearest-definition-wins gave the 73;
+   // Gradle's newest-wins reaches 78. Warming the flat 73 would leave the five
+   // Gradle actually selects uncached, and the miss would only show up as a
+   // network fetch during grading.
+   file('deps.txt').readLines().findAll { it.trim() && !it.startsWith('#') }.each {
+      warm(it.trim())
+   }
+}
+
+// Resolution is the point; nothing is compiled and no output is kept.
+tasks.register('warmUp') {
+   doLast {
+      def files = configurations.warm.resolve()
+      println "arqwarm.artifacts=${files.size()}"
+      // A configuration that resolved to nothing is what an empty or misread
+      // deps.txt looks like, and it would leave the image with a cold cache and
+      // a green build log.
+      if (files.size() < 70) {
+         throw new GradleException("arqwarm: only ${files.size()} artifact(s) resolved; expected >= 70")
+      }
+   }
+}

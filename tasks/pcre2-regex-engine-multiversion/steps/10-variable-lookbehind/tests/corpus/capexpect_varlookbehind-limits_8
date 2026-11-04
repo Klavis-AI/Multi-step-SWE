@@ -1,0 +1,53 @@
+# The maximum length of one variable-length lookbehind branch is set by the
+# calling program and defaults to 255 characters.  pcre2test.1, "Specifying a
+# maximum for variable lookbehinds"; pcre2limits.3, "SIZE AND OTHER
+# LIMITATIONS"; ChangeLog 10.43 item 24.
+
+/(?<=p{1,255})Q/
+    ppQ
+ 0: Q
+
+/(?<=p{1,256})Q/
+Failed: error 200 at offset 0: branch too long in variable-length lookbehind assertion
+
+# max_varlookbehind changes the limit for later compilations.
+/(?<=ho?ld)Q/max_varlookbehind=4
+    holdQ
+ 0: Q
+    hldQ
+ 0: Q
+
+/(?<=ho?ld)Q/max_varlookbehind=3
+Failed: error 200 at offset 0: branch too long in variable-length lookbehind assertion
+
+/(?<=ho?ld)Q/max_varlookbehind=255
+    holdQ
+ 0: Q
+
+# Branches that all match a fixed length are outside that limit; they keep
+# the older 65535-character ceiling.
+/(?<=p{5})Q/max_varlookbehind=2
+    pppppQ
+ 0: Q
+    pppQ
+No match
+
+/(?<=wharf|quay)Q/max_varlookbehind=1
+    wharfQ
+ 0: Q
+    quayQ
+ 0: Q
+
+# Unlimited repetition is refused however high the limit is set.
+/(?<=p*)Q/max_varlookbehind=255
+Failed: error 125 at offset 0: length of lookbehind assertion is not limited
+
+/(?<=ab+)Q/max_varlookbehind=255
+Failed: error 125 at offset 0: length of lookbehind assertion is not limited
+
+# \X is not permitted, and neither is recursion into a group already active.
+/(?<=\Xz)Q/
+Failed: error 125 at offset 0: length of lookbehind assertion is not limited
+
+/(?<=a(?R)?b)Q/
+Failed: error 125 at offset 0: length of lookbehind assertion is not limited

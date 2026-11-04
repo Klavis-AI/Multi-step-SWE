@@ -1,0 +1,35 @@
+# Step 10 -- C-3's frozen population: every multi-arm reflective type dispatch
+# over ONE operand in this tree's main sources.
+#
+#     <file>#<method> conv|hold arms=<n> sel=<expr> types=<T;T>
+#
+# 4 chains covering 10 arms convert to a pattern switch; 2 chains of the same
+# shape must stay if-chains, because every one of their arms is a
+# `X.class.isAssignableFrom(someClassValue)` that no `case` label can
+# express. The hold pair is the look-alike, and "did the candidate convert the
+# one that cannot be converted" is the question this leg exists to ask.
+#
+# WHAT THE GATE READS. A conv chain's method must hold a `swpat` record whose
+# pattern count is at least the chain's arm count and whose types cover the
+# chain's; a hold chain's method must hold none. `swpat.nullcase` is
+# PUBLISHED AS A FACT AND SCORED BY NOTHING -- see NOTES 15.4. Whether a
+# `case null` is required depends on what the if-chain fell through TO, this
+# tree gives three different answers across these four methods, and freezing an
+# author's reading of four methods into a static gate is exactly what a
+# recorded must-flip input is for. baseline-step10-swids.txt is that scaling,
+# and it is NOT a list of nulls: 5 recordings, the null answer at the two
+# enricher chains where that input is reachable, and the unmatched-type
+# fall-through -- an IllegalArgumentException naming the archive's class -- at
+# the two three-arm packager chains, which a null never reaches because
+# TestDeployment's constructor throws first. Six of the 10 arms are in those
+# two methods, so a scaling that could not flip there was scaling nothing.
+#
+# Derived by mk-baseline-step10.sh via mk-census-step10.py from the same
+# reftest records baseline-step10-reftest.txt is drawn from: a chain is two or
+# more of them in one bucket over one selector text.
+impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/AnnotationDeploymentScenarioGenerator.java#generateDeployment hold arms=2 sel=deploymentMethod.getReturnType() types=Archive;Descriptor
+impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/AnnotationDeploymentScenarioGenerator.java#validate hold arms=2 sel=deploymentMethod.getReturnType() types=Archive;Descriptor
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/v_2_5/ServletProtocolDeploymentPackager.java#generateDeployment conv arms=3 sel=applicationArchive types=EnterpriseArchive;JavaArchive;WebArchive
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/v_3/ServletProtocolDeploymentPackager.java#generateDeployment conv arms=3 sel=applicationArchive types=EnterpriseArchive;JavaArchive;WebArchive
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/BeansXMLProtocolProcessor.java#process conv arms=2 sel=protocolArchive types=JavaArchive;WebArchive
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricher.java#resolveResource conv arms=2 sel=element types=Field;Method

@@ -1,0 +1,160 @@
+diff -ruN S3/vortex-array/src/arrays/bool/compute/filter.rs S4/vortex-array/src/arrays/bool/compute/filter.rs
+--- a/vortex-array/src/arrays/bool/compute/filter.rs	2026-09-23 17:16:12.814690116 +0000
++++ b/vortex-array/src/arrays/bool/compute/filter.rs	2026-09-23 16:23:16.805912592 +0000
+@@ -3,6 +3,7 @@
+ 
+ use vortex_buffer::BitBuffer;
+ use vortex_buffer::BitBufferMut;
++use vortex_buffer::CpuKernel;
+ use vortex_buffer::get_bit;
+ use vortex_error::VortexExpect;
+ use vortex_error::VortexResult;
+@@ -18,7 +19,7 @@
+ use crate::arrays::filter::FilterReduce;
+ 
+ /// Below this density threshold, use the sparse path which iterates only set
+-/// bits in the mask. Above it, walking the mask a word at a time is faster.
++/// bits in the mask. Above it, the word-level PEXT approach is faster.
+ const SPARSE_DENSITY_THRESHOLD: f64 = 0.05;
+ 
+ impl FilterReduce for Bool {
+@@ -82,24 +83,50 @@
+ 
+ /// Extract bits from `src` where corresponding bits in `mask_buf` are set.
+ ///
+-/// Compacts the selected bits of each 64-bit word into the output, with a u128 accumulator to
+-/// simplify overflow handling. Fast paths skip the compaction entirely for all-ones and
+-/// all-zeros mask words.
++/// Uses a software PEXT (parallel bit extract) to compact selected bits from
++/// each 64-bit word, with a u128 accumulator to simplify overflow handling.
++/// Fast paths skip PEXT entirely for all-ones and all-zeros mask words.
+ pub fn filter_bitbuffer_by_mask(
+     src: &BitBuffer,
+     mask_buf: &BitBuffer,
+     true_count: usize,
+ ) -> BitBuffer {
+-    filter_pext_fallback(src, mask_buf, true_count)
++    type FilterKernel = unsafe fn(&BitBuffer, &BitBuffer, usize) -> BitBuffer;
++    static KERNEL: CpuKernel<FilterKernel> = CpuKernel::new(|| {
++        #[cfg(target_arch = "x86_64")]
++        {
++            if std::arch::is_x86_feature_detected!("bmi2") {
++                return filter_pext_bmi2;
++            }
++        }
++        filter_pext_fallback
++    });
++    // SAFETY: the selector only returns kernels that are safe or whose required CPU
++    // features were probed before selection.
++    unsafe { KERNEL.get()(src, mask_buf, true_count) }
++}
++
++/// BMI2-native filter: entire function compiled with BMI2+POPCNT enabled.
++///
++/// The compiler generates PEXT for bit extraction, SHLX/SHRX for flag-free
++/// shifts, and POPCNT for population count — no runtime feature checks in
++/// the hot loop.
++#[cfg(target_arch = "x86_64")]
++#[target_feature(enable = "bmi2,popcnt")]
++unsafe fn filter_pext_bmi2(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
++    use std::arch::x86_64::_pext_u64;
++
++    filter_inner(src, mask_buf, true_count, |src, mask| _pext_u64(src, mask))
+ }
+ 
+ /// Software fallback filter using byte-LUT PEXT.
+ fn filter_pext_fallback(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+-    filter_inner(src, mask_buf, true_count)
++    filter_inner(src, mask_buf, true_count, pext_fallback)
+ }
+ 
+-/// Core filter loop: walk the mask a word at a time and compact the selected bits.
++/// Core filter loop parameterized by the PEXT implementation.
+ ///
++/// Extracted so the same logic is shared between the software and hardware paths.
+ /// Uses raw pointer writes instead of Vec::push to eliminate bounds checks
+ /// in the hot loop — we know the exact output size from true_count.
+ #[allow(clippy::inline_always)]
+@@ -109,6 +136,7 @@
+     src: &BitBuffer,
+     mask_buf: &BitBuffer,
+     true_count: usize,
++    pext_fn: impl Fn(u64, u64) -> u64,
+ ) -> BitBuffer {
+     debug_assert_eq!(src.len(), mask_buf.len());
+ 
+@@ -128,7 +156,7 @@
+ 
+     for (src_word, mask_word) in src_chunks.iter().zip(mask_chunks.iter()) {
+         if mask_word == u64::MAX {
+-            // All 64 bits selected — copy the source word directly.
++            // All 64 bits selected — copy source word directly, no PEXT needed.
+             accum |= (src_word as u128) << accum_bits;
+             accum_bits += 64;
+             if accum_bits >= 64 {
+@@ -145,7 +173,7 @@
+             continue;
+         }
+ 
+-        let extracted = pext_fallback(src_word, mask_word);
++        let extracted = pext_fn(src_word, mask_word);
+ 
+         accum |= (extracted as u128) << accum_bits;
+         accum_bits += popcount;
+@@ -163,7 +191,7 @@
+         let src_rem = src_chunks.remainder_bits();
+         let popcount = remainder.count_ones();
+         if popcount > 0 {
+-            let extracted = pext_fallback(src_rem, remainder);
++            let extracted = pext_fn(src_rem, remainder);
+             accum |= (extracted as u128) << accum_bits;
+             accum_bits += popcount;
+             if accum_bits >= 64 {
+@@ -353,4 +381,47 @@
+         );
+     }
+ 
++    #[cfg(target_arch = "x86_64")]
++    #[test]
++    fn test_pext_fallback_matches_hardware() {
++        use std::arch::x86_64::_pext_u64;
++
++        use super::pext_fallback;
++
++        if !std::arch::is_x86_feature_detected!("bmi2") {
++            return;
++        }
++        let test_cases: Vec<(u64, u64)> = vec![
++            (0, 0),
++            (u64::MAX, u64::MAX),
++            (u64::MAX, 0),
++            (0, u64::MAX),
++            (0xAAAA_AAAA_AAAA_AAAA, 0x5555_5555_5555_5555),
++            (0x5555_5555_5555_5555, 0xAAAA_AAAA_AAAA_AAAA),
++            (0xDEAD_BEEF_CAFE_BABE, 0xFFFF_0000_FFFF_0000),
++            (0x1234_5678_9ABC_DEF0, 0xF0F0_F0F0_F0F0_F0F0),
++            (u64::MAX, 1),
++            (u64::MAX, 1u64 << 63),
++            (0x8000_0000_0000_0001, 0x8000_0000_0000_0001),
++        ];
++        for (src, mask) in test_cases {
++            let hw = unsafe { _pext_u64(src, mask) };
++            let sw = pext_fallback(src, mask);
++            assert_eq!(hw, sw, "mismatch for src={src:#018x} mask={mask:#018x}");
++        }
++        let mut rng = 0xDEAD_BEEF_u64;
++        for _ in 0..1000 {
++            rng ^= rng << 13;
++            rng ^= rng >> 7;
++            rng ^= rng << 17;
++            let src = rng;
++            rng ^= rng << 13;
++            rng ^= rng >> 7;
++            rng ^= rng << 17;
++            let mask = rng;
++            let hw = unsafe { _pext_u64(src, mask) };
++            let sw = pext_fallback(src, mask);
++            assert_eq!(hw, sw, "mismatch for src={src:#018x} mask={mask:#018x}");
++        }
++    }
+ }

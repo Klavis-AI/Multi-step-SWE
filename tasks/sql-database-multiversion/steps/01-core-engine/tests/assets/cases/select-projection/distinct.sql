@@ -1,0 +1,5 @@
+CREATE TABLE t(a, b);
+INSERT INTO t VALUES(1,'p'),(1,'p'),(2,'q'),(NULL,'r'),(NULL,'r');
+SELECT DISTINCT a, b FROM t ORDER BY a, b;
+SELECT ALL a FROM t ORDER BY a;
+SELECT count(*) FROM (SELECT DISTINCT a FROM t);

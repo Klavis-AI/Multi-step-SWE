@@ -1,0 +1,71 @@
+id = "pep517-editable-build"
+step = 1
+group = "sdist-build"
+python = "3.12"
+mode = "venv"
+argv = ["pip", "install", "--no-cache", "-e", "./src"]
+observe = [
+  "status",
+  "glob:.venv/lib/python3.12/site-packages/*.dist-info",
+  "glob:.venv/lib/python3.12/site-packages/localproj/*",
+]
+
+[files]
+"src/pyproject.toml" = """
+[build-system]
+requires = []
+build-backend = "mybackend"
+backend-path = ["."]
+
+[project]
+name = "localproj"
+version = "0.3.0"
+"""
+"src/mybackend.py" = '''
+"""In-tree PEP 517/660 backend with no build requirements."""
+import base64, hashlib, os, zipfile
+
+DISTINFO = "localproj-0.3.0.dist-info"
+META = b"Metadata-Version: 2.1\nName: localproj\nVersion: 0.3.0\n\nlocalproj\n"
+
+
+def _make(wheel_directory, editable):
+    records = []
+    fname = "localproj-0.3.0-py3-none-any.whl"
+
+    def add(zf, arc, data):
+        zf.writestr(arc, data)
+        b64 = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+        records.append("%s,sha256=%s,%d" % (arc, b64, len(data)))
+
+    with zipfile.ZipFile(os.path.join(wheel_directory, fname), "w") as zf:
+        add(zf, "localproj/__init__.py", b"__version__ = '0.3.0'\n")
+        if editable:
+            add(zf, "localproj/built_by_editable_hook.py", b"HOOK = 'build_editable'\n")
+        add(zf, DISTINFO + "/METADATA", META)
+        add(zf, DISTINFO + "/WHEEL",
+            b"Wheel-Version: 1.0\nGenerator: mybackend\nRoot-Is-Purelib: true\nTag: py3-none-any\n")
+        records.append(DISTINFO + "/RECORD,,")
+        add(zf, DISTINFO + "/RECORD", ("\n".join(sorted(records)) + "\n").encode())
+    return fname
+
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    return _make(wheel_directory, False)
+
+
+def build_editable(wheel_directory, config_settings=None, metadata_directory=None):
+    return _make(wheel_directory, True)
+
+
+def build_sdist(sdist_directory, config_settings=None):
+    raise NotImplementedError
+
+
+def get_requires_for_build_wheel(config_settings=None):
+    return []
+
+
+def get_requires_for_build_editable(config_settings=None):
+    return []
+'''

@@ -1,0 +1,23 @@
+# arch: x86_64
+# -z stack-size=N must be recorded as p_memsz on PT_GNU_STACK, leaving the
+# segment non-executable and the program runnable.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("stack\n"); return 2; }
+C
+cc_obj m.o m.c
+link_ok plain --no-gc-sections rt.o m.o
+want "PT_GNU_STACK memsz defaults to 0" \
+     "$(( $(awk '/^ *GNU_STACK /{print $6}' <<<"$(segments plain)") ))" "0"
+
+link_ok out -z stack-size=0x200000 --no-gc-sections rt.o m.o
+seg=$(segments out)
+want_has "PT_GNU_STACK exists" "$seg" '^ *GNU_STACK '
+line=$(grep -E '^ *GNU_STACK ' <<<"$seg")
+want "p_memsz is the requested stack size" "$(( $(awk '{print $6}' <<<"$line") ))" "$((0x200000))"
+want "p_filesz stays zero" "$(( $(awk '{print $5}' <<<"$line") ))" "0"
+want_not "the stack stays non-executable" "$line" ' RWE '
+run_expect out "stack" 2
+
+asserts_at_least 5

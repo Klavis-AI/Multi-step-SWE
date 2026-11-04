@@ -1,0 +1,41 @@
+# arch: x86_64
+# --no-rosegment folds the read-only data into the executable segment instead
+# of giving it a segment of its own.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char msg[] = "merged";
+int g = 3;
+int entry(void) { print(msg); print("\n"); return g; }
+C
+cc_obj m.o m.c
+link_ok out --no-rosegment rt.o m.o
+
+# Inline helper (caselib has none for segments). Since 0.9.0 wild emits a
+# second writable PT_LOAD for RELRO, so segments are located by the address
+# they cover, never by ordinal or by permission bits.
+loads() { local t; t=$(segments "$1"); awk '/^ *LOAD /{f=""; for(i=7;i<NF;i++) f=f $i; print $3, $6, f}' <<<"$t"; }
+seg_of() { # seg_of <file> <hex-addr> -> "<index> <flags>"
+  local a=$((16#$2)) i=0 v m f
+  while read -r v m f; do
+    [ -n "$v" ] || continue
+    if [ "$a" -ge "$((v))" ] && [ "$a" -lt "$((v + m))" ]; then echo "$i $f"; return 0; fi
+    i=$((i + 1))
+  done <<<"$(loads "$1")"
+  return 1
+}
+
+ts=$(seg_of out "$(sec_addr out .text)")   || die ".text is in no PT_LOAD"
+rs=$(seg_of out "$(sec_addr out .rodata)") || die ".rodata is in no PT_LOAD"
+ds=$(seg_of out "$(sec_addr out .data)")   || die ".data is in no PT_LOAD"
+want ".rodata shares the code segment" "${rs%% *}" "${ts%% *}"
+want "and that segment is executable"  "${ts##* }" "RE"
+[ "${ds%% *}" != "${ts%% *}" ] || die "writable data was folded in as well"
+want_has ".data segment stays writable" "${ds##* }" 'W'
+run_expect out "merged" 3
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

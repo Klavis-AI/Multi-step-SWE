@@ -1,0 +1,56 @@
+# <group> <case-count> <kind> <share>
+#
+# kind is a graded property, not a label: the scorer reads it.
+#   gate    proof of life + inherited regression. Binary as a SET: if any
+#           gate group fails the step scores 0 however good the new work
+#           is. Earns nothing of its own. Share column is '-'.
+#   scored  this step's new capability. Shares are integers and the scorer
+#           normalises them, so the weights sum to exactly 1.0.
+#
+# reward = gate x score. A no-op preserves inherited behaviour (gate=1) and
+# implements nothing new (score=0), so it scores exactly 0.
+#
+# Step 09 - double-precision-abi.
+#
+# 9 scored groups, 5 gate groups.
+# Every comment is on its own line; the parser reads the fields after the group
+# name as <count> <kind> <share>, so a trailing comment would be swallowed into
+# the share and corrupt the weight arithmetic.
+#
+# scored groups, by the requirement they pin:
+#   se-time-precision       R1  simulation clock and time getters are double
+#                               (both the 3600 x 0.001 s and the 10000 x 0.0001 s
+#                               accumulation scenarios are exercised)
+#   se-state-abi            R2  SE_ScenarioObjectState / SE_RoadInfo members are double
+#   se-motion-abi           R3  motion reporters and getters take and return double
+#   se-report-signature     R4  SE_ReportObject* signatures take double
+#   rm-double-precision     R5  road-manager scalar getters return double, and the
+#                               answers behind them do not move
+#   rm-probe-abi            R6  RM_PositionData / RM_LaneInfo / RM_ProbeInfo are double
+#   dat-format-version      R7  the widened record layout bumps the .dat major version
+#   se-vehicle-model-abi    R8  the simple vehicle model and its state are double
+#   abi-symbol-removal      R9  the float-era duplicates leave the exported surface
+#
+# gate groups guard capabilities that already work at the start tag; they earn
+# nothing and exist only to veto:
+#   csv-logger-stability, odrplot-output (from earlier steps)
+#   esmini-cli-positional (added in step 08, must keep working here)
+#
+# the remaining gate groups are build-and-smoke proof of life.
+#
+# Gate:    5 groups /  5 cases  (earns nothing; vetoes)
+# Scored:  9 groups / 17 cases  (share 1 each -> weight 0.111111)
+se-time-precision      3  scored  1
+se-state-abi           2  scored  1
+se-motion-abi          2  scored  1
+se-report-signature    1  scored  1
+rm-double-precision    3  scored  1
+rm-probe-abi           2  scored  1
+dat-format-version     2  scored  1
+se-vehicle-model-abi   1  scored  1
+abi-symbol-removal     1  scored  1
+csv-logger-stability   1  gate    -
+odrplot-output         1  gate    -
+esmini-cli-positional  1  gate    -
+artifacts-present      1  gate    -
+extra-tool-smoke       1  gate    -

@@ -1,0 +1,155 @@
+source 'https://rubygems.org'
+
+ruby '3.0.7'
+
+# Versions move only where the framework or the interpreter forces them to.
+# Everything else stays where the 4.2 lockfile had it, because a gem that
+# changes under a migration changes the application's output for reasons the
+# migration did not ask for -- the markdown renderer, the analytics snippet
+# and the TwiML builder all emit bytes this application serves.
+#
+# This step moves two pins as well, but not for the last step's reason.  Rails
+# 6.1 runs on the 2.7 this tree arrives with, and Ruby 3.0 would run 6.0
+# perfectly well: neither forces the other, and it is the ladder that pairs
+# them.  6.1 is the last release that runs on both interpreters, so this is a
+# place where the interpreter can move under a framework that does not mind,
+# instead of against one that does.  The `ruby`
+# directive above, `.ruby-version` and the lockfile's RUBY VERSION all have to
+# name the same 3.0.7: whichever two of them disagree, something downstream
+# picks the interpreter the third one named.
+#
+# `bundle lock` against those two pins -- not `bundle update`, which floats
+# seventy-odd gems -- moves 20, adds 2 and drops 1.  Eleven of the twenty are
+# the framework's own list going to 6.1.7.10.  tzinfo 1.2 becomes 2.0 and takes
+# thread_safe out with it, 2.0 having dropped the dependency; matrix arrives
+# because Ruby 3.0 evicted it from the standard library, and regexp_parser
+# because capybara 3 asks for it.  The remaining four are floors this file has
+# to name, one gem at a time, each with its reason beside it below -- and not
+# one of them is a floor the RESOLVER objects to.  Every one of the four
+# resolves cleanly and then fails at runtime, which is why they were found by
+# booting the tree and running its suite rather than by reading a dependency.
+# pg is the framework's floor, not the interpreter's: Active Record 6.1's
+# PostgreSQL adapter opens with `gem "pg", "~> 1.1"` where 6.0 asked for
+# `>= 0.18, < 2.0`, so the 0.x line this application has been on since 4.2
+# stops loading -- `eager_load!` fails with "can't activate pg (~> 1.1),
+# already activated pg-0.21.0".  Nothing here touches the PGconn and PGresult
+# aliases pg 1.0 removed.  It stops at 1.4 rather than taking the newest 1.x
+# because pg 1.5 deprecated `PG::Coder.new(hash)` and this very adapter still
+# calls it that way (postgresql_adapter.rb:883), which puts a deprecation on
+# every boot that no application code can answer for.
+gem 'pg', '1.4.6'
+gem 'rails', '6.1.7.10'
+gem 'unicorn', '4.8.2'
+
+# Bootsnap caches the load path and the compiled bytecode of everything the
+# application requires; Rails 5.2 generates a `config/boot.rb` that enables it
+# and lists it here.  The pin moves because bootsnap 1.4's compile cache calls
+# `RubyVM::InstructionSequence#to_binary` and rescues only SyntaxError, and on
+# Ruby 3.0 -- on 3.0 alone, not on 2.7 and not on 3.1 -- `to_binary` raises
+# TypeError for any iseq holding a `def m(*)` whose body blocks to `super`.
+# thor's `lib/thor/base.rb:138` is exactly that shape and thor is railties'
+# dependency, so with bootsnap 1.4 nothing Rails-shaped can be required at all:
+# `rails -v` itself raises.  1.9.3 is the first release that rescues the
+# TypeError and marks the file uncompilable.  Clearing tmp/cache does not help,
+# because the failure is on the WRITE path.
+#
+# msgpack stays where it is.  1.9.3 asks only for `msgpack ~> 1.0` and 1.4.2
+# satisfies it; the pin is kept rather than dropped because bundler would
+# otherwise float msgpack on every future resolution for no reason anyone asked
+# for.
+gem 'bootsnap', '1.9.3', require: false
+gem 'msgpack', '1.4.2'
+
+gem 'high_voltage', '3.0.0'         # 2.x's StaticPage concern calls hide_action
+gem 'jbuilder', '~> 2.10'           # 2.9 calls `Proc.new` with no block; Ruby 3.0 removed that
+gem 'redcarpet', '3.1.1'
+gem 'will_paginate', '~> 3.1'       # 3.0.5 predates Rails 4.1's AR changes
+
+gem 'backbone-rails', '1.1.0'
+gem 'foundation-rails', '5.2.2.0'
+gem 'jquery-rails', '~> 4.0'   # 3.1 caps railties below 5.0
+gem 'leaflet-rails', '0.7.2'
+gem 'sass-rails', '~> 5.0.7'   # 5.0.4 caps railties below 5.0
+gem 'twitter-typeahead-rails', '0.10.2'
+gem 'uglifier', '2.5.0'
+
+gem 'google-analytics-rails', '0.0.5'
+gem 'soda-ruby', '0.2.12', require: 'soda'
+gem 'twilio-ruby', '3.11.5'
+
+# Two caps on gems nothing in this file used to have to name, both of them
+# holding a dependency on the last release that works under Rails 6.0.
+#
+# concurrent-ruby 1.3.5 dropped the `require "logger"` it had always carried,
+# and activesupport 6.0's LoggerThreadSafeLevel reads ::Logger at load time --
+# on 1.3.5 the framework does not finish loading.
+gem 'concurrent-ruby', '1.3.4'
+
+# json is a default gem and the lockfile takes whatever teaspoon's `>= 1.8.0`
+# resolves to.  activesupport 6.0's JSON encoder calls `JSON.generate(value,
+# quirks_mode: true, max_nesting: false)` and json 3.0 removed `quirks_mode`,
+# so a resolution that floats json turns every `to_json` this application
+# serves into an ArgumentError.  The cap holds it on the 2.x line it is on.
+gem 'json', '~> 2.7'
+
+# sass-rails 5.0.7 asks only for `sass ~> 3.1`, so dropping the 4.x sass-rails
+# floats sass from 3.2.19 to 3.7.4 -- and foundation-rails 5.2.2.0 guards every
+# one of its modules with `@if (index($modules, $name) == false)`, which sass 3.3
+# broke by returning `null` rather than `false` for a miss.  Under 3.7.4 the
+# framework emits nothing and `application.css` dies on `failed to @extend
+# ".left"`.  Holding sass where the application already had it keeps the
+# stylesheet the migration was not asked to change.
+gem 'sass', '3.2.19'
+
+group :test do
+  # 2.8.0 calls `BigDecimal.new` at load time, in
+  # validate_inclusion_of_matcher.rb:251, and Ruby 2.7 removed it.
+  gem 'shoulda-matchers', '~> 4.5'
+  gem 'timecop'
+  gem 'vcr'
+  gem 'webmock', '~> 2.3'
+end
+
+group :development, :test do
+  gem 'annotate'
+  # capybara 2.18's `matcher_proxies.rb:14` is `within_element(*args, &Proc.new)`
+  # -- the same removal as jbuilder's, so every `within '...' do` in a feature
+  # spec raises ArgumentError.  2.18.0 is the last 2.x, so the pin has to cross
+  # a major version; the line that costs is written out in the step's own diff.
+  gem 'capybara', '~> 3.0'
+  # teaspoon ships its runner as 20 .coffee sources and puts `teaspoon/*.js` on
+  # config.assets.precompile.  sprockets-rails 3 resolves that whole list the
+  # first time any *_path helper runs, so the CoffeeScript compiler stops being
+  # lazy the way sprockets 2 had it; without this every asset helper raises
+  # `LoadError: cannot load such file -- coffee_script`.
+  gem 'coffee-rails', '~> 5.0'   # 4.2's TemplateHandler.call takes one argument
+  gem 'dotenv-rails', '~> 2.7'
+  # factory_girl has printed its own deprecation on every boot since the
+  # 4.9 release; factory_bot 5 is the same library under its current name.
+  gem 'factory_bot_rails', '~> 5.2'
+  gem 'ffaker', '2.11.0'
+  gem 'launchy'
+  gem 'pry'
+  gem 'rails-controller-testing'    # `assigns` left ActionPack in 5.0
+  gem 'rspec-its'                   # `its(...)` left rspec-core in 3.0
+  gem 'rspec-rails', '~> 4.0'       # 3.9's EmptyTemplateHandler.call takes one argument
+  gem 'teaspoon'
+end
+
+group :development do
+  gem 'foreman'
+  gem 'guard-teaspoon', '~> 0.8'
+  gem 'guard-livereload'
+  gem 'rack-livereload'
+end
+
+group :production do
+  gem 'newrelic_rpm'
+  # rails_12factor is gone, and what its two gems set is set directly in
+  # config/environments/production.rb instead.  rails_serve_static_assets
+  # turns the file server on, which that file has always done for itself;
+  # rails_stdout_logging hands Rails a logger writing to STDOUT, and it builds
+  # that logger with `include ::LoggerSilence`, which Rails 6.0 deprecates on
+  # every boot.  Neither gem has had a release since 2016, so there is no
+  # version of this to upgrade to.
+end

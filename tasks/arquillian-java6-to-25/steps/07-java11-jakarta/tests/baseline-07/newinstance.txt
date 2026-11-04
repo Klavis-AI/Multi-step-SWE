@@ -1,0 +1,37 @@
+# Step 06 -- C-2's frozen population, as <file>#<method> buckets.
+#
+# Two lists, and the second one is the point of the file.
+#
+#   legacy   the 2 `Class.newInstance()` calls that must go. Both in src/main.
+#   ctor     the 11 `Constructor.newInstance(...)` calls that were ALREADY
+#            there. C-2 asks that the tree afterwards holds at least 13 of
+#            them -- these 11 plus the 2 that moved. Without that half, the
+#            highest-scoring thing a candidate could do to this leg is delete
+#            the reflective instantiation entirely, and a counter reaching 0
+#            would call that a migration.
+#
+# Buckets, not line numbers, so an edit above a call site does not move a
+# frozen expectation. Derived:
+#
+#   sed -n 's/^newinstance\[[0-9]*\]=//p' baseline-step06-source.txt \
+#     | awk '$0 ~ /form=legacy/ { split($1,a,":");
+#              for (i=2;i<=NF;i++) if (substr($i,1,3)=="in=") m=substr($i,4);
+#              print "legacy " a[1] "#" m }'
+#
+# Cross-checked against a completely different instrument: javac at
+# --release 10 with -Xlint:deprecation over all 322 sources reports exactly 2
+# `newInstance()` deprecations, at Container.java:92 and
+# ProtocolDefinition.java:119 (NOTES 11.6.4).
+legacy impl-base/src/main/java/org/jboss/arquillian/impl/domain/Container.java#createDeployableConfiguration
+legacy impl-base/src/main/java/org/jboss/arquillian/impl/domain/ProtocolDefinition.java#createProtocolConfiguration
+ctor impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java#createInstance
+ctor impl-base/src/main/java/org/jboss/arquillian/impl/SecurityActions.java#newInstance
+ctor impl-base/src/main/java/org/jboss/arquillian/impl/core/Reflections.java#createInstance
+ctor impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java#newInstance
+ctor protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/SecurityActions.java#newInstance
+ctor spi/src/main/java/org/jboss/arquillian/spi/ExceptionProxy.java#buildExceptionFromConstructor
+ctor spi/src/main/java/org/jboss/arquillian/spi/util/SecurityActions.java#newInstance
+ctor spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java#createInstance
+ctor testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java#newInstance
+ctor testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java#newInstance
+ctor testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java#newInstance

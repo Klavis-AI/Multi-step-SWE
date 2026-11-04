@@ -1,0 +1,34 @@
+# arch: x86_64
+# what: --exclude-libs ALL keeps archive-supplied definitions out of .dynsym
+# while still linking them in, and leaves definitions that came from a plain
+# object file exported.
+cat > lib.c <<'C'
+int libfun(void) { return 5; }
+int libvar = 6;
+C
+cat > use.c <<'C'
+int libfun(void); extern int libvar;
+int pubfun(void) { return libfun() + libvar; }
+C
+cc_obj lib.o lib.c -fPIC
+cc_obj use.o use.c -fPIC
+mkar liba.a lib.o
+exported() { dynsyms "$1" > ds.txt; awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' '; }
+link_ok plain.so -shared use.o liba.a
+want "archive symbols are exported by default" "$(exported plain.so)" "libfun libvar pubfun "
+link_ok excl.so -shared --exclude-libs ALL use.o liba.a
+want "archive symbols are hidden" "$(exported excl.so)" "pubfun "
+link_ok excl2.so -shared --exclude-libs=ALL use.o liba.a
+want "the =ALL spelling behaves the same" "$(exported excl2.so)" "pubfun "
+# Hidden is not dropped: the member is still linked in and still referenced.
+symbols excl.so > sy.txt
+want "libfun is still in .symtab" "$(awk '$8 == "libfun"' sy.txt | wc -l)" "1"
+want "libvar is still in .symtab" "$(awk '$8 == "libvar"' sy.txt | wc -l)" "1"
+want "libfun has a real address"  "$(( 0x$(sym_value excl.so libfun) != 0 ))" "1"
+relocs excl.so > rr.txt
+want "nothing was left to bind at load time" "$(grep -c 'GLOB_DAT\|JUMP_SLOT' rr.txt)" "0"
+# The same definition in a plain object file must still be exported.
+link_ok obj.so -shared --exclude-libs ALL use.o lib.o
+want "object-file symbols are untouched" "$(exported obj.so)" "libfun libvar pubfun "
+# 8 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 8

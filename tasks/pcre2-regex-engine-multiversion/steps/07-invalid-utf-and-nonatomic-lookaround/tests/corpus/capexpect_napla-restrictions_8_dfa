@@ -1,0 +1,36 @@
+# An assertion used as the condition of a conditional group must be atomic.
+/(?(*napla:pq)ab|cd)/
+Failed: error 198 at offset 9: atomic assertion expected after (?( or (?(?C)
+    pqab
+    zzcd
+
+/(?(*naplb:pq)ab|cd)/
+Failed: error 198 at offset 9: atomic assertion expected after (?( or (?(?C)
+    pqab
+
+/(?(*non_atomic_positive_lookahead:pq)ab|cd)/
+Failed: error 198 at offset 33: atomic assertion expected after (?( or (?(?C)
+    pqab
+
+# The atomic forms are still accepted there.
+/(?(*pla:pq)ab|cd)/
+    pqab
+No match
+    zzcd
+ 0: cd
+
+# pcre2_dfa_match() does not support non-atomic assertions.
+/(*napla:\w*(\w))\1\w*$/
+    abcd
+Failed: error -42: pattern contains an item that is not supported for DFA matching
+
+/(*naplb:(\w\w)|(\w)(\w))\3/
+    qzz
+Failed: error -42: pattern contains an item that is not supported for DFA matching
+
+# A lookbehind inside a lookahead inside a lookbehind is now processed correctly.
+/(?<=(?=(?<=q)))r/
+    qr
+ 0: r
+    zr
+No match

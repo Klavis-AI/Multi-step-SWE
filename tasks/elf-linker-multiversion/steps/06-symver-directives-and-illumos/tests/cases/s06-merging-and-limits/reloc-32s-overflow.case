@@ -1,0 +1,84 @@
+# arch: x86_64
+# Range checking on the 32-bit relocation types. A R_X86_64_32S whose value
+# does not fit in a *signed* 32-bit field is a diagnosed link error naming the
+# relocation; a R_X86_64_32 is checked against the *unsigned* range instead, so
+# a value the signed form rejects is fine for it and only 2^32 and above
+# overflows. Values inside each range still link and run.
+rt_obj rt.o
+cat > o.s <<'S'
+        .text
+        .globl far_ref
+far_ref:
+        movq    $far_sym, %rax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj o.o o.s
+cat > m.c <<'C'
+#include "rt.h"
+long far_ref(void);
+int entry(void) { return (int)(far_ref() >> 8); }
+C
+cc_obj m.o m.c
+want_has "fixture really uses R_X86_64_32S" "$(relocs o.o)" 'R_X86_64_32S +[0-9a-f]+ far_sym'
+
+# 0x80000000 is representable in 32 bits unsigned but not signed: must fail.
+cat > big.s <<'S'
+        .globl far_sym
+        .set far_sym, 0x80000000
+S
+as_obj big.o big.s
+link_fails bad --no-gc-sections rt.o o.o m.o big.o
+want_has "error names the relocation" "$LINK_ERR" 'R_X86_64_32S'
+want_has "error names the symbol"     "$LINK_ERR" 'far_sym'
+
+# The same relocation with an in-range value must still link and run.
+cat > ok.s <<'S'
+        .globl far_sym
+        .set far_sym, 0x2a00
+S
+as_obj ok.o ok.s
+link_ok good --no-gc-sections rt.o o.o m.o ok.o
+want "in-range 32S value applied" "$(sym_value good far_sym)" "0000000000002a00"
+run_expect good "" 42
+
+# R_X86_64_32 is the zero-extending form, so it must use the unsigned bound:
+# 0x80000000 -- the value that overflowed 32S above -- is in range here.
+cat > u.s <<'S'
+        .text
+        .globl u32_ref
+u32_ref:
+        movl    $u32_sym, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj u.o u.s
+want_has "second fixture really uses R_X86_64_32" "$(relocs u.o)" 'R_X86_64_32 +[0-9a-f]+ u32_sym'
+cat > m32.c <<'C'
+#include "rt.h"
+unsigned u32_ref(void);
+int entry(void) { return (int)(u32_ref() >> 24); }
+C
+cc_obj m32.o m32.c
+
+cat > u_ok.s <<'S'
+        .globl u32_sym
+        .set u32_sym, 0x80000000
+S
+as_obj u_ok.o u_ok.s
+link_ok u32good --no-gc-sections rt.o u.o m32.o u_ok.o
+want "an unsigned value the signed form rejects is applied" \
+     "$(sym_value u32good u32_sym)" "0000000080000000"
+run_expect u32good "" 128
+
+# 2^32 does not fit the unsigned field either, and must be diagnosed the same way.
+cat > u_big.s <<'S'
+        .globl u32_sym
+        .set u32_sym, 0x100000000
+S
+as_obj u_big.o u_big.s
+link_fails u32bad --no-gc-sections rt.o u.o m32.o u_big.o
+want_has "error names the unsigned relocation" "$LINK_ERR" 'R_X86_64_32([^S]|$)'
+want_has "error names the symbol"              "$LINK_ERR" 'u32_sym'
+
+asserts_at_least 8

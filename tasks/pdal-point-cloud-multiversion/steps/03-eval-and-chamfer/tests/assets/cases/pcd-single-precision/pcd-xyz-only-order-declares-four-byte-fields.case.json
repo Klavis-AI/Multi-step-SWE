@@ -1,0 +1,41 @@
+{
+ "doc": "stages/writers.pcd.rst: 'X, Y, and Z dimensions will be written as single-precision floats by default to be compatible with most of the existing PCL point types.' The FIELDS assertion grades the three names the `order` option asks for, and their order, not their casing: no agent-visible document states a casing rule for PCD field names -- the only statement anywhere is `development/release-notes/2.1.0.md` ('writers.pcd now always writes dimension names as lowercase'), and PROFILE 1.3, carried into 3.3, declares everything under `development/` background that 'raise[s] no scored requirement of [its] own'. `FIELDS X Y Z` therefore conforms as much as the lowercase spelling.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "{\n \"pipeline\": [\n  \"in.las\",\n  {\n   \"type\": \"filters.head\",\n   \"count\": 3\n  },\n  {\n   \"type\": \"writers.pcd\",\n   \"filename\": \"out.pcd\",\n   \"order\": \"X,Y,Z\",\n   \"keep_unspecified\": false\n  }\n ]\n}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "file_text_regex",
+   "file": "out.pcd",
+   "regex": "(?mi)^FIELDS x y z\\s*$"
+  },
+  {
+   "kind": "file_text_regex",
+   "file": "out.pcd",
+   "regex": "(?m)^SIZE 4 4 4\\s*$"
+  },
+  {
+   "kind": "file_text_regex",
+   "file": "out.pcd",
+   "regex": "(?m)^TYPE F F F\\s*$"
+  }
+ ]
+}

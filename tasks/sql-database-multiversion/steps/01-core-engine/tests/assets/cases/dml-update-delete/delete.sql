@@ -1,0 +1,10 @@
+CREATE TABLE t(a INTEGER PRIMARY KEY, b TEXT);
+INSERT INTO t VALUES(1,'p'),(2,'q'),(3,'r'),(4,'s');
+DELETE FROM t WHERE a % 2 = 0;
+SELECT changes();
+SELECT a, b FROM t ORDER BY a;
+DELETE FROM t;
+SELECT changes();
+SELECT count(*) FROM t;
+DELETE FROM t WHERE a = 1;
+SELECT changes();

@@ -1,0 +1,12 @@
+CREATE TABLE r09mr1_t(id int primary key, v int);
+CREATE TABLE r09mr1_s(id int, v int);
+INSERT INTO r09mr1_t VALUES (1,10),(2,20),(3,30);
+INSERT INTO r09mr1_s VALUES (2,200),(4,400);
+WITH m AS (
+  MERGE INTO r09mr1_t t USING r09mr1_s s ON t.id = s.id
+    WHEN MATCHED THEN UPDATE SET v = s.v
+    WHEN NOT MATCHED THEN INSERT VALUES (s.id, s.v)
+    RETURNING merge_action() AS act, t.id AS id, t.v AS v
+) SELECT act, id, v FROM m ORDER BY id;
+SELECT id, v FROM r09mr1_t ORDER BY id;
+DROP TABLE r09mr1_t, r09mr1_s;

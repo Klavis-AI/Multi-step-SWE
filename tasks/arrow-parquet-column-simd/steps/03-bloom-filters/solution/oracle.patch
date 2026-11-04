@@ -1,0 +1,256 @@
+diff --git a/cpp/src/parquet/CMakeLists.txt b/cpp/src/parquet/CMakeLists.txt
+index 052b3fd..cd87621 100644
+--- a/cpp/src/parquet/CMakeLists.txt
++++ b/cpp/src/parquet/CMakeLists.txt
+@@ -196,7 +196,8 @@ set(PARQUET_SRCS
+ if(ARROW_HAVE_RUNTIME_AVX2)
+   # AVX2 is used as a proxy for BMI2.
+   list(APPEND
+-       PARQUET_SRCS)
++       PARQUET_SRCS
++       bloom_filter_avx2.cc)
+   # We need CMAKE_CXX_FLAGS_RELEASE here to prevent the one-definition-rule
+   # violation with -DCMAKE_BUILD_TYPE=MinSizeRel. CMAKE_CXX_FLAGS_RELEASE
+   # will force inlining as much as possible.
+@@ -206,6 +207,8 @@ if(ARROW_HAVE_RUNTIME_AVX2)
+     separate_arguments(RELEASE_FLAGS NATIVE_COMMAND "${CMAKE_CXX_FLAGS_RELEASE}")
+     list(APPEND AVX2_FLAGS ${RELEASE_FLAGS})
+   endif()
++  set_source_files_properties(bloom_filter_avx2.cc
++                              PROPERTIES COMPILE_OPTIONS "${AVX2_FLAGS}")
+   # WARNING: DO NOT BLINDLY COPY THIS CODE FOR OTHER BMI2 USE CASES.
+   # This code is always guarded by runtime dispatch which verifies
+   # BMI2 is present.  For a very small number of CPUs AVX2 does not
+@@ -215,6 +218,10 @@ if(ARROW_HAVE_RUNTIME_AVX2)
+   # violation with -DCMAKE_BUILD_TYPE=MinSizeRel. CMAKE_CXX_FLAGS_RELEASE
+   # will force inlining as much as possible.
+   # See also: ARROW-15664 and ARROW-15678
++elseif(ARROW_SIMD_LEVEL MATCHES "^(AVX2|AVX512)$")
++  # AVX2 baseline without runtime dispatch: the dispatch table still references
++  # FindHashBlockAvx2, so the kernel must be built (no extra flags needed here).
++  list(APPEND PARQUET_SRCS bloom_filter_avx2.cc)
+ endif()
+ 
+ set(PARQUET_SHARED_LINK_LIBS)
+diff --git a/cpp/src/parquet/bloom_filter.cc b/cpp/src/parquet/bloom_filter.cc
+index 76e18b7..c6f6bdf 100644
+--- a/cpp/src/parquet/bloom_filter.cc
++++ b/cpp/src/parquet/bloom_filter.cc
+@@ -40,6 +40,10 @@
+ #include "parquet/thrift_internal.h"
+ #include "parquet/xxhasher.h"
+ 
++#if defined(ARROW_HAVE_AVX2) || defined(ARROW_HAVE_RUNTIME_AVX2)
++#  include "parquet/bloom_filter_avx2_internal.h"
++#endif
++
+ #include "parquet/bloom_filter_block_impl_internal.h"
+ 
+ namespace parquet {
+@@ -55,6 +59,7 @@ struct FindHashBlockDynamicFunction {
+   static constexpr auto targets() {
+     return std::array{
+         ARROW_DISPATCH_TARGET_NONE(&FindHashBlockImpl)  //
++        ARROW_DISPATCH_TARGET_AVX2(&FindHashBlockAvx2)  //
+     };
+   }
+ };
+diff --git a/L3/cpp/src/parquet/bloom_filter_avx2.cc b/L3/cpp/src/parquet/bloom_filter_avx2.cc
+new file mode 100644
+index 0000000..3017b5a
+--- /dev/null
++++ b/cpp/src/parquet/bloom_filter_avx2.cc
+@@ -0,0 +1,53 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++#include <xsimd/xsimd.hpp>
++
++#include "parquet/bloom_filter_avx2_internal.h"
++
++namespace parquet::internal {
++
++// Parquet SBBF probe (256-bit block, 8 SALT-derived bits per probe). Unrelated
++// to cpp/src/arrow/acero/bloom_filter_avx2.cc -- Acero's blocked bloom filter
++// is a different algorithm (64-bit block, ~4 bits per probe, in-memory only)
++// and the two kernels are not interchangeable. See the Parquet spec for the
++// SBBF on-disk layout this kernel must match.
++//
++// Spelled in xsimd rather than reusing the autovectorized body in
++// bloom_filter_block_impl_internal.h: only clang lowers that body to a single vptest;
++// gcc and MSVC emit a longer horizontal vpor reduction.
++bool FindHashBlockAvx2(
++    std::span<const uint32_t, BlockSplitBloomFilter::kBitsSetPerBlock> block,
++    std::span<const uint32_t, BlockSplitBloomFilter::kBitsSetPerBlock> salt,
++    uint32_t key) {
++  static_assert(BlockSplitBloomFilter::kBitsSetPerBlock == 8,
++                "AVX2 SBBF probe kernel assumes 8 bits set per 256-bit block");
++  // Pin to avx2: the default-arch batch widens to 16 lanes under an AVX-512
++  // baseline and would over-read the 32-byte block.
++  using batch = xsimd::batch<uint32_t, xsimd::avx2>;
++  const batch mask = batch(uint32_t{1}) << xsimd::bitwise_rshift<27>(
++                         batch(key) * batch::load_unaligned(salt.data()));
++  const batch miss = xsimd::bitwise_andnot(mask, batch::load_unaligned(block.data()));
++  // `miss != 0` (one extra vpcmpeqd) is deliberate: reinterpreting `miss`
++  // directly as a batch_bool would skip the compare but feed non-canonical
++  // lane values into batch_bool, which relies on xsimd's AVX2 backend
++  // lowering none() to a whole-register vptest. That lowering is not part
++  // of xsimd's documented contract.
++  return xsimd::none(miss != batch(uint32_t{0}));
++}
++
++}  // namespace parquet::internal
+diff --git a/L3/cpp/src/parquet/bloom_filter_avx2_internal.h b/L3/cpp/src/parquet/bloom_filter_avx2_internal.h
+new file mode 100644
+index 0000000..fdf131c
+--- /dev/null
++++ b/cpp/src/parquet/bloom_filter_avx2_internal.h
+@@ -0,0 +1,33 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++#pragma once
++
++#include <cstdint>
++#include <span>
++
++#include "parquet/bloom_filter.h"
++#include "parquet/platform.h"
++
++namespace parquet::internal {
++
++PARQUET_EXPORT bool FindHashBlockAvx2(
++    std::span<const uint32_t, BlockSplitBloomFilter::kBitsSetPerBlock> block,
++    std::span<const uint32_t, BlockSplitBloomFilter::kBitsSetPerBlock> salt,
++    uint32_t key);
++
++}  // namespace parquet::internal
+diff --git a/cpp/src/parquet/bloom_filter_test.cc b/cpp/src/parquet/bloom_filter_test.cc
+index 135974a..029d955 100644
+--- a/cpp/src/parquet/bloom_filter_test.cc
++++ b/cpp/src/parquet/bloom_filter_test.cc
+@@ -44,6 +44,10 @@
+ // un-picked one too -- DynamicDispatch resolves once at static init.
+ #include "parquet/bloom_filter_block_impl_internal.h"
+ 
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++#  include "parquet/bloom_filter_avx2_internal.h"
++#endif
++
+ namespace parquet {
+ namespace test {
+ 
+@@ -440,5 +444,85 @@ TYPED_TEST(TestBatchBloomFilter, Basic) {
+   AssertBufferEqual(*buffer, *batch_insert_buffer);
+ }
+ 
++// Guards against silent drift between the baseline and AVX2 probe bodies --
++// DynamicDispatch only runs one of them per host.
++#if defined(ARROW_HAVE_RUNTIME_AVX2)
++namespace {
++
++// Aliased from the class constant for brevity in array bounds below.
++constexpr int kBitsSetPerBlock = BlockSplitBloomFilter::kBitsSetPerBlock;
++
++// Test-only SALT (matches the Parquet SBBF spec values used in
++// bloom_filter.h). Kernel-vs-kernel agreement holds for any SALT, so this
++// duplication is a contained test-side convenience, not a spec mirror.
++constexpr uint32_t kProbeTestSalt[kBitsSetPerBlock] = {
++    0x47b6137bU, 0x44974d91U, 0x8824ad5bU, 0xa2b7289dU,
++    0x705495c7U, 0x2df1424bU, 0x9efc4947U, 0x5c6bfb31U,
++};
++
++inline void InsertIntoBlock(uint32_t* block, uint32_t key) {
++  for (int i = 0; i < kBitsSetPerBlock; ++i) {
++    block[i] |= uint32_t{1} << ((key * kProbeTestSalt[i]) >> 27);
++  }
++}
++
++void AssertKernelsAgree(std::span<const uint32_t, kBitsSetPerBlock> block, uint32_t key) {
++  const bool standard = internal::FindHashBlockImpl(block, kProbeTestSalt, key);
++  const bool avx2 = internal::FindHashBlockAvx2(block, kProbeTestSalt, key);
++  ASSERT_EQ(standard, avx2) << "dispatch targets diverged for key=0x" << std::hex << key;
++}
++
++}  // namespace
++
++class BloomFilterProbeKernel : public ::testing::Test {
++ protected:
++  void SetUp() override {
++    if (!::arrow::internal::CpuInfo::GetInstance()->IsSupported(
++            ::arrow::internal::CpuInfo::AVX2)) {
++      GTEST_SKIP() << "AVX2 not available at runtime";
++    }
++  }
++};
++
++// Random-block fuzz: exercises the full bit lattice, catches reduction /
++// operand-order bugs that don't depend on realistic fill density.
++TEST_F(BloomFilterProbeKernel, AgreeOnRandomBlocks) {
++  std::mt19937_64 rng(0xC0FFEE);
++  constexpr int kNumTrials = 20000;
++  for (int trial = 0; trial < kNumTrials; ++trial) {
++    uint32_t block[kBitsSetPerBlock];
++    for (uint32_t& word : block) {
++      word = static_cast<uint32_t>(rng());
++    }
++    AssertKernelsAgree(block, static_cast<uint32_t>(rng()));
++  }
++}
++
++// Production-fill fuzz: blocks populated by the same SALT-derived insert the
++// writer uses, then probed with both inserted keys (must match) and fresh
++// keys (mostly miss). Catches bugs that only surface on real fill density.
++TEST_F(BloomFilterProbeKernel, AgreeOnPopulatedBlocks) {
++  std::mt19937_64 rng(0xBABECAFE);
++  constexpr int kNumBlocks = 200;
++  constexpr int kKeysPerBlock = 6;  // ~k inserts per 256-bit block, realistic FPP.
++  for (int b = 0; b < kNumBlocks; ++b) {
++    uint32_t block[kBitsSetPerBlock] = {0};
++    std::vector<uint32_t> inserted;
++    inserted.reserve(kKeysPerBlock);
++    for (int k = 0; k < kKeysPerBlock; ++k) {
++      const uint32_t key = static_cast<uint32_t>(rng());
++      InsertIntoBlock(block, key);
++      inserted.push_back(key);
++    }
++    for (uint32_t key : inserted) {
++      AssertKernelsAgree(block, key);
++    }
++    for (int q = 0; q < 50; ++q) {
++      AssertKernelsAgree(block, static_cast<uint32_t>(rng()));
++    }
++  }
++}
++#endif
++
+ }  // namespace test
+ }  // namespace parquet

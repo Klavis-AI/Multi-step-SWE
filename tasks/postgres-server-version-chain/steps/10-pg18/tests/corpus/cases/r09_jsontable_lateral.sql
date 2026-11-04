@@ -1,0 +1,8 @@
+CREATE TABLE r09jt1(id int, doc jsonb);
+INSERT INTO r09jt1 VALUES (1,'{"n":[1,2]}'),(2,'{"n":[3]}'),(3,'{"n":[]}');
+SELECT t.id, j.v FROM r09jt1 t,
+       JSON_TABLE(t.doc, '$.n[*]' COLUMNS (v int PATH '$')) j ORDER BY t.id, j.v;
+SELECT t.id, j.v FROM r09jt1 t LEFT JOIN LATERAL
+       JSON_TABLE(t.doc, '$.n[*]' COLUMNS (v int PATH '$')) j ON true
+  ORDER BY t.id, j.v NULLS LAST;
+DROP TABLE r09jt1;

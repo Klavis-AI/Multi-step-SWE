@@ -1,0 +1,1 @@
+/dev/null: extensions/01_extend_local.proto

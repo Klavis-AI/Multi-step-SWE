@@ -1,0 +1,37 @@
+# arch: x86_64
+# what: '?' must match exactly one character and '*' must be allowed anywhere
+# in a version-script pattern, including leading and interior positions.
+cat > s.c <<'C'
+int a1b(void) { return 1; }
+int a2b(void) { return 2; }
+int ab(void) { return 3; }
+int a12b(void) { return 4; }
+int xfooy(void) { return 5; }
+int foo(void) { return 6; }
+int barfoo(void) { return 7; }
+int quux(void) { return 8; }
+C
+cc_obj s.o s.c -fPIC
+exported() { dynsyms "$1" > ds.txt; awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' '; }
+cat > q.map <<'V'
+{ global: a?b; local: *; };
+V
+link_ok q.so -shared --version-script=q.map s.o
+want "a?b matches one character" "$(exported q.so)" "a1b a2b "
+cat > mid.map <<'V'
+{ global: *foo*; local: *; };
+V
+link_ok mid.so -shared --version-script=mid.map s.o
+want "*foo* matches anywhere" "$(exported mid.so)" "barfoo foo xfooy "
+cat > lead.map <<'V'
+{ global: *foo; local: *; };
+V
+link_ok lead.so -shared --version-script=lead.map s.o
+want "*foo is anchored at the end" "$(exported lead.so)" "barfoo foo "
+cat > combo.map <<'V'
+{ global: a*b; local: *; };
+V
+link_ok combo.so -shared --version-script=combo.map s.o
+want "a*b spans any middle" "$(exported combo.so)" "a12b a1b a2b ab "
+# 4 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 4

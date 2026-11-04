@@ -1,0 +1,58 @@
+{
+ "doc": "stages/filter_opts.rst: 'where_merge -- A strategy for merging points skipped by a `where' option when running in standard mode.  If ``true``, the skipped points are added to the first point view returned by the skipped filter.  If ``false``, skipped points are placed in their own point view.  If ``auto``, skipped points are merged into the returned point view provided that only one point view is returned and it has the same point count as it did when the filter was run. [Default: ``auto``]' and apps/pipeline.rst: '--nostream  Run in standard mode.' -- where_merge is defined for standard mode. -- ``true``, ``false`` and ``auto`` are the documented values.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "bad.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[1:1]\", \"where\": \"X < 3\", \"where_merge\": \"bogus\"}, {\"type\": \"writers.las\", \"filename\": \"bad.las\"}]}"
+  },
+  "good.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[1:1]\", \"where\": \"X < 3\", \"where_merge\": \"true\"}, {\"type\": \"writers.las\", \"filename\": \"good.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "--nostream",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "--nostream",
+    "good.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "filters\\.range"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad.las"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "good.las",
+   "header": {
+    "point_count": 850
+   }
+  }
+ ]
+}

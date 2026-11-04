@@ -1,0 +1,81 @@
+# arch: x86_64
+# The same inputs linked two ways: the default link is ET_EXEC with no dynamic
+# relocations and the absolute address written into the image, while -pie is
+# ET_DYN where that address is carried by a relocation instead of being baked in.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+u64at()     { od -An -tx8 -j "$2" -N 8 "$1" | tr -d ' \n'; }
+slotbytes() { # <file> <symbol-in-.data> <out.bin>
+  local a o base h
+  # Resolve the symbol BEFORE the arithmetic: an empty $(sym_value) would make
+  # $(( 16# )) an arithmetic error, which aborts the command it appears in and
+  # lets the case sail past whatever that command was supposed to check.
+  h=$(sym_value "$1" "$2")
+  [ -n "$h" ] || die "$2 is missing from $1's symbol table: $(symbols "$1")"
+  a=$(( 16#$h ))
+  o=$(sections "$1" | awk '{ for (i=1;i<=NF;i++) if ($i==".data") { print $(i+3) } }' | sed -n 1p)
+  base=$(( 16#$(sec_addr "$1" .data) ))
+  [ -n "$o" ] || die "no .data in $1"
+  dd if="$1" of="$3" bs=1 skip=$(( 16#$o + a - base )) count=8 status=none
+}
+cat > tbl.s <<'S'
+        .text
+        .globl f0
+f0:     ret
+        .globl f1
+f1:     ret
+        .globl f2
+f2:     ret
+        .globl f3
+f3:     ret
+        .globl f4
+f4:     ret
+        .globl f5
+f5:     ret
+        .globl entry
+entry:  mov     ptrs(%rip), %rax
+        xor     %eax, %eax
+        ret
+        .data
+        .globl ptrs
+        .align 8
+ptrs:   .quad f0
+        .quad f1
+        .quad f2
+        .quad f3
+        .quad f4
+        .quad f5
+        .globl plain
+plain:  .quad 0x1122334455667788
+        .quad 0x0102030405060708
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj tbl.o tbl.s
+rt_obj rt.o
+link_ok exe rt.o tbl.o
+want "default e_type" "$(hdr exe | awk '/^ *Type:/{print $2}')" "EXEC"
+want "no dynamic relocations when not PIC" "$(relocs exe | grep -c 'R_X86_64_')" "0"
+slotbytes exe ptrs exe.bin
+want "static image bakes f0's absolute address" "$(u64at exe.bin 0)" "$(sym_value exe f0)"
+link_ok pie -pie rt.o tbl.o
+want "pie e_type" "$(hdr pie | awk '/^ *Type:/{print $2}')" "DYN"
+want "six RELATIVE in the pie link" "$(relocs pie | grep -c 'R_X86_64_RELATIVE')" "6"
+wre "pie sets DF_1_PIE in DT_FLAGS_1" "$(dynamic pie)" 'FLAGS_1\).*PIE'
+ptrsv=$(sym_value pie ptrs)
+[ -n "$ptrsv" ] || die "ptrs is missing from the -pie output's symbol table: $(symbols pie)"
+addend=$(relocs pie | awk -v o="$ptrsv" '$1 == o { print $NF }')
+[ -n "$addend" ] || die "no RELATIVE covering ptrs: $(relocs pie)"
+# Same trap as in slotbytes: if f0 were absent, $(( 16#$(sym_value pie f0) ))
+# would abort the `want` and the assertion would be skipped, not failed.
+f0v=$(sym_value pie f0)
+[ -n "$f0v" ] || die "f0 is missing from the -pie output's symbol table: $(symbols pie)"
+want "the relocation, not the image, carries f0" "$(( 16#$addend ))" "$(( 16#$f0v ))"
+# plain integers are identical in both links and never relocated
+slotbytes exe plain ep.bin; slotbytes pie plain pp.bin
+want "plain data is untouched by -pie" "$(u64at pp.bin 0)" "$(u64at ep.bin 0)"
+want "plain data value" "$(u64at pp.bin 0)" "1122334455667788"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 9

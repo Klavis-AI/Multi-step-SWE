@@ -1,0 +1,67 @@
+# arch: x86_64
+# -pie produces ET_DYN with PT_DYNAMIC in which every absolute address slot is
+# described by exactly one R_X86_64_RELATIVE relocation, placed at that slot and
+# carrying that slot's target as its addend. Nothing else -- no spurious GOT
+# indirection for a pc-relative reference, no relocation for plain integers.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+cat > tbl.s <<'S'
+        .text
+        .globl f0
+f0:     ret
+        .globl f1
+f1:     ret
+        .globl f2
+f2:     ret
+        .globl f3
+f3:     ret
+        .globl f4
+f4:     ret
+        .globl f5
+f5:     ret
+        .globl entry
+entry:  mov     ptrs(%rip), %rax
+        xor     %eax, %eax
+        ret
+        .data
+        .globl ptrs
+        .align 8
+ptrs:   .quad f0
+        .quad f1
+        .quad f2
+        .quad f3
+        .quad f4
+        .quad f5
+        .globl plain
+plain:  .quad 0x1122334455667788
+        .quad 0x0102030405060708
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj tbl.o tbl.s
+rt_obj rt.o
+link_ok out -pie rt.o tbl.o
+want "e_type" "$(hdr out | awk '/^ *Type:/{print $2}')" "DYN"
+wre "PT_DYNAMIC" "$(segments out)" '^ *DYNAMIC +0x'
+REL=$(relocs out)
+want "one RELATIVE per planted slot" "$(grep -cE 'R_X86_64_RELATIVE' <<<"$REL")" "6"
+want "no other dynamic relocations" "$(grep -cE 'R_X86_64_(GLOB_DAT|JUMP_SLOT|64|COPY)' <<<"$REL")" "0"
+tbeg=$(( 16#$(sym_value out ptrs) ))
+i=0
+while [ "$i" -lt 6 ]; do
+  wre "slot $i carries f$i" "$REL" \
+      "^$(printf '%016x' $(( tbeg + i * 8 ))) +0+8 R_X86_64_RELATIVE +$(printf '%x' $(( 16#$(sym_value out "f$i") )))$"
+  i=$(( i + 1 ))
+done
+# Nothing outside the planted table may be relocated -- in particular the two
+# plain integers that follow it, and the pc-relative load of `ptrs` itself.
+pbeg=$(( 16#$(sym_value out plain) ))
+for off in $(awk '/R_X86_64_RELATIVE/{print $1}' <<<"$REL"); do
+  v=$(( 16#$off ))
+  [ "$v" -ge "$tbeg" ] && [ "$v" -lt "$pbeg" ] \
+    || die "RELATIVE at 0x$off falls outside the planted pointer table"
+done
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 10

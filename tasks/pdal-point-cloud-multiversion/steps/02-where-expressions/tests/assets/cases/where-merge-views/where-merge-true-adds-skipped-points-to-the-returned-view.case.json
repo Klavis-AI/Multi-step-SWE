@@ -1,0 +1,56 @@
+{
+ "doc": "stages/filter_opts.rst: 'where_merge -- A strategy for merging points skipped by a `where' option when running in standard mode.  If ``true``, the skipped points are added to the first point view returned by the skipped filter.  If ``false``, skipped points are placed in their own point view.  If ``auto``, skipped points are merged into the returned point view provided that only one point view is returned and it has the same point count as it did when the filter was run. [Default: ``auto``]' and stages/writers.las.rst: 'The writer will accept a filename containing a single placeholder character (`#`).  If input to the writer consists of multiple PointViews, each will be written to a separate file, where the placeholder will be replaced with an incrementing integer.' and apps/pipeline.rst: '--nostream  Run in standard mode.' -- where_merge is defined for standard mode.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[1:1]\", \"where\": \"X < 3\", \"where_merge\": \"true\"}, {\"type\": \"writers.las\", \"filename\": \"out_#.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "--nostream",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "file_exists",
+   "file": "out_1.las"
+  },
+  {
+   "kind": "file_absent",
+   "file": "out_2.las"
+  },
+  {
+   "kind": "las",
+   "file": "out_1.las",
+   "header": {
+    "point_count": 850
+   },
+   "dims": {
+    "Classification": {
+     "count_equal": {
+      "1": 500,
+      "2": 350
+     }
+    },
+    "X": {
+     "count_equal": {
+      "0": 50,
+      "3": 100
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,5 @@
+SHOW logical_decoding_work_mem;
+SHOW maintenance_io_concurrency;
+SHOW enable_incremental_sort;
+SHOW max_slot_wal_keep_size;
+SHOW wal_skip_threshold;

@@ -1,0 +1,100 @@
+{
+ "doc": "/app/spec/PROFILE.md 1.1 `filters.randomize` `seed`: '`filters.randomize` gains an integer `seed` that initialises its random number generator. ... two runs with the same seed over the same input produce the same output order. Which permutation a seed produces is yours to choose and is not graded; that a seed reproduces its own permutation is. Upstream did not update `stages/filters.randomize.rst` at this release - its option table still reads `None` - so this paragraph is the statement of the option, and `development/release-notes/2.1.0.md` corroborates it.' That release note reads '`filters.randomize` now has a `seed` option to initialize the random number generator.' Three runs are used: seed 7 (a.las), seed 42 (c.las), seed 7 again (b.las). a.las and b.las must agree point-for-point, and that self-reproducibility is the whole of the graded contract (which permutation a seed produces is free). The three-run structure cannot distinguish a seed that is honoured from one that is merely accepted and ignored - a seed-ignoring stage also writes a.las and b.las identically - so c.las's role is only to show that a second seed value still shuffles the payload without changing it (Intensity sum/min/max), not to prove the seed was used.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "a.las",
+    "randomize",
+    "--filters.randomize.seed=7"
+   ]
+  },
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "c.las",
+    "randomize",
+    "--filters.randomize.seed=42"
+   ]
+  },
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "b.las",
+    "randomize",
+    "--filters.randomize.seed=7"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "a.las",
+   "header": {
+    "point_count": 1000
+   },
+   "dims": {
+    "Intensity": {
+     "sum": 499500,
+     "min": 0,
+     "max": 999
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "c.las",
+   "header": {
+    "point_count": 1000
+   },
+   "dims": {
+    "Intensity": {
+     "sum": 499500,
+     "min": 0,
+     "max": 999
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "b.las",
+   "header": {
+    "point_count": 1000
+   }
+  },
+  {
+   "kind": "las_compare",
+   "a": "a.las",
+   "b": "b.las",
+   "dims": [
+    "X",
+    "Y",
+    "Z",
+    "Intensity"
+   ]
+  }
+ ]
+}

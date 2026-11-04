@@ -1,0 +1,33 @@
+# PCRE2_EXTRA_CASELESS_RESTRICT, with its (?r) and (?-r) in-pattern forms,
+# stops caseless matching mixing ASCII and non-ASCII in one equivalence set.
+# ChangeLog 10.43 item 9a; pcre2pattern.3, "INTERNAL OPTION SETTING".
+
+/^K$/utf,caseless
+    \x{212a}
+    k
+
+/^K$/utf,caseless,caseless_restrict
+    \x{212a}
+    k
+
+/^(?r)s$/utf,caseless
+    \x{17f}
+    S
+
+/^s(?-r)s$/utf,caseless,caseless_restrict
+    s\x{17f}
+    \x{17f}s
+
+/^\x{212a}$/utf,caseless,caseless_restrict
+    K
+    \x{212a}
+
+/^[k-l]$/utf,caseless,caseless_restrict
+    \x{212a}
+    L
+
+# The restriction survives an invalid UTF subject scanned with
+# PCRE2_MATCH_INVALID_UTF (ChangeLog 10.43 item 18).
+/s/utf,caseless,caseless_restrict,match_invalid_utf
+    ab\x{ff}\x{17f}cd
+    ab\x{ff}Scd

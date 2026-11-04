@@ -1,0 +1,37 @@
+# arch: x86_64
+# A call to an undefined function from a shared object is routed through a
+# synthesised PLT stub that jumps indirect through that symbol's GOT slot.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+cat > p.c <<'C'
+extern int extfn(int);
+extern int extvar;
+int callit(int x) { return extfn(x) + extvar; }
+C
+cc_obj p.o p.c -fPIC
+link_ok libp.so -shared p.o
+SEC=$(sections libp.so)
+wre "a PLT section exists" "$SEC" '[[:space:]]\.plt(\.got|\.sec)?[[:space:]]+PROGBITS'
+pname=$(awk '{ for (i=1;i<=NF;i++) if ($i ~ /^\.plt(\.got|\.sec)?$/) print $i }' <<<"$SEC" | sed -n 1p)
+wre "PLT is executable" "$SEC" "[[:space:]]$(sed 's/\./\\./g' <<<"$pname")[[:space:]].*[[:space:]]AX[[:space:]]"
+psz=$(( 16#$(sec_size libp.so "$pname") ))
+[ "$psz" -ge 16 ] || die "$pname is only $psz bytes, so no stub was written"
+pbeg=$(( 16#$(sec_addr libp.so "$pname") ))
+SECROW=$(awk -v n="$pname" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+5), $(i+9); exit } }' <<<"$SEC")
+pes=$(( 16#$(awk '{print $1}' <<<"$SECROW") ))
+pal=$(awk '{print $2}' <<<"$SECROW")
+want "PLT entsize is 16" "$pes" "16"
+want "PLT alignment is 16" "$pal" "16"
+# The GOT slot the stub must use is the one GLOB_DAT fixes up for extfn.
+slot=$(relocs libp.so | awk '/R_X86_64_GLOB_DAT/ && /extfn/ { print $1 }' | sed -n 1p)
+[ -n "$slot" ] || die "no GLOB_DAT for extfn: $(relocs libp.so)"
+DIS=$($OBJDUMP -d --no-show-raw-insn libp.so 2>/dev/null)
+[ -n "$DIS" ] || die "could not disassemble the output"
+wre "stub jumps indirect through extfn's GOT slot" "$DIS" \
+    "jmp.*\(%rip\).*# 0x$(printf '%x' $(( 16#$slot )))([^0-9a-f]|$)"
+wre "callit reaches the stub" "$DIS" "call.*0x$(printf '%x' "$pbeg")([^0-9a-f]|$)"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 6

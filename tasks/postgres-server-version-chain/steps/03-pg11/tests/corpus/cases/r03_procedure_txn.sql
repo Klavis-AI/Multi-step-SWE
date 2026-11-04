@@ -1,0 +1,17 @@
+CREATE TABLE q3_ptx(i int);
+CREATE PROCEDURE q3_ptx_p() LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO q3_ptx VALUES (1);
+  COMMIT;
+  INSERT INTO q3_ptx VALUES (2);
+  ROLLBACK;
+  INSERT INTO q3_ptx VALUES (3);
+END $$;
+CALL q3_ptx_p();
+SELECT i FROM q3_ptx ORDER BY i;
+BEGIN;
+CALL q3_ptx_p();
+ROLLBACK;
+SELECT i FROM q3_ptx ORDER BY i;
+DROP TABLE q3_ptx;
+DROP PROCEDURE q3_ptx_p();

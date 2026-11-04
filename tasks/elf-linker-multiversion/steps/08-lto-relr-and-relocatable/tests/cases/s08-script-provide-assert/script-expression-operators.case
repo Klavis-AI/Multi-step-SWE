@@ -1,0 +1,67 @@
+# arch: x86_64
+# The operator set section 8 of the linker-script specification adds at this
+# milestone -- `*`, `/`, `|`, `^`, `<<`, `>>`, `&`, unary `~` and `!`, `&&`
+# and `||` -- together with the expression form of ALIGN, evaluates at link
+# time. Each result is published as a PROVIDEd absolute symbol and read back
+# out of the symbol table, and two of them decide the program's exit status.
+rt_obj rt.o
+cat > m.c <<'C'
+extern char v_div[], v_shl[];
+int entry(void) {
+  return (int)(((unsigned long)v_div + ((unsigned long)v_shl >> 8)) & 0xff);
+}
+C
+cc_obj m.o m.c
+cat > ops.ld <<'L'
+PROVIDE(v_mul    = 7 * 6);
+PROVIDE(v_div    = 100 / 7);
+PROVIDE(v_or     = 0x0f0 | 0x00f);
+PROVIDE(v_xor    = 0x0ff ^ 0x00f);
+PROVIDE(v_and    = 0x0ff & 0x03c);
+PROVIDE(v_shl    = 1 << 12);
+PROVIDE(v_shr    = 0x1000 >> 4);
+PROVIDE(v_not    = ~0xff & 0xffff);
+PROVIDE(v_bang   = !0);
+PROVIDE(v_andand = 1 && 2);
+PROVIDE(v_oror   = 0 || 5);
+PROVIDE(v_align  = ALIGN(2 << 6) + 5);
+PROVIDE(v_page   = (ADDR(.text) + 0xfff) & ~0xfff);
+ASSERT((0x0ff ^ 0x00f) == 0xf0, "xor evaluated wrongly");
+ASSERT(((1 << 12) >> 4) == 0x100, "shifts evaluated wrongly");
+ASSERT((!1) == 0, "logical not evaluated wrongly");
+ASSERT((0 || 0) == 0, "logical or evaluated wrongly");
+ASSERT((1 && 0) == 0, "logical and evaluated wrongly");
+ASSERT((100 / 7) == 14, "division evaluated wrongly");
+ASSERT((7 * 6) == 42, "multiplication evaluated wrongly");
+L
+link_ok out -T ops.ld rt.o m.o --no-gc-sections
+
+want "7 * 6"             "$(sym_value out v_mul)"    "000000000000002a"
+want "100 / 7"           "$(sym_value out v_div)"    "000000000000000e"
+want "0x0f0 | 0x00f"     "$(sym_value out v_or)"     "00000000000000ff"
+want "0x0ff ^ 0x00f"     "$(sym_value out v_xor)"    "00000000000000f0"
+want "0x0ff & 0x03c"     "$(sym_value out v_and)"    "000000000000003c"
+want "1 << 12"           "$(sym_value out v_shl)"    "0000000000001000"
+want "0x1000 >> 4"       "$(sym_value out v_shr)"    "0000000000000100"
+want "~0xff & 0xffff"    "$(sym_value out v_not)"    "000000000000ff00"
+want "!0"                "$(sym_value out v_bang)"   "0000000000000001"
+want "1 && 2"            "$(sym_value out v_andand)" "0000000000000001"
+want "0 || 5"            "$(sym_value out v_oror)"   "0000000000000001"
+want "ALIGN(2 << 6) + 5" "$(sym_value out v_align)"  "0000000000000005"
+
+# The page-rounded address computed with unary ~ and & must agree with the
+# address .text actually received. Both halves are captured before the
+# comparison so that a missing symbol fails loudly rather than turning the
+# assertion into an arithmetic error that is never run.
+pv=$(sym_value out v_page)
+ta=$(sec_addr out .text)
+[ -n "$pv" ] && [ -n "$ta" ] || die "v_page or .text is missing from the output"
+tn=$((16#$ta))
+want "page-round of ADDR(.text)" "$((16#$pv))" "$(( (tn + 0xfff) & ~0xfff ))"
+
+# 14 + (0x1000 >> 8) = 14 + 16 = 30
+run_expect out "" 30
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 13

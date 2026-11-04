@@ -1,0 +1,11 @@
+SELECT upper('aBc'), lower('aBc'), initcap('hello world');
+SELECT length('h'||chr(233)||'llo'), char_length('h'||chr(233)||'llo'), octet_length('h'||chr(233)||'llo');
+SELECT substr('abcdef',2,3), substring('abcdef' from 2 for 3), left('abcdef',2), right('abcdef',2);
+SELECT lpad('x',5,'-'), rpad('x',5,'-'), lpad('abcdef',3), repeat('ab',3);
+SELECT btrim('  x  '), ltrim('xxay','x'), rtrim('xayxx','x'), trim(both 'x' from 'xaxbx');
+SELECT replace('aaa','a','b'), translate('abc','ab','xy'), reverse('abc');
+SELECT position('cd' in 'abcdef'), strpos('abcdef','cd'), strpos('abcdef','zz');
+SELECT split_part('a,b,c',',',2), split_part('a,b,c',',',9);
+SELECT overlay('abcdef' placing 'XY' from 2), overlay('abcdef' placing 'XY' from 2 for 3);
+SELECT concat('a',NULL,'b'), concat_ws('-','a',NULL,'b'), 'a'||NULL;
+SELECT md5('abc'), ascii('A'), chr(66);

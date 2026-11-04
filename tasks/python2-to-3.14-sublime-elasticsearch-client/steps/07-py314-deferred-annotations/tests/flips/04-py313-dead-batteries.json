@@ -1,0 +1,513 @@
+{
+  "step": "04-py313-dead-batteries",
+  "why": "Step 04's requirement is that the tree keeps working on an interpreter that deleted twenty standard-library modules, and that it stops lying about which of its own functions are deprecated.\n\nThe first half is a removal this tree cannot route around. PEP 594 retired `cgi` in 3.13, and `requests/utils.py` imports it at module scope for one call: `cgi.parse_header(content_type)` inside `get_encoding_from_headers`. That single import is why the untouched rung-03 tree cannot so much as `import requests` on 3.13.15, and it takes 133 of the 510 inherited cases down with it: measured, the predecessor scores 377 of 510 cases and 13 of 13 inherited gates. That shortfall is intrinsic to the rung rather than a choice -- family 1 cannot be complete on a predecessor whose import the new interpreter deleted -- and both ways of papering over it were computed and are worse; the arithmetic is in NOTES section 10.6. It is also why this rung joins NARROW_F1 instead of keeping the default 0.40: at f1 = 0.40 a do-nothing tree reaches 0.3087, over migration_prompt.md item 4.3's ~30% cap, and at 0.30 it reaches 0.234804, under it. Neither codemod moves that number -- `pyupgrade --py313-plus` and `ruff --select UP --fix` both score 0.234804 exactly, because no tool rewrites `cgi.parse_header` or writes a PEP 702 decorator.\n\nWhat family 2 prices is not that the import was fixed but that it was fixed faithfully, and that the deprecations were then announced through the mechanism 3.13 added for saying so.\n\nSeven header cases are claimed with `owned: true`. Their recorded answers do not change; the conditions under which the tree has to produce them do, because the parser that used to produce them is gone. `cgi.parse_header` is fifteen lines of RFC 2045 with a decade of accumulated quirks, and the parser the standard library still ships in its place -- `email.message.Message` -- disagrees with it on inputs a real server sends. Measured on 3.13.15, an `email`-based port matches the recording on `encoding-from-headers`, `-quoting` and `-real-world` and fails `-adversarial`, `-degenerate`, `-rfc2231` and `response-encoding-through-the-wire`: it lower-cases the media type, invents a parameter out of a bare `text/html;;charset=utf-8`, substitutes `text/plain` for a header it cannot parse, and splits an RFC 2231 `charset*=` value into a tuple. That port scores 0.473939. A port that gets all seven right and stops there -- one file, `requests/utils.py`, the three edits that retire `cgi` and nothing else -- scores 0.643636 and clears one of the five new gates, `no-dead-stdlib-313`. Both figures are re-measured on every calibration by permanent `email` and `cgi-only` arms in `work/calib04.sh`, so neither can go stale behind a hand-written claim. The mirror arm `pep702-only` -- the same edit list from the same section boundary onwards -- prices the other half at 0.463895: it clears four of the five new gates and still converts only 1 of the 11 owned cases -- `urllib3.deprecated-surface-announces`, the one whose subject imports neither `requests` nor the vendored copy. The other three must-flips need the import fixed as well: `requests.*` directly, `urllib3v.*` through `requests.packages`, and `analytics.*` through `analytics.consumer` -> `analytics.request` -> `requests.sessions`. Neither half of this rung is most of it.\n\nThe second half is PEP 702. Six definitions across three packages are documented as deprecated and announce it in three different ways -- two by hand from inside their own bodies, four not at all, and one reached through `Logger.warn`, an alias the standard library has deprecated since 3.3. `warnings.deprecated` is new in 3.13 and replaces all three spellings, and it raises at the caller's frame, which is the observable difference: the four `expect` cases above flip, and their `where` field moving from `\"tree\"` to `\"caller\"` is what says the decorator was used rather than a `stacklevel` added by hand.\n\nMembership rule, and why this list is eleven cases and not the fifteen it first held. A case belongs in family 2 only if its subject is this rung's work *and* it cannot be satisfied by a tree that has not attempted that work. Four cases that assert a silence -- `analytics.queue-full-warns` and the three `internal-callers-stay-silent` variants -- were claimed in the first draft and have been dropped. They are recorded empty and stay empty, so a tree that never decorated anything satisfies them for free; one of them, `urllib3.internal-callers-stay-silent`, passed the untouched predecessor outright. They sit in family 1 instead, where they still do their job of catching a decorator applied without rerouting the library's own call sites, and that job is measured rather than assumed: a diagnostic tree that applies the decorators and skips the reroutes fails `urllib3.internal-callers-stay-silent` and `urllib3v.internal-callers-stay-silent` in family 1 and scores 0.952353. The `requests` variant is not part of that rail -- a plain `requests.get` never reaches `get_host`, so it passes either way -- which is a further reason it could not have been priced as owned work. The adversarial work they were meant to price is priced instead by the `no-deprecated-surface-callers` gate -- which reports four findings on the predecessor, `is_same_host` and `connection_from_url` in each vendored copy -- and by `analytics.queue-full-logging-alias`, a must-flip case that installs `simplefilter(\"always\")` and therefore fails any tree that has started warning about itself.\n\nEligibility is measured, not inferred. On the untouched rung-03 tree all eleven cases fail, which is the check migration_prompt.md rule 5 asks for and the check the first draft failed; `work/calib04.sh`'s `nop` arm reports `own bar 0/11 cases + 0% gates` and is the standing instrument for it.",
+  "cases": {
+    "analytics.queue-full-logging-alias": {
+      "expect": {
+        "logs": [
+          {
+            "exc": null,
+            "level": "DEBUG",
+            "logger": "segment",
+            "message": "queueing: {'integrations': {}, 'anonymousId': None, 'properties': {}, 'timestamp': '<ISOTIME>', 'context': {'library': {'name': 'analytics-python', 'version': '1.1.0'}}, 'userId': 'u', 'type': 'track', 'event': 'one', 'messageId': '<UUID>'}"
+          },
+          {
+            "exc": null,
+            "level": "DEBUG",
+            "logger": "segment",
+            "message": "enqueued track."
+          },
+          {
+            "exc": null,
+            "level": "DEBUG",
+            "logger": "segment",
+            "message": "queueing: {'integrations': {}, 'anonymousId': None, 'properties': {}, 'timestamp': '<ISOTIME>', 'context': {'library': {'name': 'analytics-python', 'version': '1.1.0'}}, 'userId': 'u', 'type': 'track', 'event': 'two', 'messageId': '<UUID>'}"
+          },
+          {
+            "exc": null,
+            "level": "WARNING",
+            "logger": "segment",
+            "message": "analytics-python queue is full"
+          }
+        ],
+        "result": {
+          "__dict__": [
+            [
+              "second_ok",
+              false
+            ],
+            [
+              "qsize",
+              1
+            ],
+            [
+              "warnings",
+              []
+            ]
+          ]
+        },
+        "stderr": "",
+        "stdout": "",
+        "warnings": [],
+        "wire": []
+      },
+      "reason": "`Client._enqueue`'s full-queue branch calls `self.log.warn`. The alias has been deprecated since 3.3, still exists at 3.14.7 (measured on every interpreter in the ladder) and forwards to `warning`, so the log record is identical either way -- which is why `analytics.queue-full-warns` beside this case cannot see the rename and this case can. What the alias costs is a `DeprecationWarning` raised at its caller's frame, and that frame is `analytics/client.py`, inside the tree. Renaming the one call site empties the list: measured `[\"DeprecationWarning@tree\"]` -> `[]`, with `second_ok` and `qsize` unchanged so the branch's contract is still pinned."
+    },
+    "requests.deprecated-utils-announce": {
+      "expect": {
+        "logs": [],
+        "result": {
+          "__dict__": [
+            [
+              "get_encodings_from_content",
+              {
+                "__dict__": [
+                  [
+                    "value",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          [
+                            "utf-8"
+                          ]
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "warnings",
+                    [
+                      {
+                        "__dict__": [
+                          [
+                            "category",
+                            "DeprecationWarning"
+                          ],
+                          [
+                            "where",
+                            "caller"
+                          ],
+                          [
+                            "has_message",
+                            true
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  [
+                    "deprecated",
+                    true
+                  ]
+                ]
+              }
+            ],
+            [
+              "get_unicode_from_response",
+              {
+                "__dict__": [
+                  [
+                    "value",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          "<meta charset=\"utf-8\">"
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "warnings",
+                    [
+                      {
+                        "__dict__": [
+                          [
+                            "category",
+                            "DeprecationWarning"
+                          ],
+                          [
+                            "where",
+                            "caller"
+                          ],
+                          [
+                            "has_message",
+                            true
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  [
+                    "deprecated",
+                    true
+                  ]
+                ]
+              }
+            ]
+          ]
+        },
+        "stderr": "",
+        "stdout": "",
+        "warnings": [],
+        "wire": []
+      },
+      "reason": "`get_encodings_from_content` and `get_unicode_from_response` announce today by hand, from inside their own bodies: `warnings.warn((...), DeprecationWarning)` with no `stacklevel`, which makes the warning name `requests/utils.py`, and neither object carries `__deprecated__`. Replacing both bodies' calls with PEP 702's `@warnings.deprecated` moves two fields and no others. Measured on the candidate golden at 3.13.15: `where` goes `\"tree\"` -> `\"caller\"` for both functions, because the decorator raises at the caller's frame -- here `deprecations.py`, which is outside the tree -- and `deprecated` goes `false` -> `true`, because `__deprecated__` is what PEP 702 sets and what a type checker reads. The returned values, the warning *count* and `has_message` are all unchanged; the count is the field that stops a rung decorating on top of the hand-rolled call and collecting both."
+    },
+    "requests.encoding-from-headers": {
+      "owned": true,
+      "reason": "`get_encoding_from_headers` is the tree's only caller of `cgi.parse_header`, and `cgi` is one of the nineteen modules PEP 594 removed in 3.13. Its answer for ordinary headers does not change -- that is the requirement -- but from this rung on the tree has to produce that answer itself rather than borrow it from a module that no longer exists, so the case is this rung's own bar and not inherited preservation."
+    },
+    "requests.encoding-from-headers-adversarial": {
+      "owned": true,
+      "reason": "Same claim, malformed and unusual header values: unterminated quotes, a trailing `=`, a bare parameter with no value, repeated parameters. `cgi.parse_header` has a defined answer for each and never raised; the port has to reproduce the answer including the ones that look like bugs."
+    },
+    "requests.encoding-from-headers-degenerate": {
+      "owned": true,
+      "reason": "Same claim, inputs that are not content types at all: the empty string, whitespace, a bare `;`, a parameter with no type in front of it, `text` with no subtype, `attachment; filename=\"a;b.txt\"`. These are where an `email.message.Message`-based port diverges hardest, because that parser defaults a missing type to `text/plain` where `cgi.parse_header` returns what it was given."
+    },
+    "requests.encoding-from-headers-quoting": {
+      "owned": true,
+      "reason": "Same claim, the quoting rules specifically: RFC 2045 backslash unescaping inside a quoted string, a semicolon that is data because it is inside quotes, single quotes that are *not* quoting syntax, an empty quoted value. This is the part of the grammar a from-scratch rewrite gets wrong first."
+    },
+    "requests.encoding-from-headers-real-world": {
+      "owned": true,
+      "reason": "Same claim, thirty-odd Content-Type values taken from headers real servers send, scored as one case so that the grammar is tested in bulk and not only at its edges."
+    },
+    "requests.encoding-from-headers-rfc2231": {
+      "owned": true,
+      "reason": "Same claim, RFC 2231 extended parameters (`charset*=UTF-8''foo`). `cgi.parse_header` has never implemented RFC 2231 and hands back the raw `charset*` key with its value uninterpreted; `email`'s parser decodes it into a three-tuple and files it under `charset`. Measured: this is one of the two cases the obvious `email.message.Message` port fails, which is what earns it a place in this rung's own bar."
+    },
+    "requests.response-encoding-through-the-wire": {
+      "owned": true,
+      "reason": "Same claim, and the one that matters most: the header parser is reached through a real HTTP response rather than called directly, and the case reads `Response.encoding`, `.text` and `.apparent_encoding` after it. A port that is right in isolation and wrong about which values reach it from a live response fails here and nowhere else. Measured: the second of the two cases the `email.message.Message` port fails."
+    },
+    "urllib3.deprecated-surface-announces": {
+      "expect": {
+        "logs": [],
+        "result": {
+          "__dict__": [
+            [
+              "get_host",
+              {
+                "__dict__": [
+                  [
+                    "value",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          {
+                            "__tuple__": [
+                              "http",
+                              "example.com",
+                              8080
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "warnings",
+                    [
+                      {
+                        "__dict__": [
+                          [
+                            "category",
+                            "DeprecationWarning"
+                          ],
+                          [
+                            "where",
+                            "caller"
+                          ],
+                          [
+                            "has_message",
+                            true
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  [
+                    "deprecated",
+                    true
+                  ]
+                ]
+              }
+            ],
+            [
+              "iter_fields_dict",
+              {
+                "__dict__": [
+                  [
+                    "value",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          [
+                            {
+                              "__tuple__": [
+                                "a",
+                                "1"
+                              ]
+                            }
+                          ]
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "warnings",
+                    [
+                      {
+                        "__dict__": [
+                          [
+                            "category",
+                            "DeprecationWarning"
+                          ],
+                          [
+                            "where",
+                            "caller"
+                          ],
+                          [
+                            "has_message",
+                            true
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  [
+                    "deprecated",
+                    true
+                  ]
+                ]
+              }
+            ],
+            [
+              "iter_fields_pairs",
+              {
+                "__dict__": [
+                  [
+                    "value",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          [
+                            {
+                              "__tuple__": [
+                                "a",
+                                "1"
+                              ]
+                            }
+                          ]
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "warnings",
+                    [
+                      {
+                        "__dict__": [
+                          [
+                            "category",
+                            "DeprecationWarning"
+                          ],
+                          [
+                            "where",
+                            "caller"
+                          ],
+                          [
+                            "has_message",
+                            true
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  [
+                    "deprecated",
+                    true
+                  ]
+                ]
+              }
+            ]
+          ]
+        },
+        "stderr": "",
+        "stdout": "",
+        "warnings": [],
+        "wire": []
+      },
+      "reason": "`urllib3.util.url.get_host` and `urllib3.filepost.iter_fields` are documented as deprecated and announce nothing at all, so all three observations here record an empty warning list and `deprecated: false`. Marking both definitions flips each of the three to one `DeprecationWarning` raised at the caller with a non-empty message, and `deprecated` to `true`. Two observations cover `iter_fields` because it has a dict branch and a pairs branch and a rung that decorated only one of two overloads would otherwise pass; the returned values are unchanged in all three, which is what stops the announcement being satisfied by breaking the function."
+    },
+    "urllib3v.deprecated-surface-announces": {
+      "expect": {
+        "logs": [],
+        "result": {
+          "__dict__": [
+            [
+              "get_host",
+              {
+                "__dict__": [
+                  [
+                    "value",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          {
+                            "__tuple__": [
+                              "http",
+                              "example.com",
+                              8080
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "warnings",
+                    [
+                      {
+                        "__dict__": [
+                          [
+                            "category",
+                            "DeprecationWarning"
+                          ],
+                          [
+                            "where",
+                            "caller"
+                          ],
+                          [
+                            "has_message",
+                            true
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  [
+                    "deprecated",
+                    true
+                  ]
+                ]
+              }
+            ],
+            [
+              "iter_fields_dict",
+              {
+                "__dict__": [
+                  [
+                    "value",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          [
+                            {
+                              "__tuple__": [
+                                "a",
+                                "1"
+                              ]
+                            }
+                          ]
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "warnings",
+                    [
+                      {
+                        "__dict__": [
+                          [
+                            "category",
+                            "DeprecationWarning"
+                          ],
+                          [
+                            "where",
+                            "caller"
+                          ],
+                          [
+                            "has_message",
+                            true
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  [
+                    "deprecated",
+                    true
+                  ]
+                ]
+              }
+            ],
+            [
+              "iter_fields_pairs",
+              {
+                "__dict__": [
+                  [
+                    "value",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          [
+                            {
+                              "__tuple__": [
+                                "a",
+                                "1"
+                              ]
+                            }
+                          ]
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "warnings",
+                    [
+                      {
+                        "__dict__": [
+                          [
+                            "category",
+                            "DeprecationWarning"
+                          ],
+                          [
+                            "where",
+                            "caller"
+                          ],
+                          [
+                            "has_message",
+                            true
+                          ]
+                        ]
+                      }
+                    ]
+                  ],
+                  [
+                    "deprecated",
+                    true
+                  ]
+                ]
+              }
+            ]
+          ]
+        },
+        "stderr": "",
+        "stdout": "",
+        "warnings": [],
+        "wire": []
+      },
+      "reason": "The same flip for the second vendored copy under `requests/packages/urllib3`. The two trees are byte-identical today and each is imported by a different half of this codebase, so this entry is not redundant with the one above: a rung that marks one root and forgets the other passes exactly one of the two cases, and that is the intended discrimination rather than an accident of vendoring."
+    }
+  }
+}

@@ -1,0 +1,12 @@
+CREATE TABLE q2_pat_a(i int primary key);
+CREATE TABLE q2_pat_b(i int primary key);
+CREATE TABLE q2_pat_c(i int primary key);
+CREATE PUBLICATION q2_pat_p FOR TABLE q2_pat_a;
+ALTER PUBLICATION q2_pat_p ADD TABLE q2_pat_b;
+SELECT tablename FROM pg_publication_tables WHERE pubname = 'q2_pat_p' ORDER BY tablename;
+ALTER PUBLICATION q2_pat_p SET TABLE q2_pat_c;
+SELECT tablename FROM pg_publication_tables WHERE pubname = 'q2_pat_p' ORDER BY tablename;
+ALTER PUBLICATION q2_pat_p DROP TABLE q2_pat_a;
+ALTER PUBLICATION q2_pat_p ADD TABLE q2_pat_c;
+DROP PUBLICATION q2_pat_p;
+DROP TABLE q2_pat_a, q2_pat_b, q2_pat_c;

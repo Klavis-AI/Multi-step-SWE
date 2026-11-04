@@ -1,0 +1,25 @@
+# "If part of a pattern is enclosed between (*script_run: or (*sr: and a
+# closing parenthesis, it fails if the sequence of characters that it matches
+# are not a script run. After a failure, normal backtracking occurs."
+# pcre2pattern.3, "SCRIPT RUNS".
+
+# A greedy repeat gives characters back until what is left is a script run.
+/(*sr:\S+)/g,utf
+    pay\x{0440}al
+
+# Alternation is retried after a script-run failure: the first branch matches
+# the text but is not a run, so the second branch is used.
+/^(*sr:ab\x{0447}|ab)/utf
+    ab\x{0447}
+
+# A lazy repeat grows until the following item matches, and every intermediate
+# length is script-run checked.
+/^(*sr:.+?)\x{0447}/utf
+    ab\x{0447}
+    \x{0430}\x{0431}\x{0447}
+
+# The manual page's lookahead idiom pins the script of the first character;
+# the run itself is still free to backtrack.
+/\s+(?=\p{Greek})(*sr:\S+)/utf
+    tag \x{03B4}\x{03BF}\x{03BA}x
+    tag \x{03B4}\x{03BF}\x{03BA}

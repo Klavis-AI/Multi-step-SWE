@@ -1,0 +1,72 @@
+[
+ {
+  "name": "interop-basic",
+  "peers": [
+   "v2.20.1",
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nprintf 'alpha\\n' > a.txt && mkdir -p dir/sub && printf 'beta\\n' > dir/sub/b.txt &&\nprintf 'run\\n' > run.sh && chmod +x run.sh && ln -s a.txt link.txt &&\nprintf '*.log\\n' > .gitignore &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'initial import' &&\nprintf 'alpha2\\n' >> a.txt && git add a.txt &&\nGIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m 'second commit' &&\ngit tag -a v1.0 -m 'release 1.0' && git tag light HEAD~1 &&\ngit branch topic HEAD~1\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git log --format='%H %T %P %an %ae %ad %s'",
+   "git --git-dir=@REPO@/.git ls-tree -r -t HEAD",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "git --git-dir=@REPO@/.git rev-list --all --count",
+   "git --git-dir=@REPO@/.git show-ref | sort",
+   "git --git-dir=@REPO@/.git for-each-ref --format='%(refname) %(objecttype) %(objectname)' | sort",
+   "git --git-dir=@REPO@/.git cat-file -p HEAD^{tree}",
+   "git --git-dir=@REPO@/.git rev-parse HEAD HEAD^{tree}",
+   "git -C @REPO@ status --porcelain; echo exit=$?",
+   "git -C @REPO@ diff --stat HEAD; echo exit=$?",
+   "git clone -q @REPO@ @WORK@/clone 2>&1; echo exit=$?; git -C @WORK@/clone log --format='%H %s'; git -C @WORK@/clone status --porcelain; git -C @WORK@/clone fsck; echo fsck=$?",
+   "git -C @REPO@ ls-files -s"
+  ]
+ },
+ {
+  "name": "interop-merge",
+  "peers": [
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nprintf 'common\\n1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n' > f && git add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m base &&\ngit checkout -q -b topic &&\nprintf 'common\\n1\\n2\\n3\\n4\\n5\\n6\\nTOPIC\\n8\\n' > f && printf 'extra\\n' > t && git add -A &&\nGIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m topic &&\ngit checkout -q main &&\nprintf 'MAIN\\n1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n' > f && git add -A && GIT_AUTHOR_DATE='@1112912100 +0000' GIT_COMMITTER_DATE='@1112912100 +0000' git commit -q -m main &&\nGIT_AUTHOR_DATE='@1112912200 +0000' GIT_COMMITTER_DATE='@1112912200 +0000' git merge -m 'merge topic' topic &&\ngit pack-refs --all\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git log --format='%H %T %P %an %ae %ad %s'",
+   "git --git-dir=@REPO@/.git ls-tree -r -t HEAD",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "git --git-dir=@REPO@/.git rev-list --all --count",
+   "git --git-dir=@REPO@/.git show-ref | sort",
+   "git --git-dir=@REPO@/.git for-each-ref --format='%(refname) %(objecttype) %(objectname)' | sort",
+   "git --git-dir=@REPO@/.git cat-file -p HEAD^{tree}",
+   "git --git-dir=@REPO@/.git rev-parse HEAD HEAD^{tree}",
+   "git -C @REPO@ status --porcelain; echo exit=$?",
+   "git -C @REPO@ diff --stat HEAD; echo exit=$?",
+   "git clone -q @REPO@ @WORK@/clone 2>&1; echo exit=$?; git -C @WORK@/clone log --format='%H %s'; git -C @WORK@/clone status --porcelain; git -C @WORK@/clone fsck; echo fsck=$?",
+   "git -C @REPO@ ls-files -s"
+  ]
+ },
+ {
+  "name": "interop-names",
+  "peers": [
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q -b main . &&\nmkdir -p 'dir with space/inner' &&\nprintf '1\\n' > 'dir with space/inner/file one' &&\nprintf '2\\n' > 'quote\"name' &&\nprintf '3\\n' > 'utf8-\\303\\244\\303\\266' &&\nprintf '4\\n' > empty && : > truly-empty &&\nmkdir -p nested/a/b/c/d && printf '5\\n' > nested/a/b/c/d/deep &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'unusual names'\n",
+  "probes": [
+   "git --git-dir=@REPO@/.git fsck --strict; echo exit=$?",
+   "git --git-dir=@REPO@/.git log --format='%H %T %P %an %ae %ad %s'",
+   "git --git-dir=@REPO@/.git ls-tree -r -t HEAD",
+   "git --git-dir=@REPO@/.git cat-file --batch-all-objects --batch-check | sort",
+   "git --git-dir=@REPO@/.git rev-list --all --count",
+   "git --git-dir=@REPO@/.git show-ref | sort",
+   "git --git-dir=@REPO@/.git for-each-ref --format='%(refname) %(objecttype) %(objectname)' | sort",
+   "git --git-dir=@REPO@/.git cat-file -p HEAD^{tree}",
+   "git --git-dir=@REPO@/.git rev-parse HEAD HEAD^{tree}",
+   "git -C @REPO@ status --porcelain; echo exit=$?",
+   "git -C @REPO@ diff --stat HEAD; echo exit=$?",
+   "git clone -q @REPO@ @WORK@/clone 2>&1; echo exit=$?; git -C @WORK@/clone log --format='%H %s'; git -C @WORK@/clone status --porcelain; git -C @WORK@/clone fsck; echo fsck=$?",
+   "git -C @REPO@ ls-files -s"
+  ]
+ }
+]

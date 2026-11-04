@@ -1,0 +1,87 @@
+# Step 11 -- C-4's frozen population: the private-FIELD reflection
+# sites routed through
+#
+#     MethodHandles.privateLookupIn(field.getDeclaringClass(),
+#                                    MethodHandles.lookup())
+#                  .unreflectVarHandle(field)
+#
+#     <file>:<line> call=privateLookupIn|unreflectVarHandle form=<f> name=<n> in=<method>
+#
+# AND, BECAUSE THAT POPULATION IS EMPTY ON THE WAY IN, the fourteen
+# setAccessible sites it is carved out of, one row each:
+#
+#     <file>:<line> call=setAccessible recv=<T> in=<method> verdict=<v>
+#
+# ON THE TREE THIS RUNG IS HANDED THE POPULATION IS ZERO: 0 privateLookupIn
+# calls, 0 unreflectVarHandle calls, and the same report measures 14
+# setAccessible sites in main sources. So this leg is scored as an ARRIVAL
+# against a measured zero, exactly as step 10's C-4 scored seqnew, and the
+# zero is what makes it a clean measurement rather than a threshold.
+#
+# FOUR OF THE FOURTEEN CONVERT, AND THE TEN THAT DO NOT ARE NOT OMISSIONS.
+# The rows below carry the verdict on each, and the verdict is derived from the
+# record's own file and receiver type rather than from a typed list.
+#
+#   * 6 are inside the SecurityActions annotation scanners -- four Field sites
+#     and two Method sites. Those methods
+#     return Field and Method OBJECTS to their callers; the access happens in
+#     the caller, so there is no handle to route. Not convertible at all.
+#
+#   * 4 are constructor or setter invocation sites.
+#     Constructor.newInstance wraps whatever the constructor throws in
+#     InvocationTargetException and reports inaccessibility as
+#     IllegalAccessException. MethodHandle.invoke wraps nothing; a Lookup
+#     reports inaccessibility differently. FOUR RECORDED TRANSCRIPTS observe
+#     the old wrapping as their outcome --
+#        domain.container-create-config-no-public-ctor
+#        domain.container-create-config-hidden-class
+#        domain.protodef-create-configuration-no-public-ctor
+#        webrunner.security-new-instance-non-public-class
+#     -- so the conversion is observable there and those sites stay. That list
+#     is not prose: it is frozen in baseline-step11-vhids.txt, asserted line by
+#     line against rec/jdk25-step11, and C-4 is multiplied by the fraction of
+#     it that still matches.
+#
+#     A FIFTH TRANSCRIPT CARRIES THE SAME EXCEPTION AND IS NOT ON THAT LIST.
+#     svc.sl-package-private-class records an IllegalAccessException raised by
+#     java.util.ServiceLoader$ProviderImpl inside java.base, about a probe
+#     provider class -- the JDK's own reflection refusing, not this tree's, and
+#     it arrives wrapped in the java.util.ServiceConfigurationError that says
+#     so. It is evidence about no site in this file. It is B-15.3's, which
+#     already scales by it, and charging it to C-4 as well would price one
+#     regression twice.
+#
+#   * The remaining 4 are plain private-field reads and writes whose only
+#     failure modes are argument and access errors that NO transcript records.
+#     Those four convert, and they are what this leg scores.
+#
+# THE ARRIVAL IS TWO CALLS AND THE GATE READS BOTH. privateLookupIn returns a
+# Lookup; unreflectVarHandle turns a Field into a VarHandle. A privateLookupIn
+# with no unreflectVarHandle is a lookup nobody used; an unreflectVarHandle
+# without a privateLookupIn cannot be written, because only the Lookup that
+# privateLookupIn returns can see a private field. The golden's four sites
+# give 4 and 4, and the sum is the 8 this file measures.
+#
+# OF THE FOUR, THREE ARE WRITES AND ONE IS A READ. Two of the writes catch `e`
+# and one catches `e.getCause()`; that asymmetry is in the original and is
+# preserved rather than tidied. A VarHandle's own access errors are a different
+# type from a Field's, so a candidate who converts a site must also decide what
+# its catch does -- and the four that record no failure are the four where that
+# decision is unobservable.
+#
+# Derived by mk-baseline-step11.sh from the varhandle and accessible records of
+# baseline-step11-source.txt.
+impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java:219 call=setAccessible recv=Constructor in=createInstance verdict=behaviour
+impl-base/src/main/java/org/jboss/arquillian/impl/MapObject.java:41 call=setAccessible recv=Method in=populate verdict=behaviour
+impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/tool/ToolingDeploymentFormatter.java:135 call=setAccessible recv=Field in=getInternalFieldValue verdict=convert
+impl-base/src/main/java/org/jboss/arquillian/impl/core/EventPointImpl.java:74 call=setAccessible recv=Field in=set verdict=convert
+impl-base/src/main/java/org/jboss/arquillian/impl/core/InjectionPointImpl.java:90 call=setAccessible recv=Field in=set verdict=convert
+impl-base/src/main/java/org/jboss/arquillian/impl/core/Reflections.java:110 call=setAccessible recv=Constructor in=createInstance verdict=behaviour
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/ArquillianResourceTestEnricher.java:79 call=setAccessible recv=Field in=enrich verdict=convert
+impl-base/src/main/java/org/jboss/arquillian/impl/enricher/resource/SecurityActions.java:185 call=setAccessible recv=Field in=getFieldsWithAnnotation verdict=scanner
+spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java:162 call=setAccessible recv=Constructor in=createInstance verdict=behaviour
+testenrichers/cdi/src/main/java/org/jboss/arquillian/testenricher/cdi/SecurityActions.java:183 call=setAccessible recv=Field in=getFieldsWithAnnotation verdict=scanner
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:186 call=setAccessible recv=Field in=getFieldsWithAnnotation verdict=scanner
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/SecurityActions.java:206 call=setAccessible recv=Method in=getMethodsWithAnnotation verdict=scanner
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:186 call=setAccessible recv=Field in=getFieldsWithAnnotation verdict=scanner
+testenrichers/resource/src/main/java/org/jboss/arquillian/testenricher/resource/SecurityActions.java:206 call=setAccessible recv=Method in=getMethodsWithAnnotation verdict=scanner

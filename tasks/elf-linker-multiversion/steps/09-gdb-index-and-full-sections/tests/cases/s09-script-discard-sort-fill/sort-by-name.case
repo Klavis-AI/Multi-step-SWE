@@ -1,0 +1,55 @@
+# arch: x86_64
+# SORT_BY_NAME(pattern) lays the matched input sections out in name order
+# rather than in the order the objects present them.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+__attribute__((section(".pre.zulu"),  used, retain)) const int z = 0x11111111;
+__attribute__((section(".pre.alpha"), used, retain)) const int a = 0x22222222;
+__attribute__((section(".pre.mike"),  used, retain)) const int m = 0x33333333;
+int g = 5;
+int entry(void) { print("sorted\n"); return g; }
+C
+cc_obj m.o m.c
+mkscript() { cat > t.ld <<L
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .pre  : { *($1) }
+  .data : { *(.data .data.*) }
+}
+L
+}
+# Inline helper: dump a section's bytes with dd, so this needs only coreutils.
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+words() { local o s; o=$(sec_off "$1" "$2"); s=$(sec_size "$1" "$2")
+          [ -n "$o" ] && [ -n "$s" ] || die "$1 has no section $2"
+          dd if="$1" of=w.bin bs=1 skip=$((16#$o)) count=$((16#$s)) status=none
+          od -An -tx4 -v w.bin | tr -s ' \n' ' '; }
+
+# Control first: the same script without the sort links at every tag and keeps
+# the objects' own order. It makes the reordering below the keyword's doing,
+# and it means a failure below is SORT_BY_NAME and not the rest of the script.
+#
+# The unsorted order is graded, not incidental: spec/10 s.5 rule 2 contributes
+# a pattern's matches in input-file order, and spec/04 s.1.1 defines that order
+# inside one object as the object's section-header-table order -- which for
+# these three declarations is zulu, alpha, mike. (s.1.1's "nothing is graded on
+# this ordering" is scoped to the default layout; under a script s.1.1 defers
+# to spec/10 s.5.)
+mkscript '.pre.*'
+link_ok plain -T t.ld --no-gc-sections rt.o m.o
+want "unsorted keeps the objects' section-header order" \
+     "$(words plain .pre)" " 11111111 22222222 33333333 "
+
+mkscript 'SORT_BY_NAME(.pre.*)'
+link_ok sorted -T t.ld --no-gc-sections rt.o m.o
+want "SORT_BY_NAME orders alpha, mike, zulu" "$(words sorted .pre)" " 22222222 33333333 11111111 "
+
+run_expect sorted "sorted" 5
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

@@ -1,0 +1,57 @@
+{
+ "doc": "PROFILE.md 5.1, normative entry for this step's spatial-reference change: 'PROJJSON in SRS metadata -- `pdal info --metadata` grows a `srs.json` member carrying the PROJJSON description of the file's coordinate system. At this release it is an escaped JSON string; it becomes a nested object later.' -- the new member's payload is PROJJSON for the file's own CRS, so it must name the same CRS the wkt does: NAD83 / UTM zone 17N, at EPSG code 26917. At 2.5.0 the value is a JSON string, so these are asserted on the member itself rather than parsed. The three assertions are whitespace-tolerant regexes rather than literal substrings: PROJJSON is JSON, so how much space a serializer puts between a key and its value is the serializer's business and no page states it. What is graded is that the member names ProjectedCRS, the file's own CRS name, and EPSG code 26917.",
+ "files": {
+  "utm17.las": {
+   "fixture": "utm17.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"utm17.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "info",
+    "--metadata",
+    "utm17.las"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "stdout_json",
+   "run": 0,
+   "path": [
+    "metadata",
+    "srs",
+    "json"
+   ],
+   "regex": "\"type\"\\s*:\\s*\"ProjectedCRS\""
+  },
+  {
+   "kind": "stdout_json",
+   "run": 0,
+   "path": [
+    "metadata",
+    "srs",
+    "json"
+   ],
+   "regex": "\"name\"\\s*:\\s*\"NAD83 / UTM zone 17N\""
+  },
+  {
+   "kind": "stdout_json",
+   "run": 0,
+   "path": [
+    "metadata",
+    "srs",
+    "json"
+   ],
+   "regex": "\"code\"\\s*:\\s*26917"
+  }
+ ]
+}

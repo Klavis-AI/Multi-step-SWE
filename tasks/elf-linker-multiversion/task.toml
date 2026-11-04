@@ -1,0 +1,129 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of the nine step rewards. There is no min_reward on
+# any step: a step that scores zero still leaves the later ones to run, which is
+# what makes the per-step numbers comparable across a partial solve.
+multi_step_reward_strategy = "mean"
+
+# The cumulative worktree is how the next step's agent -- and every verifier --
+# sees what the previous step produced. Build output is excluded, so the
+# verifier always rebuilds the linker from the source that is actually there.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "target", "target/**"] },
+]
+
+[task]
+name = "harbor/elf-linker-multiversion"
+version = "1.0.0"
+description = "Implement an ELF linker across nine cumulative milestones, from a static x86-64 linker to a four-architecture linker with LTO, script-driven layout and debug indexes."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["elf", "linker", "toolchain", "rust", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["elf", "linker", "systems", "multi-step", "cumulative"]
+
+[environment]
+build_timeout_sec = 2400.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# Sized for the dependency prewarm layer, which compiles the linker's whole
+# dependency graph once so that grading a candidate fits in the step timeout.
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# [steps.verifier].timeout_sec is a ceiling derived from test.sh:
+#   900 s   first  `cargo build --release --bin wild` attempt
+# + 900 s   second `cargo build --release` attempt, reached only if the first
+#            produced no binary named wild
+# + 1800 s  the whole-corpus budget passed to `timeout` around run-cases.sh
+#            (which itself caps each case at 60 s, so no single case can
+#            consume the budget silently)
+# = 3600 s worst case, plus headroom for the image pull, the /app
+#   artifact round trip and scorecard writing.
+
+[[steps]]
+name = "01-static-x86-64-linker"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0
+
+[[steps]]
+name = "02-dynamic-output-and-debug-info"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0
+
+[[steps]]
+name = "03-aarch64-tls-and-versioning"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0
+
+[[steps]]
+name = "04-script-driven-layout"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0
+
+[[steps]]
+name = "05-riscv-crel-and-version-scripts"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0
+
+[[steps]]
+name = "06-symver-directives-and-illumos"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0
+
+[[steps]]
+name = "07-loongarch-defsym-and-merge"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0
+
+[[steps]]
+name = "08-lto-relr-and-relocatable"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0
+
+[[steps]]
+name = "09-gdb-index-and-full-sections"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 4200.0

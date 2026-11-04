@@ -1,0 +1,75 @@
+# Step 5's cheats: the ways to show the milestone without doing the work.
+#
+# Two rules, and both are about the same move. This is the step at which the
+# repository's own test suite becomes losable: on JDK 17 the forked JVM dies in
+# `StorageUtils` before any test body runs -- 256 errors where the same tree at
+# JDK 8 reports 0 -- and the step asks for that fork to be opened onto
+# `java.base/sun.nio.ch` (m05.tsv, m2). The cheap way to make a red suite stop
+# being red is not to open the module but to stop running the suite, and these
+# two rules price that.
+#
+#   `skipTests` / `skip`  surefire reads both its own `<configuration>` and the
+#                         properties of the same name, and test.sh does not
+#                         pass `-DskipTests=false`, so either spelling in the
+#                         candidate pom turns `mvn test` into a no-op that
+#                         exits 0. `pom pluginconfig` is flattened from every
+#                         `<configuration>` under the plugin and `pom prop` is
+#                         the effective properties, so the two rules cover the
+#                         two places the setting can live.
+#
+# What is deliberately *not* here, because it is inert rather than allowed:
+#
+#   growing `<excludes>`  the pom already excludes nine test classes, and
+#                         test.sh runs the suite with `-Dtest=**/*Test.java`,
+#                         which overrides surefire includes and excludes both.
+#                         The evidence is this task's own: the excluded
+#                         `CustomReportServiceTest` runs in every measured arm
+#                         and its two failures are counted, which is why they
+#                         are exempted by name rather than by the pom
+#                         (step04/test.sh). A rule forbidding a longer exclude
+#                         list would be a rule about nothing, and a gate full
+#                         of rules about nothing is how a gate stops being
+#                         read.
+#   deleting src/test     test.sh removes /app/src/test and copies a pristine
+#                         overlay over it before the suite runs, so the tests
+#                         that execute are never the candidate's copy of them.
+#   `testFailureIgnore`   test.sh already passes
+#                         `-Dmaven.test.failure.ignore=true` and reads the
+#                         surefire XML rather than maven's exit code, so
+#                         setting it changes nothing that is read.
+#   `<forkCount>0</...>`  running the tests inside maven's own JVM makes
+#                         `<argLine>` inert. What it does not do is fail
+#                         `m2-test-jvm-opens`: that rule reads `pom
+#                         testjvmarg`, which pom-scan.py derives from the
+#                         argLine's arguments and nothing else, so a pom that
+#                         carries the open and also sets `forkCount` to zero
+#                         still emits the argument and still satisfies the
+#                         rule. The rule cannot see the fork at all. What
+#                         prices the move is the suite: maven's own JVM is not
+#                         opened either, so `StorageUtils` throws while the
+#                         session starts, every test body is an error before it
+#                         runs, and the `tests` family pays out on the count it
+#                         reads from the surefire XML. The candidate keeps the
+#                         requirement and loses the behaviour, which is the
+#                         right way round for a move that is a real -- if
+#                         unusual -- build configuration rather than a dodge.
+#                         No fork rule is added for it. The fact would have to
+#                         come from the shared pom scanner, and steps 1-4 have
+#                         been scored and signed off against the bytes that
+#                         scanner has now; growing it to emit a fork count
+#                         would invalidate their measurements in order to fence
+#                         a move that already loses its own family. It is named
+#                         in instruction.md as "the forked test JVM" so that
+#                         the shape being asked for is stated rather than
+#                         inferred.
+#
+# The read-site dodges -- hiding a format behind a variable, moving the options
+# into a map, deleting the read -- are fenced inside the requirement that would
+# otherwise reward them (m05.tsv, m3) rather than repeated here.
+#
+# The rule this file used to carry, `no-inferred-schema-fed-back`, went with
+# the json clause it was about: with nothing in the gate asking for a declared
+# schema, reading a schema back off a Dataset buys nothing, and a prohibition
+# on a move that pays nothing is a rule about nothing (NOTES 6.5.2).
+no-tests-skipped-config	absent	pom.pluginconfig\torg\.apache\.maven\.plugins:maven-surefire-plugin\t(skipTests|skip)\ttrue	pom-skiptests.tsv	the candidate pom configures surefire to skip the tests; the suite this step makes passable again is graded by running it, and a suite that does not run is not a suite that passes
+no-tests-skipped-property	absent	pom.prop\t(maven\.test\.skip|skipTests)\ttrue	pom-skiptests.tsv	the candidate pom sets a property that skips the tests, which is the same move as configuring it on the plugin with the setting spelled somewhere surefire also reads

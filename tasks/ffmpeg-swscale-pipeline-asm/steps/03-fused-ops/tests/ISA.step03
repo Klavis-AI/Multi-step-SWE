@@ -1,0 +1,35 @@
+# Instruction-set envelope for milestone 3.
+# ceiling  : the widest registers this milestone's reference uses.
+# field    : a dispatch field this milestone installs through.
+# returnfile: a file whose `return X;` names an installed kernel.
+# sym      : a symbol the reference's own files define.
+# ownfile  : a file this milestone owns, named relative to libswscale/x86/.
+#            The envelope gate is scoped to what the candidate changed: every
+#            ownfile byte-identical to the base's passes it vacuously and the
+#            verifier prints that it did. The Makefile is deliberately not an
+#            ownfile -- it is shared bookkeeping that earlier milestones also
+#            edit, so counting it would report a cumulative candidate as
+#            having changed this milestone's scope when it changed nothing of
+#            this milestone's.
+ceiling avx2
+enforce no
+# This milestone has no `field` to scrape and no `returnfile` to read: the
+# fused-operation backend is a table of callbacks (`const SwsOpBackend
+# backend_x86`), so its dispatch installs kernels by assigning struct members,
+# not by assigning a SwsContext field or returning a name. Without a seed the
+# gate resolved to no object at all and reported `MILESTONE_OBJECTS 0` on
+# every tree -- an examination that found nothing, kept from being a failure
+# only because this milestone's ceiling equals the machine's (`enforce no`).
+# The symbols this milestone's own files define seed the scope instead, so the
+# gate follows and reports the objects that implement this milestone.
+sym backend_x86
+sym ff_sws_process1_x86
+sym ff_sws_process2_x86
+sym ff_sws_process3_x86
+sym ff_sws_process4_x86
+ownfile ops.c
+ownfile ops_common.asm
+ownfile ops_float.asm
+ownfile ops_include.asm
+ownfile ops_int.asm
+ownfile uops_macros.asm.h

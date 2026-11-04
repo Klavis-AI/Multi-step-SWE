@@ -1,0 +1,10 @@
+CREATE TABLE q2_pab(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q2_pab_1 PARTITION OF q2_pab FOR VALUES FROM (1) TO (10);
+CREATE TABLE q2_pab_ext(a int, b text);
+INSERT INTO q2_pab_ext VALUES (12,'ext');
+ALTER TABLE q2_pab ATTACH PARTITION q2_pab_ext FOR VALUES FROM (10) TO (20);
+SELECT tableoid::regclass::text AS part, a, b FROM q2_pab ORDER BY a;
+INSERT INTO q2_pab VALUES (15,'routed');
+SELECT count(*) FROM q2_pab_ext;
+DROP TABLE IF EXISTS q2_pab;
+DROP TABLE IF EXISTS q2_pab_ext;

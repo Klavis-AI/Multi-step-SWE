@@ -1,0 +1,168 @@
+{
+ "error": null,
+ "step": 2,
+ "tags": [
+  "federation",
+  "membership",
+  "kick"
+ ],
+ "transcript": [
+  {
+   "binary": null,
+   "body": {},
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 kicks a remote user",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/rooms/{roomId}/kick",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/kick",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "membership": "leave",
+    "reason": "out you go"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 membership after the kick",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/state/m.room.member/@kkb:<HS2>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "members": {
+     "leave:<ROOM1>": [
+      "@kkb:<HS2>|leave"
+     ]
+    },
+    "sections": {
+     "invite": [],
+     "join": [],
+     "knock": [],
+     "leave": [
+      "<ROOM1>"
+     ]
+    }
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs2 /sync puts the kicked user's room in leave",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/sync",
+   "path": "hs2 /_matrix/client/v3/sync?timeout=0&since=<BATCH>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "joined_rooms": []
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs2 no longer lists the room",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/joined_rooms",
+   "path": "hs2 /_matrix/client/v3/joined_rooms",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "errcode": "M_FORBIDDEN|M_NOT_FOUND"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "a kicked remote user cannot send",
+   "method": "PUT",
+   "missing_required": [],
+   "op": "PUT /_matrix/client/v3/rooms/{roomId}/send/{eventType}/{txnId}",
+   "path": "hs2 /_matrix/client/v3/rooms/<ROOM1>/send/m.room.message/after-kick",
+   "status": 403,
+   "status_exact": false
+  },
+  {
+   "binary": null,
+   "body": {
+    "room_id": "<ROOM1>"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "a kicked remote user may rejoin a public room",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/join/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/join/<ROOM1>?server_name=<HS1>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": [
+    "@kka:<HS1>|join|kka D",
+    "@kkb:<HS2>|join|kkb D"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 sees the rejoin",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/members",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": [
+    "@kka:<HS1>|join|kka D",
+    "@kkb:<HS2>|join|kkb D"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs2 agrees after the rejoin",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "hs2 /_matrix/client/v3/rooms/<ROOM1>/members",
+   "status": 200,
+   "status_exact": true
+  }
+ ]
+}

@@ -1,0 +1,10 @@
+CREATE TABLE q2_pcd(a int) PARTITION BY RANGE (a);
+CREATE TABLE q2_pcd_1 PARTITION OF q2_pcd FOR VALUES FROM (1) TO (10);
+CREATE TABLE q2_pcd_2 PARTITION OF q2_pcd FOR VALUES FROM (10) TO (20);
+INSERT INTO q2_pcd VALUES (1),(11);
+DROP TABLE q2_pcd_2;
+SELECT count(*) FROM pg_inherits WHERE inhparent = 'q2_pcd'::regclass;
+SELECT a FROM q2_pcd ORDER BY a;
+INSERT INTO q2_pcd VALUES (11);
+DROP TABLE q2_pcd;
+SELECT count(*) FROM pg_class WHERE relname IN ('q2_pcd','q2_pcd_1');

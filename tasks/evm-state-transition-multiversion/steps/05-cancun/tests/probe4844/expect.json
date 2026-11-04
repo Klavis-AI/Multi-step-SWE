@@ -1,0 +1,214 @@
+{
+ "_derivation": "all values computed from workdir/docs/fork/cancun/eip-4844.md",
+ "_negative_inputs": {
+  "bad-create-txs.json": "a type-3 transaction with no `to`. eip-4844.md: the field `to` MUST NOT be `nil`, so a blob transaction cannot have the form of a create transaction. Scored in blobgas_probe.sh, which accepts either refusal layer -- a non-zero exit with no result document, or a result document in which the transaction is rejected.",
+  "bad-env-unparseable.json": "truncated JSON. TEST_INTERFACE.md: a malformed input document is a non-zero exit with no partial --output.result left behind.",
+  "bad-txs-unparseable.rlp": "a string that is not an RLP payload. Same rule."
+ },
+ "addresses": {
+  "blobhash_probe": "0x0000000000000000000000000000000000001000",
+  "coinbase": "0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba",
+  "pe_probe": "0x0000000000000000000000000000000000002000",
+  "recipient": "0x00000000000000000000000000000000000c0ffe",
+  "sender": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
+ },
+ "constants": {
+  "BLOB_BASE_FEE_UPDATE_FRACTION": 3338477,
+  "BLS_MODULUS": "0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001",
+  "FIELD_ELEMENTS_PER_BLOB": 4096,
+  "GAS_PER_BLOB": 131072,
+  "MAX_BLOB_GAS_PER_BLOCK": 786432,
+  "MIN_BASE_FEE_PER_BLOB_GAS": 1,
+  "POINT_EVALUATION_PRECOMPILE_ADDRESS": "0x0a",
+  "TARGET_BLOB_GAS_PER_BLOCK": 393216,
+  "VERSIONED_HASH_VERSION_KZG": "0x01"
+ },
+ "scenarios": {
+  "blob-gas-cap": {
+   "derivation": "eip-4844.md: `assert blob_gas_used <= MAX_BLOB_GAS_PER_BLOCK`, MAX_BLOB_GAS_PER_BLOCK = 786432. Two transactions of four blobs each would spend 8 * GAS_PER_BLOB(131072) = 1048576. The first fits (4 * 131072 = 524288 = 0x80000, 21000 gas), the second takes the running total past the cap and is excluded.",
+   "fork": "Cancun",
+   "rejected": [
+    1
+   ],
+   "result": {
+    "blobGasUsed": "0x80000",
+    "gasUsed": "0x5208"
+   }
+  },
+  "blob-hash-version": {
+   "derivation": "eip-4844.md: `assert h[0] == VERSIONED_HASH_VERSION_KZG` for every blob_versioned_hash. The only hash here starts 0x02, so the transaction is invalid and spends no blob gas.",
+   "fork": "Cancun",
+   "rejected": [
+    0
+   ],
+   "result": {
+    "blobGasUsed": "0x0"
+   }
+  },
+  "blob-no-hashes": {
+   "derivation": "eip-4844.md: `assert len(tx.blob_versioned_hashes) > 0`. A type-3 transaction with an empty list is invalid and spends no blob gas.",
+   "fork": "Cancun",
+   "rejected": [
+    0
+   ],
+   "result": {
+    "blobGasUsed": "0x0"
+   }
+  },
+  "blobhash": {
+   "derivation": "BLOBHASH replaces index with tx.blob_versioned_hashes[index] if index < len(...), and otherwise with a zeroed bytes32",
+   "fork": "Cancun",
+   "rejected": [],
+   "result": {
+    "blobGasUsed": "0x40000"
+   },
+   "storage": {
+    "0x0000000000000000000000000000000000001000": {
+     "0x0": "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+     "0x1": "0x01ffeeddccbbaa99887766554433221100ffeeddccbbaa998877665544332211",
+     "0x2": "0x0",
+     "0x3": "0x42"
+    }
+   }
+  },
+  "excess-above-target": {
+   "derivation": "calc_excess_blob_gas: 786432 + 131072 - TARGET(393216) = 524288",
+   "fork": "Cancun",
+   "rejected": [],
+   "result": {
+    "blobGasUsed": "0x0",
+    "currentExcessBlobGas": "0x80000"
+   }
+  },
+  "excess-below-target": {
+   "derivation": "calc_excess_blob_gas: 65536 + 131072 < TARGET(393216), so 0 -- the running total is bounded at zero, it does not go negative",
+   "fork": "Cancun",
+   "rejected": [],
+   "result": {
+    "blobGasUsed": "0x0",
+    "currentExcessBlobGas": "0x0"
+   }
+  },
+  "maxfee-exactly-equal": {
+   "derivation": "max_fee_per_blob_gas == base_fee_per_blob_gas is >=, so valid",
+   "fork": "Cancun",
+   "rejected": [],
+   "result": {
+    "blobGasUsed": "0x20000",
+    "gasUsed": "0x5208"
+   }
+  },
+  "maxfee-one-below": {
+   "derivation": "max_fee_per_blob_gas=18 < base_fee_per_blob_gas=19, so the transaction is invalid and spends no blob gas",
+   "fork": "Cancun",
+   "rejected": [
+    0
+   ],
+   "result": {
+    "blobGasUsed": "0x0"
+   }
+  },
+  "no-blob-tx": {
+   "derivation": "no blob tx in the block, so blob_gas_used = 0",
+   "fork": "Cancun",
+   "rejected": [],
+   "result": {
+    "blobGasUsed": "0x0",
+    "currentExcessBlobGas": "0x989680"
+   }
+  },
+  "one-blob": {
+   "balances": {
+    "0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba": "0x0",
+    "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": "0x3635c9adc5de77c1c8"
+   },
+   "derivation": "blobGasUsed = GAS_PER_BLOB(131072) * 1 = 131072; blob fee burned = 131072 * base_fee_per_blob_gas(excess=10000000)=19",
+   "fork": "Cancun",
+   "rejected": [],
+   "result": {
+    "blobGasUsed": "0x20000",
+    "currentExcessBlobGas": "0x989680",
+    "gasUsed": "0x5208"
+   }
+  },
+  "pe-noncanonical-z": {
+   "derivation": "z == BLS_MODULUS is not a canonical field element (must be strictly less)",
+   "fork": "Cancun",
+   "rejected": [],
+   "storage": {
+    "0x0000000000000000000000000000000000002000": {
+     "0x0": "0x0",
+     "0x1": "0x0",
+     "0x2": "0x0",
+     "0x3": "0x42"
+    }
+   }
+  },
+  "pe-short-input": {
+   "derivation": "len(input) == 191, and the precompile asserts len(input) == 192",
+   "fork": "Cancun",
+   "rejected": [],
+   "storage": {
+    "0x0000000000000000000000000000000000002000": {
+     "0x0": "0x0",
+     "0x1": "0x0",
+     "0x2": "0x0",
+     "0x3": "0x42"
+    }
+   }
+  },
+  "pe-valid": {
+   "derivation": "a valid opening returns FIELD_ELEMENTS_PER_BLOB(4096) and BLS_MODULUS as padded 32-byte big-endian values",
+   "fork": "Cancun",
+   "rejected": [],
+   "storage": {
+    "0x0000000000000000000000000000000000002000": {
+     "0x0": "0x1",
+     "0x1": "0x1000",
+     "0x2": "0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001",
+     "0x3": "0x42"
+    }
+   }
+  },
+  "pe-wrong-versioned-hash": {
+   "derivation": "kzg_to_versioned_hash(commitment) != versioned_hash (version byte 0x02)",
+   "fork": "Cancun",
+   "rejected": [],
+   "storage": {
+    "0x0000000000000000000000000000000000002000": {
+     "0x0": "0x0",
+     "0x1": "0x0",
+     "0x2": "0x0",
+     "0x3": "0x42"
+    }
+   }
+  },
+  "pe-wrong-y": {
+   "derivation": "verify_kzg_proof fails: p(2) = 0 for the zero polynomial, not 1",
+   "fork": "Cancun",
+   "rejected": [],
+   "storage": {
+    "0x0000000000000000000000000000000000002000": {
+     "0x0": "0x0",
+     "0x1": "0x0",
+     "0x2": "0x0",
+     "0x3": "0x42"
+    }
+   }
+  },
+  "two-blobs": {
+   "balances": {
+    "0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba": "0x0",
+    "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": "0x3635c9adc5de51c1c8"
+   },
+   "derivation": "blobGasUsed = GAS_PER_BLOB * 2 = 262144",
+   "fork": "Cancun",
+   "rejected": [],
+   "result": {
+    "blobGasUsed": "0x40000",
+    "currentExcessBlobGas": "0x989680",
+    "gasUsed": "0x5208"
+   }
+  }
+ }
+}

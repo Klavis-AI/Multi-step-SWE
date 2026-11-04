@@ -1,0 +1,120 @@
+# arch: x86_64
+# -shared produces an ET_DYN image with PT_DYNAMIC and a dynamic symbol table
+# whose DT_SYMTAB/DT_STRTAB/DT_STRSZ/DT_SYMENT/DT_GNU_HASH agree with the
+# sections actually written. (caselib's has_*/want_has pipe a process into
+# `grep -q`, which races with SIGPIPE under `set -o pipefail`; wre/nre below
+# use here-strings instead and are deterministic.)
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+nre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" && die "$1: unexpected /$3/"; return 0; }
+dv()  { dynamic "$1" | sed -n "s/.*($2)[ \t]*//p" | sed -n 1p | awk '{print $1}'; }
+cat > s.c <<'C'
+int shared_data = 42;
+int shared_fn(int x) { return x + shared_data; }
+C
+cc_obj s.o s.c -fPIC
+link_ok libs.so -shared s.o
+SEC=$(sections libs.so); SEG=$(segments libs.so)
+want "e_type" "$(hdr libs.so | awk '/^ *Type:/{print $2}')" "DYN"
+wre "PT_DYNAMIC" "$SEG" '^ *DYNAMIC +0x'
+for s in dynsym dynstr gnu\\.hash dynamic; do
+  wre "section .$s" "$SEC" "[[:space:]]\.$s[[:space:]]"
+done
+# Both halves of every comparison are captured first: an absent section or an
+# absent DT_ tag would otherwise leave `16#` or an empty operand inside the
+# assertion's own words, and bash abandons the command during word expansion
+# rather than running the assertion.
+sym_a=$(sec_addr libs.so .dynsym); str_a=$(sec_addr libs.so .dynstr)
+str_s=$(sec_size libs.so .dynstr); hsh_a=$(sec_addr libs.so .gnu.hash)
+sym_s=$(sec_size libs.so .dynsym)
+for v in sym_a str_a str_s hsh_a sym_s; do
+  [ -n "${!v}" ] || die "$v is empty: the shared object is missing a section the dynamic tags describe"
+done
+for t in SYMTAB STRTAB STRSZ GNU_HASH SYMENT; do
+  [ -n "$(dv libs.so "$t")" ] || die "DT_$t is missing from the dynamic section"
+done
+want "DT_SYMTAB == addr(.dynsym)"     "$(( $(dv libs.so SYMTAB) ))"   "$(( 16#$sym_a ))"
+want "DT_STRTAB == addr(.dynstr)"     "$(( $(dv libs.so STRTAB) ))"   "$(( 16#$str_a ))"
+want "DT_STRSZ == size(.dynstr)"      "$(( $(dv libs.so STRSZ) ))"    "$(( 16#$str_s ))"
+want "DT_GNU_HASH == addr(.gnu.hash)" "$(( $(dv libs.so GNU_HASH) ))" "$(( 16#$hsh_a ))"
+want "DT_SYMENT" "$(( $(dv libs.so SYMENT) ))" "24"
+dsz=$(( 16#$sym_s ))
+[ "$dsz" -gt 24 ] || die ".dynsym holds only the null entry (size $dsz)"
+[ $(( dsz % 24 )) -eq 0 ] || die ".dynsym size $dsz is not a multiple of DT_SYMENT"
+DS=$(dynsyms libs.so)
+wre "shared_fn exported"   "$DS" 'GLOBAL DEFAULT +[0-9]+ shared_fn'
+wre "shared_data exported" "$DS" 'GLOBAL DEFAULT +[0-9]+ shared_data'
+# A shared object gets no interpreter and no entry point.
+nre "no PT_INTERP" "$SEG" 'INTERP'
+want "entry" "$(hdr libs.so | awk '/Entry point/{print $NF}')" "0x0"
+# -rpath is carried into DT_RPATH or DT_RUNPATH, exactly.
+link_ok libs2.so -shared -rpath /opt/libs:/usr/local/lib s.o
+D2=$(dynamic libs2.so)
+wre "DT_RPATH or DT_RUNPATH present" "$D2" '\((RPATH|RUNPATH)\)'
+wre "-rpath value carried exactly" "$D2" '\((RPATH|RUNPATH)\)[^[]*\[/opt/libs:/usr/local/lib\]'
+# .gnu.hash structural correctness, graded against `spec/05` §4 and nothing
+# else. The reference's own parameter choices -- §4.3's `bloom_size = 1` /
+# `bloom_shift = 6` and §4.4's `nbuckets = next_power_of_two(num_exported / 2)`
+# -- are stated there as what that linker *does*, not as what is *required*, so
+# none of them is asserted here: the walk reads whichever `nbuckets` and
+# `bloom_size` the candidate chose and indexes the arrays with them. What §4
+# does oblige is asserted:
+#   §4.1  `nbuckets` >= 1; `bloom_size` a power of two; the section is exactly
+#         16 + 8*bloom_size + 4*nbuckets + 4*(dynsymcount - symoffset) bytes
+#   §4.3  for every exported name both bloom bits -- h%64 and
+#         (h >> bloom_shift)%64 -- are set in `bloom[(h / 64) % bloom_size]`,
+#         which is the one word the loader tests
+#   §4.4  `bucket[h % nbuckets]` is the `.dynsym` index of a hashed symbol, so
+#         it lies in [symoffset, dynsymcount): this symbol is hashed and falls
+#         in that bucket, so the bucket cannot be the empty-bucket 0
+u32le() { dd if="$1" bs=1 skip="$2" count=4 status=none 2>/dev/null | od -An -tu4 | tr -d ' \n'; }
+# Bit <n> of the 64-bit bloom word at byte offset <off>, read through the
+# 32-bit half that holds it: `$(( 16#ffffffffffffffff ))` is -1 in bash and an
+# arithmetic right shift of it would report every bit as set.
+bloom_bit() { local half=$(( $3 / 32 )) b=$(( $3 % 32 )) v
+  v=$(u32le "$1" $(( $2 + half * 4 )) ); echo $(( (v >> b) & 1 )); }
+gnu_hash_ok() {
+  local file=$1; shift
+  local names=("$@")
+  local off sz dynsymcount
+  off=$(sections "$file" | awk '{ for(i=1;i<=NF;i++) if ($i==".gnu.hash") { print $(i+3) } }' | sed -n 1p)
+  sz=$( sections "$file" | awk '{ for(i=1;i<=NF;i++) if ($i==".gnu.hash") { print $(i+4) } }' | sed -n 1p)
+  [ -n "$off" ] && [ -n "$sz" ] || die ".gnu.hash section not found"
+  dynsymcount=$(( 16#$(sec_size "$file" .dynsym) / 24 ))
+  local nbuckets symoffset bloom_size bloom_shift bloom_off bucket_off
+  # header: four uint32 LE at offsets 0, 4, 8, 12
+  nbuckets=$(  u32le "$file" $(( 16#$off +  0 )) )
+  symoffset=$( u32le "$file" $(( 16#$off +  4 )) )
+  bloom_size=$(u32le "$file" $(( 16#$off +  8 )) )
+  bloom_shift=$(u32le "$file" $(( 16#$off + 12 )) )
+  want "nbuckets >= 1" "$(( nbuckets >= 1 ))" "1"
+  want "bloom_size is a power of two" \
+       "$(( bloom_size >= 1 && (bloom_size & (bloom_size - 1)) == 0 ))" "1"
+  want ".gnu.hash size == 16 + 8*bloom_size + 4*nbuckets + 4*(dynsymcount - symoffset)" \
+       "$(( 16#$sz ))" \
+       "$(( 16 + 8 * bloom_size + 4 * nbuckets + 4 * (dynsymcount - symoffset) ))"
+  bloom_off=$((  16#$off + 16 ))
+  bucket_off=$(( 16#$off + 16 + bloom_size * 8 ))
+  local name
+  for name in "${names[@]}"; do
+    local h=5381 i
+    for (( i=0; i<${#name}; i++ )); do
+      h=$(( (h * 33 + $(printf '%d' "'${name:$i:1}")) & 0xffffffff ))
+    done
+    local b=$(( h % nbuckets )) bucket_b
+    bucket_b=$(u32le "$file" $(( bucket_off + b * 4 )) )
+    want "bucket[$b] indexes a hashed symbol for $name" \
+         "$(( bucket_b >= symoffset && bucket_b < dynsymcount ))" "1"
+    local w=$(( (h / 64) % bloom_size )) bit1=$(( h % 64 )) bit2=$(( (h >> bloom_shift) % 64 ))
+    want "bloom[$w] bit1 set for $name (bit $bit1)" \
+         "$(bloom_bit "$file" $(( bloom_off + w * 8 )) "$bit1")" "1"
+    want "bloom[$w] bit2 set for $name (bit $bit2)" \
+         "$(bloom_bit "$file" $(( bloom_off + w * 8 )) "$bit2")" "1"
+  done
+}
+gnu_hash_ok libs.so shared_data shared_fn
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 26

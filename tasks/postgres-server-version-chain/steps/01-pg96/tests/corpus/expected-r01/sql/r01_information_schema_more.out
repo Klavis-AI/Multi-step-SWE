@@ -1,0 +1,48 @@
+CREATE TABLE ism_p(i int primary key);
+CREATE TABLE ism_c(i int REFERENCES ism_p(i) ON DELETE CASCADE, j int CHECK (j > 0));
+CREATE VIEW ism_v AS SELECT i FROM ism_p;
+CREATE SEQUENCE ism_s;
+SELECT constraint_type, update_rule, delete_rule FROM information_schema.referential_constraints r
+  JOIN information_schema.table_constraints t USING (constraint_name)
+  WHERE t.table_name='ism_c';
+ constraint_type | update_rule | delete_rule 
+-----------------+-------------+-------------
+ FOREIGN KEY     | NO ACTION   | CASCADE
+(1 row)
+
+SELECT check_clause FROM information_schema.check_constraints
+  WHERE constraint_name LIKE 'ism\_c%' ORDER BY 1;
+ check_clause 
+--------------
+ ((j > 0))
+(1 row)
+
+SELECT table_name FROM information_schema.views WHERE table_name='ism_v';
+ table_name 
+------------
+ ism_v
+(1 row)
+
+SELECT sequence_name, data_type FROM information_schema.sequences WHERE sequence_name='ism_s';
+ sequence_name | data_type 
+---------------+-----------
+ ism_s         | bigint
+(1 row)
+
+SELECT viewname FROM pg_views WHERE viewname='ism_v';
+ viewname 
+----------
+ ism_v
+(1 row)
+
+SELECT sequencename FROM pg_sequences WHERE sequencename='ism_s';
+ERROR:  relation "pg_sequences" does not exist
+LINE 1: SELECT sequencename FROM pg_sequences WHERE sequencename='is...
+                                 ^
+SELECT datname FROM pg_database WHERE datname=current_database();
+  datname   
+------------
+ regression
+(1 row)
+
+DROP VIEW ism_v; DROP SEQUENCE ism_s; DROP TABLE ism_c, ism_p;

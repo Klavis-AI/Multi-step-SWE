@@ -1,0 +1,17 @@
+SET enable_partition_pruning = on;
+CREATE TABLE q3_ppp(a int, b text) PARTITION BY LIST (a);
+CREATE TABLE q3_ppp_1 PARTITION OF q3_ppp FOR VALUES IN (1);
+CREATE TABLE q3_ppp_2 PARTITION OF q3_ppp FOR VALUES IN (2);
+CREATE TABLE q3_ppp_d PARTITION OF q3_ppp DEFAULT;
+INSERT INTO q3_ppp VALUES (1,'one'),(2,'two'),(3,'three');
+PREPARE q3_ppp_q(int) AS SELECT a, b FROM q3_ppp WHERE a = $1;
+EXECUTE q3_ppp_q(1);
+EXECUTE q3_ppp_q(2);
+EXECUTE q3_ppp_q(1);
+EXECUTE q3_ppp_q(2);
+EXECUTE q3_ppp_q(3);
+EXECUTE q3_ppp_q(3);
+EXECUTE q3_ppp_q(9);
+DEALLOCATE q3_ppp_q;
+RESET enable_partition_pruning;
+DROP TABLE q3_ppp;

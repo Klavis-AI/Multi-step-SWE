@@ -1,0 +1,9 @@
+module.exports = grammar({
+  name: 'slet',
+  extras: $ => [/\s/],
+  rules: {
+    source_file: $ => repeat($.item),
+    item: $ => seq('let', $.id, ';'),
+    id: $ => /[a-z]+/,
+  }
+});

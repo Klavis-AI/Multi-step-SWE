@@ -1,0 +1,27 @@
+# arch: x86_64
+# -z nocopyreloc turns the same link into a diagnosed error that names the
+# symbol it could not resolve without a copy, and either the input relocation
+# type or the fact that copy relocations are disabled (spec/05 S13.2 -- an
+# either/or, so the second grep below accepts any R_X86_64_* spelling as well
+# as any message mentioning copies).
+rt_obj rt.o
+cat > lib.c <<'C'
+long shared_data[4] = {11, 22, 33, 44};
+long libfn(void) { return shared_data[0]; }
+C
+cc_obj lib.o lib.c -fPIC
+ld -shared -soname liby.so.1 -o liby.so lib.o 2> ld.err || die "fixture ld failed: $(tail -2 ld.err)"
+cat > m.c <<'C'
+extern long shared_data[4];
+int entry(void) { return (int)shared_data[1]; }
+C
+cc_obj m.o m.c -fno-pic
+# Without the flag the same link succeeds and produces the copy relocation.
+link_ok ok rt.o m.o liby.so -dynamic-linker /lib64/ld-linux-x86-64.so.2
+relocs ok > okr.txt
+grep -q 'R_X86_64_COPY' okr.txt || die "baseline link produced no copy relocation: $(cat okr.txt)"
+link_fails bad rt.o m.o liby.so -dynamic-linker /lib64/ld-linux-x86-64.so.2 -z nocopyreloc
+printf '%s\n' "$LINK_OUT" > err.txt
+grep -q 'shared_data' err.txt || die "diagnostic does not name the symbol: $(cat err.txt)"
+grep -qiE 'R_X86_64_[A-Z0-9_]+|copy' err.txt \
+  || die "diagnostic names neither the input relocation nor the disabled copy-relocation feature: $(cat err.txt)"

@@ -1,0 +1,31 @@
+CREATE TABLE x07_27a(a int PRIMARY KEY, b text, c int);
+CREATE PUBLICATION x07_27p FOR TABLE x07_27a (a, c);
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT r.prattrs FROM pg_publication_rel r
+  JOIN pg_publication p ON p.oid = r.prpubid WHERE p.pubname='x07_27p';
+ prattrs 
+---------
+ 1 3
+(1 row)
+
+SELECT r.prattrs IS NULL AS null_attrs FROM pg_publication_rel r
+  JOIN pg_publication p ON p.oid = r.prpubid WHERE p.pubname='x07_27p';
+ null_attrs 
+------------
+ f
+(1 row)
+
+DROP PUBLICATION x07_27p;
+CREATE PUBLICATION x07_27q FOR TABLE x07_27a;
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT r.prattrs IS NULL AS null_attrs FROM pg_publication_rel r
+  JOIN pg_publication p ON p.oid = r.prpubid WHERE p.pubname='x07_27q';
+ null_attrs 
+------------
+ t
+(1 row)
+
+DROP PUBLICATION x07_27q;
+DROP TABLE x07_27a;

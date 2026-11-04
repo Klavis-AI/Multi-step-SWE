@@ -1,0 +1,15 @@
+{
+  "doc": "stages/filters.expression.rst: 'The **Expression Filter** applies filtering to the input point cloud based on a set of criteria on the given dimensions.' -- The expression grammar joins comparisons with '&&'. X takes the integer values 0..9 with 100 points each, so the conjunction 'X >= 2 && X <= 5' keeps 4 x-slices = 400 points, with X mean 3.5.",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "p.json": {"text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.expression\",\"expression\":\"X >= 2 \\u0026\\u0026 X <= 5\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"}
+  },
+  "run": [{"argv": ["pipeline", "p.json"]}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "las", "file": "out.las", "header": {"point_count": 400},
+     "dims": {"X": {"min": {"equals": 2.0}, "max": {"equals": 5.0}, "mean": {"approx": 3.5, "tol": 1e-9}},
+              "Y": {"min": {"equals": 0.0}, "max": {"equals": 9.0}},
+              "Z": {"min": {"equals": 0.0}, "max": {"equals": 9.0}}}}
+  ]
+}

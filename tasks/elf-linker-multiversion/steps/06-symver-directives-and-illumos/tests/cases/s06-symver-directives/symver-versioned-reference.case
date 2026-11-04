@@ -1,0 +1,59 @@
+# arch: x86_64
+# A reference may name the version it wants. `.symver ref, ver@VERS_1.0` on an
+# *undefined* symbol binds to that specific definition rather than to the
+# default, and the executable's .gnu.version_r then requires VERS_1.0 alone.
+# The same library linked from an unversioned reference picks the default, so
+# the two links differ only in the directive on the reference side.
+rt_obj rt.o
+cat > lib.c <<'C'
+__asm__(".symver v1_impl, ver@VERS_1.0");
+__asm__(".symver v2_impl, ver@@VERS_2.0");
+int v1_impl(void) { return 11; }
+int v2_impl(void) { return 22; }
+C
+cc_obj lib.o lib.c -fPIC
+cat > vs.txt <<'V'
+VERS_1.0 { global: ver; local: *; };
+VERS_2.0 { global: ver; local: *; } VERS_1.0;
+V
+link_ok libsv.so -shared -soname libsv.so --version-script=vs.txt lib.o
+lds=$(dynsyms libsv.so)
+want_has "the old version is exported"     "$lds" 'GLOBAL DEFAULT +[0-9]+ ver@VERS_1\.0$'
+want_has "the default version is exported" "$lds" 'GLOBAL DEFAULT +[0-9]+ ver@@VERS_2\.0$'
+
+# 1. A reference that names VERS_1.0 explicitly.
+cat > old.c <<'C'
+#include "rt.h"
+__asm__(".symver ver_ref, ver@VERS_1.0");
+int ver_ref(void);
+int entry(void) { return ver_ref(); }
+C
+cc_obj old.o old.c
+want_has "the reference really is versioned in the input" \
+         "$(symbols old.o)" 'UND ver@VERS_1\.0$'
+link_ok oldapp --no-gc-sections rt.o old.o libsv.so
+ods=$(dynsyms oldapp)
+want_has "the undefined reference kept its version" "$ods" 'UND ver@VERS_1\.0$'
+want_not "it did not fall through to the default"   "$ods" 'ver@VERS_2\.0'
+ovn=$(vernum oldapp)
+want_has "version_r names the library"   "$ovn" 'File: libsv\.so'
+want_has "version_r requires VERS_1.0"   "$ovn" 'Name: VERS_1\.0'
+want_not "version_r must not require the default" "$ovn" 'Name: VERS_2\.0'
+want_has ".gnu.version_r section present" "$(sections oldapp)" '\.gnu\.version_r +VERNEED'
+
+# 2. The contrast: an unversioned reference to the same name takes the default.
+cat > new.c <<'C'
+#include "rt.h"
+int ver(void);
+int entry(void) { return ver(); }
+C
+cc_obj new.o new.c
+link_ok newapp --no-gc-sections rt.o new.o libsv.so
+nds=$(dynsyms newapp)
+want_has "the unversioned reference took the default" "$nds" 'UND ver@VERS_2\.0$'
+want_not "and not the old version"                    "$nds" 'ver@VERS_1\.0'
+nvn=$(vernum newapp)
+want_has "version_r requires the default version" "$nvn" 'Name: VERS_2\.0'
+want_not "version_r must not require VERS_1.0"    "$nvn" 'Name: VERS_1\.0'
+
+asserts_at_least 13

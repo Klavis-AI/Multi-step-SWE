@@ -1,0 +1,21 @@
+# arch: x86_64
+# A top-level PROVIDE in a linker script satisfies a reference that no input
+# object defines, as an absolute symbol with the script's value.
+rt_obj rt.o
+cat > m.c <<'C'
+extern char provided_sym[];
+int entry(void) { return (int)((unsigned long)provided_sym & 0xff); }
+C
+cc_obj m.o m.c
+cat > s.ld <<'L'
+PROVIDE(provided_sym = 0x2a);
+L
+link_ok out -T s.ld rt.o m.o --no-gc-sections
+sym=$(symbols out)
+want_has "provided symbol is absolute and global" "$sym" 'GLOBAL +DEFAULT +ABS provided_sym'
+want "provided symbol value" "$(sym_value out provided_sym)" "000000000000002a"
+run_expect out "" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 2

@@ -1,0 +1,47 @@
+{
+  "doc": "PROFILE.md §6.2: '`ClassFlags` splits into `Synthetic`, `KeyPoint`, `Withheld` and `Overlap`.' Reading `tiny14.las` and writing it out must reproduce the split rather than collapsing it back into one `ClassFlags` byte: the schema of the *written* file still lists the four and still does not list `ClassFlags`, and the 25 points survive with their flag values readable through `pdal info --stats --dimensions`. The reader and writer are stages/readers.las.rst and stages/writers.las.rst; pipeline.rst specifies the JSON array. The writer re-encodes the PDRF 6 input as PDRF 3 on output, which is why the four are asserted by name rather than by point-format id -- and by name only: no shipped page states schema order or record length, so each dimension's statistics are read from its own single-dimension invocation.",
+  "files": {
+    "in.las": {"fixture": "tiny14.las"},
+    "pipe.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]"}
+  },
+  "run": [
+    {"argv": ["pipeline", "pipe.json"]},
+    {"argv": ["info", "--schema", "out.las"], "stdout_to": "schema.json"},
+    {"argv": ["info", "--stats", "--dimensions", "Synthetic", "out.las"], "stdout_to": "synthetic.json"},
+    {"argv": ["info", "--stats", "--dimensions", "KeyPoint", "out.las"], "stdout_to": "keypoint.json"},
+    {"argv": ["info", "--stats", "--dimensions", "Withheld", "out.las"], "stdout_to": "withheld.json"},
+    {"argv": ["info", "--stats", "--dimensions", "Overlap", "out.las"], "stdout_to": "overlap.json"}
+  ],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "exit", "run": 1, "equals": 0},
+    {"kind": "exit", "run": 2, "equals": 0},
+    {"kind": "exit", "run": 3, "equals": 0},
+    {"kind": "exit", "run": 4, "equals": 0},
+    {"kind": "exit", "run": 5, "equals": 0},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"Synthetic\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"KeyPoint\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"Withheld\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "\"name\"\\s*:\\s*\"Overlap\""},
+    {"kind": "file_text_regex", "file": "schema.json", "regex": "ClassFlags", "absent": true},
+    {"kind": "file_json", "file": "synthetic.json",
+     "path": ["stats", "statistic", 0, "name"], "equals": "Synthetic"},
+    {"kind": "file_json", "file": "synthetic.json",
+     "path": ["stats", "statistic", 0, "count"], "equals": 25},
+    {"kind": "file_json", "file": "synthetic.json",
+     "path": ["stats", "statistic", 0, "maximum"], "equals": 0},
+    {"kind": "file_json", "file": "keypoint.json",
+     "path": ["stats", "statistic", 0, "name"], "equals": "KeyPoint"},
+    {"kind": "file_json", "file": "keypoint.json",
+     "path": ["stats", "statistic", 0, "count"], "equals": 25},
+    {"kind": "file_json", "file": "withheld.json",
+     "path": ["stats", "statistic", 0, "name"], "equals": "Withheld"},
+    {"kind": "file_json", "file": "withheld.json",
+     "path": ["stats", "statistic", 0, "count"], "equals": 25},
+    {"kind": "file_json", "file": "overlap.json",
+     "path": ["stats", "statistic", 0, "name"], "equals": "Overlap"},
+    {"kind": "file_json", "file": "overlap.json",
+     "path": ["stats", "statistic", 0, "count"], "equals": 25},
+    {"kind": "las", "file": "out.las", "header": {"point_count": 25}}
+  ]
+}

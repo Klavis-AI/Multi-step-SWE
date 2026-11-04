@@ -1,0 +1,217 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward
+# gate, so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# What crosses from the agent's container into the verifier's. Harbor
+# re-materializes each entry at the same absolute path it was collected from,
+# so the verifier sees the candidate's tree, their MySQL data directory, their
+# PostgreSQL cluster, and the configuration of both servers.
+#
+# /etc/apache2 and /etc/php deliberately do not travel: the verifier serves the
+# tree from its own pristine copies, which is what keeps the frozen clock and
+# the document root outside the candidate's reach. See NOTES-authoring.md §15.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+  { source = "/var/lib/mysql", exclude = [] },
+  { source = "/var/lib/postgresql", exclude = [] },
+  { source = "/etc/mysql", exclude = [] },
+  { source = "/etc/postgresql", exclude = [] },
+]
+
+[task]
+name = "harbor/mysql5-to-postgres17"
+version = "1.0.0"
+description = "Migrate WebGoatPHP from MySQL 5.7 to PostgreSQL 17, repairing its Latin-1 text to UTF-8 along the way."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["migration", "php", "mysql", "postgresql", "encoding", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["migration", "database", "php", "mysql", "postgresql", "utf-8"]
+
+[environment]
+# WebGoatPHP as it is deployed today: Apache 2.4 + PHP 7.4 serving the pinned
+# tree from /app, backed by MySQL 5.7.44. PostgreSQL 17 and its client tools
+# are installed; no cluster exists yet.
+build_timeout_sec = 2400.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench: withholding the network is not a
+# legitimate way to make a task harder.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context.
+[verifier]
+environment_mode = "separate"
+
+# Harbor reuses one agent container for the whole task but copies the database
+# directories out between steps, and a data directory copied while a server is
+# writing to it is a torn copy that no amount of recovery makes whole. This
+# hook stops both servers before the copy; each step's healthcheck starts them
+# again before that step's agent runs. Hook failures are logged and never abort
+# a step, and wg-services always exits 0, so this cannot cost a step its score.
+[[verifier.collect]]
+service = "main"
+command = "/usr/local/sbin/wg-services stop"
+timeout_sec = 420.0
+
+# Sizes the verifier containers; without this section Harbor silently reuses a
+# copy of [environment]. The verifier runs the same servers the agent did, plus
+# the recorded behaviour suite, so it is sized like the agent's.
+[verifier.environment]
+build_timeout_sec = 2400.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# Grading may resolve dependencies but must not depend on a live network:
+# everything the tests read is vendored into the verifier image.
+network_mode = "public"
+
+[[steps]]
+name = "01-strict-mode"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the artifact round trip too.
+timeout_sec = 3600.0
+[steps.healthcheck]
+# The step boundary stops the servers so their data directories can be copied
+# out intact (see [[verifier.collect]]); this starts again whatever the
+# candidate left on disk, before the agent for this step runs. It starts what
+# it finds and creates nothing, and it exits 0 even when there is nothing to
+# start, because a healthcheck that fails would take the step out of the mean.
+command = "/usr/local/sbin/wg-services start"
+interval_sec = 5.0
+timeout_sec = 300.0
+retries = 2
+
+[[steps]]
+name = "02-schema-conversion"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the artifact round trip too. This step's
+# scorer runs the schema gate and the semantics probes twice -- once on the
+# candidate's database and once on a database it installs the candidate's
+# schema file into. Those are two applications of candidate SQL, out of the
+# seven `installgate`'s shared budget allows, so at worst they add 600 seconds
+# to a step whose families measure 56.
+timeout_sec = 3600.0
+[steps.healthcheck]
+command = "/usr/local/sbin/wg-services start"
+interval_sec = 5.0
+timeout_sec = 300.0
+retries = 2
+
+[[steps]]
+name = "03-data-migration"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Everything step 02's scorer does, plus five data families. Three of them only
+# read the databases the candidate handed over. The other two build a scratch
+# database apiece out of the candidate's own schema file and run their data
+# file into it. That is five applications of candidate SQL here and two more in
+# the schema families this step inherits -- seven, under one 2,100-second
+# budget `installgate` spends itself at 300 seconds an application, so that a
+# slow or hostile file fails the checks that depend on it instead of having the
+# container killed out from under the whole step. The timeout is that budget
+# plus room for everything else: family time measured at 87 s on a rescore of
+# the reference solution, against step 02's 56 s, with the verifier image build
+# and the artifact round trip dominating both.
+timeout_sec = 5400.0
+[steps.healthcheck]
+command = "/usr/local/sbin/wg-services start"
+interval_sec = 5.0
+timeout_sec = 300.0
+retries = 2
+
+[[steps]]
+name = "04-query-rewrites"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Everything step 03's scorer does, minus the two data families that became
+# tautologies when the authority moved (steps/04-query-rewrites/tests/plan.py),
+# plus the dialect gate. The install budget is unchanged at seven applications
+# of candidate SQL under `installgate`'s 2,100 seconds. The dialect gate adds
+# one AST walk of 905 .php files and 224 libpg_query parses -- 12 s measured on
+# the reference tree -- and its selftest. The corpus replay is the same 413
+# requests, now against PostgreSQL.
+timeout_sec = 5400.0
+[steps.healthcheck]
+# There is no MySQL in this step's verifier image, but the agent's image still
+# has one and the hook that stops both servers is task-wide. wg-services starts
+# what it finds and exits 0 either way, so a candidate who has already removed
+# their MySQL costs themselves nothing here.
+command = "/usr/local/sbin/wg-services start"
+interval_sec = 5.0
+timeout_sec = 300.0
+retries = 2
+
+[[steps]]
+name = "05-retire-mysql"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+# environment/timer.sh hardcodes one budget for every step, so this stays at
+# the template's two hours even though the work is smaller than step 04's --
+# a step whose timer tells the agent it has two hours and whose harness stops
+# it at one is a defect, and the fix is not to make the timer lie.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 04's scorer unchanged -- the same corpus replay, the same install budget,
+# the same delivered-database families -- minus `behavior:mysql-intact`, which
+# this step's requirements contradict, plus six families of its own. All six
+# are static: two PHP AST passes over 905 files (`classmap.php` and
+# `driverscan.php`, ~24 s together on the reference tree) and their selftests,
+# a 59-path stat sweep, a shell-token scan of one file, and three directory
+# checks. Nothing here connects to anything, so the added budget is small.
+timeout_sec = 5400.0
+[steps.healthcheck]
+# `wg-services` starts whatever servers it finds and exits 0 regardless, which
+# is what makes this step safe to attempt: an agent that has just deleted
+# /var/lib/mysql cannot brick its own container on the next healthcheck.
+command = "/usr/local/sbin/wg-services start"
+interval_sec = 5.0
+timeout_sec = 300.0
+retries = 2
+
+[[steps]]
+name = "06-encoding-repair"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+# environment/timer.sh hardcodes one budget for every step; the work here is a
+# sweep over 63 text columns and one file, so the budget is not the binding
+# constraint, but a timer that told the agent two hours while the harness
+# stopped it at one would be.
+timeout_sec = 7200.0
+[steps.verifier]
+# Step 05's scorer plus one family of its own on each side. The added cost is
+# `migrated:encoding`, which reads every text column of the delivered cluster
+# twice -- once as text and once as octets -- before the corpus pass, and
+# `migrated:install-repaired`, which reads one file. Both are small next to the
+# two PHP AST passes step 05 already pays for. The corpus pass is unchanged:
+# the partition splits how its result is *read*, not how many times it is
+# driven.
+timeout_sec = 5400.0
+[steps.healthcheck]
+# Unchanged from step 05. `wg-services` starts whatever servers it finds and
+# exits 0 regardless.
+command = "/usr/local/sbin/wg-services start"
+interval_sec = 5.0
+timeout_sec = 300.0
+retries = 2

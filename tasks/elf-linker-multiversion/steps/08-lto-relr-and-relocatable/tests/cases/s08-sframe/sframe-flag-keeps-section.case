@@ -1,0 +1,53 @@
+# arch: x86_64
+# SFrame processing enters the graded surface here: --wild-experimental-sframe
+# is accepted and an input .sframe section reaches the output intact, while the
+# default link drops it. Earlier milestones do not accept the flag at all.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("sf\n"); return 4; }
+C
+cc_obj m.o m.c
+# clang-16 emits no .sframe, so supply a minimal valid v2 section by hand:
+# magic 0xdee2, version 2, flags 1, x86-64 ABI, then an all-zero 0x1c header.
+cat > sf.s <<'S'
+        .section .sframe,"a",@progbits
+        .balign 8
+        .2byte  0xdee2
+        .byte   2
+        .byte   1
+        .byte   1
+        .byte   0
+        .byte   0
+        .byte   0
+        .4byte  0
+        .4byte  0
+        .4byte  0
+        .4byte  0
+        .4byte  0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj sf.o sf.s
+want_has "the fixture really carries .sframe" "$(sections sf.o)" '\.sframe +PROGBITS'
+
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+
+link_ok on --wild-experimental-sframe --no-gc-sections rt.o m.o sf.o
+want_has "the flag keeps .sframe in the output" "$(sections on)" '\.sframe'
+off=$(sec_off on .sframe)
+[ -n "$off" ] || die "no .sframe offset in the output"
+want "the kept section still starts with the SFrame magic" \
+     "$(od -An -tx1 -j "$((16#$off))" -N 2 -- on | tr -d ' \n')" "e2de"
+sz=$(sec_size on .sframe)
+[ -n "$sz" ] && [ "$((16#$sz))" -ge 8 ] || die ".sframe in the output is too small to be a header"
+run_expect on "sf" 4
+
+# Without the flag SFrame is not processed and the section does not appear.
+link_ok off --no-gc-sections rt.o m.o sf.o
+want_not "no .sframe without the flag" "$(sections off)" '\.sframe'
+want_has "the rest of the link is unaffected" "$(sections off)" '\.text'
+run_expect off "sf" 4
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 5

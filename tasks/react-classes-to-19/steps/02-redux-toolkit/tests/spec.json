@@ -1,0 +1,425 @@
+{
+  "step": "02",
+  "requireLockfile": true,
+  "comment": [
+    "Step 2 gate spec: hand-rolled Redux -> Redux Toolkit with RTK Query.",
+    "",
+    "What the step is about. The application keeps its state in a Redux store it",
+    "wires by hand: createStore over a combineReducers map, thunk middleware, four",
+    "reducers that switch on an action type constant, and forty-seven action",
+    "creators that return a function taking dispatch, call fetch, and dispatch an",
+    "object they build themselves. Four components poll by putting a setInterval",
+    "around a dispatch. Redux Toolkit replaces every one of those constructs, and",
+    "RTK Query replaces the fetching, the caching and the polling. So the gates",
+    "come in two halves: the constructs that must be gone, and the constructs that",
+    "must be there instead. Neither half alone is the step. A tree with no thunks",
+    "and no data layer is not migrated, it is broken; a tree with an api slice",
+    "nobody calls has added a file, not moved the work.",
+    "",
+    "Why every ceiling is an absolute 0 and never a delta. The tree a step-2",
+    "candidate starts from is whatever it left behind at step 1, and that is not",
+    "one tree. Measured on the two step-1 trees that exist - the reference solution",
+    "and the blind run's - seven of the eight ceilings here start from the same",
+    "count in both, and the eighth (pkg-immutable) starts from 17 in one and 7 in",
+    "the other, because the blind candidate dropped Immutable from ten components'",
+    "prop validation and the reference kept it. A ceiling expressed as 'fewer than",
+    "you started with' would mean something different in each tree. An absolute 0",
+    "means the same thing in both.",
+    "",
+    "Why the baselines are the smallest starting count, not the largest. `baseline`",
+    "only scales partial credit: a count at the baseline scores 0 and a count at the",
+    "ceiling scores 1. Taking the larger of two observed starting counts would hand",
+    "a tree that started at the smaller one a share of the marks for doing nothing -",
+    "17 as pkg-immutable's baseline pays 0.59 to a tree that arrives with 7 and",
+    "changes nothing. So each baseline is the smallest count observed across the",
+    "step-1 trees. Every do-nothing tree then scores 0 on every ceiling, and real",
+    "progress is still paid for.",
+    "",
+    "Why polling is gated on what a timer does and not on setInterval. This",
+    "application runs six intervals. Four of them fire a dispatch that fetches;",
+    "two rotate a carousel and touch nothing but component state. A ceiling on",
+    "setInterval sites would price those the same, and a candidate could meet it by",
+    "converting the carousel - paid for work the step never asked for while leaving",
+    "the polling exactly where it was. `timer-driven-fetch` resolves the callback",
+    "first, one level, through the same file's bindings and through useCallback,",
+    "and counts the timer only if what it will run reaches the store or the",
+    "network: any dispatch at all (the data layer's own request action is a",
+    "dispatch like any other), a query's own refetch or initiate, or a request the",
+    "callback makes itself in any of its spellings - fetch, an XMLHttpRequest, or",
+    "an HTTP client. Measured on both step-1 trees: 4, and neither carousel timer",
+    "among them.",
+    "",
+    "Measured again on the reference solution at item 4.3: 0, with three of those",
+    "six intervals still in the source and still firing. Three of the four fetching",
+    "timers refresh a *different* endpoint than the one their screen reads -",
+    "firstPageChart polls hour/fetch while subscribing to hour/init, and both of",
+    "singleSellerChartCurrent's poll singleSellerCustomerNumFetch while it",
+    "subscribes to singleSellerCustomerNumInit - so a refresh interval on the",
+    "screen's own query cannot express them and they stay timers. What changed is",
+    "that their callback now asks the data layer instead of dispatching a thunk",
+    "that calls fetch, which is the property this gate measures and is why its",
+    "`why` is worded as what a timer does rather than as 'no timer drives a",
+    "request'. The earlier wording was false of the reference solution.",
+    "",
+    "Why each minimum is guarded by the ceiling on what it replaces (review",
+    "round 2). A minimum asks whether the construct is present in a module the",
+    "build compiles. The property it stands for is that the construct *replaced*",
+    "the one that was there. Those came apart: measured, a tree that leaves the",
+    "2017 data layer exactly where it is and adds one reachable module that",
+    "genuinely calls configureStore, createSlice, createApi over fetchBaseQuery,",
+    "forty generated hooks and one pollingInterval satisfies all four minima. The",
+    "provenance anchoring does not stop it, because the toolkit really is imported",
+    "and really is called. With toolkit-declared, vite-declared and parses that is",
+    "15 of 37, and with the behavior an untouched tree still has (209/210) the",
+    "reward is 0.670 for a tree that moved no screen onto the data layer, against",
+    "a floor of 0.478.",
+    "",
+    "So each minimum now carries a `guard`: the ceiling on the construct it",
+    "replaces, at half of that ceiling's starting count. toolkit-store-present is",
+    "paid once the hand-wired store is mostly gone (redux-legacy-api <= 1 of 3);",
+    "the three data-layer minima once the hand-rolled request layer is mostly gone",
+    "(raw-fetch <= 24 of 48 and thunk-creator <= 23 of 47). This adds no",
+    "requirement the instruction does not already state: §1 and §2 demand that all",
+    "of it be gone, entirely, not halfway, so a guard set at half the starting",
+    "count never asks for more than the instruction asks for. It only declines to",
+    "pay for the new construct while the old one is still standing. And it keeps",
+    "partial credit in the order a real migration happens: a candidate who",
+    "converts the store first clears redux-legacy-api and is paid for",
+    "toolkit-store-present while the thunks are still there.",
+    "",
+    "Where the minima come from, measured rather than guessed.",
+    "",
+    "query-layer-present, min 1. One site, not two: the site is a createApi call",
+    "built over the toolkit's own fetchBaseQuery, which is the whole of the",
+    "instruction's sentence - one definition, built with the query layer, over the",
+    "toolkit's base query with the application's base URL. Counting createApi and",
+    "fetchBaseQuery as two independent sites priced two APIs and no base query the",
+    "same as one of each, and neither name was tied to the package it claims to",
+    "come from. Measured on the reference solution: 1.",
+    "",
+    "query-hooks-used, min 40. The reference solution reads its data through 48",
+    "hook call sites, 47 of them in modules the build compiles into the page",
+    "(cycleAndActive.js is imported by nothing, so `scope: reachable` does not",
+    "count it). The minimum is set at neither number. What the gate is for is",
+    "'every screen, not one or two files', and a minimum equal to the reference's",
+    "own count would punish a candidate that legitimately serves two charts making",
+    "the identical request from one hook. 40 leaves a tree that converted every",
+    "screen about 15% of slack, and is out of reach for a tree that converted a",
+    "corner of the application: 46 components read the store at step 1.",
+    "",
+    "polling-declared, min 1. The first draft said 3 and was unsatisfiable. Only",
+    "one screen refreshes the very request it already reads - firstPage/allSellers",
+    "asks for its data on mount and asks the same endpoint again every 5s. The",
+    "other three fetching timers are the different-endpoint cases above. A minimum",
+    "of 3 would have demanded two refresh intervals the application has nowhere to",
+    "put, and the only way to score it would have been to change behavior.",
+    "",
+    "Two things this spec deliberately does not ask for.",
+    "",
+    "It does not require that `immutable` or `redux-thunk` be uninstalled. Both are",
+    "unsatisfiable as installed-tree facts and would have been a step nobody could",
+    "pass: `sass` depends on immutable@5 and ships a nested copy of it, and Redux",
+    "Toolkit itself depends on redux-thunk. What the step is actually about is that",
+    "this application's own code no longer reaches for either, which is what the two",
+    "import ceilings measure. `redux-immutable` has no such excuse - nothing else in",
+    "the tree depends on it - so that one is checked in the installed tree as well.",
+    "",
+    "It does not re-gate the constructs step 1 was about. No ceiling here counts",
+    "classes, connect, string refs or the lifecycles: those were scored once, at",
+    "the step that asked for them, and scoring them again would mean the untouched",
+    "step-1 tree collects marks on step 2 for work step 1 already paid for. What",
+    "protects them is the behavior family, which is the whole application and",
+    "notices if it breaks.",
+    "",
+    "`vite-declared` is the one exception, and it is not one of those constructs.",
+    "The build tool is not something step 1 migrated away from and step 2 could",
+    "stop caring about - it is the thing that has to keep compiling this tree at",
+    "every later step, and this step's own instruction states it as a standing",
+    "requirement. A stated requirement with no check is the failure this gate",
+    "exists to close. It costs the floor one weight of 37, which is measured at",
+    "item 6 rather than predicted.",
+    "",
+    "The behavior half is unchanged and is the reason the ceilings can be absolute:",
+    "the same 210 recorded scenarios, compared on canonical DOM, chart draw-ops,",
+    "title, hash, and the *set* of API paths a scenario requested. The set, not the",
+    "sequence - a caching data layer is allowed to ask for a path once where the",
+    "hand-rolled one asked three times, and that was already true of the driver",
+    "before this step existed."
+  ],
+  "guard": [
+    {
+      "id": "site-is-live",
+      "why": "The tree still builds, serves and behaves like the application, so that what the gates measure is a migration of it rather than its absence.",
+      "kind": "json-flag",
+      "file": "/logs/verifier/behavior.json",
+      "field": "passed",
+      "min": 10,
+      "unmet": "the built site did not reproduce the application, so there is no migrated application to credit: the tree did not build, did not serve, or reproduced almost none of the behavior it must preserve"
+    },
+    {
+      "id": "built-from-source",
+      "why": "The site that is served is built from this repository's own source, so that the behavior the one family reproduces and the code the other family reads are the same program.",
+      "kind": "built-from-source",
+      "minModules": 1,
+      "unmet": "the site that was served is not built from this tree: what the build compiled and what the tree contains are different code, so the behavior it reproduced is no evidence about the tree the gates read"
+    }
+  ],
+  "checks": [
+    {
+      "id": "legacy-store-gone",
+      "why": "The store is not assembled by hand: nothing calls createStore, combineReducers, applyMiddleware or bindActionCreators.",
+      "kind": "ast-max",
+      "gate": "redux-legacy-api",
+      "max": 0,
+      "baseline": 3,
+      "weight": 4
+    },
+    {
+      "id": "switch-reducers-gone",
+      "why": "No reducer decides what to do by switching on the action's type.",
+      "kind": "ast-max",
+      "gate": "switch-reducer",
+      "max": 0,
+      "baseline": 4,
+      "weight": 3
+    },
+    {
+      "id": "thunk-creators-gone",
+      "why": "No action creator returns a function that receives dispatch.",
+      "kind": "ast-max",
+      "gate": "thunk-creator",
+      "max": 0,
+      "baseline": 47,
+      "weight": 3
+    },
+    {
+      "id": "hand-built-actions-gone",
+      "why": "No code dispatches an action object it assembled itself.",
+      "kind": "ast-max",
+      "gate": "hand-built-action",
+      "max": 0,
+      "baseline": 47,
+      "weight": 2
+    },
+    {
+      "id": "direct-fetch-gone",
+      "why": "No module goes to the server on its own account - not through the browser's fetch, an XMLHttpRequest, or an HTTP client package; requests are the data layer's.",
+      "kind": "ast-max",
+      "gate": "raw-fetch",
+      "max": 0,
+      "baseline": 48,
+      "weight": 3
+    },
+    {
+      "id": "timer-polling-gone",
+      "why": "No timer dispatches an action or makes a request of its own: a timer that still exists triggers what it needs through the data layer like every other caller.",
+      "kind": "ast-max",
+      "gate": "timer-driven-fetch",
+      "max": 0,
+      "baseline": 4,
+      "weight": 3
+    },
+    {
+      "id": "thunk-middleware-gone",
+      "why": "The application no longer installs thunk middleware of its own.",
+      "kind": "ast-max",
+      "gate": "pkg-redux-thunk",
+      "max": 0,
+      "baseline": 1,
+      "weight": 1
+    },
+    {
+      "id": "immutable-state-gone",
+      "why": "No module imports Immutable or the Immutable-aware reducer combiner: the state in the store is plain data.",
+      "kind": "ast-max",
+      "gate": "pkg-immutable",
+      "max": 0,
+      "baseline": 7,
+      "weight": 2
+    },
+    {
+      "id": "toolkit-store-present",
+      "why": "The store and its reducers are built with Redux Toolkit's own factories rather than assembled by hand.",
+      "kind": "ast-min",
+      "gate": "rtk-api",
+      "min": 2,
+      "scope": "reachable",
+      "guard": [
+        {
+          "id": "hand-wired-store-going",
+          "why": "The toolkit's store is credited for replacing the hand-wired one, so the hand-wired one has to be going.",
+          "kind": "ast-max",
+          "gate": "redux-legacy-api",
+          "max": 1,
+          "unmet": "the store is still assembled by hand, so a toolkit store beside it has not replaced anything"
+        }
+      ],
+      "weight": 2
+    },
+    {
+      "id": "query-layer-present",
+      "why": "There is a data layer built with the toolkit's query layer over the toolkit's own base query, and it owns the requests.",
+      "kind": "ast-min",
+      "gate": "rtk-query-def",
+      "min": 1,
+      "scope": "reachable",
+      "guard": [
+        {
+          "id": "hand-rolled-requests-going",
+          "why": "The data layer is credited for taking the requests over, so the requests the application makes for itself have to be going.",
+          "kind": "ast-max",
+          "gate": "raw-fetch",
+          "max": 24,
+          "unmet": "the application still makes most of its own requests, so a data layer beside them has not taken anything over"
+        },
+        {
+          "id": "thunk-data-layer-going",
+          "why": "The data layer is credited for replacing the action creators that fetched, so those action creators have to be going.",
+          "kind": "ast-max",
+          "gate": "thunk-creator",
+          "max": 23,
+          "unmet": "the action creators that fetch by hand are still the data layer, so a query layer beside them has not replaced anything"
+        }
+      ],
+      "weight": 3
+    },
+    {
+      "id": "query-hooks-used",
+      "why": "Components read their data through the data layer's own hooks at essentially every place this application reads from the server, not at a pilot handful of them.",
+      "kind": "ast-min",
+      "gate": "rtk-query-hooks",
+      "min": 40,
+      "scope": "reachable",
+      "guard": [
+        {
+          "id": "hand-rolled-requests-going",
+          "why": "The data layer is credited for taking the requests over, so the requests the application makes for itself have to be going.",
+          "kind": "ast-max",
+          "gate": "raw-fetch",
+          "max": 24,
+          "unmet": "the application still makes most of its own requests, so a data layer beside them has not taken anything over"
+        },
+        {
+          "id": "thunk-data-layer-going",
+          "why": "The data layer is credited for replacing the action creators that fetched, so those action creators have to be going.",
+          "kind": "ast-max",
+          "gate": "thunk-creator",
+          "max": 23,
+          "unmet": "the action creators that fetch by hand are still the data layer, so a query layer beside them has not replaced anything"
+        }
+      ],
+      "weight": 4
+    },
+    {
+      "id": "polling-declared",
+      "why": "Where a screen refreshes the very request it already reads, the refresh interval is an option on that query rather than a timer in the component.",
+      "kind": "ast-min",
+      "gate": "polling-config",
+      "min": 1,
+      "scope": "reachable",
+      "guard": [
+        {
+          "id": "hand-rolled-requests-going",
+          "why": "The data layer is credited for taking the requests over, so the requests the application makes for itself have to be going.",
+          "kind": "ast-max",
+          "gate": "raw-fetch",
+          "max": 24,
+          "unmet": "the application still makes most of its own requests, so a data layer beside them has not taken anything over"
+        },
+        {
+          "id": "thunk-data-layer-going",
+          "why": "The data layer is credited for replacing the action creators that fetched, so those action creators have to be going.",
+          "kind": "ast-max",
+          "gate": "thunk-creator",
+          "max": 23,
+          "unmet": "the action creators that fetch by hand are still the data layer, so a query layer beside them has not replaced anything"
+        }
+      ],
+      "weight": 2
+    },
+    {
+      "id": "toolkit-declared",
+      "why": "The project's declared state library is Redux Toolkit.",
+      "kind": "dep-declared",
+      "package": "@reduxjs/toolkit",
+      "weight": 2
+    },
+    {
+      "id": "vite-declared",
+      "why": "The build tool this step inherits is not replaced along the way: the project's declared build tool is still Vite.",
+      "kind": "dep-declared",
+      "package": "vite",
+      "guard": [
+        {
+          "id": "hand-wired-store-going",
+          "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. The store is no longer assembled by hand: one half of what this step is.",
+          "kind": "ast-max",
+          "gate": "redux-legacy-api",
+          "max": 1,
+          "unmet": "the store is still assembled by hand, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "hand-rolled-requests-going",
+          "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. The application no longer makes most of its own requests: the other half.",
+          "kind": "ast-max",
+          "gate": "raw-fetch",
+          "max": 24,
+          "unmet": "the application still makes most of its own requests, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "thunk-data-layer-going",
+          "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. The action creators that fetched by hand are going with them.",
+          "kind": "ast-max",
+          "gate": "thunk-creator",
+          "max": 23,
+          "unmet": "the action creators that fetch by hand are still the data layer, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        }
+      ],
+      "weight": 1
+    },
+    {
+      "id": "redux-immutable-absent",
+      "why": "The Immutable-aware reducer combiner is not installed at all, so nothing can fall back to it.",
+      "kind": "dep-absent",
+      "packages": [
+        "redux-immutable"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "parses",
+      "why": "Every file in the repository can be parsed by a current JavaScript parser.",
+      "kind": "parse-errors",
+      "max": 0,
+      "baseline": 1,
+      "binary": true,
+      "guard": [
+        {
+          "id": "hand-wired-store-going",
+          "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. The store is no longer assembled by hand: one half of what this step is.",
+          "kind": "ast-max",
+          "gate": "redux-legacy-api",
+          "max": 1,
+          "unmet": "the store is still assembled by hand, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "hand-rolled-requests-going",
+          "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. The application no longer makes most of its own requests: the other half.",
+          "kind": "ast-max",
+          "gate": "raw-fetch",
+          "max": 24,
+          "unmet": "the application still makes most of its own requests, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        },
+        {
+          "id": "thunk-data-layer-going",
+          "why": "This check is credited for surviving this step, so this step has to have happened; the tree this step starts from already satisfies it and has carried nothing across. The action creators that fetched by hand are going with them.",
+          "kind": "ast-max",
+          "gate": "thunk-creator",
+          "max": 23,
+          "unmet": "the action creators that fetch by hand are still the data layer, so nothing this step is about has happened and the work the tree arrived with is not credited a second time"
+        }
+      ],
+      "weight": 1
+    }
+  ]
+}

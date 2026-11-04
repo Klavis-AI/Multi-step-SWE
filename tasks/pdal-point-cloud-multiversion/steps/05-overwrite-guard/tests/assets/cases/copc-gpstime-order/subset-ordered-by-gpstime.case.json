@@ -1,0 +1,65 @@
+{
+ "doc": "PROFILE.md 5.1: 'COPC output ordered by `GpsTime`. Points in a written COPC file come out in GPS-time order.' -- the order is over whatever points reach the writer. Keeping Classification 2 leaves the 500 lattice points with z >= 5, i.e. the indices i with i%10 >= 5: 5,6,7,8,9,15,... so GPS-time order starts 2.5, 3.0, 3.5, 4.0, 4.5, 7.5. The check that makes this readable as GPS-time order is the copc one: what a `values` list grades is the file's STORED order, and a COPC file stores each octree node's points contiguously, so stored order is GPS-time order end to end only while the whole cloud sits in ONE node. PROFILE.md 5.1 states that -- the ordering is by GpsTime within a node, and a cloud of this size at unit spacing belongs in a single node, which refines but does not reopen 4.3's freedom over octree shape for clouds big enough to need splitting. So the premise is checked rather than assumed: hierarchy_entries == 1, read with the verifier's independent COPC reader. A writer that subdivided the lattice fails on the node count, with a message that says so, instead of on a baffling GpsTime value. Measured on the real 2.5.0 binary: 1 hierarchy entry for both the 1000-point file and the 500-point subset.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.range\",\"limits\":\"Classification[2:2]\"},{\"type\":\"filters.sort\",\"dimension\":\"GpsTime\",\"order\":\"DESC\"},{\"type\":\"writers.copc\",\"filename\":\"out.copc.laz\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "copc",
+   "file": "out.copc.laz",
+   "point_count": {
+    "equals": 500
+   },
+   "hierarchy_entries": {
+    "equals": 1
+   }
+  },
+  {
+   "kind": "las",
+   "file": "out.copc.laz",
+   "header": {
+    "point_count": 500
+   },
+   "dims": {
+    "GpsTime": {
+     "values": [
+      2.5,
+      3.0,
+      3.5,
+      4.0,
+      4.5,
+      7.5,
+      8.0,
+      8.5,
+      9.0,
+      9.5
+     ],
+     "tol": 1e-09
+    },
+    "Classification": {
+     "count_equal": {
+      "2": 500
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,50 @@
+# arch: x86_64
+# what: a SECTIONS script given with -T moves the image to the addresses the
+# script asks for, the PT_LOAD covering each section has matching permissions,
+# and the program still runs.
+# Permission flags of the PT_LOAD whose [vaddr,vaddr+memsz) covers $1 (hex addr).
+# One line per covering segment, so an absent or duplicated cover is visible.
+load_perm() {
+  local a=$(( 16#$1 )) t off v p fsz msz rest
+  while read -r t off v p fsz msz rest; do
+    [ "$t" = LOAD ] || continue
+    [ "$a" -ge "$(( v ))" ] && [ "$a" -lt "$(( v + msz ))" ] || continue
+    awk '{s=""; for (i = 1; i < NF; i++) s = s $i; print s}' <<<"$rest"
+  done < <(segments out)
+}
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 5;
+int entry(void) { print("scripted\n"); return g; }
+C
+cc_obj m.o m.c
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+    . = 0x640000;
+    .data : { *(.data .data.*) }
+}
+L
+link_ok out -T lay.ld rt.o m.o
+# The dot assignment before .data is an exact address for that output section.
+want ".data address" "$(( 16#$(sec_addr out .data) ))" "$(( 0x640000 ))"
+# .text must have moved into the 0x600000 region the script opened.
+ta=$(( 16#$(sec_addr out .text) ))
+[ "$ta" -ge "$(( 0x600000 ))" ] && [ "$ta" -lt "$(( 0x610000 ))" ] \
+  || die ".text at $ta is outside the scripted 0x600000 region"
+# _start must have moved with .text, and e_entry must agree with it.
+sv=$(( 16#$(sym_value out _start) ))
+[ "$sv" -ge "$ta" ] || die "_start at $sv is below .text at $ta"
+want "e_entry == _start" "$(( $(hdr out | awk '/Entry point/{print $NF}') ))" "$sv"
+# Each scripted section sits in exactly one PT_LOAD, whose permissions match
+# the section's own AX / WA flags.
+tp=$(load_perm "$(sec_addr out .text)")
+dp=$(load_perm "$(sec_addr out .data)")
+want ".text covered by one LOAD" "$(grep -c . <<<"$tp")" "1"
+want ".data covered by one LOAD" "$(grep -c . <<<"$dp")" "1"
+want ".text LOAD is r-x" "$tp" "RE"
+want ".data LOAD is rw-" "$dp" "RW"
+run_expect out "scripted" 5
+asserts_at_least 6

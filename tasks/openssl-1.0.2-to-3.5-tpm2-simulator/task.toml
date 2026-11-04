@@ -1,0 +1,188 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. No min_reward anywhere: a
+# step that scores badly still lets the remaining steps run and report, which
+# is the only way a ten-step ladder tells you *where* a candidate stopped
+# rather than just that it did.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. `exclude` is empty: every verifier rebuilds the tree
+# from source, so build output carried in the artifact is never what gets
+# scored.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/openssl-1.0.2-to-3.5-tpm2-simulator"
+version = "1.0.0"
+description = """
+Migrate the OpenSSL-backed crypto engine of a TPM 2.0 reference simulator from \
+the OpenSSL 1.0.2 archives it vendors to a system OpenSSL 3.5, one release at a \
+time, without changing a single answer the engine or the simulator gives."""
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["openssl", "c", "migration", "tpm", "cryptography", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["openssl", "c", "cmake", "migration", "multi-step", "tpm2"]
+
+[environment]
+# Built from environment/Dockerfile: the toolchain every step needs, the
+# repository at the pinned commit under /app, and the staged OpenSSL releases
+# under /opt/ossl. No OpenSSL is installed until a step's setup.sh installs
+# exactly one.
+#
+# The image carries a full clang/LLVM 14 and seven OpenSSL trees, so the build
+# is not quick; the timeout is sized for a cold one.
+build_timeout_sec = 3600.0
+# 7, not 8: Harbor GKE requests this many millicores and an e2-standard-8 node
+# has 7910m allocatable, so cpus = 8 never gets a pod.
+cpus = 7
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench. OpenSSL's own documentation is on it.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. Each step's verifier installs
+# that step's OpenSSL and nothing else, so a verifier cannot accidentally score
+# a tree against the release a different step targets.
+[verifier]
+environment_mode = "separate"
+
+# Sizes the verifier containers; without this section Harbor silently reuses a
+# copy of [environment].
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# The verifier resolves nothing over the network -- its OpenSSL is a staged
+# archive in the build context and the recordings ship with it -- but the
+# simulator half of the suite drives the candidate's TPM over TCP on loopback,
+# which needs a working network namespace.
+network_mode = "public"
+
+[[steps]]
+name = "01-opaque-types"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too. The
+# scored half is about 3 minutes on 7 vCPU; the rest is the image.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "02-rng-and-key-objects"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape as step 01: the scored half is about 2.5 minutes on 7 vCPU,
+# the rest is the verifier image build.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "03-providers-and-fetch"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape again: the scored half measured 142 s on 7 vCPU for the golden
+# tree, the rest is the verifier image build.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "04-evp-symmetric"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape again: the scored half measured 129 s on 7 vCPU for the golden
+# tree, the rest is the verifier image build.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "05-evp-asymmetric"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape again: the scored half measured 149 s on 7 vCPU for the golden
+# tree, the rest is the verifier image build.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "06-fips-and-libctx"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape again: the scored half measured 152 s on 7 vCPU for the golden
+# tree, the rest is the verifier image build. The FIPS module adds a
+# provider self test to every probe start and a second, forced-failure probe
+# run; both are cheap beside the 1676-case engine corpus.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "07-params-not-ctrls"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape again: the scored half measured 158 s on 7 vCPU for the golden
+# tree, the rest is the verifier image build. The probe's workload
+# gained three EC point multiplications per round at this step;
+# 198 of them cost under two seconds beside the 1676-case engine corpus.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "08-no-deprecated"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape again: the scored half measured 165 s on 7 vCPU for the golden
+# tree, the rest is the verifier image build. This step adds a third
+# configure-and-build of the tree behind the deprecation fence and a parse of
+# the installed headers for what 3.4 has retired; together they cost about ten
+# seconds beside the 1676-case engine corpus.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "09-opaque-symmetric-keys"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Same shape again: the scored half measured 114 s on 7 vCPU for the golden
+# tree, the rest is the verifier image build. This step's own gates
+# are two source scans and two probe runs, which are cheaper than step 8's
+# extra configure -- the 149 s floor row is the slower of the two because a
+# tree that fails the gates still runs the whole 1676-case engine corpus.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "10-hardening"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# The heaviest verifier on the ladder, and the timeout is sized from a measured
+# row rather than from the shape of the previous one. The golden scored in
+# 288 s on 7 vCPU and the floor in 215 s. The extra cost over step 9 is four more builds of the whole
+# tree -- the fence build at -Werror, the per-TU -Wall -Wextra -Werror
+# re-compile of the ten engine units off that build's own compile lines, the
+# sanitized build the corpora run under, and the instrumented build the fuzz
+# harness links -- plus 2000 mutations and a gcov pass. 1800 s leaves better
+# than 5x headroom on the slowest row measured.
+timeout_sec = 1800.0

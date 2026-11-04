@@ -1,0 +1,32 @@
+# arch: x86_64
+# -soname puts exactly the requested string in DT_SONAME, and that string is
+# physically stored inside .dynstr.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+dt()  { dynamic "$1" | sed -n "s/.*($2)[ \t]*//p" | sed -n 1p; }
+secbytes() { local o s
+  o=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+3) } }' | sed -n 1p)
+  s=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+4) } }' | sed -n 1p)
+  [ -n "$o" ] || die "no section $2"
+  dd if="$1" of="$3" bs=1 skip=$(( 16#$o )) count=$(( 16#$s )) status=none
+}
+cat > s.c <<'C'
+int api(int x) { return x * 3; }
+C
+cc_obj s.o s.c -fPIC
+link_ok libapi.so -shared -soname libapi.so.7 s.o
+wre "DT_SONAME present" "$(dynamic libapi.so)" '\(SONAME\)'
+want "DT_SONAME text" "$(dt libapi.so SONAME)" "Library soname: [libapi.so.7]"
+secbytes libapi.so .dynstr dynstr.bin
+wre ".dynstr holds the soname" "$(tr '\0' '\n' < dynstr.bin)" '^libapi\.so\.7$'
+# A different soname must be honoured -- it is not an echo of the output name.
+link_ok libapi.so -shared -soname other.so.1 s.o
+want "second soname" "$(dt libapi.so SONAME)" "Library soname: [other.so.1]"
+# Without -soname there must be no DT_SONAME at all.
+link_ok libapi.so -shared s.o
+want "no DT_SONAME when not asked" "$(dynamic libapi.so | grep -c '(SONAME)')" "0"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 5

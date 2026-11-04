@@ -1,0 +1,27 @@
+CREATE TABLE x05_69a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x05_69a1 PARTITION OF x05_69a FOR VALUES FROM (0) TO (10);
+CREATE TABLE x05_69a2 PARTITION OF x05_69a FOR VALUES FROM (10) TO (20);
+CREATE FUNCTION x05_69f() RETURNS trigger LANGUAGE plpgsql AS
+  $$ BEGIN NEW.a := NEW.a + 1; NEW.b := NEW.b || '!'; RETURN NEW; END $$;
+CREATE TRIGGER x05_69t BEFORE INSERT ON x05_69a FOR EACH ROW EXECUTE FUNCTION x05_69f();
+INSERT INTO x05_69a VALUES (1,'x');
+INSERT INTO x05_69a VALUES (14,'y');
+SELECT tableoid::regclass::text AS part, a, b FROM x05_69a ORDER BY a;
+   part   | a  | b  
+----------+----+----
+ x05_69a1 |  2 | x!
+ x05_69a2 | 15 | y!
+(2 rows)
+
+INSERT INTO x05_69a VALUES (9,'z');
+ERROR:  moving row to another partition during a BEFORE FOR EACH ROW trigger is not supported
+DETAIL:  Before executing trigger "x05_69t", the row was to be in partition "public.x05_69a1".
+SELECT a, b FROM x05_69a ORDER BY a;
+ a  | b  
+----+----
+  2 | x!
+ 15 | y!
+(2 rows)
+
+DROP TABLE x05_69a;
+DROP FUNCTION x05_69f();

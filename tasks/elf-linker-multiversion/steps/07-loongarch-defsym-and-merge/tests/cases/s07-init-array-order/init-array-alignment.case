@@ -1,0 +1,48 @@
+# arch: x86_64
+# The merged .init_array must be aligned for the pointers it holds, so that
+# __init_array_start is a valid function-pointer array however the priority
+# fragments were laid out.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+extern void (*__init_array_start[])(void);
+extern void (*__init_array_end[])(void);
+int hits;
+int entry(void) {
+    long n = __init_array_end - __init_array_start;
+    for (long i = 0; i < n; i++) __init_array_start[i]();
+    putdec(hits); print("\n");
+    putdec((long)((unsigned long)__init_array_start & 7)); print("\n");
+    return 0;
+}
+C
+cc_obj m.o m.c
+cat > i.s <<'S'
+        .text
+        .globl bump
+bump:   incl hits(%rip)
+        ret
+        .section .init_array.00042,"aw",@init_array
+        .quad bump
+        .section .init_array.65535,"aw",@init_array
+        .quad bump
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj i.o i.s
+link_ok out --no-gc-sections rt.o m.o i.o
+line=$(awk '/\.init_array/{print; exit}' <<<"$(sections out)")
+align=$(awk '{print $NF}' <<<"$line")
+[ -n "$align" ] || die "no .init_array section header: $(sections out)"
+# A floor, not an equality: 8 is what the reference emits, but a conforming
+# linker may over-align, and spec/04 section 1.1 only requires enough alignment
+# for the pointers the section holds.
+want ".init_array sh_addralign is at least 8 (got $align)" "$(( align >= 8 ))" "1"
+want ".init_array sh_addralign is a multiple of 8 (got $align)" "$(( align % 8 ))" "0"
+sz=$(sec_size out .init_array); ad=$(sec_addr out .init_array)
+[ -n "$sz" ] && [ -n "$ad" ] || die "no .init_array size/addr: sz='$sz' addr='$ad'"
+want "two entries" "$(( 16#$sz ))" "16"
+want "the section address is 8-aligned" "$(( 16#$ad & 7 ))" "0"
+run_expect out "2
+0" 0
+
+asserts_at_least 4

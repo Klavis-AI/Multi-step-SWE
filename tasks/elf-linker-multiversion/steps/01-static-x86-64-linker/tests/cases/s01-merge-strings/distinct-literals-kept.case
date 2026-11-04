@@ -1,0 +1,34 @@
+# arch: x86_64
+# Deduplication is by content: literals that differ keep separate storage and
+# separate addresses, and every one of them still reads back correctly.
+rt_obj rt.o
+cat > a.c <<'C'
+const char *sa1(void) { return "alpha"; }
+const char *sa2(void) { return "beta"; }
+const char *sa3(void) { return "alpha"; }
+C
+cat > b.c <<'C'
+const char *sb1(void) { return "beta"; }
+const char *sb2(void) { return "gamma"; }
+C
+cat > m.c <<'C'
+#include "rt.h"
+const char *sa1(void); const char *sa2(void); const char *sa3(void);
+const char *sb1(void); const char *sb2(void);
+static int eq(const char *x, const char *y) {
+  while (*x && *x == *y) { x++; y++; }
+  return *x == *y;
+}
+int entry(void) {
+  int ok = 0;
+  if (sa1() == sa3()) ok |= 1;          /* same literal, same object */
+  if (sa2() == sb1()) ok |= 2;          /* same literal, two objects */
+  if (sa1() != sa2() && sa2() != sb2()) ok |= 4;
+  if (eq(sa1(), "alpha") && eq(sa2(), "beta") && eq(sb2(), "gamma")) ok |= 8;
+  print(sa1()); print(sa2()); print(sb2()); print("\n");
+  return ok;
+}
+C
+cc_obj a.o a.c; cc_obj b.o b.c; cc_obj m.o m.c
+link_ok out rt.o a.o b.o m.o
+run_expect out "alphabetagamma" 15

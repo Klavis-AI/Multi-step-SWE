@@ -1,0 +1,177 @@
+schema_version = "1.4"
+
+# Task reward = the mean of the twelve steps' `reward` values. There is no
+# min_reward gate, so every step runs. Each verifier reports its OWN
+# milestone's reward: 1 when every gate group passes and every scored group
+# passes, otherwise 0 - never a running total and never a credit for a
+# predecessor.
+multi_step_reward_strategy = "mean"
+
+# A separate verifier receives the cumulative source only through this declared
+# artifact. The verifier rebuilds from source, so no agent build output is
+# required in the snapshot.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "target", "target/**", "**/target", "**/target/**"] },
+]
+
+[task]
+name = "harbor/onion-routing-client-multiversion"
+version = "1.0.0"
+description = "Implement an onion-routing (Tor) client in Rust across twelve cumulative upstream releases: cells and circuits and a SOCKS proxy, guards and persistence, a reactor data path, circuit prediction, bootstrap status, structured errors, a DNS port, clock skew and safe logging, filesystem trust, pluggable cryptography, channel padding, and bridges with pluggable transports."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["tor", "onion-routing", "anonymity", "rust", "multi-step", "conformance"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["tor", "rust", "networking", "protocol", "cryptography", "multi-step"]
+
+[environment]
+build_timeout_sec = 2400.0
+cpus = 4
+memory_mb = 12288
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Network access for BUILDING the environment image (apt, cargo fetch/vendor).
+# The agent's own runtime access is the allowlist in [agent] below, not this.
+network_mode = "public"
+
+# Grade each step in an isolated verifier container built from that step's
+# tests/Dockerfile. The cumulative /app artifact is restored into the image
+# before /tests/test.sh runs.
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own inference host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 5400.0
+cpus = 4
+memory_mb = 12288
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+# The verifier image carries its own pinned toolchain and a directory source
+# holding the same dependency universe the agent's own image carries, so
+# grading resolves offline and depends on no live network. NOTHING is fetched
+# at grading time: a dependency outside that baked universe fails the resolve
+# visibly -- and cannot be built in the agent's environment either, which
+# resolves against the same set. See the step's tests/Dockerfile.
+network_mode = "public"
+
+# SIZING `[steps.verifier].timeout_sec`.
+#
+# Measured on the Oracle trees, CARGO_BUILD_JOBS=4, rustc 1.98.1: a cold
+# workspace build is 83 s at arti-v0.0.0 and 155 s at arti-v1.1.0; a cold
+# driver-crate build is 52 s and a warm one 1 s. The Oracle therefore reaches
+# roughly 400-700 s end to end, because its first (pinned, offline) dependency
+# resolution succeeds and no attribution compile runs at all.
+#
+# The ceiling is not that number. It bounds a CANDIDATE's code, which can be
+# far slower to compile than the reference, and a ceiling that fires turns a
+# gradeable submission into a zero. Worst case reachable inside
+# steps/NN/tests/test.sh, summing every `timeout N` one invocation can reach:
+#
+#   candidate workspace build ........................ 1800
+#   driver dependency resolution, 4 attempts x 600 ... 2400
+#   conformance driver build ......................... 1500
+#   per-group attribution compiles (bounded overall) .  900
+#   scored group runs: <= 24 groups x 150 s .......... 3600
+#                                                     -----
+#   sum ............................................. 10200
+#
+# 10800 covers that with margin for container start, artifact restore and the
+# integrity pass. The per-group term is the one that scales, so a step whose
+# groups.txt grows past 24 groups gets its ceiling re-derived.
+[[steps]]
+name = "01-cells-circuits-directories"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "02-guards-persistence-isolation"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "03-reactor-and-events"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "04-prediction-and-reconfiguration"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "05-bootstrap-status-and-tls-backends"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "06-deferred-bootstrap-and-errors"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "07-dns-isolation-and-dialing"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "08-clock-skew-and-safe-logging"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "09-fs-trust-and-dir-tolerance"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "10-crypto-backends-and-errors"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "11-channel-padding-and-stability"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0
+
+[[steps]]
+name = "12-bridges-and-pluggable-transports"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 10800.0

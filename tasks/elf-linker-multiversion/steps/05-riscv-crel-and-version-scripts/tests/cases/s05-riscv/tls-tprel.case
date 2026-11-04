@@ -1,0 +1,62 @@
+# arch: riscv64
+# what: R_RISCV_TPREL_HI20/_ADD/_LO12_I must encode each thread-local's offset
+# from the thread pointer, and that offset must agree with the symbol value the
+# linker published; the case installs its own tp so this is a real run.
+rt_obj rt.o
+cat > t.s <<'S'
+        .section .tdata,"awT",@progbits
+        .globl tv
+        .p2align 3
+tv:     .quad 0
+        .section .tbss,"awT",@nobits
+        .globl tpad
+tpad:   .zero 4096
+        .globl tz
+        .p2align 4
+tz:     .zero 8
+        .text
+        .globl set_tp
+set_tp: mv      tp, a0
+        ret
+        .globl le_tv
+le_tv:  lui     a0, %tprel_hi(tv)
+        add     a0, a0, tp, %tprel_add(tv)
+        addi    a0, a0, %tprel_lo(tv)
+        ret
+        .globl le_tz
+le_tz:  lui     a0, %tprel_hi(tz)
+        add     a0, a0, tp, %tprel_add(tz)
+        addi    a0, a0, %tprel_lo(tz)
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+cat > m.c <<'C'
+#include "rt.h"
+void set_tp(void *); long *le_tv(void); long *le_tz(void);
+static char pool[16384] __attribute__((aligned(64)));
+int entry(void) {
+    char *tp = &pool[64];
+    set_tp(tp);
+    long *a = le_tv(), *b = le_tz();
+    *a = 1234; *b = 5678;
+    putdec((char *)b - (char *)a); print("\n");
+    putdec((unsigned long)((char *)a - tp) < 64); print("\n");
+    putdec(*a + *b);
+    return 0;
+}
+C
+as_obj t.o t.s; cc_obj m.o m.c
+relocs t.o > in.rel
+want "input has TPREL_HI20"   "$(grep -c 'R_RISCV_TPREL_HI20' in.rel)"   "2"
+want "input has TPREL_LO12_I" "$(grep -c 'R_RISCV_TPREL_LO12_I' in.rel)" "2"
+link_ok out --no-relax rt.o t.o m.o
+segments out > seg.txt
+want "one PT_TLS segment" "$(awk '$1=="TLS"' seg.txt | wc -l)" "1"
+tvoff=$((0x$(sym_value out tv)))
+tzoff=$((0x$(sym_value out tz)))
+[ "$tzoff" -gt 4096 ] || die "tz offset $tzoff is too small to exercise the hi20 half"
+run_expect out "$(( tzoff - tvoff ))
+1
+6912" 0
+# 3 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 3

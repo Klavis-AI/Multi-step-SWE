@@ -1,0 +1,97 @@
+# arch: x86_64
+# The two dynamic TLS models on x86-64, which share one piece of machinery:
+# the module descriptor.  A general-dynamic reference in a shared object
+# produces exactly one R_X86_64_DTPMOD64 / R_X86_64_DTPOFF64 pair in adjacent
+# GOT slots, both naming the variable; a local-dynamic module, however many
+# thread-locals it has, produces exactly ONE module descriptor and no
+# DTPOFF64 at all (spec/08 S5.2: "There is exactly one per output file, shared
+# by every LD sequence" -- each variable's offset is an in-place DTPOFF32
+# constant).  Neither link may invent a spare module-id slot for the other.
+# The local-dynamic half is then linked into an executable, where there is no
+# module to look up and the sequence must resolve statically; that half is
+# graded by running the program and reading the thread-locals back, never by
+# inspecting rewritten bytes (spec/08 S5.3).
+cat > s.c <<'C'
+__thread long gd_var = 44;
+long *get_gd(void) { return &gd_var; }
+C
+cc_obj s.o s.c -fPIC -ftls-model=global-dynamic
+relocs s.o > in.rel
+grep -q 'R_X86_64_TLSGD' in.rel || die "input lacks TLSGD: $(cat in.rel)"
+link_ok libs.so -shared s.o
+relocs libs.so > out.rel
+want "exactly one DTPMOD64" "$(grep -c 'R_X86_64_DTPMOD64' out.rel)" "1"
+want "exactly one DTPOFF64" "$(grep -c 'R_X86_64_DTPOFF64' out.rel)" "1"
+grep -qE 'R_X86_64_DTPMOD64 +[0-9a-f]+ gd_var' out.rel || die "DTPMOD64 does not name gd_var: $(cat out.rel)"
+grep -qE 'R_X86_64_DTPOFF64 +[0-9a-f]+ gd_var' out.rel || die "DTPOFF64 does not name gd_var: $(cat out.rel)"
+mo=$(awk '/R_X86_64_DTPMOD64/ { print $1; exit }' out.rel)
+oo=$(awk '/R_X86_64_DTPOFF64/ { print $1; exit }' out.rel)
+want "DTPOFF64 sits 8 bytes after DTPMOD64" "$((0x$oo - 0x$mo))" "8"
+dynsyms libs.so > dsym.txt
+grep -qE 'UND +__tls_get_addr' dsym.txt || die "__tls_get_addr was not imported: $(cat dsym.txt)"
+want "e_type" "$(hdr libs.so | awk '/^ *Type:/{print $2}')" "DYN"
+
+# Local dynamic: two thread-locals, one shared module descriptor.
+cat > ld.c <<'C'
+__thread long a_var = 1;
+__thread long b_var = 2;
+long *get_a(void) { return &a_var; }
+long *get_b(void) { return &b_var; }
+C
+cc_obj ld.o ld.c -fPIC -ftls-model=local-dynamic
+relocs ld.o > ldin.rel
+want "one LD sequence per accessor" "$(grep -c 'R_X86_64_TLSLD' ldin.rel)" "2"
+want "two DTPOFF32 constants"       "$(grep -c 'R_X86_64_DTPOFF32' ldin.rel)" "2"
+link_ok libld.so -shared ld.o
+relocs libld.so > ldout.rel
+want "exactly one DTPMOD64 for the whole module" "$(grep -c 'R_X86_64_DTPMOD64' ldout.rel)" "1"
+want "no DTPOFF64 alongside it"                  "$(grep -c 'R_X86_64_DTPOFF64' ldout.rel)" "0"
+# The module descriptor identifies the module, not a variable, so it is not
+# bound to either thread-local.
+want_not "LD module descriptor is symbol-bound" "$(cat ldout.rel)" 'R_X86_64_DTPMOD64 +[0-9a-f]+ +[ab]_var'
+lmo=$(awk '/R_X86_64_DTPMOD64/ { print $1; exit }' ldout.rel)
+gotaddr=$(sec_addr libld.so .got); gotsize=$(sec_size libld.so .got)
+[ $((0x$lmo)) -ge $((0x$gotaddr)) ] && [ $((0x$lmo + 16)) -le $((0x$gotaddr + 0x$gotsize)) ] \
+  || die "the module descriptor pair at 0x$lmo does not fit inside .got [0x$gotaddr, +0x$gotsize)"
+dynsyms libld.so > lddsym.txt
+grep -qE 'UND +__tls_get_addr' lddsym.txt || die "__tls_get_addr was not imported by the LD module: $(cat lddsym.txt)"
+
+# Same local-dynamic source, linked as an executable: run it and read both
+# thread-locals back through the accessors.
+rt_obj rt.o
+cat > tp.s <<'S'
+        .text
+        .globl set_tp
+set_tp: movq    %rdi, %rsi
+        movl    $0x1002, %edi
+        movl    $158, %eax
+        syscall
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj tp.o tp.s
+cat > m.c <<'C'
+#include "rt.h"
+void set_tp(void *); long *get_a(void); long *get_b(void);
+static char pool[4096] __attribute__((aligned(64)));
+int entry(void) {
+    char *tp = &pool[2048];
+    *(void **)tp = tp;            /* variant II: the TCB's first word is TP */
+    set_tp(tp);
+    long *a = get_a(), *b = get_b();
+    putdec(a != b); print("\n");
+    *a = 31; *b = 11;
+    putdec(*get_a() + *get_b()); print("\n");
+    return 0;
+}
+C
+cc_obj m.o m.c
+link_ok exe rt.o m.o ld.o tp.o
+run_expect exe "1
+42" 0
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 9

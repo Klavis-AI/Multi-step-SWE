@@ -1,0 +1,9 @@
+CREATE TABLE t(a INTEGER PRIMARY KEY AUTOINCREMENT, b TEXT);
+INSERT INTO t(b) VALUES('p');
+INSERT INTO t(b) VALUES('q');
+SELECT a, b FROM t ORDER BY a;
+SELECT name, seq FROM sqlite_sequence ORDER BY name;
+DELETE FROM t WHERE a = 2;
+INSERT INTO t(b) VALUES('r');
+SELECT a, b FROM t ORDER BY a;
+SELECT name, seq FROM sqlite_sequence ORDER BY name;

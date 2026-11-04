@@ -1,0 +1,52 @@
+# arch: x86_64
+# =none is accepted and leaves the debug sections byte-identical to a link that
+# asks for nothing; an unrecognised algorithm is refused and named.
+rt_obj rt.o
+python3 - > big.c <<'PY'
+print('long sys_write(long fd, const void *buf, long len);')
+for i in range(120):
+    print(f"int fn_{i}(int a, int b) {{ int t = a * {i+1} + b; return t ^ {i}; }}")
+print('int entry(void) { return fn_7(3, 4) & 63; }')
+PY
+cc_obj big.o big.c -gdwarf-4
+link_ok plain --no-gc-sections rt.o big.o
+link_ok none  --no-gc-sections --compress-debug-sections=none rt.o big.o
+
+rep=$(python3 - <<'PY'
+import struct
+def shdrs(p):
+    b = open(p, "rb").read()
+    shoff, = struct.unpack_from("<Q", b, 0x28)
+    ent, num, strndx = struct.unpack_from("<HHH", b, 0x3a)
+    noff = struct.unpack_from("<Q", b, shoff + strndx * ent + 0x18)[0]
+    d = {}
+    for i in range(num):
+        nm, ty, fl, ad, off, sz = struct.unpack_from("<IIQQQQ", b, shoff + i * ent)
+        e = b.index(b"\0", noff + nm)
+        d[b[noff + nm:e].decode()] = (fl, off, sz)
+    return b, d
+pb, pd = shdrs("plain")
+nb, nd = shdrs("none")
+for s in (".debug_info", ".debug_abbrev", ".debug_frame"):
+    fl, off, sz = nd[s]
+    poff, psz = pd[s][1], pd[s][2]
+    print(s, "flagC=%d" % (1 if fl & 0x800 else 0),
+          "same=%d" % (1 if nb[off:off + sz] == pb[poff:poff + psz] else 0))
+PY
+) || die "could not read section headers"
+for s in .debug_info .debug_abbrev .debug_frame; do
+  line=$(awk -v n="$s" '$1 == n { print }' <<<"$rep")
+  want_has "$s uncompressed under =none" "$line" 'flagC=0'
+  want_has "$s identical to the default link" "$line" 'same=1'
+done
+run_expect none "" 27
+
+link_fails bad --no-gc-sections --compress-debug-sections=lzma rt.o big.o
+# The obligation is that the diagnostic names the argument it was given; how
+# the message is phrased around that is not graded, so only the rejected value
+# is required to appear.
+want_has "unknown algorithm is named" "$LINK_OUT" 'lzma'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 7

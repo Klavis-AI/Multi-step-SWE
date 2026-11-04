@@ -1,0 +1,48 @@
+# arch: aarch64
+# The AArch64 half of the TLS relocation table. clang-16's default AArch64 TLS
+# dialect is TLSDESC, so a general-dynamic reference in a shared object leaves
+# an R_AARCH64_TLSDESC descriptor in .rela.dyn, and an initial-exec reference
+# leaves one R_AARCH64_TLS_TPREL64 GOT slot that must not collide with it.
+# NOTE: R_AARCH64_TLS_DTPMOD64 / _DTPREL64 -- the traditional, non-descriptor
+# general-dynamic pair -- are deliberately NOT exercised: clang-16 has no
+# -mtls-dialect switch for AArch64 and its assembler rejects the `:tlsgd:`
+# relocation specifiers, so nothing in this image can build an input that asks
+# for them.  See REQUIREMENTS.md step 03, note (k).
+cat > s.c <<'C'
+__thread long d_var = 44;
+__thread long i_var __attribute__((tls_model("initial-exec"))) = 55;
+long *get_desc(void) { return &d_var; }
+long *get_ie(void)   { return &i_var; }
+C
+cc_obj s.o s.c -fPIC
+relocs s.o > in.rel
+for r in TLSDESC_ADR_PAGE21 TLSDESC_LD64_LO12 TLSDESC_ADD_LO12 TLSDESC_CALL; do
+  grep -q "R_AARCH64_$r" in.rel || die "input lacks R_AARCH64_$r: $(cat in.rel)"
+done
+grep -q 'R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21' in.rel \
+  || die "input lacks an initial-exec reference: $(cat in.rel)"
+link_ok libs.so -shared s.o
+relocs libs.so > out.rel
+want "exactly one TLSDESC descriptor" "$(grep -c 'R_AARCH64_TLSDESC' out.rel)" "1"
+want "exactly one TPREL64 slot"       "$(grep -c 'R_AARCH64_TLS_TPREL64' out.rel)" "1"
+grep -qE 'R_AARCH64_TLSDESC +[0-9a-f]+ d_var'     out.rel || die "TLSDESC does not name d_var: $(cat out.rel)"
+grep -qE 'R_AARCH64_TLS_TPREL64 +[0-9a-f]+ i_var' out.rel || die "TPREL64 does not name i_var: $(cat out.rel)"
+do_=$(awk '/R_AARCH64_TLSDESC/ { print $1; exit }' out.rel)
+io=$(awk '/R_AARCH64_TLS_TPREL64/ { print $1; exit }' out.rel)
+# The descriptor occupies TWO consecutive GOT words (resolver + argument), so
+# the initial-exec slot may be neither of them.
+[ $((0x$io)) -ne $((0x$do_)) ] && [ $((0x$io)) -ne $((0x$do_ + 8)) ] \
+  || die "the initial-exec slot at 0x$io collides with the TLSDESC pair at 0x$do_"
+gotaddr=$(sec_addr libs.so .got); gotsize=$(sec_size libs.so .got)
+[ $((0x$do_)) -ge $((0x$gotaddr)) ] && [ $((0x$do_ + 16)) -le $((0x$gotaddr + 0x$gotsize)) ] \
+  || die "the TLSDESC pair at 0x$do_ does not fit inside .got [0x$gotaddr, +0x$gotsize)"
+segments libs.so > seg.txt
+grep -qE '^ +TLS ' seg.txt || die "no PT_TLS segment: $(cat seg.txt)"
+want "e_machine" "$(hdr libs.so | awk '/Machine:/{print $2}')" "AArch64"
+want "e_type"    "$(hdr libs.so | awk '/^ *Type:/{print $2}')" "DYN"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

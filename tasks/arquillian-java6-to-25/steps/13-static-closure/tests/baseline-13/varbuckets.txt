@@ -1,0 +1,126 @@
+# Step 06 -- C-7's frozen population: the 81 local-variable declarations of the
+# strictest redundant-type kind, `Foo x = new Foo(...)`, verbatim from the
+# report's varcand[...] records filtered to ctor=yes.
+#
+# The universe is 496 candidate declarations in 118 files whose initialiser
+# type is IDENTICAL to the written type under Types.isSameType -- not under a
+# name comparison, which erases type arguments and would call
+# `List<String> x = new ArrayList<>()` convertible. The 81 are the subset whose
+# initialiser is a constructor call, i.e. the ones where the type name is
+# written twice on one line and `var` removes the second. 34 are in src/main
+# and 47 in src/test. var.multideclarator reads 0, so not one of them is
+# blocked by sharing a declaration with another variable.
+#
+# Scored `var.size / 81`, CLAMPED TO 1. Converting more than the 81 is not
+# charged: the other 415 candidates are a style question and a candidate who
+# uses `var` more liberally than the golden should not lose points for it.
+#
+# How the gate sees a `var` at all, since there is no `var` node in the AST:
+# javac synthesises the inferred type at NOPOS, so an inferred declaration is
+# one whose type tree has a start position < 0, corroborated against the source
+# text at that extent reading literally `var`. Implicitly-typed LAMBDA
+# PARAMETERS are also NOPOS and are excluded by element kind -- only
+# LOCAL_VARIABLE and RESOURCE_VARIABLE are counted.
+#
+# ONE OF THE 81 IS EXEMPT, AND IT IS LISTED HERE ANYWAY SO THAT THE EXEMPTION
+# IS VISIBLE RATHER THAN SILENT. DynamicServiceLoader.java:196 is
+#
+#     LinkedHashSet<Class<? extends T>> providers = new LinkedHashSet<>();
+#
+# `var providers = new LinkedHashSet<>();` infers LinkedHashSet<Object>, which
+# does not survive the for-each two lines later, so the conversion that works
+# has to move the type argument to the right-hand side:
+# `var providers = new LinkedHashSet<Class<? extends T>>();`. That turns a
+# DIAMOND back into an explicit type-argument site -- undoing a step-03 gain
+# B-10 still scores -- for a 1/81 slice of a 0.10 leg. Two requirements
+# pulling opposite ways over one line, and this is the one that yields.
+#
+# So target.c7.want is 80 against this population of 81. A candidate who
+# converts it anyway loses nothing (the departure half is clamped at 80) and
+# gains nothing. It is the only diamond initialiser in the 81.
+#
+# Derived:
+#
+#   sed -n 's/^varcand\[[0-9]*\]=//p' baseline-step06-source.txt \
+#     | grep -F 'ctor=yes' | LC_ALL=C sort
+impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java:180 type=java.lang.StringBuilder init=java.lang.StringBuilder ctor=yes in=toClassString
+impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java:196 type=java.util.LinkedHashSet init=java.util.LinkedHashSet ctor=yes in=load
+impl-base/src/main/java/org/jboss/arquillian/impl/DynamicServiceLoader.java:204 type=java.io.BufferedReader init=java.io.BufferedReader ctor=yes in=load
+impl-base/src/main/java/org/jboss/arquillian/impl/client/container/ContainerRegistryCreator.java:113 type=java.io.BufferedReader init=java.io.BufferedReader ctor=yes in=getActivatedConfiguration
+impl-base/src/main/java/org/jboss/arquillian/impl/client/container/ContainerRegistryCreator.java:58 type=org.jboss.arquillian.impl.domain.ContainerRegistry init=org.jboss.arquillian.impl.domain.ContainerRegistry ctor=yes in=createRegistry
+impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/AnnotationDeploymentScenarioGenerator.java:49 type=org.jboss.arquillian.spi.client.deployment.DeploymentScenario init=org.jboss.arquillian.spi.client.deployment.DeploymentScenario ctor=yes in=generate
+impl-base/src/main/java/org/jboss/arquillian/impl/client/deployment/tool/ToolingDeploymentFormatter.java:54 type=java.lang.StringBuilder init=java.lang.StringBuilder ctor=yes in=format
+impl-base/src/main/java/org/jboss/arquillian/impl/client/protocol/ProtocolRegistryCreator.java:65 type=org.jboss.arquillian.impl.domain.ProtocolRegistry init=org.jboss.arquillian.impl.domain.ProtocolRegistry ctor=yes in=createRegistry
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/GroupContainerDefImpl.java:71 type=org.jboss.arquillian.impl.configuration.GroupContainerDefImpl init=org.jboss.arquillian.impl.configuration.GroupContainerDefImpl ctor=yes in=container
+impl-base/src/main/java/org/jboss/arquillian/impl/configuration/GroupDefImpl.java:71 type=org.jboss.arquillian.impl.configuration.GroupContainerDefImpl init=org.jboss.arquillian.impl.configuration.GroupContainerDefImpl ctor=yes in=container
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ManagerImpl.java:492 type=java.lang.StringBuilder init=java.lang.StringBuilder ctor=yes in=calcDebugPrefix
+impl-base/src/main/java/org/jboss/arquillian/impl/core/context/AbstractContext.java:126 type=org.jboss.arquillian.impl.core.ObjectStore init=org.jboss.arquillian.impl.core.ObjectStore ctor=yes in=createObjectStore
+impl-base/src/main/java/org/jboss/arquillian/impl/execution/LocalTestExecuter.java:61 type=org.jboss.arquillian.spi.TestResult init=org.jboss.arquillian.spi.TestResult ctor=yes in=execute
+impl-base/src/test/java/org/jboss/arquillian/impl/EventTestRunnerAdaptorTestCase.java:74 type=org.jboss.arquillian.impl.EventTestRunnerAdaptor init=org.jboss.arquillian.impl.EventTestRunnerAdaptor ctor=yes in=shouldHandleLifeCycleEvents
+impl-base/src/test/java/org/jboss/arquillian/impl/core/EventImplTestCase.java:44 type=java.lang.Object init=java.lang.Object ctor=yes in=shouldBeAbleToFireEvent
+impl-base/src/test/java/org/jboss/arquillian/impl/core/ExtensionParseTestCase.java:45 type=org.jboss.arquillian.impl.core.ExtensionParseTestCase.ExtensionWithObservers init=org.jboss.arquillian.impl.core.ExtensionParseTestCase.ExtensionWithObservers ctor=yes in=shouldBeAbleToReadAndInvokeObserverMethods
+impl-base/src/test/java/org/jboss/arquillian/impl/core/ExtensionParseTestCase.java:62 type=org.jboss.arquillian.impl.core.ExtensionParseTestCase.ExtensionWithInjection init=org.jboss.arquillian.impl.core.ExtensionParseTestCase.ExtensionWithInjection ctor=yes in=shouldBeAbleToReadAndInvokeInjectionPoints
+impl-base/src/test/java/org/jboss/arquillian/impl/core/ExtensionParseTestCase.java:81 type=org.jboss.arquillian.impl.core.ExtensionParseTestCase.ExtensionWithEvent init=org.jboss.arquillian.impl.core.ExtensionParseTestCase.ExtensionWithEvent ctor=yes in=shouldBeAbleToInjectEventAndFireNewEvent
+impl-base/src/test/java/org/jboss/arquillian/impl/core/ExtensionParseTestCase.java:88 type=org.jboss.arquillian.impl.core.ExtensionParseTestCase.DummyEventImpl init=org.jboss.arquillian.impl.core.ExtensionParseTestCase.DummyEventImpl ctor=yes in=shouldBeAbleToInjectEventAndFireNewEvent
+impl-base/src/test/java/org/jboss/arquillian/impl/core/InjectorTestCase.java:63 type=org.jboss.arquillian.impl.core.InjectorTestCase.TestStaticInjected init=org.jboss.arquillian.impl.core.InjectorTestCase.TestStaticInjected ctor=yes in=on
+impl-base/src/test/java/org/jboss/arquillian/impl/core/InstanceImplTestCase.java:48 type=java.lang.Object init=java.lang.Object ctor=yes in=shouldBeAbleToLookupInContext
+impl-base/src/test/java/org/jboss/arquillian/impl/core/ManagerImplTestCase.java:128 type=org.jboss.arquillian.impl.core.ManagerImplTestCase.TestNonManagedObserver init=org.jboss.arquillian.impl.core.ManagerImplTestCase.TestNonManagedObserver ctor=yes in=shouldCallNonManagedObserver
+impl-base/src/test/java/org/jboss/arquillian/impl/core/ManagerImplTestCase.java:85 type=java.lang.Object init=java.lang.Object ctor=yes in=shouldBindToTheScopedContext
+impl-base/src/test/java/org/jboss/arquillian/impl/core/context/ContextActivationTestCase.java:81 type=java.util.concurrent.CountDownLatch init=java.util.concurrent.CountDownLatch ctor=yes in=shouldNotBeAbleToReadFromDifferentThread
+impl-base/src/test/java/org/jboss/arquillian/impl/domain/ContainerRegistryTestCase.java:110 type=org.jboss.arquillian.impl.domain.ContainerRegistry init=org.jboss.arquillian.impl.domain.ContainerRegistry ctor=yes in=shouldBeAbleToSpecifyTarget
+impl-base/src/test/java/org/jboss/arquillian/impl/domain/ContainerRegistryTestCase.java:124 type=org.jboss.arquillian.impl.domain.ContainerRegistry init=org.jboss.arquillian.impl.domain.ContainerRegistry ctor=yes in=shouldBeAbleToGetContainerByName
+impl-base/src/test/java/org/jboss/arquillian/impl/domain/ContainerRegistryTestCase.java:66 type=org.jboss.arquillian.impl.domain.ContainerRegistry init=org.jboss.arquillian.impl.domain.ContainerRegistry ctor=yes in=shouldBeAbleToDefaultTargetToOnlyRegisteredContainer
+impl-base/src/test/java/org/jboss/arquillian/impl/domain/ContainerRegistryTestCase.java:79 type=org.jboss.arquillian.impl.domain.ContainerRegistry init=org.jboss.arquillian.impl.domain.ContainerRegistry ctor=yes in=shouldBeAbleToDefaultTargetToDefaultRegisteredContainer
+impl-base/src/test/java/org/jboss/arquillian/impl/domain/ContainerRegistryTestCase.java:94 type=org.jboss.arquillian.impl.domain.ContainerRegistry init=org.jboss.arquillian.impl.domain.ContainerRegistry ctor=yes in=shouldBeAbleToCreateContainerConfiguration
+impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherContextTestCase.java:62 type=org.jboss.arquillian.impl.enricher.resource.ArquillianTestEnricherContextTestCase.URLBaseContextClass init=org.jboss.arquillian.impl.enricher.resource.ArquillianTestEnricherContextTestCase.URLBaseContextClass ctor=yes in=shouldBeAbleToInjectBaseContext
+impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherContextTestCase.java:78 type=org.jboss.arquillian.impl.enricher.resource.ArquillianTestEnricherContextTestCase.URLServletContextClass init=org.jboss.arquillian.impl.enricher.resource.ArquillianTestEnricherContextTestCase.URLServletContextClass ctor=yes in=shouldBeAbleToInjectServlet
+impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherURLTestCase.java:56 type=javax.naming.InitialContext init=javax.naming.InitialContext ctor=yes in=shouldBeAbleToInjectBaseContext
+impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherURLTestCase.java:61 type=org.jboss.arquillian.impl.enricher.resource.ArquillianTestEnricherURLTestCase.ContextClass init=org.jboss.arquillian.impl.enricher.resource.ArquillianTestEnricherURLTestCase.ContextClass ctor=yes in=shouldBeAbleToInjectBaseContext
+impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherURLTestCase.java:70 type=javax.naming.InitialContext init=javax.naming.InitialContext ctor=yes in=shouldBeAbleToInjectServlet
+impl-base/src/test/java/org/jboss/arquillian/impl/enricher/resource/ArquillianTestEnricherURLTestCase.java:76 type=org.jboss.arquillian.impl.enricher.resource.ArquillianTestEnricherURLTestCase.InitialContextClass init=org.jboss.arquillian.impl.enricher.resource.ArquillianTestEnricherURLTestCase.InitialContextClass ctor=yes in=shouldBeAbleToInjectServlet
+impl-base/src/test/java/org/jboss/arquillian/impl/execution/LocalTestExecuterTestCase.java:86 type=java.lang.Exception init=java.lang.Exception ctor=yes in=shouldReturnFailedOnException
+impl-base/src/test/java/org/jboss/arquillian/impl/execution/RemoteTestExecuterTestCase.java:101 type=org.jboss.arquillian.spi.TestResult init=org.jboss.arquillian.spi.TestResult ctor=yes in=shouldSetTestResult
+impl-base/src/test/java/org/jboss/arquillian/impl/execution/RemoteTestExecuterTestCase.java:109 type=org.jboss.arquillian.spi.event.suite.Test init=org.jboss.arquillian.spi.event.suite.Test ctor=yes in=shouldSetTestResult
+impl-base/src/test/java/org/jboss/arquillian/impl/execution/RemoteTestExecuterTestCase.java:85 type=org.jboss.arquillian.spi.TestResult init=org.jboss.arquillian.spi.TestResult ctor=yes in=shouldInvokeContainerMethodExecutor
+impl-base/src/test/java/org/jboss/arquillian/impl/execution/RemoteTestExecuterTestCase.java:92 type=org.jboss.arquillian.spi.event.suite.Test init=org.jboss.arquillian.spi.event.suite.Test ctor=yes in=shouldInvokeContainerMethodExecutor
+junit/src/main/java/org/jboss/arquillian/junit/JUnitTestRunner.java:61 type=org.junit.runner.JUnitCore init=org.junit.runner.JUnitCore ctor=yes in=execute
+junit/src/main/java/org/jboss/arquillian/junit/JUnitTestRunner.java:63 type=org.jboss.arquillian.junit.JUnitTestRunner.ExpectedExceptionHolder init=org.jboss.arquillian.junit.JUnitTestRunner.ExpectedExceptionHolder ctor=yes in=execute
+junit/src/test/java/org/jboss/arquillian/junit/JUnitIntegrationTestCase.java:76 type=org.junit.runner.JUnitCore init=org.junit.runner.JUnitCore ctor=yes in=shouldHandleTheLifecycleCorrectlyOnMultipleTestRunsWithExceptions
+junit/src/test/java/org/jboss/arquillian/junit/JUnitTestRunnerTestCase.java:29 type=org.jboss.arquillian.junit.JUnitTestRunner init=org.jboss.arquillian.junit.JUnitTestRunner ctor=yes in=shouldReturnPassedTest
+junit/src/test/java/org/jboss/arquillian/junit/JUnitTestRunnerTestCase.java:42 type=org.jboss.arquillian.junit.JUnitTestRunner init=org.jboss.arquillian.junit.JUnitTestRunner ctor=yes in=shouldReturnExceptionOnPassedTest
+protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXMethodExecutor.java:58 type=javax.management.ObjectName init=javax.management.ObjectName ctor=yes in=invoke
+protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXMethodExecutor.java:65 type=java.io.ObjectInputStream init=java.io.ObjectInputStream ctor=yes in=invoke
+protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXTestRunner.java:100 type=java.io.ObjectOutputStream init=java.io.ObjectOutputStream ctor=yes in=runTestMethodRemote
+protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXTestRunner.java:71 type=javax.management.ObjectName init=javax.management.ObjectName ctor=yes in=registerMBean
+protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXTestRunner.java:79 type=javax.management.ObjectName init=javax.management.ObjectName ctor=yes in=unregisterMBean
+protocols/jmx/src/main/java/org/jboss/arquillian/protocol/jmx/JMXTestRunner.java:99 type=java.io.ByteArrayOutputStream init=java.io.ByteArrayOutputStream ctor=yes in=runTestMethodRemote
+protocols/jmx/src/test/java/org/jboss/arquillian/jmx/JMXTestRunnerTestCase.java:47 type=org.jboss.arquillian.protocol.jmx.JMXTestRunner init=org.jboss.arquillian.protocol.jmx.JMXTestRunner ctor=yes in=testJMXTestRunner
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/ServletMethodExecutor.java:99 type=java.io.ObjectInputStream init=java.io.ObjectInputStream ctor=yes in=execute
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/runner/ServletTestRunner.java:134 type=java.io.ObjectOutputStream init=java.io.ObjectOutputStream ctor=yes in=writeObject
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/v_2_5/ServletProtocolDeploymentPackager.java:62 type=org.jboss.arquillian.protocol.servlet.Processor init=org.jboss.arquillian.protocol.servlet.Processor ctor=yes in=generateDeployment
+protocols/servlet/src/main/java/org/jboss/arquillian/protocol/servlet/v_3/ServletProtocolDeploymentPackager.java:60 type=org.jboss.arquillian.protocol.servlet.Processor init=org.jboss.arquillian.protocol.servlet.Processor ctor=yes in=generateDeployment
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/BaseServletProtocolTestCase.java:56 type=org.jboss.arquillian.protocol.servlet.ServletProtocolConfiguration init=org.jboss.arquillian.protocol.servlet.ServletProtocolConfiguration ctor=yes in=shouldFindTestServletInMetadata
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/BaseServletProtocolTestCase.java:71 type=org.jboss.arquillian.protocol.servlet.ServletProtocolConfiguration init=org.jboss.arquillian.protocol.servlet.ServletProtocolConfiguration ctor=yes in=shouldOverrideMetadata
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/BaseServletProtocolTestCase.java:75 type=org.jboss.arquillian.protocol.servlet.v_2_5.ServletProtocol init=org.jboss.arquillian.protocol.servlet.v_2_5.ServletProtocol ctor=yes in=shouldOverrideMetadata
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/ProtocolTestCase.java:128 type=java.lang.StringBuilder init=java.lang.StringBuilder ctor=yes in=createURL
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/ProtocolTestCase.java:51 type=org.mortbay.jetty.servlet.Context init=org.mortbay.jetty.servlet.Context ctor=yes in=setup
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/ProtocolTestCase.java:67 type=org.jboss.arquillian.protocol.servlet.ServletMethodExecutor init=org.jboss.arquillian.protocol.servlet.ServletMethodExecutor ctor=yes in=shouldReturnTestResult
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/ProtocolTestCase.java:80 type=org.jboss.arquillian.protocol.servlet.ServletMethodExecutor init=org.jboss.arquillian.protocol.servlet.ServletMethodExecutor ctor=yes in=shouldReturnThrownException
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/TestUtil.java:38 type=java.io.ObjectInputStream init=java.io.ObjectInputStream ctor=yes in=execute
+protocols/servlet/src/test/java/org/jboss/arquillian/protocol/servlet/TestUtil.java:53 type=java.io.ByteArrayOutputStream init=java.io.ByteArrayOutputStream ctor=yes in=convertToString
+spi/src/main/java/org/jboss/arquillian/spi/ExceptionProxy.java:106 type=org.jboss.arquillian.spi.ArquillianProxyException init=org.jboss.arquillian.spi.ArquillianProxyException ctor=yes in=createProxyException
+spi/src/main/java/org/jboss/arquillian/spi/util/ServiceLoader.java:163 type=java.io.BufferedReader init=java.io.BufferedReader ctor=yes in=reload
+testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java:104 type=org.jboss.arquillian.testenricher.cdi.CDIInjectionEnricherTestCase.TestClass init=org.jboss.arquillian.testenricher.cdi.CDIInjectionEnricherTestCase.TestClass ctor=yes in=shouldInjectMethodArgumentsEvent
+testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java:115 type=org.jboss.arquillian.testenricher.cdi.CDIInjectionEnricherTestCase.TestClass init=org.jboss.arquillian.testenricher.cdi.CDIInjectionEnricherTestCase.TestClass ctor=yes in=shouldInjectMethodArgumentsInstance
+testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java:81 type=org.jboss.arquillian.testenricher.cdi.CDIInjectionEnricherTestCase.TestClass init=org.jboss.arquillian.testenricher.cdi.CDIInjectionEnricherTestCase.TestClass ctor=yes in=shouldInjectClassMembers
+testenrichers/cdi/src/test/java/org/jboss/arquillian/testenricher/cdi/CDIInjectionEnricherTestCase.java:93 type=org.jboss.arquillian.testenricher.cdi.CDIInjectionEnricherTestCase.TestClass init=org.jboss.arquillian.testenricher.cdi.CDIInjectionEnricherTestCase.TestClass ctor=yes in=shouldInjectMethodArguments
+testenrichers/ejb/src/main/java/org/jboss/arquillian/testenricher/ejb/EJBInjectionEnricher.java:190 type=java.lang.StringBuilder init=java.lang.StringBuilder ctor=yes in=joinJndiNames
+testenrichers/osgi/src/main/java/org/jboss/arquillian/testenricher/osgi/OSGiTestEnricher.java:146 type=javax.management.ObjectName init=javax.management.ObjectName ctor=yes in=getBundleContextFromHolder
+testenrichers/resource/src/test/java/org/jboss/arquillian/testenricher/resource/ResourceInjectionEnricherTestCase.java:35 type=org.jboss.arquillian.testenricher.resource.ResourceInjectionEnricherTestCase.InjectableTestClass init=org.jboss.arquillian.testenricher.resource.ResourceInjectionEnricherTestCase.InjectableTestClass ctor=yes in=shouldInjectResourcesIntoObject
+testng/src/main/java/org/jboss/arquillian/testng/TestNGTestRunner.java:46 type=org.jboss.arquillian.testng.TestListener init=org.jboss.arquillian.testng.TestListener ctor=yes in=execute
+testng/src/main/java/org/jboss/arquillian/testng/TestNGTestRunner.java:48 type=org.testng.TestNG init=org.testng.TestNG ctor=yes in=execute
+testng/src/main/java/org/jboss/arquillian/testng/TestNGTestRunner.java:65 type=org.testng.xml.XmlSuite init=org.testng.xml.XmlSuite ctor=yes in=createSuite
+testng/src/main/java/org/jboss/arquillian/testng/TestNGTestRunner.java:69 type=org.testng.xml.XmlTest init=org.testng.xml.XmlTest ctor=yes in=createSuite
+testng/src/main/java/org/jboss/arquillian/testng/TestNGTestRunner.java:72 type=org.testng.xml.XmlClass init=org.testng.xml.XmlClass ctor=yes in=createSuite
+testng/src/test/java/org/jboss/arquillian/testng/TestNGTestRunnerTestCase.java:28 type=org.jboss.arquillian.testng.TestNGTestRunner init=org.jboss.arquillian.testng.TestNGTestRunner ctor=yes in=shouldReturnPassedTest
+testng/src/test/java/org/jboss/arquillian/testng/TestNGTestRunnerTestCase.java:39 type=org.jboss.arquillian.testng.TestNGTestRunner init=org.jboss.arquillian.testng.TestNGTestRunner ctor=yes in=shouldReturnExceptionOnPassedTest

@@ -1,0 +1,92 @@
+# Step 7's verifier stack.
+#
+# The library pins are character-for-character the ones this step's
+# workdir/setup.sh installs into the agent's /opt/venv. They have to be: this
+# step's expectation is step 1's recording plus the cumulative flips through
+# step 6 and step 7's new figure-return flips, and a replay under a different
+# matplotlib or pandas would report the library's own changes as the
+# candidate's regressions -- or, worse, would silently satisfy a flip that the
+# pinned stack does not actually produce.
+#
+# The verifier installs them itself rather than inheriting the agent image, so
+# nothing the candidate did to /opt/venv can reach the scorer.
+#
+# matplotlib moves to 3.10.9 here and it is the whole point of the step: the
+# figure-producing helpers (skutil.utils.util.corr_plot and
+# report_grid_score_detail) stop driving the pyplot global state machine and
+# return explicit Figure/Axes objects instead. 3.10.9 is the pinned runtime for
+# that work, not its cause. matplotlib 3.10 ships no removal or deprecation
+# these helpers trip over -- its breaking changes are Figure.add_axes rejecting
+# extra positional arguments, the axline setters taking tuples, legend handle
+# filtering and the drop of accessors already deprecated before it, and this
+# tree uses none of them; the defect here is plt.title/plt.xlabel/plt.show and
+# the implicit gca, which 3.10 still honours. Returning the figure and drawing
+# on an explicit Axes is sound figure-ownership practice under any modern
+# matplotlib; it is pinned to 3.10.9 so the recording replays against one fixed
+# renderer, not because a 3.10 removal forces it. Everything else holds at its
+# step-6 value: CPython 3.12.11, numpy 2.3.5, scipy 1.16.3, pandas 3.0.5,
+# scikit-learn 1.7.2, seaborn 0.13.2 and pyarrow 21.0.0. seaborn 0.13.2 already exposes the `.figure`
+# attribute on FacetGrid/PairGrid/pairplot that the golden returns, so no
+# seaborn move is needed.
+#
+# The build system does NOT move here: step 5 replaced numpy.distutils with
+# meson-python and that build carries forward unchanged. Cython holds at 3.1.6,
+# ninja at 1.13.0, meson-python at 0.18.0, setuptools at 80.9.0 and wheel at
+# 0.45.1.
+setuptools==80.9.0
+wheel==0.45.1
+numpy==2.3.5
+scipy==1.16.3
+pandas==3.0.5
+scikit-learn==1.7.2
+matplotlib==3.10.9
+seaborn==0.13.2
+pyarrow==21.0.0
+Cython==3.1.6
+meson-python==0.18.0
+ninja==1.13.0
+pytest==8.4.2
+
+# No tomli pin here, unlike steps 1-5.
+#
+# skutil_gates.suppress reads pyproject.toml to count the suppressions
+# configured there, and meson-python reads the same file to drive the build.
+# Steps 1-5 ran on Python 3.9, which has no TOML reader in the stdlib, so they
+# pinned tomli==1.2.3 to give the suppression scan a parser. Python grew tomllib
+# into the stdlib at 3.11; on this step's 3.12 interpreter the scan uses tomllib
+# and needs nothing installed. The suppression ceiling is a carried check, so it
+# matters that the parser did not change out from under it: tomllib is CPython's
+# own vendored copy of tomli and reads the same document to the same table, so
+# the ceiling measured here compares with the one steps 1-5 measured through
+# tomli. (meson-python 0.18.0 likewise uses stdlib tomllib on 3.11+.)
+
+# ---- transitive closure, pinned (tools/pin_closure.py) ----
+#
+# Not named by anything above; pip chose them while resolving it.
+# Written down because the behaviour corpus was recorded against
+# these exact versions and some of them move on their own
+# schedule, so an image rebuilt later would not be the image the
+# recording came from. Regenerate: python tools/pin_closure.py <image> <this file>
+#
+# Identical to the closure step 6 pinned: matplotlib 3.9.4 -> 3.10.9 raises none
+# of these dependencies' floors above the versions already chosen (contourpy,
+# fonttools, kiwisolver, pillow, pyparsing, cycler and python-dateutil all still
+# satisfy matplotlib 3.10's requirements), so pip resolves the same set and the
+# recording carries forward on the same closure.
+cloudpickle==3.1.2
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.65.0
+iniconfig==2.3.0
+joblib==1.6.0
+kiwisolver==1.5.1
+meson==1.12.0
+packaging==26.3
+pillow==12.3.0
+pluggy==1.6.0
+Pygments==2.21.0
+pyparsing==3.3.2
+pyproject-metadata==0.12.1
+python-dateutil==2.9.0.post0
+six==1.17.0
+threadpoolctl==3.7.0

@@ -1,0 +1,32 @@
+# arch: x86_64
+# what: `.` is the location counter, never a symbol. Assigning to it -- both
+# between output-section descriptions and inside one -- MUST NOT leave a
+# symbol literally named `.` in the output's symbol table, even though an
+# ordinary `sym = .;` right next to it does define a real symbol.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 5;
+int entry(void) { print("scripted\n"); return g; }
+C
+cc_obj m.o m.c
+cat > lay.ld <<'L'
+SECTIONS {
+    . = 0x600000;
+    .text : { *(.text .text.*) }
+    . = 0x700000;
+    .data : {
+        data_start = .;
+        *(.data .data.*)
+    }
+}
+L
+link_ok out -T lay.ld rt.o m.o
+# The ordinary symbol assignment next to a dot-assignment must still work...
+want "data_start is defined" \
+  "$(symbols out | awk '$8=="data_start"{print ($7=="UND")?"UND":"def"}')" "def"
+# ...but `.` itself must never show up as a symbol name, in any binding.
+n=$(symbols out | awk '$NF=="."{c++} END{print c+0}')
+want "no symbol literally named '.'" "$n" "0"
+run_expect out "scripted" 5
+asserts_at_least 2

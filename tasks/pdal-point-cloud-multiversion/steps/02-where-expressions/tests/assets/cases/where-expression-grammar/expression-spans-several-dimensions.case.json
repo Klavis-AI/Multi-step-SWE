@@ -1,0 +1,72 @@
+{
+ "doc": "stages/expression.rst: 'The PDAL expression syntax is a subset of that found in a great many programming languages.  Specifically, it uses a limited set of operators from the C language.  Dimension names can be used where a variable or constant would be used.' -- dimension names stand where a variable would.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p0.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"assignment\": \"Classification[:]=7\", \"where\": \"(Classification == 2) && (PointSourceId > 8)\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[7:7]\"}, {\"type\": \"writers.las\", \"filename\": \"out0.las\"}]}"
+  },
+  "p1.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"assignment\": \"Classification[:]=7\", \"where\": \"GpsTime < 5\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[7:7]\"}, {\"type\": \"writers.las\", \"filename\": \"out1.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p0.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "p1.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out0.las",
+   "header": {
+    "point_count": 100
+   },
+   "dims": {
+    "PointSourceId": {
+     "unique": [
+      9,
+      10
+     ]
+    },
+    "Z": {
+     "min": 5,
+     "max": 9
+    }
+   }
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out1.las",
+   "header": {
+    "point_count": 10
+   },
+   "dims": {
+    "Intensity": {
+     "min": 0,
+     "max": 9
+    }
+   }
+  }
+ ]
+}

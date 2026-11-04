@@ -1,0 +1,58 @@
+{
+ "doc": "stages/filters.griddecimation.rst: 'The **grid decimation filter** transform only one point in each cells of a grid calculated from the points cloud and a resolution therm. The transformation is done by the value information. The selected point could be the highest or the lowest point on the cell.' and its Options block: output_type 'The type of points transform by the value information. The value should be ``\"max\"`` for transform the highest point, or ``\"min\"`` for the lowest.'; resolution 'The resolution of the cells in meter. [Default: 1.]'; value 'A list of :ref:`assignment expressions <Assignment Expressions>` to be applied to points. The list of values is evaluated in order. [Default: none]'.  A 10x10x10 lattice 0..9 at resolution 2 is five cells per axis, so exactly 25 points are marked.  Which point each cell keeps is NOT asserted: every cell's four top-Z candidates tie at Z=9, the page resolves no tie, and the X/Y of the winner depends on view order.  Only the marked count and the untouched total are checked.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "gd.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.gridDecimation\", \"resolution\": 2, \"output_type\": \"max\", \"value\": \"Classification=9\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]"
+  },
+  "cnt.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"out.las\"}, {\"type\": \"filters.expression\", \"expression\": \"Classification==9\"}, {\"type\": \"writers.las\", \"filename\": \"cnt.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "gd.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "cnt.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": {
+     "equals": 1000
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "cnt.las",
+   "header": {
+    "point_count": {
+     "equals": 25
+    }
+   }
+  }
+ ]
+}

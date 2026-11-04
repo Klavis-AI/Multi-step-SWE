@@ -1,0 +1,31 @@
+CREATE TABLE x07_19a(a int PRIMARY KEY, b text);
+CREATE PUBLICATION x07_19p FOR TABLE x07_19a WHERE (a > 5);
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT pg_get_expr(r.prqual, r.prrelid) FROM pg_publication_rel r
+  JOIN pg_publication p ON p.oid = r.prpubid WHERE p.pubname='x07_19p';
+ pg_get_expr 
+-------------
+ (a > 5)
+(1 row)
+
+SELECT count(*) FROM pg_attribute WHERE attrelid='pg_publication_rel'::regclass
+  AND attname IN ('prqual','prattrs');
+ count 
+-------
+     2
+(1 row)
+
+SELECT attname FROM pg_attribute
+  WHERE attrelid='pg_publication_tables'::regclass AND attnum>0 ORDER BY attnum;
+  attname   
+------------
+ pubname
+ schemaname
+ tablename
+ attnames
+ rowfilter
+(5 rows)
+
+DROP PUBLICATION x07_19p;
+DROP TABLE x07_19a;

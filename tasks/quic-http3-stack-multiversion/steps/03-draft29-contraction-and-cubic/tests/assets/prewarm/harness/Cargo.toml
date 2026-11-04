@@ -1,0 +1,44 @@
+# Dependency prewarm for the verifier's own harness.
+#
+# The harness crate cannot be prewarmed directly: it takes a path dependency on
+# the candidate's `quiche`, which does not exist until the artifact is
+# restored, long after this image is built. So this stub carries the harness's
+# third-party graph -- which is entirely the support crate's, since the harness
+# itself is std-only -- and `cargo build --locked` compiles it into the shared
+# target directory at image-build time.
+#
+# Keep the dependency tables byte-identical to
+# misc/<task>/tools/frame/harness/support/Cargo.toml. `sync-frame.sh` copies
+# this file out to all fifteen steps; `check-prewarm-harness.sh` compares the
+# two tables and fails if they have drifted, because a dependency present in
+# the support crate and missing here is an offline build failure that surfaces
+# only inside a verifier container.
+[package]
+name = "harness-prewarm"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+[workspace]
+
+[lib]
+name = "harness_prewarm"
+path = "src/lib.rs"
+
+[dependencies]
+aes = "0.8"
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+chacha20 = "0.9"
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+hkdf = "0.12"
+sha2 = "0.10"
+
+[dev-dependencies]
+hex = "0.4"
+serde_json = "1"

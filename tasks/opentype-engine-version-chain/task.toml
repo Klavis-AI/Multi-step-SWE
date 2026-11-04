@@ -1,0 +1,102 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. No min_reward gate, so every
+# step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# The only way the cumulative /app reaches the verifier container. /app holds
+# the engine source only: the font corpora, specifications and public test
+# suites are uploaded into /data, which is not collected. `exclude` is empty.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/opentype-engine-version-chain"
+version = "1.0.0"
+description = "Six-step JavaScript OpenType font engine implementing FreeType's ftlint and HarfBuzz's hb-shape/hb-vector/hb-subset command-line interfaces, from TrueType/CFF rasterization with the bytecode interpreter through OpenType Layout, complex-script shaping, variable fonts, colour fonts and subsetting, graded against FreeType 2.14.3-precomputed rasterization and HarfBuzz 14.4.0's own conformance corpora."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["opentype", "truetype", "freetype", "harfbuzz", "shaping", "rasterization", "javascript", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["opentype", "font", "shaping", "rasterization", "variable-fonts", "color-fonts", "subsetting", "javascript", "multi-step"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+# Per-step payloads (font corpora, specification chapters, public test suites)
+# are uploaded to the container's working directory; /app is what travels
+# between sessions, so the payload lands in /data and /app stays source-only.
+workdir = "/data"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+# No network while grading: the candidate's engine must not reach anything
+# outside this container. Nothing here fetches at run time and the graded /app
+# is source-only, so nothing needs it.
+network_mode = "no-network"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-truetype-cff-raster"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-opentype-layout"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-complex-scripts"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-variable-fonts"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-color-fonts"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-math-subset"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

@@ -1,0 +1,720 @@
+Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+ Developing OpenType Fonts for Arabic Script
+
+ Feedback
+
+ Summarize this article for me
+
+ This document presents information that will help font developers create or support OpenType fonts for all Arabic script languages covered by the Unicode Standard.
+
+Introduction
+
+Font developers will learn how to encode complex script features in their fonts, choose character sets, organize font information, and use existing tools to produce Arabic fonts. Registered features of the Arabic script are defined and illustrated, encodings are listed, and templates are included for compiling Arabic layout tables for OpenType fonts.
+
+This document also presents information about the Arabic OpenType shaping engine of Uniscribe, the Windows component responsible for text layout.
+
+In addition to being a primer and specification for the creation and support of Arabic fonts, this document is intended to more broadly illustrate the OpenType Layout architecture, feature schemes, and operating system support for shaping and positioning text.
+
+Glossary
+
+The following terms are useful for understanding the layout features and script rules discussed in this document.
+
+Base Glyph - Any glyph that can have a diacritic mark above or below it. Layout operations are defined in terms of a base glyph, not a base character, as a ligature may act as the base.
+
+Character - Each character represents a Unicode character code point. For example 'lam' character is U+0644. A character may have multiple forms of glyphs.
+
+Diacritic Marks - A character that is positioned above or below a character to provide pronunciation guidance (i.e. accent acute, grave, tilde, etc.)
+
+Glyph - A glyph represents a form of one or more characters. For example, the final, initial and medial 'lam' glyphs (U+FEDE, U+FEDF & U+FEE0) are all forms of the 'lam' character (U+0644).
+
+Kashida - Also known as the 'tatweel' character (U+0640). This character is used for elongation between connecting characters and is used for justification.
+
+Ligature - A combination of glyphs that join to form a single glyph. For example, the 'lam alef' combinations of glyphs are mandatory ligatures for Arabic. Other ligatures, like 'lam meem initial', are optional.
+
+Shaping Engine
+
+Analyzing the Characters
+
+Shaping with OTLS
+
+Positioning Glyphs with OTLS
+
+Handling Invalid Combining Marks
+
+The Uniscribe Arabic shaping engine processes text in stages. The stages are:
+
+Analyzing the characters for contextual shape
+
+Shaping (substituting) glyphs with OTLS (OpenType Library Services)
+
+Positioning glyphs with OTLS
+
+The descriptions which follow will help font developers understand the rationale for the Arabic feature encoding model, and help application developers better understand how layout clients can divide responsibilities with operating system functions.
+
+Analyzing the Characters
+
+The unit that the shaping engine receives for the purpose of shaping is a string of Unicode characters, in a sequence. The contextual analysis engine determines the correct contextual form the character should take, based on the character before and after it. The contextual shape maps to an OTL feature for that form (isol, init, medi, fina).
+
+Additionally, during the analysis process, the engine verifies valid diacritic combinations. For additional information, see the Handling Invalid Combining Marks section.
+
+Shaping with OTLS
+
+The first step Uniscribe takes in shaping the character string is to map all characters to their nominal form glyphs (e.g. the glyph for U+0627). Then, Uniscribe applies contextual shape features to the glyph string.
+
+Next, Uniscribe calls OTLS to apply the features. All OTL processing is divided into a set of predefined features (described and illustrated in the Features section of this document). Each feature is applied, one by one, to the appropriate glyphs in the syllable and OTLS processes them. Uniscribe makes as many calls to the OTL Services as there are features. This ensures that the features are executed in the desired order.
+
+The steps of the shaping process are outlined below. Not all of the features listed apply to all Arabic script languages.
+
+Shaping features:
+
+Language forms
+
+Apply feature 'ccmp' to preprocess any glyphs that require composition or decomposition (for example, 'alef' followed by 'hamza above' may be composed into 'alef with hamza above')
+
+Apply feature 'isol' to get the isolated form of characters
+
+Apply feature 'fina' to get final form glyphs
+
+Apply feature 'medi' to get medial form glyphs
+
+Apply feature 'init' to get initial form glyphs
+
+Apply feature 'rlig' to compose any mandatory ligatures, like 'lam alef'
+
+Apply feature 'calt' to apply any desired alternative forms of connections; this can provide type designers with the capability to contextually exchange a glyph to give a better calligraphic presentation
+
+Typographical forms
+
+Apply feature 'liga' to compose any optional ligatures, like 'lam meem'
+
+Apply feature 'dlig' to compose any discretionary ligatures
+
+Apply feature 'cswh' to substitute any swash characters based on context; for example, a swash 'noon' might be used if followed by n glyphs that do not extend below the baseline
+
+Apply feature 'mset' to apply mark positioning via substitution; this does not produce the best typographic possibilities as would the use of the positioning feature 'mark'
+
+Positioning Glyphs with OTLS
+
+Uniscribe next applies features concerned with positioning, calling functions of OTLS to position glyphs.
+
+Positioning features:
+
+Cursive connection
+
+Apply feature 'curs' to connect cursive font glyphs as appropriate
+
+Kerning
+
+Apply feature 'kern' to provide pair kerning between base glyphs requiring adjustment for better typographical quality
+
+Mark to base
+
+Apply feature 'mark' to position diacritic glyphs to the base glyph
+
+Mark to Mark
+
+Apply feature 'mkmk' to position diacritic glyphs to other diacritic glyphs
+
+Handling Invalid Combining Marks
+
+Combining marks and signs that appear in text not in conjunction with a valid consonant base are considered invalid. Uniscribe displays these marks using the fallback rendering mechanism defined in the Unicode Standard (section 5.12, 'Rendering Non-Spacing Marks' of the Unicode Standard 3.1), i.e. positioned on a dotted circle.
+
+Please note that to render a sign standalone (in apparent isolation from any base) one should apply it on a space (see section 2.5 'Combining Marks' of Unicode Standard 3.1). Uniscribe requires a ZWJ to be placed between the space and a mark for them to combine into a standalone sign.
+
+For the fallback mechanism to work properly, an Arabic OTL font should contain a glyph for the dotted circle (U+25CC). In case this glyph is missing form the font, the invalid signs will be displayed on the missing glyph shape (white box).
+
+In addition to the 'dotted circle,' other Unicode code points that are recommended for inclusion in any Arabic font are: ZWNJ (zero width non-joiner; U+200C), ZWJ (zero width joiner U+200D), LTR (left to right mark; U+200E), and RTL (right to left mark; U+200F). The ZWNJ can be used between two letters to prevent them from forming a cursive connection.
+
+If an invalid combination is found, like two fathas on the same base character, the diacritic that causes the invalid state is placed on a dotted circle to indicate to the user the invalid combination. The shaping engine for non-OpenType fonts will cause invalid mark combinations to overstrike. This is the problem that inserting the dotted circle for the invalid base solves. It should also be noted that the dotted circle is not inserted into the application's backing store. This is a run-time insertion into the glyph array that is returned from the ScriptShape function.
+
+The invalid diacritic logic for Arabic is based on the classes listed below. There is a check to make sure more than one mark of a class is not placed on the same base. Additionally, DIAC1 and DIAC2 classes should not be applied on the same base character.
+
+ROW 
+Class | 
+Description | 
+Code points | 
+
+ROW 
+DIAC1 | 
+Arabic above diacritics | 
+U+064B, U+064C, U+064E, U+064F, U+0652, U+0657, U+0658, U+06E1 | 
+
+ROW 
+DIAC2 | 
+Arabic below diacritics | 
+U+064D, U+0650, U+0656 | 
+
+ROW 
+DIAC3 | 
+Arabic seat shadda | 
+U+0651 | 
+
+ROW 
+DIAC4 | 
+Arabic Qur'anic marks above | 
+U+0610 - U+0614, U+0659, U+06D6 - U+06DC, U+06DF, U+06E0, U+06E2, U+06E4, U+06E7, U+06E8, U+06EB, U+06EC | 
+
+ROW 
+DIAC5 | 
+Arabic Qur'anic marks below | 
+U+06E3, U+06EA, U+06ED | 
+
+ROW 
+DIAC6 | 
+Arabic superscript alef | 
+U+0670 | 
+
+ROW 
+DIAC7 | 
+Arabic madda | 
+U+0653 | 
+
+ROW 
+DIAC8 | 
+Arabic madda | 
+U+0654, U+0655 | 
+
+Features
+
+The features listed below have been defined to create the basic forms for the languages that are supported on Arabic systems. Regardless of the model an application chooses for supporting layout of complex scripts, Uniscribe requires a fixed order for executing features within a run of text to consistently obtain the proper basic form. This is achieved by calling features one-by-one in the standard order listed below.
+
+The order of the lookups within each feature is also very important. For more information on lookups and defining features in OpenType fonts, see the Encoding section of the OpenType Font Development document.
+
+The standard order for applying Arabic features encoded in OpenType fonts:
+
+Not all of the features listed below apply to all Arabic script languages.
+
+ROW 
+Feature | 
+Feature function | 
+Layout operation | 
+Always applied | 
+On by default | 
+Off by default | 
+
+ROW 
+Language based forms: | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+ccmp | 
+Character composition/decomposition substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+isol | 
+Isolated character form substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+fina | 
+Final character form substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+medi | 
+Medial character form substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+init | 
+Initial character form substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+rlig | 
+Required ligature substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+rclt | 
+Required contextual alternates substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+calt | 
+Contextual alternates substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+Typographical forms: | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+liga | 
+Standard ligature substitution | 
+GSUB | 
+ | 
+X | 
+ | 
+
+ROW 
+dlig | 
+Discretionary ligature substitution | 
+GSUB | 
+ | 
+ | 
+X | 
+
+ROW 
+cswh | 
+Contextual swashes | 
+GSUB | 
+ | 
+ | 
+X | 
+
+ROW 
+mset | 
+Mark positioning via substitution | 
+GSUB | 
+X | 
+ | 
+ | 
+
+ROW 
+Positioning features: | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+curs | 
+Cursive positioning | 
+GPOS | 
+X | 
+ | 
+ | 
+
+ROW 
+kern | 
+Pair kerning | 
+GPOS | 
+X | 
+ | 
+ | 
+
+ROW 
+mark | 
+Mark to base positioning | 
+GPOS | 
+X | 
+ | 
+ | 
+
+ROW 
+mkmk | 
+Mark to mark positioning | 
+GPOS | 
+X | 
+ | 
+ | 
+
+ROW 
+ 
+[GSUB = glyph substitution, GPOS = glyph positioning] | 
+
+Descriptions and examples of above features
+
+Many of the registered features described and illustrated in this document are based on the OpenType font Arabic Typesetting. Arabic Typesetting contains layout information and glyphs to support all of the required features for the Arabic script and language systems supported. The Arabic Typesetting font will be available as part of Visual OpenType Layout Tool (VOLT) and is provided under the terms of the VOLT supplemental files end user license agreement. The Arabic Typesetting font is available for download in the Appendix of this document
+
+Character composition (and decomposition)
+
+Feature Tag: "ccmp"
+
+The 'ccmp' feature is used to compose a number of glyphs into one glyph, or decompose one glyph into a number of glyphs. This feature is implemented before any other features because there may be times when a font vender wants to control certain shaping of glyphs. An example of using this table is seen below. The 'ccmp' table maps default alphabetic forms to both a composed form (essentially a ligature, GSUB lookup type 4), and decomposed forms (GSUB lookup type 2).
+
+The rationale for the decomposition illustrated above is to take advantage of the color diacritic feature found in Microsoft applications like Word and Publisher.
+
+Isolated form
+
+Feature Tag: "isol"
+
+The 'isol' feature is used to map the Unicode character value to its isolated form. This is usually the same glyph form. However, Unicode defines Arabic presentation forms as different than the Unicode character form. If a vender has a good quality font tool, or a font utility that can edit the CMAP table, more than one Unicode character can point to the same glyph ID. (GSUB lookup type 1).
+
+Final form
+
+Feature Tag: "fina"
+
+The 'fina' feature is used to map the Unicode character value to its final form. (GSUB lookup type 1).
+
+Medial form
+
+Feature Tag: "medi"
+
+The 'medi' feature is used to map the Unicode character value to its medial form. (GSUB lookup type 1).
+
+Initial form
+
+Feature Tag: "init"
+
+The 'init' feature is used to map the Unicode character value to its initial form. (GSUB lookup type 1).
+
+Required ligatures
+
+Feature Tag: "rlig"
+
+The 'rlig' feature is used to map glyph values to their correct ligated form. Font developers should use this table for all ligatures that they want to map as such all of the time. Ligatures that should be optional, based on user preferences should not be included in this table. Optional ligatures are defined in the 'liga' table.
+
+The 'rlig' feature maps sequences of glyphs to corresponding ligatures (GSUB lookup type 4). Ligatures with more components must be stored ahead of those with fewer components in order to be found. See Ordering ligatures) in the Encoding section of the OpenType Font Development document. The set of required ligatures will vary by design and script.
+
+NOTE: If you want your fonts to have some level of backward compatibility with Windows9x/ME system level support you will also want to include the items in the 'rlig' feature in the 'liga' feature. This is because older operating systems do not use Uniscribe for shaping and are not aware of the 'rlig' feature.
+
+Connection forms
+
+Feature Tag: "rclt" or "calt"
+
+In specified situations, replaces default glyphs with alternate forms that provide better joining behavior. Used in script typefaces which are designed to have some or all of their glyphs join. The 'calt' feature specifies the context in which each substitution occurs, and maps one or more default glyphs to replacement glyphs (GSUB lookup type 6). Substitutions that are required for script correctness should be put under 'rclt'.”
+
+NOTE: If you want your fonts to have some level of backward compatibility with Windows7/8.1 system level support you will also want to include the items in the 'rclt' feature in the 'calt' feature. This is because older operating systems are not aware of the 'rclt' feature. The 'calt' is always applied for Arabic to preserve documents using older fonts.
+
+The 'calt' feature specifies the context in which each substitution occurs, and maps one or more default glyphs to replacement glyphs (GSUB lookup type 6). Substitutions that are required for script correctness should be put under 'rclt'.
+
+Standard ligatures
+
+Feature Tag: "liga"
+
+The 'liga' feature is used to map glyphs to their optional ligated form. Font developers should use this table for all ligatures that should be on by default but may be turned off by user preference. Uniscribe applies this feature by default but will allow this feature to be deactivated. Non-required features, including ‘liga’, can be disabled by passing in a custom font feature list that specifies a feature as off for the entire run. The 'liga' feature maps sequences of glyphs to corresponding ligatures (GSUB lookup type 4). Ligatures with more components must be stored ahead of those with fewer components in order to be found. See Ordering ligatures in the Encoding section of the OpenType Font Development document. The set of optional ligatures will vary by typeface design and script.
+
+NOTE: Ligatures that should be formed all of the time should not be included in this feature type. Required ligatures are defined in the 'rlig' table.
+
+Discretionary ligatures
+
+Feature Tag: "dlig"
+
+The 'dlig' feature is used to map glyphs to their optional ligated form. Font developers should use this table for all ligatures that should be off by default but may be turned on by user preference. Optional features, including ‘dlig’, can be enabled by passing in a custom font feature list that specifies an optional feature as on for the entire run. The 'dlig' feature maps sequences of glyphs to corresponding ligatures (GSUB lookup type 4). Ligatures with more components must be stored ahead of those with fewer components in order to be found. See Ordering ligatures in the Encoding section of the OpenType Font Development document. The set of optional ligatures will vary by typeface design and script.
+
+Contextual swash
+
+Feature Tag: "cswh"
+
+The 'cswh' feature replaces default character glyphs with corresponding swash glyphs based upon the context surrounding the character. Note that there may be more than one swash alternate for a given character. The 'cswh' table maps glyph IDs for default forms to those for one or more corresponding swash forms. While many of these substitutions are one-to-one (GSUB lookup type 1), others require a selection from a set (GSUB lookup type 3). Font developers may choose to build two tables (one for each lookup type) or only one that uses lookup type 3 for all substitutions. If several styles of swash are present across the font, the set of forms for each character should be ordered consistently
+
+The 'cswh' feature is off by default but may be turned on by user preference. Optional features, including ‘cswh’, can be enabled by passing in a custom font feature list that specifies an optional feature as on for the entire run.
+
+Mark positioning via substitution
+
+Feature Tag: "mset"
+
+The 'mset' feature is used to position Arabic combining marks in fonts for Windows 95 using glyph substitution. In Arabic, the Hamza is positioned differently when placed above a Yeh Barree as compared to the Alef. Windows 95 implementation: In contrast to the "mark" feature, the 'mset' feature uses glyph substitution to combine marks and base glyphs. It replaces a default mark glyph with a correctly positioned mark glyph. The font designer specifies the position of the mark when describing the mark's contour in the font file. Microsoft's Arabic fonts, created for Windows 95, use a contextual substitution lookup (GSUB LookupType = 5) to implement the 'mset' feature.
+
+Example: the default fatha is positioned high and the 'mset' feature is used to substitute a low form when placed over a Beh.
+
+Cursive positioning
+
+Feature Tag: "curs"
+
+The 'curs' feature positions cursive characters so that the exit point of the current character matches with entry point of the following character. The 'curs' table maps connecting point of joining glyphs and may be implemented as a Cursive Attachment (GPOS lookup type 3).
+
+Kerning
+
+Feature Tag: "kern"
+
+The 'kern' feature is used to adjust amount of space between glyphs, generally to provide optically consistent spacing between glyphs. Although a well-designed typeface has consistent inter-glyph spacing overall, some glyph combinations require adjustment for improved legibility. Besides standard adjustment in either horizontal or vertical direction, this feature can supply size-dependent kerning data via device tables, "cross-stream" kerning in the Y text direction, and adjustment of glyph placement independent of the advance adjustment. Note that this feature would not be used in monospaced fonts.
+
+The font stores a set of adjustments for pairs of glyphs (GPOS lookup type 2 or 8). These may be stored as one or more tables matching left and right classes, and/or as individual pairs. If both forms are used, the classes should be listed last, so as to provide a means to replace any non-ideal values that may result from the class tables. Additional adjustments may be provided for larger sets of glyphs (e.g., triplets, quadruplets, etc.) to overwrite the results of pair kerns in particular combinations. These should precede the pairs.
+
+Creating kern table using Microsoft VOLT
+
+Mark to base positioning
+
+Feature Tag: "mark"
+
+The 'mark' feature positions mark glyphs in relation to a base glyph, or a ligature glyph. This feature may be implemented as a MarkToBase Attachment lookup (GPOS LookupType = 4) or a MarkToLigature Attachment lookup (GPOS LookupType = 5).
+
+Positioning mark to base using Microsoft VOLT
+
+Positioning mark to base (ligature) using Microsoft VOLT
+
+Mark to mark positioning
+
+Feature Tag: "mkmk"
+
+The 'mkmk' feature positions mark glyphs in relation to another mark glyph. This feature may be implemented as a MarkToMark Attachment lookup (GPOS LookupType = 6).
+
+Positioning mark to mark using Microsoft VOLT
+
+Appendices
+
+Appendix A: Writing System Tags
+
+Appendix B: ARABTYPE.TTF (sample font)
+
+Appendix A: Writing System Tags
+
+Features are encoded according to both a designated script and language system. The language system tag specifies a typographic convention associated with a language or linguistic subgroup. For example, there are different language systems defined for the Arabic script; Arabic, Baluchi, Ladakhi, Pashto, etc. Other typographic systems could be defined for Moroccan Arabic or Wahabi tradition of Qur'anic typography.
+
+Currently, the Uniscribe engine only supports the "default" language for each script. However, font developers may want to build language specific features which are supported in other applications and will be supported in future Microsoft OpenType implementations.
+
+NOTE: It is strongly recommended to include the "dflt" language tag in all OpenType fonts because it defines the basic script handling for a font. The "dflt" language system is used as the default if no other language specific features are defined or if the application does not support that particular language. If the "dflt" tag is not present for the script being used, the font may not work in some applications.
+
+The following tables list the registered tag names for scripts and language systems.
+
+ROW 
+Registered tags for the Arabic script | 
+Registered tags for Arabic language systems | 
+
+ROW 
+Script tag | 
+Script | 
+Language system tag | 
+Language | 
+
+ROW 
+"arab" | 
+Arabic | 
+"dflt" | 
+*default script handling | 
+
+ROW 
+ | 
+ | 
+"ARA " | 
+Arabic | 
+
+ROW 
+ | 
+ | 
+"BLI " | 
+Baluchi | 
+
+ROW 
+ | 
+ | 
+"BLT " | 
+Balti | 
+
+ROW 
+ | 
+ | 
+"BBR " | 
+Berber | 
+
+ROW 
+ | 
+ | 
+"BRH " | 
+Brahui | 
+
+ROW 
+ | 
+ | 
+"FAR " | 
+Persian | 
+
+ROW 
+ | 
+ | 
+"FUL " | 
+Fulah | 
+
+ROW 
+ | 
+ | 
+"HAU " | 
+Hausa | 
+
+ROW 
+ | 
+ | 
+"HND " | 
+Hindko | 
+
+ROW 
+ | 
+ | 
+"KNR " | 
+Kanuri | 
+
+ROW 
+ | 
+ | 
+"KSH " | 
+Kashmiri | 
+
+ROW 
+ | 
+ | 
+"KHW " | 
+Khowar | 
+
+ROW 
+ | 
+ | 
+"KUR " | 
+Kurdish | 
+
+ROW 
+ | 
+ | 
+"LDK " | 
+Ladakhi | 
+
+ROW 
+ | 
+ | 
+"MLY " | 
+Malay | 
+
+ROW 
+ | 
+ | 
+"MND " | 
+Mandinka | 
+
+ROW 
+ | 
+ | 
+"PAS " | 
+Pashto | 
+
+ROW 
+ | 
+ | 
+"PAN " | 
+Punjabi | 
+
+ROW 
+ | 
+ | 
+"SRK " | 
+Saraiki | 
+
+ROW 
+ | 
+ | 
+"SND " | 
+Sindhi | 
+
+ROW 
+ | 
+ | 
+"SML " | 
+Somali | 
+
+ROW 
+ | 
+ | 
+"SWK " | 
+Swahili | 
+
+ROW 
+ | 
+ | 
+"URD " | 
+Urdu | 
+
+ROW 
+ | 
+ | 
+"UYG " | 
+Uyghur | 
+
+NOTE: both the script and language tags are case sensitive (script tags should be lowercase, language tags are all caps) and must contain four characters (i.e. you must add a space to the three character language tags).
+
+Appendix B: ARABTYPE.TTF (sample font)
+
+The Arabic Typesetting font is distributed with Microsoft Visual OpenType Layout Tool (VOLT) and is provided under the terms of the VOLT supplemental files end user license agreement. It is provided for illustration only, and may not be altered or redistributed.
+
+Arabic Typesetting supports all characters from the Unicode Arabic and Arabic Extended blocks. As such, it can be used to produce documents in Arabic, Farsi, Urdu, Sindhi, Malay, and Uighur. The font is the Arabic naskh style of calligraphy.
+
+Arabic Typesetting contains layout information and glyphs to support all of the required features for the languages supported. The font contains over 1600 Arabic glyphs. It is not necessary for all fonts to support this many glyphs or ligatures. Each font should be designed as the font creator desires.
+
+Many shaped glyph forms (such as ligatures) have no Unicode encoding. These glyphs have id's in the font, and applications can access these glyphs by "running" the layout features which depend on these glyphs. An application can also identify non-Unicode glyphs contained in the font by traversing the OpenType layout tables, or using the layout services for purely informational purposes.
+
+Arabic Typesetting contains three OpenType Layout tables: GSUB (glyph substitution), GPOS (glyph positioning), and GDEF (glyph definition, distinguishing base glyphs, ligatures, classes of mark glyphs, etc.).
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ Script development specifications
+
+ Open a documentation issue
+
+ Provide product feedback
+
+ Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2022-06-09

@@ -1,0 +1,5 @@
+SELECT range_intersect_agg(m) FROM (VALUES ('{[1,9)}'::int4multirange),
+                                           ('{[4,12)}'::int4multirange)) v(m);
+SELECT range_intersect_agg(m) FROM (VALUES ('{[1,3)}'::int4multirange),
+                                           ('{[5,7)}'::int4multirange)) v(m);
+SELECT range_intersect_agg(r) FROM (VALUES (int4range(1,9)),(int4range(4,12))) v(r);

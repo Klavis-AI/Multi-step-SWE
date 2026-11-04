@@ -1,0 +1,40 @@
+// DESC: Repeated custom options and a deeply nested aggregate message option
+syntax = "proto2";
+package c2.options.repeated_and_nested_custom_options;
+
+import "google/protobuf/descriptor.proto";
+
+message Node {
+  optional string name = 1;
+  repeated Node children = 2;
+  repeated int32 values = 3;
+}
+
+extend google.protobuf.MessageOptions {
+  repeated string repeated_str = 50901;
+  repeated int32 repeated_int = 50902;
+  repeated Node repeated_msg = 50903;
+  optional Node deep_tree = 50904;
+}
+
+message Annotated {
+  option (repeated_str) = "one";
+  option (repeated_str) = "two";
+  option (repeated_str) = "three";
+  option (repeated_int) = 1;
+  option (repeated_int) = -2;
+  option (repeated_msg) = { name: "a" values: [1, 2] };
+  option (repeated_msg) = { name: "b" children { name: "b1" } };
+  option (deep_tree) = {
+    name: "root"
+    children {
+      name: "l1"
+      children {
+        name: "l2"
+        children { name: "l3" values: [9, 8, 7] }
+      }
+    }
+    values: 0
+  };
+  optional int32 v = 1;
+}

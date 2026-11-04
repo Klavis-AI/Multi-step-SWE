@@ -1,0 +1,21 @@
+# The subject is matched fragment by fragment, but every reported offset is an
+# offset into the whole subject; the replacement output shows where they fell.
+/\w+/utf,match_invalid_utf
+    ab\x80cde\=replace=<$0>,global
+ 2: <ab>\x{80}<cde>
+    ab\x80cde\=replace=<$0>,global,offset=3
+ 1: ab\x{80}<cde>
+    \xe0\xa0uv\xf0wxy\=replace=<$0>,global
+ 2: \x{e0}\x{a0}<uv>\x{f0}<wxy>
+
+# A starting offset inside an invalid sequence moves on to the next character.
+/\w/utf,match_invalid_utf
+    \xe2\x82zz\=offset=1,replace=-
+ 1: \x{e2}\x{82}-z
+    \xe2\x82zz\=offset=3,replace=-
+ 1: \x{e2}\x{82}z-
+
+# An invalid sequence is not matched even by \w+ scanning the whole subject.
+/\w+/utf,match_invalid_utf
+    \x80\x80
+No match

@@ -1,0 +1,36 @@
+# arch: x86_64
+# --pack-dyn-relocs=relr replaces .rela.dyn/DT_RELA with a SHT_RELR .relr.dyn
+# described by DT_RELR/DT_RELRSZ/DT_RELRENT, and the result still runs.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int v[24] = {0};
+long * const tbl[24] = {
+ (long*)&v[0],(long*)&v[1],(long*)&v[2],(long*)&v[3],(long*)&v[4],(long*)&v[5],
+ (long*)&v[6],(long*)&v[7],(long*)&v[8],(long*)&v[9],(long*)&v[10],(long*)&v[11],
+ (long*)&v[12],(long*)&v[13],(long*)&v[14],(long*)&v[15],(long*)&v[16],(long*)&v[17],
+ (long*)&v[18],(long*)&v[19],(long*)&v[20],(long*)&v[21],(long*)&v[22],(long*)&v[23]};
+int entry(void) { return tbl[3] ? 42 : 7; }
+C
+cc_obj m.o m.c -fPIE
+link_ok out -pie --no-gc-sections --pack-dyn-relocs=relr rt.o m.o
+
+dyn=$(dynamic out)
+want_has "DT_RELR"    "$dyn" '\(RELR\)'
+want_has "DT_RELRSZ"  "$dyn" '\(RELRSZ\)'
+want_has "DT_RELRENT" "$dyn" '\(RELRENT\) +8 '
+want_not "no DT_RELA" "$dyn" '\(RELA\)'
+want_not "no DT_RELASZ" "$dyn" '\(RELASZ\)'
+
+sec=$(sections out)
+want_has ".relr.dyn is SHT_RELR" "$sec" '\.relr\.dyn +RELR '
+want_not "no .rela.dyn"          "$sec" '\.rela\.dyn'
+# entry size of the RELR array is one word
+es=$(awk '{ for (i=1;i<=NF;i++) if ($i == ".relr.dyn") { print $(i+5); exit } }' <<<"$sec")
+want "relr entsize" "$es" "08"
+
+run_expect out "" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 8

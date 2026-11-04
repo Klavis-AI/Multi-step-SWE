@@ -1,0 +1,378 @@
+<!-- Copyright 1997 The Open Group, All rights reserved -->
+<html><head>
+
+
+<title>DCE 1.1: Remote Procedure Call - IDL Data Type Declarations</title>
+</head><body><center><a href="apdxm.htm">Previous section.</a></center>
+<p>
+<basefont size=3>
+<!-- CDE 1.1: Remote Procedure Call -->
+<basefont size=3>
+<center>
+<font size=2>
+CDE 1.1: Remote Procedure Call
+<br>
+Copyright &copy; 1997 The Open Group
+</center>
+</font>
+<hr size=2 noshade>
+<h2><a name = "tagcjh_34"></a>IDL Data Type Declarations</h2>
+<xref type="1" name="apdxn"></xref>
+This appendix gives IDL type declarations for a variety of data types.
+Some of these declarations are used only in
+<xref href=apdxo><a href="apdxo.htm#tagcjh_35">
+Endpoint Mapper Interface Definition
+</a></xref>,
+<xref href=apdxp><a href="apdxp.htm#tagcjh_36">
+Conversation Manager Interface Definition
+</a></xref>
+and
+<xref href=apdxq><a href="apdxq.htm#tagcjh_37">
+Remote Management Interface
+</a></xref>.
+If used in an actual implementation, the actual organisation and naming
+of the IDL import sources including these declarations is
+implementation-dependent.
+<h3><a name = "tagcjh_34_01"></a>Basic Type Declarations</h3>
+In this section, the interface attribute <b>[pointer_default(ptr)]</b>
+is assumed in effect, unless explicitly overridden.
+<p>
+The following are declarations for integers of specific sizes:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef unsigned small  unsigned8;
+typedef unsigned short  unsigned16;
+typedef unsigned long   unsigned32;
+
+typedef small           signed8;
+typedef short           signed16;
+typedef long            signed32;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following is the declaration for boolean:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef unsigned32      boolean32;          /* 32-bit wide boolean */
+</dl>
+</code>
+</pre>
+</tt><p>
+The following types are used for status return values:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef unsigned long   error_status_t;
+const long              error_status_ok = 0;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following types are used for UUIDs:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+    unsigned32          time_low;
+    unsigned16          time_mid;
+    unsigned16          time_hi_and_version;
+    unsigned8           clock_seq_hi_and_reserved;
+    unsigned8           clock_seq_low;
+    byte                node[6];
+} uuid_t, *uuid_p_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following is the declaration for protocol towers, the
+network representation of network addressing information such as RPC
+bindings. The contents of the <b>tower_octet_string</b> encode the
+abstract type <b>protocol_tower_t</b>, defined in
+<xref href=common_decl><a href="chap6.htm#tagcjh_11_02_03_01">
+Common Declarations
+</a></xref>
+via the encoding rules defined in
+<xref href=apdxl><a href="apdxl.htm#tagcjh_32">
+Protocol Tower Encoding
+</a></xref>,
+with the <b>protocol_tower_t</b> cast into a <b>byte</b>[] type.
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+    unsigned32          tower_length;
+    [size_is(tower_length)]    
+    byte                tower_octet_string[];
+} twr_t, *twr_p_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following are NDR format flag type definitions and values:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+const long  ndr_c_int_big_endian    = 0;
+const long  ndr_c_int_little_endian = 1;
+const long  ndr_c_float_ieee        = 0;
+const long  ndr_c_float_vax         = 1;
+const long  ndr_c_float_cray        = 2;
+const long  ndr_c_float_ibm         = 3;
+const long  ndr_c_char_ascii        = 0;
+const long  ndr_c_char_ebcdic       = 1;
+
+typedef struct
+{
+    unsigned8       int_rep;
+    unsigned8       char_rep;
+    unsigned8       float_rep;
+    byte            reserved;
+} ndr_format_t, *ndr_format_p_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following is the network representation of an IDL context handle:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct ndr_context_handle
+{
+    unsigned32      context_handle_attributes;
+    uuid_t          context_handle_uuid;
+} ndr_context_handle;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following are international character types:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef byte ISO_LATIN_1;
+
+typedef struct
+{
+    byte            row;
+    byte            column;
+} ISO_MULTI_LINGUAL;
+
+typedef struct
+{
+    byte            group;
+    byte            plane;
+    byte            row;
+    byte            column;
+} ISO_UCS;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following are authentication protocol IDs. These are
+architectural values that are carried in RPC protocol messages.
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+const long  dce_c_rpc_authn_protocol_none  = 0;
+const long  dce_c_rpc_authn_protocol_krb5  = 1;
+typedef unsigned8 dce_rpc_authn_protocol_id_t;
+</dl>
+</code>
+</pre>
+</tt><h3><a name = "tagcjh_34_02"></a>Status Codes</h3>
+<p>
+This section contains declarations for the status codes that may be
+sent in connectionless <b>reject</b> and connectionless and
+connection-oriented <b>fault</b> PDUs. The Open Group DCE specifies the values
+of these codes; the names are a notational convenience
+and are not part of the specification.
+<p>
+A distinction can be drawn between protocol-level errors, which are
+associated with the RPC request/response protocols proper, and
+application-level errors, which are defined by IDL and the
+presentation protocol in use (for example, NDR). Errors such as
+&quot;unknown interface&quot; are in the former category; errors such as
+&quot;divide-by-zero&quot; are in the latter category.  
+<p>
+Protocol-level errors are interpreted by the RPC protocols. They are
+sent by a server in the body of a connectionless <b>reject</b> PDU or
+in the status field of the header of a connection-oriented <b>fault</b>
+PDU.
+<p>
+Application-level errors are understood by stubs, which map these
+errors to the appropriate application status return values. In both
+protocols, application-level errors are indicated in the bodies of
+<b>fault</b> PDUs. The contents of these bodies are untouched by the
+RPC protocol proper and are simply conveyed from server to client
+application. In the names below, the application errors are by
+convention named nca_s_fault_* to distinguish them.
+<p>
+The following status codes are defined:
+<code>
+<pre>
+<tt>/* unable to get response from server: */
+const long  nca_s_comm_failure              = 0x1C010001;
+/* bad operation number in call: */
+const long  nca_s_op_rng_error              = 0x1C010002;
+/* unknown interface: */
+const long  nca_s_unk_if                    = 0x1C010003;
+/* client passed server wrong server boot time: */
+const long  nca_s_wrong_boot_time           = 0x1C010006;
+/* a restarted server called back a client: */
+const long  nca_s_you_crashed               = 0x1C010009;
+/* someone messed up the protocol: */
+const long  nca_s_proto_error               = 0x1C01000B;
+/* output args too big: */
+const long  nca_s_out_args_too_big          = 0x1C010013;
+/* server is too busy to handle call: */
+const long  nca_s_server_too_busy           = 0x1C010014;
+/* string argument longer than declared max len: */
+const long  nca_s_fault_string_too_long     = 0x1C010015;
+/* no implementation of generic operation for object: */
+const long  nca_s_unsupported_type          = 0x1C010017;
+
+const long  nca_s_fault_int_div_by_zero     = 0x1C000001;
+const long  nca_s_fault_addr_error          = 0x1C000002;
+const long  nca_s_fault_fp_div_zero         = 0x1C000003;
+const long  nca_s_fault_fp_underflow        = 0x1C000004;
+const long  nca_s_fault_fp_overflow         = 0x1C000005;
+const long  nca_s_fault_invalid_tag         = 0x1C000006;
+const long  nca_s_fault_invalid_bound       = 0x1C000007;
+const long  nca_s_rpc_version_mismatch      = 0x1C000008;
+/* call rejected, but no more detail: */
+const long  nca_s_unspec_reject             = 0x1C000009;
+const long  nca_s_bad_actid                 = 0x1C00000A;
+const long  nca_s_who_are_you_failed        = 0x1C00000B;
+const long  nca_s_manager_not_entered       = 0x1C00000C;
+const long  nca_s_fault_cancel              = 0x1C00000D;
+const long  nca_s_fault_ill_inst            = 0x1C00000E;
+const long  nca_s_fault_fp_error            = 0x1C00000F;
+const long  nca_s_fault_int_overflow        = 0x1C000010;
+/* unused:                                    0x1C000011; */
+const long  nca_s_fault_unspec              = 0x1C000012;
+const long  nca_s_fault_remote_comm_failure = 0x1C000013;
+const long  nca_s_fault_pipe_empty          = 0x1C000014;
+const long  nca_s_fault_pipe_closed         = 0x1C000015;
+const long  nca_s_fault_pipe_order          = 0x1C000016;
+const long  nca_s_fault_pipe_discipline     = 0x1C000017;
+const long  nca_s_fault_pipe_comm_error     = 0x1C000018;
+const long  nca_s_fault_pipe_memory         = 0x1C000019;
+const long  nca_s_fault_context_mismatch    = 0x1C00001A;
+const long  nca_s_fault_remote_no_memory    = 0x1C00001B;
+const long  nca_s_invalid_pres_context_id   = 0x1C00001C;
+const long  nca_s_unsupported_authn_level   = 0x1C00001D;
+const long  nca_s_invalid_checksum          = 0x1C00001F;
+const long  nca_s_invalid_crc               = 0x1C000020;
+const long  nca_s_fault_user_defined        = 0x1C000021;
+const long  nca_s_fault_tx_open_failed      = 0x1C000022;
+const long  nca_s_fault_codeset_conv_error  = 0x1C000023;
+const long  nca_s_fault_object_not_found    = 0x1C000024;
+const long  nca_s_fault_no_client_stub      = 0x1C000025;
+<p>
+</code>
+</pre>
+</tt><h3><a name = "tagcjh_34_03"></a>RPC-specific Data Types</h3>
+<p>
+This section contains some RPC-specific data types declarations.
+<p>
+In this section, the interface attribute <b>[pointer_default(ref)]</b> is
+assumed in effect, unless explicitly overridden.
+<p>
+The following is a declaration of the interface identifier structure,
+consisting of uuid and major and minor version fields:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+    uuid_t                  uuid;
+    unsigned16              vers_major;
+    unsigned16              vers_minor;
+} rpc_if_id_t;
+typedef [ptr] rpc_if_id_t *rpc_if_id_p_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following is a declaration of a vector of interface identifiers:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+    unsigned32              count;
+    [size_is(count)]
+    rpc_if_id_p_t           if_id[*];
+} rpc_if_id_vector_t;
+typedef [ptr] rpc_if_id_vector_t *rpc_if_id_vector_p_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following are declarations of
+version options (choices for matching on version numbers):
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+const long  rpc_c_vers_all              = 1;
+const long  rpc_c_vers_compatible       = 2;
+const long  rpc_c_vers_exact            = 3;
+const long  rpc_c_vers_major_only       = 4;
+const long  rpc_c_vers_upto             = 5;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following are declarations of
+constants for accessing values in statistics vector:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+const long  rpc_c_stats_calls_in            = 0;
+const long  rpc_c_stats_calls_out           = 1;
+const long  rpc_c_stats_pkts_in             = 2;
+const long  rpc_c_stats_pkts_out            = 3;
+const long  rpc_c_stats_array_max_size      = 4;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following is a declaration of a
+statistics vector returned by management inquiry:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+typedef struct {
+    unsigned32          count;
+    unsigned32          stats[1];       /* length_is (count) */
+} rpc_stats_vector_t, *rpc_stats_vector_p_t;
+</dl>
+</code>
+</pre>
+</tt><p>
+The following are declarations of constants for the endpoint service:
+<code>
+<pre>
+<tt><dl compact><dt> <dd>
+const long  rpc_c_ep_all_elts               = 0;
+const long  rpc_c_ep_match_by_if            = 1;
+const long  rpc_c_ep_match_by_obj           = 2;
+const long  rpc_c_ep_match_by_both          = 3;
+</dl>
+</code>
+</pre>
+</tt><hr>
+<basefont size=2>
+<blockquote>
+Please note that the html version of this specification
+may contain formatting aberrations. The definitive version
+is available as an <i>electronic publication</i> on CD-ROM
+from The Open Group.
+</blockquote>
+<font size=3>
+<p><center><table border=0 cellspacing=12><tr>
+<td align="left"><a href="toc.htm">Contents</a>
+<td align="center"><a href="apdxo.htm">Next&nbsp;section</a>
+<td align="right"><a href="docix.htm">Index</a></tr></table></center>
+</body></html>

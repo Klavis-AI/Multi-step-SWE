@@ -1,0 +1,13 @@
+CREATE TABLE x05_16a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x05_16a1 PARTITION OF x05_16a FOR VALUES FROM (0) TO (10);
+CREATE TABLE x05_16b(a int);
+CREATE PUBLICATION x05_16p FOR TABLE x05_16b WITH (publish_via_partition_root = true);
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_16p' ORDER BY tablename;
+ALTER PUBLICATION x05_16p ADD TABLE x05_16a;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_16p' ORDER BY tablename;
+ALTER PUBLICATION x05_16p DROP TABLE x05_16b;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_16p' ORDER BY tablename;
+ALTER PUBLICATION x05_16p SET TABLE x05_16b;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_16p' ORDER BY tablename;
+DROP PUBLICATION x05_16p;
+DROP TABLE x05_16a, x05_16b;

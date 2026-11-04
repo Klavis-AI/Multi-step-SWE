@@ -1,0 +1,31 @@
+# arch: x86_64
+# --hash-style must select which lookup tables a dynamic object carries:
+# sysv gives .hash/DT_HASH, gnu gives .gnu.hash/DT_GNU_HASH, both gives both.
+cat > lib.c <<'C'
+int api(int x) { return x + 1; }
+int other(int x) { return x - 1; }
+C
+cc_obj lib.o lib.c -fPIC
+
+link_ok sysv --hash-style=sysv -shared --no-gc-sections lib.o
+has_section sysv '\.hash' || die "--hash-style=sysv produced no .hash: $(sections sysv)"
+want_not "sysv must not also emit .gnu.hash" "$(sections sysv)" '\.gnu\.hash'
+has_dyn_tag sysv HASH || die "--hash-style=sysv produced no DT_HASH: $(dynamic sysv)"
+
+link_ok gnu --hash-style=gnu -shared --no-gc-sections lib.o
+has_section gnu '\.gnu\.hash' || die "--hash-style=gnu produced no .gnu.hash"
+want_not "gnu must not also emit .hash" "$(sections gnu)" ' \.hash '
+has_dyn_tag gnu GNU_HASH || die "--hash-style=gnu produced no DT_GNU_HASH"
+
+link_ok both --hash-style=both -shared --no-gc-sections lib.o
+has_section both '\.hash'     || die "--hash-style=both produced no .hash"
+has_section both '\.gnu\.hash' || die "--hash-style=both produced no .gnu.hash"
+has_dyn_tag both HASH     || die "--hash-style=both produced no DT_HASH"
+has_dyn_tag both GNU_HASH || die "--hash-style=both produced no DT_GNU_HASH"
+# Both tables must describe the same exported symbols.
+for f in sysv gnu both; do
+  want_has "$f exports api"   "$(dynsyms $f)" ' api$'
+  want_has "$f exports other" "$(dynsyms $f)" ' other$'
+done
+
+asserts_at_least 8

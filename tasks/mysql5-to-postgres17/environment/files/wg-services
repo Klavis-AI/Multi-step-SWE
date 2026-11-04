@@ -1,0 +1,262 @@
+#!/bin/bash
+# Service control for this deployment: wg-services {start|stop|status}
+#
+# The work runs as a sequence of steps inside one container, and between steps
+# the database directories are saved exactly as you left them on disk. A data
+# directory saved while a server is writing to it is a torn copy, so this
+# script stops the servers at the end of each step and starts them again before
+# the next one begins. That is the only reason this script exists, and it is
+# the only thing run in this container between steps.
+#
+# It starts what it finds and nothing else. It does not create a cluster, a
+# database, a role or a configuration file, and it never edits one. Where your
+# PostgreSQL cluster lives, what it is called, which port it answers on and how
+# it authenticates are all yours; this script asks pg_lsclusters first and
+# falls back to looking for a PG_VERSION under /var/lib/postgresql.
+
+set -u
+
+PG_ROOT=/var/lib/postgresql
+PG_LOG=/var/log/postgresql/wg-services.log
+MYSQL_DATADIR=/var/lib/mysql
+MYSQL_SOCKET=/var/run/mysqld/mysqld.sock
+
+say() { printf '%s\n' "$*"; }
+
+# Wait up to $1 seconds for the command in "$@" (from $2) to stop succeeding.
+wait_gone() {
+	local secs=$1 i=0
+	shift
+	while [ "$i" -lt "$secs" ]; do
+		"$@" >/dev/null 2>&1 || return 0
+		i=$((i + 1))
+		sleep 1
+	done
+	return 1
+}
+
+# `pgrep -x`, minus the processes that have already exited.
+#
+# Nothing in this container is an init. PID 1 is an idle placeholder
+# process, and both servers are started by a shell that returns immediately
+# afterwards, so a server that stops is an orphan reparented to PID 1 and stays
+# in the process table as a zombie for the life of the container. `pgrep`
+# reports it like any other process. Read as "running" that would make `start`
+# refuse for the rest of the container's life -- "already running", over a
+# server that is gone -- and it is `stop` followed by `start` that produces it,
+# which is exactly what this script is here for.
+pgrep_live() {
+	local p state
+	for p in $(pgrep -x "$1" 2>/dev/null); do
+		state=$(awk '/^State:/ { print $2 }' "/proc/$p/status" 2>/dev/null)
+		[ "$state" = "Z" ] && continue
+		return 0
+	done
+	return 1
+}
+
+wait_here() {
+	local secs=$1 i=0
+	shift
+	while [ "$i" -lt "$secs" ]; do
+		"$@" >/dev/null 2>&1 && return 0
+		i=$((i + 1))
+		sleep 1
+	done
+	return 1
+}
+
+# --------------------------------------------------------------- postgres ---
+
+# "<version> <name> <datadir>" for this deployment's cluster, or nothing.
+# A cluster made with pg_createcluster keeps its configuration in
+# /etc/postgresql and only pg_ctlcluster knows where; one made with a bare
+# `initdb -D` keeps everything in the data directory and is found by its
+# PG_VERSION file, newest major version first.
+pg_cluster() {
+	local line best
+	if command -v pg_lsclusters >/dev/null 2>&1; then
+		line=$(pg_lsclusters -h 2>/dev/null | awk 'NF >= 6 { print $1, $2, $6; exit }')
+		if [ -n "$line" ]; then
+			printf '%s\n' "$line"
+			return 0
+		fi
+	fi
+	best=$(for d in "$PG_ROOT"/*/* "$PG_ROOT"/*; do
+		[ -f "$d/PG_VERSION" ] || continue
+		printf '%s\t%s\n' "$(cat "$d/PG_VERSION" 2>/dev/null)" "$d"
+	done | sort -rn -k1,1 | head -1 | cut -f2)
+	[ -n "$best" ] || return 1
+	printf 'bare - %s\n' "$best"
+}
+
+pg_running() {
+	local d=$1
+	[ -f "$d/postmaster.pid" ] || return 1
+	kill -0 "$(head -1 "$d/postmaster.pid" 2>/dev/null)" 2>/dev/null
+}
+
+pg_start() {
+	local ver name dir
+	read -r ver name dir < <(pg_cluster) || true
+	if [ -z "${dir:-}" ]; then
+		say "postgresql: no cluster under $PG_ROOT; nothing to start"
+		return 0
+	fi
+	if pg_running "$dir"; then
+		say "postgresql: already running ($dir)"
+		return 0
+	fi
+	mkdir -p "$(dirname "$PG_LOG")" /var/run/postgresql
+	chown postgres:postgres "$(dirname "$PG_LOG")" /var/run/postgresql 2>/dev/null
+	if [ "$ver" != "bare" ]; then
+		pg_ctlcluster "$ver" "$name" start >>"$PG_LOG" 2>&1
+	else
+		su -s /bin/sh postgres -c \
+			"pg_ctl -D '$dir' -l '$PG_LOG' -w -t 90 start" >>"$PG_LOG" 2>&1
+	fi
+	if wait_here 90 pg_running "$dir"; then
+		say "postgresql: started ($dir)"
+	else
+		say "postgresql: did not start ($dir); see $PG_LOG"
+	fi
+	return 0
+}
+
+pg_stop() {
+	local ver name dir
+	read -r ver name dir < <(pg_cluster) || true
+	if [ -z "${dir:-}" ] || ! pg_running "$dir"; then
+		say "postgresql: not running"
+		return 0
+	fi
+	if [ "$ver" != "bare" ]; then
+		pg_ctlcluster "$ver" "$name" stop -m fast >>"$PG_LOG" 2>&1
+	else
+		su -s /bin/sh postgres -c \
+			"pg_ctl -D '$dir' -m fast -w -t 90 stop" >>"$PG_LOG" 2>&1
+	fi
+	wait_gone 90 pg_running "$dir" && { say "postgresql: stopped"; return 0; }
+
+	# A fast shutdown that will not complete still has to stop writing before
+	# the directory is saved. An immediate shutdown leaves the files exactly
+	# as crash recovery expects them, which is a correct thing to save.
+	su -s /bin/sh postgres -c "pg_ctl -D '$dir' -m immediate -w -t 30 stop" \
+		>>"$PG_LOG" 2>&1
+	wait_gone 30 pg_running "$dir" && { say "postgresql: stopped (immediate)"; return 0; }
+	pkill -TERM -u postgres >/dev/null 2>&1
+	wait_gone 20 pg_running "$dir" && { say "postgresql: stopped (signalled)"; return 0; }
+	pkill -KILL -u postgres >/dev/null 2>&1
+	say "postgresql: killed"
+	return 0
+}
+
+# ------------------------------------------------------------------ mysql ---
+
+mysql_present() {
+	[ -f "$MYSQL_DATADIR/ibdata1" ] && [ -d "$MYSQL_DATADIR/mysql" ]
+}
+
+mysql_running() {
+	pgrep_live mysqld
+}
+
+mysql_start() {
+	if ! mysql_present; then
+		say "mysql: no data directory at $MYSQL_DATADIR; nothing to start"
+		return 0
+	fi
+	if mysql_running; then
+		say "mysql: already running"
+		return 0
+	fi
+	if [ ! -x /etc/init.d/mysql ]; then
+		say "mysql: /etc/init.d/mysql is gone; nothing to start"
+		return 0
+	fi
+	/etc/init.d/mysql start >/dev/null 2>&1
+	if wait_here 90 mysql_running; then
+		say "mysql: started"
+	else
+		say "mysql: did not start; see /var/log/mysql/error.log"
+	fi
+	return 0
+}
+
+mysql_stop() {
+	if ! mysql_running; then
+		say "mysql: not running"
+		return 0
+	fi
+	[ -x /etc/init.d/mysql ] && /etc/init.d/mysql stop >/dev/null 2>&1
+	wait_gone 90 mysql_running && { say "mysql: stopped"; return 0; }
+	# SIGTERM is mysqld's own clean-shutdown signal, so this is still a
+	# consistent data directory afterwards -- it just does not need a client.
+	pkill -TERM -x mysqld >/dev/null 2>&1
+	wait_gone 120 mysql_running && { say "mysql: stopped (signalled)"; return 0; }
+	pkill -KILL -x mysqld >/dev/null 2>&1
+	say "mysql: killed"
+	return 0
+}
+
+# ----------------------------------------------------------------- apache ---
+
+apache_running() {
+	pgrep_live apache2
+}
+
+apache_start() {
+	if apache_running; then
+		say "apache: already running"
+		return 0
+	fi
+	mkdir -p /var/run/apache2 /var/lock/apache2
+	apache2ctl -k start >/dev/null 2>&1
+	if wait_here 30 apache_running; then
+		say "apache: started"
+	else
+		say "apache: did not start; see /var/log/apache2/error.log"
+	fi
+	return 0
+}
+
+apache_stop() {
+	apache_running || { say "apache: not running"; return 0; }
+	apache2ctl -k stop >/dev/null 2>&1
+	wait_gone 30 apache_running && { say "apache: stopped"; return 0; }
+	pkill -TERM -x apache2 >/dev/null 2>&1
+	wait_gone 20 apache_running || pkill -KILL -x apache2 >/dev/null 2>&1
+	say "apache: stopped (signalled)"
+	return 0
+}
+
+# ------------------------------------------------------------------- main ---
+
+case "${1:-}" in
+start)
+	mysql_start
+	pg_start
+	apache_start
+	;;
+stop)
+	apache_stop
+	mysql_stop
+	pg_stop
+	sync
+	;;
+status)
+	mysql_running && say "mysql: running" || say "mysql: stopped"
+	dir=$(pg_cluster | cut -d' ' -f3)
+	if [ -n "${dir:-}" ] && pg_running "$dir"; then
+		say "postgresql: running ($dir)"
+	else
+		say "postgresql: stopped${dir:+ ($dir)}"
+	fi
+	apache_running && say "apache: running" || say "apache: stopped"
+	;;
+*)
+	say "usage: wg-services {start|stop|status}" >&2
+	exit 2
+	;;
+esac
+exit 0

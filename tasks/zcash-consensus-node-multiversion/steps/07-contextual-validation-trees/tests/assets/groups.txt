@@ -1,0 +1,72 @@
+# groups.txt -- step 07, contextual validation: value pools, ordered UTXOs,
+#
+# name <tab> kind <tab> weight <tab> crate <tab> arg
+#
+#   kind   gate    proof of life + inherited regression. Binary, earns nothing,
+#                  vetoes the whole step. Weight column MUST be 0.
+#          scored  this step's new capability + peripheral breadth. Positive
+#                  integer weight; the scored weights sum to 100.
+#   crate  a crate name -> driver group; arg is the exact number of test cases
+#          @build       -> build group;  arg is a whole cargo invocation
+#
+#   reward = gate x score
+#
+# Gate groups carry no weight on purpose. Pricing inherited work is what let a
+# no-op collect a share of the score; under this model it collects nothing.
+#
+#                        transparent coinbase maturity, note commitment trees.
+#
+# Every arg below was re-derived with `grep -c '^#\[test\]'` after the last
+# edit to its driver, and matches the executed count in the green run.
+#
+# `workspace-checks` runs `--all-features --all-targets`, not bare
+# `--all-targets`: from v1.0.0-alpha.8 on, zebra-chain/benches/block.rs uses
+# `zebra_chain::block::tests::generate::*` while block.rs gates that module
+# behind `#[cfg(any(test, feature = "bench"))]`, so the bare form does not
+# compile the released tree. Upstream CI runs `--all-features --all-targets`.
+#
+# Why the new tier is split six ways: this milestone adds one idea --
+# "validation needs context the block does not carry" -- in four independent
+# places, and each place has its own sign, ordering or domain convention that
+# a plausible-looking wrong implementation still satisfies elsewhere.
+#
+#   value-balance-pools         the ValueBalance ledger type and its algebra
+#   amount-sum-and-zero         the Amount constraint arithmetic underneath it
+#   transaction-value-balance   one transaction's effect on the four pools
+#   ordered-utxo-coinbase-spend ordered UTXOs + coinbase spend restrictions
+#   note-commitment-trees       Sapling/Orchard incremental Merkle frontiers
+#   state-contextual-surface    the zebra-state types the above land in
+#
+# What has NO driver, because it is not reachable from an integration test:
+#
+#   * `ValidateContextError`'s contextual variants. All of
+#     DuplicateTransparentSpend, MissingTransparentOutput, EarlyTransparentSpend,
+#     UnshieldedTransparentCoinbaseSpend, ImmatureTransparentCoinbaseSpend,
+#     DuplicateSaplingNullifier, DuplicateOrchardNullifier and
+#     InvalidRemainingTransparentValue are `#[non_exhaustive]` *per variant*,
+#     so no external crate can construct one and none has a public constructor.
+#     The two note-commitment-tree variants are the exception -- they are
+#     `#[from]` conversions -- so `state-contextual-surface` scores those plus
+#     the observable error chaining (`CommitBlockError`, `CloneError`) that
+#     every other variant is delivered through.
+#   * The checks that raise those variants. `zebra_state::service::check`
+#     (utxo.rs, nullifier.rs, anchor.rs) is behind `mod service;`, and
+#     `ContextuallyValidBlock` -- the type those checks produce -- is
+#     `pub(crate)`. Their inputs are public, so `ordered-utxo-coinbase-spend`
+#     scores the two public predicates the transparent rules are built from
+#     (`Transaction::coinbase_spend_restriction` and the OrderedUtxo ordering)
+#     rather than the private check functions.
+#   * `zebra_consensus::transaction`'s use of all of the above: still
+#     `mod transaction;` (private) at this tag.
+#
+# See docsrc/step07/TEST_INTERFACE.md's negative-space section.
+
+build	gate	0	@build	build -p zebra-chain --tests
+workspace-checks	gate	0	@build	check --workspace --all-targets --all-features
+note-commitment-trees	scored	24	zebra-chain	12
+value-balance-pools	scored	21	zebra-chain	9
+ordered-utxo-coinbase-spend	scored	18	zebra-chain	9
+amount-sum-and-zero	scored	13	zebra-chain	8
+transaction-value-balance	scored	13	zebra-chain	7
+state-contextual-surface	scored	11	zebra-state	6
+inherited-block-codec	gate	0	zebra-chain	8

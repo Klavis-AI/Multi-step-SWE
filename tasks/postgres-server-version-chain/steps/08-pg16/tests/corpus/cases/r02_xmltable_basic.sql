@@ -1,0 +1,5 @@
+SELECT x.id, x.name FROM xmltable('/rows/row' PASSING
+  XMLPARSE(DOCUMENT '<rows><row><id>2</id><name>bee</name></row><row><id>1</id><name>ant</name></row></rows>')
+  COLUMNS id int PATH 'id', name text PATH 'name') AS x ORDER BY x.id;
+SELECT count(*) FROM xmltable('/r/x' PASSING XMLPARSE(DOCUMENT '<r><x>1</x><x>2</x><x>3</x></r>')
+  COLUMNS v int PATH '.') AS t;

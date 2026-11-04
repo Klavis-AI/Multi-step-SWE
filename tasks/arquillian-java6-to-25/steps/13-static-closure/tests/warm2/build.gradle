@@ -1,0 +1,75 @@
+plugins {
+   // java-library and not base, which is the one real difference from warm/.
+   // See warmUp below: this project has to resolve a COMPILE classpath as well
+   // as a runtime one, and only a java plugin gives it those two configurations
+   // with the attributes a candidate's own build will use.
+   id 'java-library'
+}
+
+// The same two repositories warm/build.gradle names, and for the same reason:
+// the cache entries this warms have to be the ones a candidate's own
+// `mavenCentral()` will hit. Everything in this project's deps.txt is on
+// Central; the JBoss repository is kept so the two files stay diffable.
+repositories {
+   if (project.hasProperty('offlineRepo')) {
+      maven { url = uri(project.property('offlineRepo')) }
+   } else if (project.hasProperty('useMavenLocal')) {
+      // The control that matters most: `mavenLocal()` is what a candidate's
+      // build will actually declare, and it resolves ~/.m2/repository from the
+      // JVM's user.home -- which on Linux comes from the passwd entry, not from
+      // $HOME. Exercising the real mechanism is the only way to catch a home
+      // directory that does not exist.
+      mavenLocal()
+   } else {
+      mavenCentral()
+      maven { url = uri('https://repository.jboss.org/nexus/content/groups/public/') }
+   }
+}
+
+dependencies {
+   // deps.txt is the step-02 test toolchain: Jupiter, the platform launcher,
+   // the vintage engine, the JUnit 4 the vintage engine needs, and Mockito 4.
+   // Resolved transitively, so the engines' own dependencies -- opentest4j,
+   // apiguardian, byte-buddy, objenesis -- are cached too.
+   //
+   // testImplementation and not a hand-rolled configuration: these coordinates
+   // are the candidate's TEST toolchain, and declaring them the way the
+   // candidate declares them is what makes the two resolutions below the same
+   // ones its build performs.
+   file('deps.txt').readLines().findAll { it.trim() && !it.startsWith('#') }.each {
+      testImplementation(it.trim())
+   }
+}
+
+// Resolution is the point; nothing is compiled and no output is kept.
+tasks.register('warmUp') {
+   doLast {
+      // BOTH classpaths, because they are not the same set and the difference
+      // is not cosmetic. JUnit 5 publishes Gradle Module Metadata, in which
+      // org.apiguardian:apiguardian-api is an API dependency of
+      // junit-jupiter-api and appears on the COMPILE classpath only. A runtime
+      // resolution alone never fetches it -- and then a candidate that compiles
+      // a Jupiter test against a cache warmed that way fails to resolve, in the
+      // one image that is supposed to need no network.
+      //
+      // Measured, not reasoned: warming the runtime classpath alone left
+      // org.apiguardian absent from files-2.1 entirely, and the Maven-layout
+      // check below it in the Dockerfile failed with "Could not find
+      // org.apiguardian:apiguardian-api:1.1.2". Which is that check earning its
+      // place -- the `mavenLocal()` arm reads POM metadata, where Maven's
+      // `compile` scope is both compile and runtime, so it demands exactly the
+      // artifacts the GMM arm was allowed to skip.
+      def rt = configurations.testRuntimeClasspath.resolve()
+      def ct = configurations.testCompileClasspath.resolve()
+      def files = (rt + ct) as Set
+      println "arqwarm2.artifacts=${files.size()}"
+      // A configuration that resolved to nothing is what an empty or misread
+      // deps.txt looks like, and it would leave the image with a cold cache and
+      // a green build log. Six coordinates reach seventeen artifacts across the
+      // two classpaths; the floor is set below that rather than at it so a
+      // patch release of Jupiter does not fail an image build over a count.
+      if (files.size() < 15) {
+         throw new GradleException("arqwarm2: only ${files.size()} artifact(s) resolved; expected >= 15")
+      }
+   }
+}

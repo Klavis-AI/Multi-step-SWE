@@ -1,0 +1,6 @@
+SELECT '23:59:59.9999999'::time;
+SELECT '2020-01-01 23:59:59.9999999'::timestamp;
+SELECT '2020-12-31 23:59:59.9999999'::timestamptz;
+SELECT '24:00:00'::time;
+SELECT '24:00:00.5'::time;
+SELECT '23:59:60'::time;

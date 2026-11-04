@@ -1,0 +1,136 @@
+diff -ruN S4/vortex-buffer/src/dispatch.rs S5/vortex-buffer/src/dispatch.rs
+--- a/vortex-buffer/src/dispatch.rs	2026-09-23 17:16:14.522808158 +0000
++++ b/vortex-buffer/src/dispatch.rs	2026-09-23 16:10:54.002645076 +0000
+@@ -32,12 +32,13 @@
+ //!
+ //! Do not put the dispatched call inside a per-element hot loop: the indirect call
+ //! blocks inlining. Hoist the decision to the outermost per-buffer entry point and
+-//! monomorphize the loop instead: put the decision in a type parameter so the compiler
+-//! emits one specialized copy per feature level.
++//! monomorphize the loop instead, like the `Bmi2`/`Portable` type-parameter pattern in
++//! `vortex-mask::intersect_by_rank`.
+ //!
+ //! For the same reason, gate on input size *before* [`get`](CpuKernel::get) when tiny
+ //! inputs are common: call the portable kernel directly below the size where SIMD pays
+-//! off, so those calls stay inlinable and skip the dispatch entirely.
++//! off, so those calls stay inlinable and skip the dispatch entirely (see
++//! `count_ones_aligned`).
+ 
+ use core::mem::transmute_copy;
+ use core::ptr;
+diff -ruN S4/vortex-mask/src/intersect_by_rank.rs S5/vortex-mask/src/intersect_by_rank.rs
+--- a/vortex-mask/src/intersect_by_rank.rs	2026-09-23 17:16:14.502806776 +0000
++++ b/vortex-mask/src/intersect_by_rank.rs	2026-09-23 16:10:54.090640931 +0000
+@@ -9,6 +9,7 @@
+ use vortex_buffer::BitBuffer;
+ use vortex_buffer::BitChunkIterator;
+ use vortex_buffer::BufferMut;
++use vortex_buffer::CpuKernel;
+ use vortex_error::VortexExpect;
+ 
+ use crate::Mask;
+@@ -18,7 +19,8 @@
+ trait DepositBits {
+     /// Whether the implementation benefits from short-circuiting on `rank_bits == 0`
+     /// and `self_chunk == u64::MAX`. The portable path loops `popcount(mask)` times,
+-    /// so an all-ones mask is genuinely expensive and the branches pay there.
++    /// so an all-ones mask is genuinely expensive; BMI2 PDEP is constant-time and
++    /// the branches just add mispredict cost.
+     const PREFER_BRANCHES: bool;
+ 
+     fn deposit_bits(source: u64, mask: u64, mask_count: usize) -> u64;
+@@ -104,6 +106,47 @@
+     0
+ }
+ 
++#[cfg(target_arch = "x86_64")]
++struct Bmi2;
++
++#[cfg(target_arch = "x86_64")]
++impl DepositBits for Bmi2 {
++    const PREFER_BRANCHES: bool = false;
++
++    #[inline]
++    fn deposit_bits(source: u64, mask: u64, _mask_count: usize) -> u64 {
++        // SAFETY: callers only instantiate this implementation after checking BMI2 support.
++        unsafe { pdep_bmi2(source, mask) }
++    }
++}
++
++#[cfg(target_arch = "x86_64")]
++impl SelectBit for Bmi2 {
++    #[inline]
++    fn select_bit_position(word: u64, rank: usize) -> usize {
++        // SAFETY: callers only instantiate this implementation after checking BMI2 support.
++        unsafe { select_bit_position_bmi2(word, rank) }
++    }
++}
++
++#[cfg(target_arch = "x86_64")]
++#[target_feature(enable = "bmi2")]
++unsafe fn pdep_bmi2(source: u64, mask: u64) -> u64 {
++    use std::arch::x86_64;
++    x86_64::_pdep_u64(source, mask)
++}
++
++#[cfg(target_arch = "x86_64")]
++#[target_feature(enable = "bmi2")]
++unsafe fn select_bit_position_bmi2(word: u64, rank: usize) -> usize {
++    use std::arch::x86_64;
++    debug_assert!(rank < word.count_ones() as usize);
++    // PDEP places the rank-th bit of source into the rank-th set bit of mask, returning a single
++    // bit at the desired position.
++    let bit = x86_64::_pdep_u64(1u64 << rank, word);
++    bit.trailing_zeros() as usize
++}
++
+ /// Reader that pulls variable-length (0..=64 bit) groups from a [`BitBuffer`] sequentially.
+ ///
+ /// Maintains a 128-bit window over two consecutive chunks (`current`, `next`) and uses a
+@@ -355,12 +398,32 @@
+     mask_buffer: &BitBuffer,
+     true_count: usize,
+ ) -> Mask {
+-    intersect_bit_buffers::<Portable>(self_buffer, mask_buffer, true_count)
++    type IntersectBuffers = fn(&BitBuffer, &BitBuffer, usize) -> Mask;
++    static KERNEL: CpuKernel<IntersectBuffers> = CpuKernel::new(|| {
++        #[cfg(target_arch = "x86_64")]
++        {
++            if std::arch::is_x86_feature_detected!("bmi2") {
++                return intersect_bit_buffers::<Bmi2>;
++            }
++        }
++        intersect_bit_buffers::<Portable>
++    });
++    KERNEL.get()(self_buffer, mask_buffer, true_count)
+ }
+ 
+ #[inline]
+ fn intersect_rank_indices_dispatch(self_buffer: &BitBuffer, mask_indices: &[usize]) -> Mask {
+-    intersect_bit_buffer_by_rank_indices::<Portable>(self_buffer, mask_indices)
++    type IntersectRankIndices = fn(&BitBuffer, &[usize]) -> Mask;
++    static KERNEL: CpuKernel<IntersectRankIndices> = CpuKernel::new(|| {
++        #[cfg(target_arch = "x86_64")]
++        {
++            if std::arch::is_x86_feature_detected!("bmi2") {
++                return intersect_bit_buffer_by_rank_indices::<Bmi2>;
++            }
++        }
++        intersect_bit_buffer_by_rank_indices::<Portable>
++    });
++    KERNEL.get()(self_buffer, mask_indices)
+ }
+ 
+ #[inline]
+@@ -372,6 +435,11 @@
+ where
+     I: Iterator<Item = usize>,
+ {
++    #[cfg(target_arch = "x86_64")]
++    if std::arch::is_x86_feature_detected!("bmi2") {
++        return intersect_mask_driven::<Bmi2, _>(self_buffer, mask_indices, true_count);
++    }
++
+     intersect_mask_driven::<Portable, _>(self_buffer, mask_indices, true_count)
+ }
+ 

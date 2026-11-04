@@ -1,0 +1,102 @@
+schema_version = "1.4"
+
+# Task reward = the mean of the five steps' `reward` values. There is no
+# min_reward gate, so no step can abort the run: every step runs and every
+# verifier reports its OWN milestone's reward - 1 when every one of that step's
+# scored groups passed, else 0 - never a running total and never a literal
+# credit for a predecessor. The end-to-end checks are one ordinary scored group
+# (`gate-endtoend`).
+multi_step_reward_strategy = "mean"
+
+# A separate verifier receives the cumulative source only through this declared
+# artifact. The verifier rebuilds from source, so no agent build output is
+# required in the snapshot.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "target", "target/**"] },
+]
+
+[task]
+name = "harbor/iceberg-table-format-multiversion"
+version = "1.0.0"
+description = "Implement the Apache Iceberg table format as a Rust library across five cumulative upstream releases: format core, scan planning, metadata evolution, row-level deletes, and transaction actions."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["iceberg", "table-format", "rust", "multi-step", "conformance"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["iceberg", "rust", "storage", "file-format", "avro", "multi-step"]
+
+[environment]
+build_timeout_sec = 2400.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# The build phase keeps the public network; the agent phase below is an
+# allowlist restricted to the runner's inference endpoint.
+network_mode = "public"
+
+# Grade each step in an isolated verifier container built from that step's
+# tests/Dockerfile. The cumulative /app artifact is restored into the image
+# before /tests/test.sh runs.
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so upstream sources, releases and package
+# registries cannot be fetched by any route. The runner merges its own inference
+# host in at launch; the image already contains everything the build needs.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# The verifier image carries its own pinned toolchain and a Cargo registry cache
+# pre-populated with this step's exact shipped dependency graph, so grading does
+# not depend on a live network for anything the task ships. A dependency the
+# candidate adds to its own manifest is fetched at grading time.
+network_mode = "public"
+
+[[steps]]
+name = "01-table-format-core"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-scan-planning"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-metadata-evolution"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-row-level-deletes"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-transaction-actions"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

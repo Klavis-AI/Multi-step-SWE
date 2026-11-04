@@ -1,0 +1,75 @@
+{
+ "doc": "stages/expression.rst Logical Operators table: '&& And', '|| Or', '! Not' -- with stages/filter_opts.rst: 'where -- An expression that limits points passed to a filter.  Points that don't pass the expression skip the stage but are available to subsequent stages in a pipeline. [Default: no filtering]'",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p0.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"assignment\": \"Classification[:]=7\", \"where\": \"(Z > 7) && (X < 2)\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[7:7]\"}, {\"type\": \"writers.las\", \"filename\": \"out0.las\"}]}"
+  },
+  "p1.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"assignment\": \"Classification[:]=7\", \"where\": \"(Z > 7) || (X < 2)\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[7:7]\"}, {\"type\": \"writers.las\", \"filename\": \"out1.las\"}]}"
+  },
+  "p2.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"assignment\": \"Classification[:]=7\", \"where\": \"!(Z > 7)\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[7:7]\"}, {\"type\": \"writers.las\", \"filename\": \"out2.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p0.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "p1.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "p2.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out0.las",
+   "header": {
+    "point_count": 40
+   }
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out1.las",
+   "header": {
+    "point_count": 360
+   }
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out2.las",
+   "header": {
+    "point_count": 800
+   }
+  }
+ ]
+}

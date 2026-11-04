@@ -1,0 +1,37 @@
+# arch: x86_64
+# A SHN_COMMON tentative definition is allocated in the NOBITS .bss with the
+# alignment it asked for, and the process sees it zeroed.
+rt_obj rt.o
+cat > c.c <<'C'
+int plain_common;
+__attribute__((aligned(256))) long aligned_common;
+char pad_common[7];
+C
+cat > m.c <<'C'
+#include "rt.h"
+extern int plain_common; extern long aligned_common; extern char pad_common[7];
+int entry(void) {
+  int zeroed = (plain_common == 0) && (aligned_common == 0) && (pad_common[6] == 0);
+  plain_common = 1; aligned_common = 2; pad_common[6] = 3;
+  putdec(zeroed); print("\n");
+  return plain_common + (int)aligned_common + pad_common[6];
+}
+C
+cc_obj c.o c.c -fcommon
+cc_obj m.o m.c
+si=$(symbols c.o)
+want_has "plain_common is SHN_COMMON in the input"   "$si" "OBJECT +GLOBAL +DEFAULT +COM +plain_common"
+want_has "aligned_common is SHN_COMMON in the input" "$si" "OBJECT +GLOBAL +DEFAULT +COM +aligned_common"
+link_ok out rt.o c.o m.o
+want_has ".bss is NOBITS" "$(sections out)" "\.bss +NOBITS"
+bs=$((0x$(sec_addr out .bss))); be=$((bs + 0x$(sec_size out .bss)))
+for s in plain_common aligned_common pad_common; do
+  v=$(sym_value out $s)
+  [ -n "$v" ] || die "$s was not allocated (absent from the output symbol table)"
+  [ $((0x$v)) -ge "$bs" ] && [ $((0x$v)) -lt "$be" ] || die "$s at 0x$v is outside .bss"
+done
+av=$((0x$(sym_value out aligned_common)))
+[ $((av % 256)) -eq 0 ] || die "aligned_common at 0x$(printf %x $av) is not 256-byte aligned"
+want "aligned_common size" "$(symbols out | awk '$8=="aligned_common"{print $3}')" "8"
+run_expect out "1" 6
+asserts_at_least 4

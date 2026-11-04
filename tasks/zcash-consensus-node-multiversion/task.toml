@@ -1,0 +1,180 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of the fourteen steps' `reward` values. There is no
+# min_reward gate, so no step can abort the trial: every step runs and every
+# verifier reports its OWN milestone's reward - 1 when the gate holds and every
+# scored group passed, 0 otherwise - never a running total and never a literal
+# credit for a predecessor milestone.
+multi_step_reward_strategy = "mean"
+
+# A separate verifier receives the cumulative source only through this declared
+# artifact. The verifier rebuilds from source, so no agent build output is
+# required in the snapshot; `target/` is excluded because a stale compile cache
+# is worse than none, and `.git/` because nothing is carried by it.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "target", "target/**"] },
+]
+
+[task]
+name = "harbor/zcash-consensus-node-multiversion"
+version = "1.0.0"
+description = "Implement a Zcash consensus node in Rust across fourteen cumulative upstream releases: the wire format core, ZIP-215 batched verification, v5 transactions and Orchard, nullifier and note-commitment state, the ZIP-221 history tree, ZIP-244 identifiers, contextual validation, ZIP-209 value pools, mempool admission, storage and expiry, ZIP-401 eviction and connection limits, Halo2 and ZIP-155, anchors and proving parameters, and a JSON-RPC surface."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["zcash", "consensus", "rust", "multi-step", "blockchain", "conformance"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["zcash", "rust", "consensus", "peer-to-peer", "cryptography", "multi-step"]
+
+[environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# The agent may use the network for official documentation and dependencies.
+network_mode = "public"
+
+# Grade each step in an isolated verifier container built from that step's
+# tests/Dockerfile. The cumulative /app artifact is restored into the image
+# before /tests/test.sh runs.
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 7200.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+workdir = "/app"
+# The verifier image carries a pinned era toolchain and a Cargo target and
+# registry cache pre-populated from this step's exact pinned dependency graph,
+# so grading does not resolve a moving graph, does not rebuild the native
+# dependencies, and does not depend on a live network for anything the task
+# ships. A dependency the candidate adds to its own manifest is fetched at
+# grading time.
+network_mode = "public"
+
+[[steps]]
+name = "01-seeded-baseline"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "02-zip215-batched-verification"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "03-v5-sapling-orchard-types"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "04-orchard-data-nullifier-state"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "05-history-tree-zip211-redpallas"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "06-zip244-txid-zip239-relay"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "07-contextual-validation-trees"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "08-zip209-flyclient-authdigest"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "09-mempool-admission"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "10-mempool-storage-expiry"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "11-zip401-eviction-conn-limits"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "12-halo2-zip155-zip212-subsidy"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "13-anchors-joinsplit-parameters"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0
+
+[[steps]]
+name = "14-rpc-tree-persistence-inventory"
+[steps.agent]
+# Keep synchronized with workdir/timer.sh and this step's instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 5400.0

@@ -1,0 +1,76 @@
+# Step 4's verifier stack.
+#
+# The library pins are character-for-character the ones this step's
+# workdir/setup.sh installs into the agent's /opt/venv. They have to be: this
+# step's expectation is step 1's recording plus 160 declared flips, and a
+# replay under a different pandas or scikit-learn would report the library's
+# own changes as the candidate's regressions -- or, worse, would silently
+# satisfy a flip that the pinned stack does not actually produce.
+#
+# The verifier installs them itself rather than inheriting the agent image, so
+# nothing the candidate did to /opt/venv can reach the scorer.
+#
+# pandas moves to 2.2.3 here and pyarrow 17.0.0 arrives with it: pandas 2 is the
+# whole point of the step, and pyarrow is what backs the pandas-2 string dtype
+# and the Arrow-backed paths the corpus can touch. numpy stays at 1.26.4 -- the
+# 2.0 move is step 5 -- and scikit-learn, scipy, matplotlib and seaborn hold
+# their step-3 pins so that the 160 flips isolate pandas' own 1.5->2 changes.
+setuptools==59.8.0
+wheel==0.37.1
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.3
+pyarrow==17.0.0
+scikit-learn==1.6.1
+matplotlib==3.8.4
+seaborn==0.13.2
+Cython==3.0.11
+pytest==8.3.5
+
+# Scorer-only, never in the agent image.
+#
+# tomli: skutil_gates.suppress reads pyproject.toml to count the suppressions
+# configured there. Python grew tomllib in 3.11; on 3.9 there is no reader in
+# the stdlib, and without one the suppression scan reports a single
+# `toml-unreadable` finding instead of what the file actually contains -- a
+# ceiling that cannot be compared with the one measured on the entry tree.
+#
+# The same pin steps 1-3 carry, deliberately. The suppression ceiling is a
+# carried check: it was first measured with this reader and every later step
+# re-measures it, and two steps reading the same file with two different parsers
+# is a difference the score would charge to the candidate. pytest 8.3.5 accepts
+# it (it needs tomli>=1.1.0 on Python < 3.11), so pinning it here also fixes the
+# reader pytest itself resolves rather than letting pip pick the latest.
+tomli==1.2.3
+
+# ---- transitive closure, pinned (tools/pin_closure.py) ----
+#
+# Not named by anything above; pip chose them while resolving it.
+# Written down because the behaviour corpus was recorded against
+# these exact versions and some of them move on their own
+# schedule -- pytz publishes a release whenever a government
+# changes a timezone rule -- so an image rebuilt later would not
+# be the image the recording came from. tzdata is new at this
+# step: pandas 2 no longer bundles its own zoneinfo and pulls it
+# in as a dependency.
+#
+# Regenerate: python tools/pin_closure.py <image> <this file>
+contourpy==1.3.0
+cycler==0.12.1
+exceptiongroup==1.3.1
+fonttools==4.60.2
+importlib_resources==6.5.2
+iniconfig==2.1.0
+joblib==1.5.3
+kiwisolver==1.4.7
+packaging==26.3
+pillow==11.3.0
+pluggy==1.6.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+six==1.17.0
+threadpoolctl==3.7.0
+typing_extensions==4.16.0
+tzdata==2026.4
+zipp==3.23.1

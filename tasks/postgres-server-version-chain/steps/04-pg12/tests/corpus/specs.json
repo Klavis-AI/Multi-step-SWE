@@ -1,0 +1,470 @@
+{
+ "delete_then_rollback": {
+  "permutations": [
+   [
+    "d1",
+    "s2sel",
+    "r1",
+    "s2sel"
+   ],
+   [
+    "d1",
+    "s2sel",
+    "c1",
+    "s2sel"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c1": "COMMIT",
+     "d1": "DELETE FROM iso_dr WHERE id=1",
+     "r1": "ROLLBACK"
+    }
+   },
+   "s2": {
+    "setup": [],
+    "steps": {
+     "s2sel": "SELECT count(*) FROM iso_dr"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_dr",
+   "CREATE TABLE iso_dr(id int primary key, v int)",
+   "INSERT INTO iso_dr VALUES (1,1),(2,2)"
+  ],
+  "teardown": [
+   "DROP TABLE iso_dr"
+  ]
+ },
+ "insert_unique_conflict": {
+  "permutations": [
+   [
+    "i1",
+    "c1",
+    "i2",
+    "c2",
+    "sel"
+   ],
+   [
+    "i1",
+    "r1",
+    "i2",
+    "c2",
+    "sel"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c1": "COMMIT",
+     "i1": "INSERT INTO iso_iu VALUES (1,1)",
+     "r1": "ROLLBACK"
+    }
+   },
+   "s2": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c2": "COMMIT",
+     "i2": "INSERT INTO iso_iu VALUES (1,2)",
+     "sel": "SELECT id, v FROM iso_iu ORDER BY id"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_iu",
+   "CREATE TABLE iso_iu(id int primary key, v int)"
+  ],
+  "teardown": [
+   "DROP TABLE iso_iu"
+  ]
+ },
+ "merge_blocks_update": {
+  "permutations": [
+   [
+    "m1",
+    "u2",
+    "c1",
+    "sel2"
+   ],
+   [
+    "m1",
+    "u2",
+    "r1",
+    "sel2"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c1": "COMMIT",
+     "m1": "MERGE INTO iso_mbu t USING (VALUES (1,9)) s(id,v) ON t.id=s.id WHEN MATCHED THEN UPDATE SET v = s.v",
+     "r1": "ROLLBACK"
+    }
+   },
+   "s2": {
+    "setup": [],
+    "steps": {
+     "sel2": "SELECT id, v FROM iso_mbu ORDER BY id",
+     "u2": "UPDATE iso_mbu SET v = 5 WHERE id = 1"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_mbu",
+   "CREATE TABLE iso_mbu(id int primary key, v int)",
+   "INSERT INTO iso_mbu VALUES (1,1)"
+  ],
+  "teardown": [
+   "DROP TABLE IF EXISTS iso_mbu"
+  ]
+ },
+ "partition_before_row_concurrent": {
+  "permutations": [
+   [
+    "i1",
+    "sel2",
+    "c1",
+    "sel2"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c1": "COMMIT",
+     "i1": "INSERT INTO iso_pbr VALUES (2,2)"
+    }
+   },
+   "s2": {
+    "setup": [],
+    "steps": {
+     "sel2": "SELECT a, b FROM iso_pbr ORDER BY a"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_pbr",
+   "CREATE TABLE iso_pbr(a int, b int) PARTITION BY RANGE (a)",
+   "CREATE TABLE iso_pbr_1 PARTITION OF iso_pbr FOR VALUES FROM (0) TO (100)",
+   "CREATE FUNCTION iso_pbr_f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.b := NEW.b + 100; RETURN NEW; END $$",
+   "CREATE TRIGGER iso_pbr_t BEFORE INSERT ON iso_pbr FOR EACH ROW EXECUTE FUNCTION iso_pbr_f()",
+   "INSERT INTO iso_pbr VALUES (1,1)"
+  ],
+  "teardown": [
+   "DROP TABLE IF EXISTS iso_pbr",
+   "DROP FUNCTION IF EXISTS iso_pbr_f()"
+  ]
+ },
+ "procedure_commit_visibility": {
+  "permutations": [
+   [
+    "see2",
+    "call1",
+    "see2"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [],
+    "steps": {
+     "call1": "CALL iso_pcv_p()"
+    }
+   },
+   "s2": {
+    "setup": [],
+    "steps": {
+     "see2": "SELECT id FROM iso_pcv ORDER BY id"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_pcv",
+   "CREATE TABLE iso_pcv(id int primary key, v int)",
+   "CREATE PROCEDURE iso_pcv_p() LANGUAGE plpgsql AS $$ BEGIN INSERT INTO iso_pcv VALUES (1,1); COMMIT; INSERT INTO iso_pcv VALUES (2,2); END $$"
+  ],
+  "teardown": [
+   "DROP PROCEDURE IF EXISTS iso_pcv_p()",
+   "DROP TABLE IF EXISTS iso_pcv"
+  ]
+ },
+ "read_committed_visibility": {
+  "permutations": [
+   [
+    "s1u",
+    "s2r",
+    "s1c",
+    "s2r",
+    "s2c"
+   ],
+   [
+    "s1u",
+    "s1r",
+    "s2r",
+    "s2c"
+   ],
+   [
+    "s2r",
+    "s1u",
+    "s1c",
+    "s2r",
+    "s2c"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED"
+    ],
+    "steps": {
+     "s1c": "COMMIT",
+     "s1r": "ROLLBACK",
+     "s1u": "UPDATE iso_rc SET v = 100 WHERE id = 1"
+    }
+   },
+   "s2": {
+    "setup": [
+     "BEGIN ISOLATION LEVEL READ COMMITTED"
+    ],
+    "steps": {
+     "s2c": "COMMIT",
+     "s2r": "SELECT id, v FROM iso_rc ORDER BY id"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_rc",
+   "CREATE TABLE iso_rc(id int primary key, v int)",
+   "INSERT INTO iso_rc VALUES (1,10),(2,20)"
+  ],
+  "teardown": [
+   "DROP TABLE iso_rc"
+  ]
+ },
+ "repeatable_read_snapshot": {
+  "permutations": [
+   [
+    "r1",
+    "u2",
+    "c2",
+    "r1",
+    "c1"
+   ],
+   [
+    "r1",
+    "u2",
+    "c2",
+    "u1",
+    "rb1"
+   ],
+   [
+    "u2",
+    "c2",
+    "r1",
+    "c1"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN ISOLATION LEVEL REPEATABLE READ"
+    ],
+    "steps": {
+     "c1": "COMMIT",
+     "r1": "SELECT v FROM iso_rr WHERE id=1",
+     "rb1": "ROLLBACK",
+     "u1": "UPDATE iso_rr SET v = v + 100 WHERE id=1"
+    }
+   },
+   "s2": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c2": "COMMIT",
+     "u2": "UPDATE iso_rr SET v = 50 WHERE id=1"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_rr",
+   "CREATE TABLE iso_rr(id int primary key, v int)",
+   "INSERT INTO iso_rr VALUES (1,1)"
+  ],
+  "teardown": [
+   "DROP TABLE iso_rr"
+  ]
+ },
+ "savepoint_visibility": {
+  "permutations": [
+   [
+    "a",
+    "sp",
+    "b",
+    "rb",
+    "c",
+    "cm",
+    "sel"
+   ],
+   [
+    "a",
+    "sp",
+    "b",
+    "sel",
+    "rb",
+    "cm",
+    "sel"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "a": "INSERT INTO iso_sp VALUES (1,1)",
+     "b": "INSERT INTO iso_sp VALUES (2,2)",
+     "c": "INSERT INTO iso_sp VALUES (3,3)",
+     "cm": "COMMIT",
+     "rb": "ROLLBACK TO sp1",
+     "sp": "SAVEPOINT sp1"
+    }
+   },
+   "s2": {
+    "setup": [],
+    "steps": {
+     "sel": "SELECT id FROM iso_sp ORDER BY id"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_sp",
+   "CREATE TABLE iso_sp(id int primary key, v int)"
+  ],
+  "teardown": [
+   "DROP TABLE iso_sp"
+  ]
+ },
+ "select_for_update_block": {
+  "permutations": [
+   [
+    "l1",
+    "l2",
+    "c1",
+    "c2"
+   ],
+   [
+    "l1",
+    "l2b",
+    "c1",
+    "c2"
+   ],
+   [
+    "l1",
+    "p2",
+    "c1",
+    "c2"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c1": "COMMIT",
+     "l1": "SELECT v FROM iso_fu WHERE id=1 FOR UPDATE"
+    }
+   },
+   "s2": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c2": "COMMIT",
+     "l2": "SELECT v FROM iso_fu WHERE id=1 FOR UPDATE",
+     "l2b": "SELECT v FROM iso_fu WHERE id=2 FOR UPDATE",
+     "p2": "SELECT v FROM iso_fu WHERE id=1"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_fu",
+   "CREATE TABLE iso_fu(id int primary key, v int)",
+   "INSERT INTO iso_fu VALUES (1,1),(2,2)"
+  ],
+  "teardown": [
+   "DROP TABLE iso_fu"
+  ]
+ },
+ "write_conflict_block": {
+  "permutations": [
+   [
+    "w1",
+    "w2",
+    "c1",
+    "c2",
+    "sel"
+   ],
+   [
+    "w1",
+    "w2",
+    "r1",
+    "c2",
+    "sel"
+   ],
+   [
+    "w1",
+    "w2b",
+    "c1",
+    "c2",
+    "sel"
+   ]
+  ],
+  "sessions": {
+   "s1": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c1": "COMMIT",
+     "r1": "ROLLBACK",
+     "w1": "UPDATE iso_wc SET v = 11 WHERE id = 1"
+    }
+   },
+   "s2": {
+    "setup": [
+     "BEGIN"
+    ],
+    "steps": {
+     "c2": "COMMIT",
+     "sel": "SELECT id, v FROM iso_wc ORDER BY id",
+     "w2": "UPDATE iso_wc SET v = 22 WHERE id = 1",
+     "w2b": "UPDATE iso_wc SET v = 33 WHERE id = 2"
+    }
+   }
+  },
+  "setup": [
+   "DROP TABLE IF EXISTS iso_wc",
+   "CREATE TABLE iso_wc(id int primary key, v int)",
+   "INSERT INTO iso_wc VALUES (1,1),(2,2)"
+  ],
+  "teardown": [
+   "DROP TABLE iso_wc"
+  ]
+ }
+}

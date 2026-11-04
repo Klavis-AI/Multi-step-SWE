@@ -1,0 +1,37 @@
+# An over-large number after a backslash is now an octal escape followed by
+# literal digits, as in Perl, instead of an error.
+/\214748364/
+    \x8c748364
+ 0: \x8c748364
+
+# A { that is not followed by a valid quantifier is a literal, so no
+# "number too big" error arises.
+/x{65536/
+    x{65536
+ 0: x{65536
+
+/x{65536}/
+Failed: error 105 at offset 7: number too big in {} quantifier
+    xx
+
+# A pattern ending in (?(VERSION=n.d is diagnosed, not read past.
+/(?(VERSION=10.3/
+Failed: error 179 at offset 15: syntax error or number too big in (?(VERSION condition
+    abc
+
+# (?(DEFINE) groups are skipped when a lookbehind's length is computed, and a
+# DEFINE group immediately before a lookbehind no longer breaks it.
+/(?<=(?(DEFINE)(qrs))ab)c/
+    abc
+ 0: c
+    zbc
+No match
+
+/(?(DEFINE)(qrs))(?<=ab)c/
+    abc
+ 0: c
+
+# The effect of \K now propagates back out of a whole-pattern recursion.
+/p\K.(?0)*/
+    pqpr
+ 0: r

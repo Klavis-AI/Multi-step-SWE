@@ -1,0 +1,32 @@
+# arch: x86_64
+# --strip-all removes the debug sections and shrinks the file, and what is
+# left is still a correct, runnable executable.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char greeting[] = "sa\n";
+int entry(void) { print(greeting); return 4; }
+C
+cc_obj m.o m.c -g
+link_ok full    rt.o m.o
+link_ok striped rt.o m.o --strip-all
+want "unstripped output carries .debug_str" \
+     "$(sections full | grep -c '\.debug_str ')" "1"
+want "--strip-all removed .debug_str" \
+     "$(sections striped | grep -c '\.debug_str ')" "0"
+[ "$(stat -c %s striped)" -lt "$(stat -c %s full)" ] \
+  || die "the stripped output is not smaller than the unstripped one"
+want "still an executable" "$(hdr striped | awk '/^ *Type:/{print $2}')" "EXEC"
+want "the allocated code is untouched" \
+     "$(sec_size striped .text)" "$(sec_size full .text)"
+want "the allocated rodata is untouched" \
+     "$(sec_size striped .rodata)" "$(sec_size full .rodata)"
+want "PT_LOAD count unchanged" \
+     "$(segments striped | grep -c '^ *LOAD ')" "$(segments full | grep -c '^ *LOAD ')"
+run_expect striped "sa" 4
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 6

@@ -1,0 +1,86 @@
+# arch: x86_64
+# SIZEOF_HEADERS is a builtin that evaluates to the size of the ELF header plus
+# the program header table wild ended up writing -- not an ordinary symbol name
+# the script is asking the objects to supply.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 8;
+int entry(void) { print("hdrs\n"); return g; }
+C
+cc_obj m.o m.c
+mkscript() { cat > t.ld <<L
+hdrsz = $1;
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .data : { *(.data .data.*) }
+}
+L
+}
+# Control: the same carrier with a builtin that already exists, so a failure
+# below names SIZEOF_HEADERS and not the assignment form.
+mkscript 'SIZEOF(.text)'
+link_ok ctl -T t.ld rt.o m.o
+run_expect ctl "hdrs" 8
+
+mkscript 'SIZEOF_HEADERS'
+link_ok out -T t.ld rt.o m.o
+h=$(hdr out)
+ehsize=$(awk '/Size of this header:/{print $(NF-1)}' <<<"$h")
+phentsize=$(awk '/Size of program headers:/{print $(NF-1)}' <<<"$h")
+phnum=$(awk '/Number of program headers:/{print $NF}' <<<"$h")
+[ "$phnum" -gt 0 ] || die "no program headers to measure"
+want "SIZEOF_HEADERS == ehdr + phdrs" \
+     "$(( 16#$(sym_value out hdrsz) ))" "$(( ehsize + phentsize * phnum ))"
+run_expect out "hdrs" 8
+
+# Reading the value back is not enough. spec/10 s.8.2 requires the circularity
+# to be RESOLVED -- the program header count is settled first, then
+# SIZEOF_HEADERS evaluates against it -- so the builtin must also be usable to
+# PLACE a section, and its value must follow the phdr count that link actually
+# emitted. An implementation that returns a fixed 0x1c8 passes the first arm
+# below and fails the second, where a PHDRS block cuts the table to two.
+place() { # place <out> <script> -- links, then sets HDRS and WANT_ADDR
+  link_ok "$1" -T "$2" rt.o m.o
+  local h e p n al; h=$(hdr "$1")
+  e=$(awk '/Size of this header:/{print $(NF-1)}' <<<"$h")
+  p=$(awk '/Size of program headers:/{print $(NF-1)}' <<<"$h")
+  n=$(awk '/Number of program headers:/{print $NF}' <<<"$h")
+  al=$(sections "$1" | awk '{for(i=1;i<=NF;i++) if($i==".text"){print $(i+9); exit}}')
+  [ "${n:-0}" -gt 0 ] && [ "${al:-0}" -gt 0 ] \
+    || die "$1: phnum='$n' .text alignment='$al'"
+  HDRS=$(( e + p * n ))
+  # The pre-colon slot is the section's start before its own alignment applies.
+  WANT_ADDR=$(( (16#500000 + HDRS + al - 1) / al * al ))
+}
+cat > place.ld <<'L'
+SECTIONS {
+  hdrsz = SIZEOF_HEADERS;
+  .text (0x500000 + SIZEOF_HEADERS) : { *(.text .text.*) }
+  .data : { *(.data .data.*) }
+}
+L
+place p1 place.ld
+want "SIZEOF_HEADERS placed .text"        "$(( 16#$(sec_addr p1 .text) ))" "$WANT_ADDR"
+want "and read back the same number"      "$(( 16#$(sym_value p1 hdrsz) ))" "$HDRS"
+run_expect p1 "hdrs" 8
+
+# The same script with an explicit PHDRS block: two program headers instead of
+# the default seven, so SIZEOF_HEADERS is a different number and .text lands
+# somewhere else.
+cat > place2.ld <<'L'
+PHDRS { code PT_LOAD FLAGS(5); vars PT_LOAD FLAGS(6); }
+SECTIONS {
+  hdrsz = SIZEOF_HEADERS;
+  .text (0x500000 + SIZEOF_HEADERS) : { *(.rodata .rodata.*) *(.text .text.*) } :code
+  .data : { *(.data .data.*) } :vars
+}
+L
+first=$(( 16#$(sec_addr p1 .text) ))
+place p2 place2.ld
+want "a shorter phdr table places it elsewhere" "$(( 16#$(sec_addr p2 .text) ))" "$WANT_ADDR"
+want "and SIZEOF_HEADERS followed the count"    "$(( 16#$(sym_value p2 hdrsz) ))" "$HDRS"
+[ "$(( 16#$(sec_addr p2 .text) ))" -ne "$first" ] \
+  || die "both arms placed .text at $first, so neither exercises the phdr count"
+asserts_at_least 5

@@ -1,0 +1,39 @@
+# [tool.uv.sources] accepts a list of marker-qualified entries for one
+# package; before 0.4.18 only a single table was accepted and the file failed
+# to parse.
+id = "s05-sources-multiple-entries"
+step = 5
+group = "sources-multiple-entries"
+python = "3.12"
+mode = "bare"
+argv = ["lock", "--offline"]
+observe = ["status", "glob:uv.lock", "lockset"]
+
+[files]
+"pyproject.toml" = '''
+[project]
+name = "proj"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["a"]
+
+[tool.uv.sources]
+a = [
+  { path = "vend/lin", marker = "sys_platform == 'linux'" },
+  { path = "vend/other", marker = "sys_platform != 'linux'" },
+]
+'''
+"vend/lin/pyproject.toml" = '''
+[project]
+name = "a"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+'''
+"vend/other/pyproject.toml" = '''
+[project]
+name = "a"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+'''

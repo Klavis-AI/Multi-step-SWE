@@ -1,0 +1,110 @@
+# arch: x86_64
+# The packed .relr.dyn decodes to exactly the relative-relocation offsets the
+# unpacked link records in .rela.dyn -- that comparison, and not a fixed list,
+# is the requirement, so both links are performed here and their relocation
+# sets are compared against each other.
+#
+# .relr.dyn is far smaller than the .rela.dyn it replaces, so the two links do
+# NOT place .data.rel.ro at the same address (measured at the reference: 0x26b0
+# packed against 0x2830 unpacked). A raw address comparison would therefore be
+# meaningless. Each offset is instead named as "<section>+<offset within it>",
+# which is layout-independent and is what "the same set of slots" means.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int v[24] = {0};
+long * const tbl[24] = {
+ (long*)&v[0],(long*)&v[1],(long*)&v[2],(long*)&v[3],(long*)&v[4],(long*)&v[5],
+ (long*)&v[6],(long*)&v[7],(long*)&v[8],(long*)&v[9],(long*)&v[10],(long*)&v[11],
+ (long*)&v[12],(long*)&v[13],(long*)&v[14],(long*)&v[15],(long*)&v[16],(long*)&v[17],
+ (long*)&v[18],(long*)&v[19],(long*)&v[20],(long*)&v[21],(long*)&v[22],(long*)&v[23]};
+int entry(void) { return tbl[3] ? 42 : 7; }
+C
+cc_obj m.o m.c -fPIE
+link_ok packed   -pie --no-gc-sections --pack-dyn-relocs=relr rt.o m.o
+link_ok unpacked -pie --no-gc-sections rt.o m.o
+
+rep=$(python3 - <<'PY'
+import struct
+
+def shdrs(p):
+    b = open(p, "rb").read()
+    shoff, = struct.unpack_from("<Q", b, 0x28)
+    ent, num, strndx = struct.unpack_from("<HHH", b, 0x3a)
+    noff = struct.unpack_from("<Q", b, shoff + strndx * ent + 0x18)[0]
+    secs = []
+    for i in range(num):
+        nm, ty, fl, ad, off, sz = struct.unpack_from("<IIQQQQ", b, shoff + i * ent)
+        e = b.index(b"\0", noff + nm)
+        secs.append((b[noff + nm:e].decode(), fl, ad, off, sz))
+    return b, secs
+
+def named(secs, want):
+    for s in secs:
+        if s[0] == want:
+            return s
+    raise SystemExit("no %s section" % want)
+
+def place(secs, addr):
+    # Name an address as (allocated section, offset within it). Unplaceable
+    # addresses keep a distinct spelling so the two sides cannot accidentally
+    # agree by both failing to resolve.
+    for name, fl, ad, off, sz in secs:
+        if fl & 0x2 and ad <= addr < ad + sz:
+            return (name, addr - ad)
+    return ("<unplaced>", addr)
+
+def render(secs, addrs):
+    return " ".join("%s+%#x" % k for k in sorted(place(secs, a) for a in addrs))
+
+pb, ps = shdrs("packed")
+ub, us = shdrs("unpacked")
+
+# Decode the bitmap: an even word is an address and restarts the run, an odd
+# word is a bitmap over the 63 word slots that follow the current position.
+_, _, _, roff, rsz = named(ps, ".relr.dyn")
+dec = []
+base = 0
+for i in range(0, rsz, 8):
+    w = int.from_bytes(pb[roff + i:roff + i + 8], "little")
+    if w & 1:
+        bits = w >> 1
+        a = base
+        while bits:
+            if bits & 1:
+                dec.append(a)
+            a += 8
+            bits >>= 1
+        base += 63 * 8
+    else:
+        dec.append(w)
+        base = w + 8
+
+# R_X86_64_RELATIVE is type 8 in the low half of r_info.
+_, _, _, aoff, asz = named(us, ".rela.dyn")
+plain = []
+for o in range(aoff, aoff + asz, 24):
+    r_offset, r_info, _ = struct.unpack_from("<QQq", ub, o)
+    if r_info & 0xffffffff == 8:
+        plain.append(r_offset)
+
+print("packed %d %s" % (len(dec), render(ps, dec)))
+print("unpacked %d %s" % (len(plain), render(us, plain)))
+PY
+) || die "could not compare the packed and unpacked links"
+
+pk=$(awk '/^packed /   { sub(/^packed /,   ""); print }' <<<"$rep")
+un=$(awk '/^unpacked / { sub(/^unpacked /, ""); print }' <<<"$rep")
+[ -n "$un" ] || die "the unpacked link recorded no R_X86_64_RELATIVE relocations"
+[ -n "$pk" ] || die "the packed .relr.dyn decoded to nothing"
+# The fixture puts 24 pointers in .data.rel.ro, so a link that packs nothing --
+# or one whose decoder silently produced an empty set -- cannot pass by
+# agreeing with an empty expectation.
+n=${un%% *}
+[ "$n" -ge 24 ] || die "only $n relative relocations in the unpacked link, expected at least 24"
+want "packed .relr.dyn covers exactly the unpacked link's relative relocations" "$pk" "$un"
+run_expect packed "" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 1

@@ -1,0 +1,35 @@
+# arch: x86_64
+# A MEMORY block declares named regions whose ORIGIN and LENGTH are readable as
+# link-time expressions, including the short spellings and the K/M suffixes.
+rt_obj rt.o
+cat > n.c <<'C'
+int entry(void) { return 19; }
+C
+cc_obj n.o n.c
+cat > mem.ld <<'L'
+MEMORY {
+  rom : o = 0x200000, l = 2K
+  ram : ORIGIN = 0x300000, LENGTH = 1M
+}
+ASSERT(ORIGIN(rom) == 0x200000, "rom origin wrong");
+ASSERT(LENGTH(rom) == 2048, "rom length wrong");
+ASSERT(ORIGIN(ram) + LENGTH(ram) == 0x400000, "ram end wrong");
+L
+link_ok out -T mem.ld rt.o n.o --no-gc-sections
+run_expect out "" 19
+
+# The same script through the --script spelling.
+link_ok out2 --script=mem.ld rt.o n.o --no-gc-sections
+run_expect out2 "" 19
+
+# A region expression that does not hold is reported.
+cat > bad.ld <<'L'
+MEMORY { ram : ORIGIN = 0x300000, LENGTH = 1M }
+ASSERT(LENGTH(ram) == 4096, "region length mismatch");
+L
+link_fails nope -T bad.ld rt.o n.o --no-gc-sections
+want_has "region assertion reports its message" "$LINK_OUT" 'region length mismatch'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 1

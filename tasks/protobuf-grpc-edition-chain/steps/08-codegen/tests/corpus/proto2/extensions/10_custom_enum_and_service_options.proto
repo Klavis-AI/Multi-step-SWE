@@ -1,0 +1,38 @@
+// DESC: Custom enum, enum-value, service, method and oneof option extensions
+syntax = "proto2";
+package c2.extensions.custom_enum_and_service_options;
+
+import "google/protobuf/descriptor.proto";
+
+message Doc { optional string text = 1; optional int32 since = 2; }
+
+extend google.protobuf.EnumOptions { optional Doc enum_doc = 50301; }
+extend google.protobuf.EnumValueOptions { optional Doc value_doc = 50302; optional int32 weight = 50303; }
+extend google.protobuf.ServiceOptions { optional Doc service_doc = 50304; optional string host = 50305; }
+extend google.protobuf.MethodOptions { optional Doc method_doc = 50306; repeated string http_paths = 50307; }
+extend google.protobuf.OneofOptions { optional Doc oneof_doc = 50308; }
+
+enum Annotated {
+  option (enum_doc) = { text: "annotated enum" since: 1 };
+  ANNOTATED_ZERO = 0 [(value_doc) = { text: "zero" }, (weight) = 10];
+  ANNOTATED_ONE = 1 [(weight) = 20];
+}
+
+message M {
+  optional Annotated a = 1;
+  oneof pick {
+    option (oneof_doc) = { text: "a oneof" since: 2 };
+    int32 x = 2;
+    string y = 3;
+  }
+}
+
+service Annotated_Service {
+  option (service_doc) = { text: "annotated service" since: 3 };
+  option (host) = "example.invalid";
+  rpc Call(M) returns (M) {
+    option (method_doc) = { text: "annotated method" };
+    option (http_paths) = "/v1/call";
+    option (http_paths) = "/v2/call";
+  }
+}

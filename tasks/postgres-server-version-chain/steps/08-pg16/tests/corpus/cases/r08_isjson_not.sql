@@ -1,0 +1,4 @@
+SELECT 'bad'::text IS NOT JSON, '{}'::text IS NOT JSON;
+SELECT '{"a":1,"a":2}'::text IS NOT JSON WITH UNIQUE KEYS;
+SELECT '1'::text IS NOT JSON OBJECT;
+SELECT NOT ('1'::text IS JSON OBJECT);

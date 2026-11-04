@@ -1,0 +1,69 @@
+# pcre2test's repeated-match handling now follows pcre2_next_match(): after an
+# empty match the next attempt sets PCRE2_NOTEMPTY_ATSTART alone, it is no
+# longer also anchored, and pcre2test no longer advances the start offset
+# itself -- in particular it no longer skips a CRLF pair.
+# ChangeLog 10.47 item 11; pcre2api.3, "ITERATING OVER ALL MATCHES";
+# pcre2test.1, "DEFAULT OUTPUT FROM pcre2test".
+
+/\n|/g,newline=crlf
+    \r\n
+ 0: 
+ 0: \x0a
+ 0: 
+
+/\n|/g,newline=crlf
+    x\r\ny
+ 0: 
+ 0: 
+ 0: \x0a
+ 0: 
+ 0: 
+
+/\n|/g,newline=anycrlf
+    \r\n
+ 0: 
+ 0: \x0a
+ 0: 
+
+/\n|/g,newline=any
+    \r\n
+ 0: 
+ 0: \x0a
+ 0: 
+
+/\n|/g
+    \r\n
+ 0: 
+ 0: \x0a
+ 0: 
+
+/(\n)|/g,newline=crlf
+    p\r\nq
+ 0: 
+ 0: 
+ 0: \x0a
+ 1: \x0a
+ 0: 
+ 0: 
+
+/\r\n|/g,newline=crlf
+    \r\n\r\n
+ 0: \x0d\x0a
+ 0: \x0d\x0a
+ 0: 
+
+# Ordinary empty-match iteration is unchanged.
+/a*/g
+    xaaxa
+ 0: 
+ 0: aa
+ 0: 
+ 0: a
+ 0: 
+
+/\b/g,newline=crlf
+    two words
+ 0: 
+ 0: 
+ 0: 
+ 0: 

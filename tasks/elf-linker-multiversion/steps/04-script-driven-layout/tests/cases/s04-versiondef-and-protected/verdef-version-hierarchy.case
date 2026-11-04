@@ -1,0 +1,40 @@
+# arch: x86_64
+# what: a version script with two nodes emits both version definitions plus the
+# BASE record and links the child node to its parent with a Parent entry.
+# (Which node each symbol lands in is not asserted: 0.5.0 stamps both symbols
+# with the first node and only 0.6.0 gets the per-symbol index right.)
+dtag() { dynamic "$1" | sed -n "s/.*($2)[[:space:]]*//p" | head -1 | awk '{print $1}'; }
+cat > v.c <<'C'
+int old_api(void) { return 1; }
+int new_api(void) { return 2; }
+int internal(void) { return 3; }
+C
+cc_obj v.o v.c -fPIC
+cat > v.map <<'M'
+VERS_1.0 { global: old_api; local: *; };
+VERS_2.0 { global: new_api; } VERS_1.0;
+M
+link_ok libv.so -shared --version-script v.map -soname libv.so.2 v.o
+want "DT_VERDEFNUM counts BASE + 2 nodes" "$(( $(dtag libv.so VERDEFNUM) ))" "3"
+V=$(vernum libv.so)
+want "three verdef records" "$(grep -cE '^ *0x[0-9a-f]+: +Rev:' <<<"$V")" "3"
+want "BASE record is the soname" \
+  "$(grep -cE 'Flags: BASE +Index: 1 +Cnt: 1 +Name: libv\.so\.2' <<<"$V")" "1"
+# The leaf node has one name; the derived node carries its parent as a second.
+want "VERS_1.0 defined, one name" \
+  "$(grep -cE 'Flags: none +Index: 2 +Cnt: 1 +Name: VERS_1\.0' <<<"$V")" "1"
+want "VERS_2.0 defined, two names" \
+  "$(grep -cE 'Flags: none +Index: 3 +Cnt: 2 +Name: VERS_2\.0' <<<"$V")" "1"
+want "VERS_2.0 names VERS_1.0 as parent" \
+  "$(grep -cE 'Parent 1: VERS_1\.0' <<<"$V")" "1"
+want "only one Parent record in all" "$(grep -cE 'Parent [0-9]+:' <<<"$V")" "1"
+# Both named symbols are exported and versioned; `local: *` still hides the rest.
+D=$(dynsyms libv.so)
+want "old_api exported with a version" "$(grep -c 'old_api@@VERS_' <<<"$D")" "1"
+want "new_api exported with a version" "$(grep -c 'new_api@@VERS_' <<<"$D")" "1"
+want "internal stays local" "$(grep -c 'internal' <<<"$D")" "0"
+# .gnu.version must have one entry per .dynsym entry, else the two disagree.
+want "versym entry count == dynsym count" \
+  "$(( 16#$(sec_size libv.so .gnu.version) / 2 ))" \
+  "$(( 16#$(sec_size libv.so .dynsym) / 24 ))"
+asserts_at_least 11

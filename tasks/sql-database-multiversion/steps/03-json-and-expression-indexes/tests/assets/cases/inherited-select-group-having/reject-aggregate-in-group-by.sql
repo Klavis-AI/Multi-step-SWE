@@ -1,0 +1,4 @@
+CREATE TABLE t(a INTEGER);
+INSERT INTO t VALUES(1),(2);
+SELECT count(*) FROM t GROUP BY sum(a);
+SELECT count(*) FROM t;

@@ -1,0 +1,9 @@
+CREATE TABLE q3_ptb(a int) PARTITION BY RANGE (a);
+CREATE TABLE q3_ptb_1 PARTITION OF q3_ptb FOR VALUES FROM (1) TO (10);
+CREATE FUNCTION q3_ptb_f() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RETURN NEW; END $$;
+CREATE TRIGGER q3_ptb_before BEFORE INSERT ON q3_ptb FOR EACH ROW EXECUTE PROCEDURE q3_ptb_f();
+CREATE TRIGGER q3_ptb_after AFTER INSERT ON q3_ptb FOR EACH ROW EXECUTE PROCEDURE q3_ptb_f();
+SELECT tgname FROM pg_trigger WHERE tgrelid = 'q3_ptb'::regclass AND NOT tgisinternal ORDER BY tgname;
+DROP TABLE q3_ptb;
+DROP FUNCTION q3_ptb_f();

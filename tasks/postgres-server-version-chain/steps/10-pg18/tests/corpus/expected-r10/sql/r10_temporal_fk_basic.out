@@ -1,0 +1,19 @@
+CREATE TABLE r10tf1_p(id int4range, valid_at daterange, PRIMARY KEY (id, valid_at WITHOUT OVERLAPS));
+INSERT INTO r10tf1_p VALUES (int4range(1,2), daterange('2020-01-01','2021-01-01'));
+CREATE TABLE r10tf1_c(id int, valid_at daterange, pid int4range,
+   FOREIGN KEY (pid, PERIOD valid_at) REFERENCES r10tf1_p (id, PERIOD valid_at));
+INSERT INTO r10tf1_c VALUES (1, daterange('2020-02-01','2020-04-01'), int4range(1,2));
+INSERT INTO r10tf1_c VALUES (2, daterange('2019-01-01','2019-02-01'), int4range(1,2));
+ERROR:  insert or update on table "r10tf1_c" violates foreign key constraint "r10tf1_c_pid_valid_at_fkey"
+DETAIL:  Key (pid, valid_at)=([1,2), [2019-01-01,2019-02-01)) is not present in table "r10tf1_p".
+INSERT INTO r10tf1_c VALUES (3, daterange('2020-02-01','2020-04-01'), int4range(9,10));
+ERROR:  insert or update on table "r10tf1_c" violates foreign key constraint "r10tf1_c_pid_valid_at_fkey"
+DETAIL:  Key (pid, valid_at)=([9,10), [2020-02-01,2020-04-01)) is not present in table "r10tf1_p".
+SELECT id, valid_at, pid FROM r10tf1_c ORDER BY id;
+ id |        valid_at         |  pid  
+----+-------------------------+-------
+  1 | [2020-02-01,2020-04-01) | [1,2)
+(1 row)
+
+DROP TABLE r10tf1_c;
+DROP TABLE r10tf1_p;

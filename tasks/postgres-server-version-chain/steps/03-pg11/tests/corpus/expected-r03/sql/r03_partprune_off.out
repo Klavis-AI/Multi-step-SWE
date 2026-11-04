@@ -1,0 +1,26 @@
+CREATE TABLE q3_ppo(a int) PARTITION BY RANGE (a);
+CREATE TABLE q3_ppo_1 PARTITION OF q3_ppo FOR VALUES FROM (1) TO (100);
+CREATE TABLE q3_ppo_2 PARTITION OF q3_ppo FOR VALUES FROM (100) TO (200);
+INSERT INTO q3_ppo SELECT generate_series(1,199);
+SET enable_partition_pruning = off;
+SELECT count(*), sum(a) FROM q3_ppo WHERE a < 50;
+ count | sum  
+-------+------
+    49 | 1225
+(1 row)
+
+SET enable_partition_pruning = on;
+SELECT count(*), sum(a) FROM q3_ppo WHERE a < 50;
+ count | sum  
+-------+------
+    49 | 1225
+(1 row)
+
+RESET enable_partition_pruning;
+SHOW enable_partition_pruning;
+ enable_partition_pruning 
+--------------------------
+ on
+(1 row)
+
+DROP TABLE q3_ppo;

@@ -1,0 +1,17 @@
+CREATE TABLE q2_ttu(i int, t text);
+CREATE FUNCTION q2_ttu_f() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE NOTICE 'old rows=% new rows=%',
+    (SELECT count(*) FROM q2_ttu_old), (SELECT count(*) FROM q2_ttu_new);
+  RAISE NOTICE 'old sum=% new sum=%',
+    (SELECT coalesce(sum(i),0) FROM q2_ttu_old), (SELECT coalesce(sum(i),0) FROM q2_ttu_new);
+  RETURN NULL;
+END $$;
+CREATE TRIGGER q2_ttu_tr AFTER UPDATE ON q2_ttu
+  REFERENCING OLD TABLE AS q2_ttu_old NEW TABLE AS q2_ttu_new
+  FOR EACH STATEMENT EXECUTE PROCEDURE q2_ttu_f();
+INSERT INTO q2_ttu VALUES (1,'a'),(2,'b'),(3,'c');
+UPDATE q2_ttu SET i = i * 10 WHERE i < 3;
+SELECT i, t FROM q2_ttu ORDER BY i;
+DROP TABLE q2_ttu;
+DROP FUNCTION q2_ttu_f();

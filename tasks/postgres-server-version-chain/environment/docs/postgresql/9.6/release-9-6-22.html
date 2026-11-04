@@ -1,0 +1,602 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<HTML
+><HEAD
+><TITLE
+>Release 9.6.22</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.79"><LINK
+REV="MADE"
+HREF="mailto:pgsql-docs@postgresql.org"><LINK
+REL="HOME"
+TITLE="PostgreSQL 9.6.24 Documentation"
+HREF="index.html"><LINK
+REL="UP"
+TITLE="Release Notes"
+HREF="release.html"><LINK
+REL="PREVIOUS"
+TITLE="Release 9.6.23"
+HREF="release-9-6-23.html"><LINK
+REL="NEXT"
+TITLE="Release 9.6.21"
+HREF="release-9-6-21.html"><LINK
+REL="STYLESHEET"
+TYPE="text/css"
+HREF="stylesheet.css"><META
+HTTP-EQUIV="Content-Type"
+CONTENT="text/html; charset=ISO-8859-1"><META
+NAME="creation"
+CONTENT="2021-11-08T22:28:11"></HEAD
+><BODY
+CLASS="SECT1"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+SUMMARY="Header navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="4"
+ALIGN="center"
+VALIGN="bottom"
+><A
+HREF="index.html"
+>PostgreSQL 9.6.24 Documentation</A
+></TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="top"
+><A
+TITLE="Release 9.6.23"
+HREF="release-9-6-23.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="60%"
+ALIGN="center"
+VALIGN="bottom"
+>Appendix E. Release Notes</TD
+><TD
+WIDTH="20%"
+ALIGN="right"
+VALIGN="top"
+><A
+TITLE="Release 9.6.21"
+HREF="release-9-6-21.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="RELEASE-9-6-22"
+>E.3. Release 9.6.22</A
+></H1
+><DIV
+CLASS="FORMALPARA"
+><P
+><B
+>Release date: </B
+>2021-05-13</P
+></DIV
+><P
+>   This release contains a variety of fixes from 9.6.21.
+   For information about new features in the 9.6 major release, see
+   <A
+HREF="release-9-6.html"
+>Section E.25</A
+>.
+  </P
+><P
+>   The <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+> community will stop
+   releasing updates for the 9.6.X release series in November 2021.
+   Users are encouraged to update to a newer release branch soon.
+  </P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN132275"
+>E.3.1. Migration to Version 9.6.22</A
+></H2
+><P
+>    A dump/restore is not required for those running 9.6.X.
+   </P
+><P
+>    However, if you are upgrading from a version earlier than 9.6.21,
+    see <A
+HREF="release-9-6-21.html"
+>Section E.4</A
+>.
+   </P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN132280"
+>E.3.2. Changes</A
+></H2
+><P
+></P
+><UL
+><LI
+><P
+>      Prevent integer overflows in array subscripting calculations
+      (Tom Lane)
+     </P
+><P
+>      The array code previously did not complain about cases where an
+      array's lower bound plus length overflows an integer.  This resulted
+      in later entries in the array becoming inaccessible (since their
+      subscripts could not be written as integers), but more importantly
+      it confused subsequent assignment operations.  This could lead to
+      memory overwrites, with ensuing crashes or unwanted data
+      modifications.
+      (CVE-2021-32027)
+     </P
+></LI
+><LI
+><P
+>      Fix mishandling of <SPAN
+CLASS="QUOTE"
+>"junk"</SPAN
+> columns in <TT
+CLASS="LITERAL"
+>INSERT
+      ... ON CONFLICT ... UPDATE</TT
+> target lists (Tom Lane)
+     </P
+><P
+>      If the <TT
+CLASS="LITERAL"
+>UPDATE</TT
+> list contains any multi-column
+      sub-selects (which give rise to junk columns in addition to the
+      results proper), the <TT
+CLASS="LITERAL"
+>UPDATE</TT
+> path would end up
+      storing tuples that include the values of the extra junk columns.
+      That's fairly harmless in the short run, but if new columns are
+      added to the table then the values would become accessible, possibly
+      leading to malfunctions if they don't match the datatypes of the
+      added columns.
+     </P
+><P
+>      In addition, in versions supporting cross-partition updates,
+      a cross-partition update triggered by such a case had the reverse
+      problem: the junk columns were removed from the target list,
+      typically causing an immediate crash due to malfunction of the
+      multi-column sub-select mechanism.
+      (CVE-2021-32028)
+     </P
+></LI
+><LI
+><P
+>      Allow <TT
+CLASS="LITERAL"
+>ALTER ROLE/DATABASE ... SET</TT
+> to set
+      the <TT
+CLASS="VARNAME"
+>role</TT
+>, <TT
+CLASS="VARNAME"
+>session_authorization</TT
+>,
+      and <TT
+CLASS="VARNAME"
+>temp_buffers</TT
+> parameters (Tom Lane)
+     </P
+><P
+>      Previously, over-eager validity checks might reject these commands,
+      even if the values would have worked when used later.  This created
+      a command ordering hazard for dump/reload and upgrade scenarios.
+     </P
+></LI
+><LI
+><P
+>      Fix bug with coercing the result of a <TT
+CLASS="LITERAL"
+>COLLATE</TT
+>
+      expression to a non-collatable type (Tom Lane)
+     </P
+><P
+>      This led to a parse tree in which the <TT
+CLASS="LITERAL"
+>COLLATE</TT
+>
+      appears to be applied to a non-collatable value.  While that
+      normally has no real impact (since <TT
+CLASS="LITERAL"
+>COLLATE</TT
+> has no
+      effect at runtime), it was possible to construct views that would be
+      rejected during dump/reload.
+     </P
+></LI
+><LI
+><P
+>      Disallow calling window functions and procedures via
+      the <SPAN
+CLASS="QUOTE"
+>"fast path"</SPAN
+> wire protocol message (Tom Lane)
+     </P
+><P
+>      Only plain functions are supported here.  While trying to call
+      an aggregate function failed already, calling a window function
+      would crash, and calling a procedure would work only if the
+      procedure did no transaction control.
+     </P
+></LI
+><LI
+><P
+>      Extend <CODE
+CLASS="FUNCTION"
+>pg_identify_object_as_address()</CODE
+>
+      to support event triggers (Joel Jacobson)
+     </P
+></LI
+><LI
+><P
+>      Fix <CODE
+CLASS="FUNCTION"
+>to_char()</CODE
+>'s handling of Roman-numeral month
+      format codes with negative intervals (Julien Rouhaud)
+     </P
+><P
+>      Previously, such cases would usually cause a crash.
+     </P
+></LI
+><LI
+><P
+>      Fix use of uninitialized value while parsing an
+      <TT
+CLASS="LITERAL"
+>\{<TT
+CLASS="REPLACEABLE"
+><I
+>m</I
+></TT
+>,<TT
+CLASS="REPLACEABLE"
+><I
+>n</I
+></TT
+>\}</TT
+>
+      quantifier in a BRE-mode regular expression (Tom Lane)
+     </P
+><P
+>      This error could cause the quantifier to act non-greedy, that is
+      behave like an
+      <TT
+CLASS="LITERAL"
+>{<TT
+CLASS="REPLACEABLE"
+><I
+>m</I
+></TT
+>,<TT
+CLASS="REPLACEABLE"
+><I
+>n</I
+></TT
+>}?</TT
+>
+      quantifier would do in full regular expressions.
+     </P
+></LI
+><LI
+><P
+>      Avoid divide-by-zero when estimating selectivity of a regular
+      expression with a very long fixed prefix (Tom Lane)
+     </P
+><P
+>      This typically led to a <TT
+CLASS="LITERAL"
+>NaN</TT
+> selectivity value,
+      causing assertion failures or strange planner behavior.
+     </P
+></LI
+><LI
+><P
+>      Fix access-off-the-end-of-the-table error in BRIN index bitmap scans
+      (Tomas Vondra)
+     </P
+><P
+>      If the page range size used by a BRIN index isn't a power of two,
+      there were corner cases in which a bitmap scan could try to fetch
+      pages past the actual end of the table, leading to <SPAN
+CLASS="QUOTE"
+>"could not
+      open file"</SPAN
+> errors.
+     </P
+></LI
+><LI
+><P
+>      Ensure that locks are released while shutting down a standby
+      server's startup process (Fujii Masao)
+     </P
+><P
+>      When a standby server is shut down while still in recovery, some
+      locks might be left held.  This causes assertion failures in debug
+      builds; it's unclear whether any serious consequence could occur
+      in production builds.
+     </P
+></LI
+><LI
+><P
+>      Ensure we default to <TT
+CLASS="VARNAME"
+>wal_sync_method</TT
+>
+      = <TT
+CLASS="LITERAL"
+>fdatasync</TT
+> on recent FreeBSD (Thomas Munro)
+     </P
+><P
+>      FreeBSD 13 supports <TT
+CLASS="LITERAL"
+>open_datasync</TT
+>, which would
+      normally become the default choice.  However, it's unclear whether
+      that is actually an improvement for Postgres, so preserve the
+      existing default for now.
+     </P
+></LI
+><LI
+><P
+>      Ensure we finish cleaning up when interrupted while detaching a DSM
+      segment (Thomas Munro)
+     </P
+><P
+>      This error could result in temporary files not being cleaned up
+      promptly after a parallel query.
+     </P
+></LI
+><LI
+><P
+>      Fix assorted minor memory leaks in the server (Tom Lane, Andres Freund)
+     </P
+></LI
+><LI
+><P
+>      Prevent infinite loop in <SPAN
+CLASS="APPLICATION"
+>libpq</SPAN
+>
+      if a ParameterDescription message with a corrupt length is received
+      (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Fix <SPAN
+CLASS="APPLICATION"
+>psql</SPAN
+> to restore the previous behavior
+      of <TT
+CLASS="LITERAL"
+>\connect
+      service=<TT
+CLASS="REPLACEABLE"
+><I
+>something</I
+></TT
+></TT
+> (Tom Lane)
+     </P
+><P
+>      A previous bug fix caused environment variables (such
+      as <TT
+CLASS="VARNAME"
+>PGPORT</TT
+>) to override entries in the service
+      file in this context.  Restore the previous behavior, in which the
+      priority is the other way around.
+     </P
+></LI
+><LI
+><P
+>      Fix race condition in detection of file modification by
+      <SPAN
+CLASS="APPLICATION"
+>psql</SPAN
+>'s <TT
+CLASS="LITERAL"
+>\e</TT
+> and related
+      commands (Laurenz Albe)
+     </P
+><P
+>      A very fast typist could fool the code's file-timestamp-based
+      detection of whether the temporary edit file was changed.
+     </P
+></LI
+><LI
+><P
+>      Fix missed file version check
+      in <SPAN
+CLASS="APPLICATION"
+>pg_restore</SPAN
+> (Tom Lane)
+     </P
+><P
+>      When reading a custom-format archive from a non-seekable source,
+      <SPAN
+CLASS="APPLICATION"
+>pg_restore</SPAN
+> neglected to check the
+      archive version.  If it was fed a newer archive version than it
+      can support, it would fail messily later on.
+     </P
+></LI
+><LI
+><P
+>      Add some more checks to <SPAN
+CLASS="APPLICATION"
+>pg_upgrade</SPAN
+> for
+      user tables containing non-upgradable data types (Tom Lane)
+     </P
+><P
+>      Fix detection of some cases where a non-upgradable data type is
+      embedded within a container type (such as an array or range).
+      Also disallow upgrading when user tables contain columns of
+      system-defined composite types, since those types' OIDs are not
+      stable across versions.
+     </P
+></LI
+><LI
+><P
+>      Fix <SPAN
+CLASS="APPLICATION"
+>pg_waldump</SPAN
+> to
+      count <TT
+CLASS="LITERAL"
+>XACT</TT
+> records correctly when generating
+      per-record statistics (Kyotaro Horiguchi)
+     </P
+></LI
+><LI
+><P
+>      Fix <TT
+CLASS="FILENAME"
+>contrib/amcheck</TT
+> to not complain about the
+      tuple flags <TT
+CLASS="LITERAL"
+>HEAP_XMAX_LOCK_ONLY</TT
+>
+      and <TT
+CLASS="LITERAL"
+>HEAP_KEYS_UPDATED</TT
+> both being set
+      (Julien Rouhaud)
+     </P
+><P
+>      This is a valid state after <TT
+CLASS="LITERAL"
+>SELECT FOR UPDATE</TT
+>.
+     </P
+></LI
+><LI
+><P
+>      Adjust VPATH build rules to support recent Oracle Developer Studio
+      compiler versions (Noah Misch)
+     </P
+></LI
+><LI
+><P
+>      Fix testing of PL/Python for Python 3 on Solaris (Noah Misch)
+     </P
+></LI
+></UL
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+SUMMARY="Footer navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="release-9-6-23.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="index.html"
+ACCESSKEY="H"
+>Home</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="release-9-6-21.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Release 9.6.23</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Release 9.6.21</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

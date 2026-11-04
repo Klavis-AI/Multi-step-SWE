@@ -1,0 +1,25 @@
+CREATE TABLE q2_pcg(i int primary key);
+CREATE PUBLICATION q2_pcg_p FOR TABLE q2_pcg WITH (publish = 'update,delete');
+SELECT attname FROM pg_attribute
+  WHERE attrelid = 'pg_publication'::regclass AND attnum > 0 ORDER BY attnum;
+   attname    
+--------------
+ oid
+ pubname
+ pubowner
+ puballtables
+ pubinsert
+ pubupdate
+ pubdelete
+ pubtruncate
+(8 rows)
+
+SELECT pubname, pubowner = (SELECT oid FROM pg_roles WHERE rolname = current_user) AS owned_by_me
+  FROM pg_publication WHERE pubname = 'q2_pcg_p';
+ pubname  | owned_by_me 
+----------+-------------
+ q2_pcg_p | t
+(1 row)
+
+DROP PUBLICATION q2_pcg_p;
+DROP TABLE q2_pcg;

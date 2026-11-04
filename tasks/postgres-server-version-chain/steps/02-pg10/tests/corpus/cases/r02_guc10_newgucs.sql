@@ -1,0 +1,7 @@
+SHOW max_logical_replication_workers;
+SHOW max_sync_workers_per_subscription;
+SHOW enable_gathermerge;
+SHOW min_parallel_table_scan_size;
+SHOW min_parallel_index_scan_size;
+SHOW max_parallel_workers;
+SHOW min_parallel_relation_size;

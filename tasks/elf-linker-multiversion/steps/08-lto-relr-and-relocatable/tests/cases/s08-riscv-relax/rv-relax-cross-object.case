@@ -1,0 +1,48 @@
+# arch: riscv64
+# A call whose target lives in another input object relaxes too, once the
+# layout puts the two within jal range.
+rt_obj rt.o
+cat > x.s <<'S'
+        .text
+        .globl far_call
+        .type far_call,@function
+far_call:
+        addi    sp, sp, -16
+        sd      ra, 8(sp)
+        call    other_fn
+        ld      ra, 8(sp)
+        addi    sp, sp, 16
+        ret
+        .size far_call, .-far_call
+        .globl entry
+entry:  tail    far_call
+        .section .note.GNU-stack,"",@progbits
+S
+cat > y.s <<'S'
+        .text
+        .globl other_fn
+        .type other_fn,@function
+other_fn:
+        li      a0, 31
+        ret
+        .size other_fn, .-other_fn
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj x.o x.s
+as_obj y.o y.s
+link_ok relaxed --relax rt.o x.o y.o --no-gc-sections
+link_ok kept --no-relax rt.o x.o y.o --no-gc-sections
+
+szr=$(symbols relaxed | awk '$8 == "far_call" { print $3; exit }')
+szk=$(symbols kept    | awk '$8 == "far_call" { print $3; exit }')
+want "cross-object call relaxed" "$szr" "14"
+want "cross-object call kept"    "$szk" "18"
+
+body=$($OBJDUMP -d --section=.text relaxed 2>/dev/null | awk '/<far_call>:/ { on = 1; next } on && /^$/ { exit } on { print }')
+want_not "no auipc left in the relaxed caller" "$body" 'auipc'
+run_expect relaxed "" 31
+run_expect kept "" 31
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 3

@@ -1,0 +1,197 @@
+{
+ "error": null,
+ "step": 2,
+ "tags": [
+  "federation",
+  "membership",
+  "invite"
+ ],
+ "transcript": [
+  {
+   "binary": null,
+   "body": {},
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 invites a user who lives on hs2",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/rooms/{roomId}/invite",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/invite",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "displayname": "iab D",
+    "membership": "invite"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 records the invite",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/state/m.room.member/@iab:<HS2>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "invite": {
+     "<ROOM1>": {
+      "has_recommended_state": true,
+      "join_rule": "invite",
+      "membership": [
+       "@iaa:<HS1>|join",
+       "@iab:<HS2>|invite"
+      ],
+      "specified_keys_on_every_event": [
+       "content",
+       "sender",
+       "state_key",
+       "type"
+      ]
+     }
+    },
+    "sections": {
+     "invite": [
+      "<ROOM1>"
+     ],
+     "join": [],
+     "knock": [],
+     "leave": []
+    }
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the invite arrives in hs2's /sync with stripped state",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/sync",
+   "path": "hs2 /_matrix/client/v3/sync?timeout=0&since=<BATCH>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "room_id": "<ROOM1>"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the invited remote user accepts",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/join/{roomIdOrAlias}",
+   "path": "hs2 /_matrix/client/v3/join/<ROOM1>?server_name=<HS1>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": [
+    "@iaa:<HS1>|join|iaa D",
+    "@iab:<HS2>|join|iab D"
+   ],
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 membership after the remote accept",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/members",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/members",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {},
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "the remote user leaves",
+   "method": "POST",
+   "missing_required": [],
+   "op": "POST /_matrix/client/v3/rooms/{roomId}/leave",
+   "path": "hs2 /_matrix/client/v3/rooms/<ROOM1>/leave",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "membership": "leave",
+    "reason": "done"
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 records the remote leave",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}",
+   "path": "/_matrix/client/v3/rooms/<ROOM1>/state/m.room.member/@iab:<HS2>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "join:<ROOM1>": [
+     "@iab:<HS2>|leave"
+    ]
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs1 /sync carries the remote leave",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/sync",
+   "path": "/_matrix/client/v3/sync?timeout=0&since=<BATCH>",
+   "status": 200,
+   "status_exact": true
+  },
+  {
+   "binary": null,
+   "body": {
+    "joined_rooms": []
+   },
+   "errcode_compared": true,
+   "headers": {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json"
+   },
+   "label": "hs2 no longer lists the room as joined",
+   "method": "GET",
+   "missing_required": [],
+   "op": "GET /_matrix/client/v3/joined_rooms",
+   "path": "hs2 /_matrix/client/v3/joined_rooms",
+   "status": 200,
+   "status_exact": true
+  }
+ ]
+}

@@ -1,0 +1,107 @@
+# arch: x86_64
+# MEMORY declares named address ranges and `>REGION` places an output section
+# in one: spec/10 s.9. Only the attribute-less `NAME : ORIGIN = ..., LENGTH =
+# ...` form is accepted -- the GNU `NAME (rwx) :` spelling MUST be rejected --
+# and ORIGIN()/LENGTH() read the declaration back in an expression (spec/10
+# s.8).
+#
+# The linked image is inspected, not executed. Region placement packs sections
+# of different permissions without page-aligning them, so p_offset and p_vaddr
+# need not stay congruent modulo the page size and the result is not required
+# to be loadable; nothing here grades that.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char msg[] = "mem";
+int g = 5;
+int entry(void) { print(msg); print("\n"); return g; }
+C
+cc_obj m.o m.c
+
+cat > t.ld <<'L'
+MEMORY {
+  CODE   : ORIGIN = 0x500000, LENGTH = 0x10000
+  RODATA : ORIGIN = 0x600000, LENGTH = 0x10000
+  DATA   : ORIGIN = 0x700000, LENGTH = 0x20000
+}
+code_o = ORIGIN(CODE);
+data_o = ORIGIN(DATA);
+data_l = LENGTH(DATA);
+SECTIONS {
+  .text   : { *(.text .text.*) }     >CODE
+  .rodata : { *(.rodata .rodata.*) } >RODATA
+  .data   : { *(.data .data.*) }     >DATA
+}
+L
+# Control: the same placement written with explicit dot assignments, which
+# links at every tag. A failure in the arm below is MEMORY and >REGION, not
+# the SECTIONS body.
+cat > c.ld <<'L'
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  . = 0x504000;
+  .data   : { *(.data .data.*) }
+}
+L
+link_ok ctl -T c.ld rt.o m.o
+run_expect ctl "mem" 5
+
+link_ok out -T t.ld rt.o m.o
+want ".text starts at ORIGIN(CODE)"   "$(( 16#$(sec_addr out .text) ))"   "$(( 0x500000 ))"
+want ".rodata starts at ORIGIN(RODATA)" "$(( 16#$(sec_addr out .rodata) ))" "$(( 0x600000 ))"
+want ".data starts at ORIGIN(DATA)"   "$(( 16#$(sec_addr out .data) ))"   "$(( 0x700000 ))"
+
+# ORIGIN() and LENGTH() are expression functions over the declaration.
+want "ORIGIN(CODE)" "$(( 16#$(sym_value out code_o) ))" "$(( 0x500000 ))"
+want "ORIGIN(DATA)" "$(( 16#$(sym_value out data_o) ))" "$(( 0x700000 ))"
+want "LENGTH(DATA)" "$(( 16#$(sym_value out data_l) ))" "$(( 0x20000 ))"
+
+# --- the four diagnosed errors of spec/10 s.9 --------------------------------
+mk() { printf '%s\n' "$1" > e.ld; }
+
+mk 'MEMORY { ROM : ORIGIN = 0x500000, LENGTH = 0x10000 }
+SECTIONS { .text : { *(.text .text.*) } >NOSUCH }'
+link_fails e1 -T e.ld rt.o m.o
+want_has "unknown region names itself" "$LINK_OUT" 'NOSUCH'
+
+mk 'MEMORY { ROM : ORIGIN = 0x500000, LENGTH = 0x10000
+            ROM : ORIGIN = 0x600000, LENGTH = 0x10000 }
+SECTIONS { .text : { *(.text .text.*) } >ROM }'
+link_fails e2 -T e.ld rt.o m.o
+want_has "duplicate region names itself" "$LINK_OUT" 'ROM'
+
+mk 'MEMORY { TINY : ORIGIN = 0x500000, LENGTH = 4 }
+SECTIONS { .text : { *(.text .text.*) } >TINY }'
+link_fails e3 -T e.ld rt.o m.o
+want_has "overflowing region names itself" "$LINK_OUT" 'TINY'
+
+# The fourth condition: an explicit address in the header slot that puts the
+# section outside the region it is assigned to. The control immediately below
+# uses the same shape with an address inside the region, so the failure is the
+# range check and not the address slot itself.
+mk 'MEMORY { ROM : ORIGIN = 0x500000, LENGTH = 0x10000 }
+SECTIONS { .text 0x500100 : { *(.text .text.*) } >ROM
+           .data : { *(.data .data.*) } >ROM }'
+link_ok e4ctl -T e.ld rt.o m.o
+want "an address inside the region is honoured" \
+     "$(( 16#$(sec_addr e4ctl .text) ))" "$(( 0x500100 ))"
+
+mk 'MEMORY { ROM : ORIGIN = 0x500000, LENGTH = 0x10000 }
+SECTIONS { .text 0x900000 : { *(.text .text.*) } >ROM
+           .data : { *(.data .data.*) } >ROM }'
+link_fails e4 -T e.ld rt.o m.o
+# spec/10 §9 promises "the named region **or** section appearing on stderr";
+# what is graded is the disjunction, exactly as the OUTPUT_FORMAT case grades
+# its own either-token pair.
+want_has "an address outside the region is diagnosed" \
+         "$LINK_OUT" '\.text|ROM'
+want_has "and the diagnostic goes to stderr" \
+         "$LINK_ERR" '\.text|ROM'
+
+# spec/10 s.9: the attribute-flag spelling is rejected, not ignored.
+mk 'MEMORY { ROM (rx) : ORIGIN = 0x500000, LENGTH = 0x10000 }
+SECTIONS { .text : { *(.text .text.*) } >ROM }'
+link_fails e5 -T e.ld rt.o m.o
+asserts_at_least 12

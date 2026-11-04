@@ -1,0 +1,34 @@
+# A class holding just the two cases of one character is now a single caseless
+# character, so the first code unit optimisation applies to it.
+/[Aa]bc/I
+    xxabc
+    xxAbc
+
+# A starting bitmap with only two bits that are case partners becomes a single
+# caseless starting code unit.
+/(word|WORD)/I
+    my WORD
+
+# For a positive class of wide characters in UTF-8 mode, only the bytes that
+# actually start those characters are set in the starting bitmap.
+/[\x{120}\x{250}]z/I,utf
+    \x{250}z
+
+# No minimum subject length is computed when start-up optimisations are off.
+/pqr/I,no_start_optimize
+    pqr
+
+# (*ACCEPT) suppresses the minimum length scan ...
+/pq(?:(*ACCEPT))?rs/I
+    pqrs
+
+# ... and a branch that starts with (*ACCEPT) can match an empty string.
+/(*ACCEPT)pq/I
+    zz
+
+/(*ACCEPT)|pq/I
+    zz
+
+# Characters inspected in a trailing negative lookahead are consulted text.
+/pq(?!rs)/
+    pqrt\=allusedtext

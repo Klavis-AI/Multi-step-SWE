@@ -1,0 +1,26 @@
+# arch: x86_64
+# An undefined symbol is a hard error: non-zero exit, and a diagnostic that
+# names the symbol.
+# NOTE: this deliberately does NOT require the referencing object to be named,
+# and does not require the literal word "undefined" either.
+# spec/00 S8 promises only the symbol, and spec/02 S8 calls naming the object
+# "good practice ... never penalised" -- i.e. permitted, not required.  The
+# reference does print `u.o` at every tag from 0.4.0 to 0.10.0, but a linker
+# that implements the contract exactly must not fail this group for it.
+rt_obj rt.o
+cat > u.c <<'C'
+int missing_thing(void);
+int entry(void) { return missing_thing(); }
+C
+cc_obj u.o u.c
+link_fails out rt.o u.o
+printf '%s\n' "$LINK_OUT" > err.txt
+grep -q 'missing_thing' err.txt || die "diagnostic does not name the symbol: $(cat err.txt)"
+# Supplying the definition makes exactly the same link succeed and run.
+cat > d.c <<'C'
+#include "rt.h"
+int missing_thing(void) { print("found"); return 4; }
+C
+cc_obj d.o d.c
+link_ok out2 rt.o u.o d.o
+run_expect out2 "found" 4

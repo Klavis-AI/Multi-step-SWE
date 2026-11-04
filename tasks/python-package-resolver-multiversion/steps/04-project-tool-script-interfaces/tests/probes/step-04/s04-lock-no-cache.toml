@@ -1,0 +1,33 @@
+id = "s04-lock-no-cache"
+step = 4
+group = "project-lock"
+python = "3.12"
+mode = "bare"
+setup_argv = [["lock"]]
+argv = ["run", "--no-cache", "--no-project", "python", "dump.py"]
+observe = ["status", "stdout"]
+
+[files]
+"pyproject.toml" = '''
+[project]
+name = "root"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["toppkg"]
+
+[tool.uv]
+index-url = "{INDEX}"
+'''
+"dump.py" = '''
+import tomllib
+import pathlib
+
+data = tomllib.loads(pathlib.Path("uv.lock").read_text())
+print(" ".join(sorted(f"{p['name']}=={p['version']}" for p in data["package"])))
+'''
+
+[index.packages.leafpkg.versions."1.0.0"]
+[index.packages.midpkg.versions."2.1.0"]
+requires = ["leafpkg>=1"]
+[index.packages.toppkg.versions."3.0.0"]
+requires = ["midpkg"]

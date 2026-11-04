@@ -1,0 +1,10 @@
+CREATE TABLE t(a INTEGER PRIMARY KEY, b INTEGER, c INTEGER);
+INSERT INTO t VALUES(1,10,100),(2,20,200),(3,30,300);
+UPDATE t SET b = b + 1, c = b WHERE a >= 2;
+SELECT a, b, c FROM t ORDER BY a;
+SELECT changes();
+UPDATE t SET b = 0;
+SELECT changes();
+SELECT a, b FROM t ORDER BY a;
+UPDATE t SET b = 5 WHERE a = 99;
+SELECT changes();

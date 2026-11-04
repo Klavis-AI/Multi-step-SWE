@@ -1,0 +1,174 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate, so
+# every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches the
+# verifier container.  The exclusions keep the collected tree to the candidate's own work:
+# the reference material baked into the image is in every container already, and the scorer
+# deletes build output before rebuilding.  The per-fork EIP texts each step drops into
+# /app/SPEC/eips are kept, so that part of the workspace stays cumulative.  A non-empty
+# exclude list also makes Harbor stage the artifact through a gzipped tar inside the pod
+# instead of streaming a raw tar over the exec channel, which is the reliable path for a
+# tree of this size.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [
+    "./SPEC/ethereum-yellowpaper.pdf",
+    "./SPEC/evm-tool-README.md",
+    "./SPEC/evm-tool-usage.txt",
+    "./SPEC/evm-tool-testdata", "./SPEC/evm-tool-testdata/*",
+    "./tests/run_corpus.py",
+    "./tests/self", "./tests/self/*",
+    "./timer.sh",
+    "./evm/evm",
+    "*.o", "*.a", "*.so",
+    ".git", ".git/*",
+  ] },
+]
+
+[task]
+name = "harbor/evm-fork-chain"
+version = "1.0.0"
+description = "Fourteen-step C11 Ethereum EVM: go-ethereum's t8n/t9n/b11r tooling interface carried from Frontier to Osaka, graded with the official GeneralStateTests, execution-spec-tests, TransactionTests and DifficultyTests fixtures."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["ethereum", "evm", "hard-fork", "state-transition", "c", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["ethereum", "evm", "consensus", "c", "multi-step", "merkle-patricia-trie"]
+
+[environment]
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 5400.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# Declared `public` like the agent's environment: Harbor's local Docker provider can only
+# enforce `no-network` through an egress-control sidecar image, and without one the verifier
+# step fails outright rather than running offline.  `make` fetching a prebuilt implementation
+# is covered by the checks that follow the build instead: a product of a Go toolchain is
+# rejected, and every interpreter in the image loses its execute bit for the account the
+# candidate runs as.
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-frontier"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "02-homestead"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "03-tangerine-whistle"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "04-spurious-dragon"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "05-byzantium"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "06-constantinople"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "07-istanbul"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "08-berlin"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "09-london"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "10-paris"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "11-shanghai"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "12-cancun"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "13-prague"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0
+
+[[steps]]
+name = "14-osaka"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3480.0

@@ -1,0 +1,25 @@
+CREATE TABLE x07_14a(id int PRIMARY KEY, v int);
+CREATE TABLE x07_14b(id int PRIMARY KEY, v int);
+INSERT INTO x07_14a VALUES (1,10);
+INSERT INTO x07_14b VALUES (1,100);
+MERGE INTO x07_14a t USING x07_14b s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v
+  WHEN MATCHED THEN DELETE;
+ERROR:  unreachable WHEN clause specified after unconditional WHEN clause
+MERGE INTO x07_14a t USING x07_14b s ON t.id = s.id
+  WHEN MATCHED THEN UPDATE SET v = s.v RETURNING t.id;
+ERROR:  syntax error at or near "RETURNING"
+LINE 2:   WHEN MATCHED THEN UPDATE SET v = s.v RETURNING t.id;
+                                               ^
+WITH q AS (MERGE INTO x07_14a t USING x07_14b s ON t.id = s.id
+  WHEN MATCHED THEN DELETE) SELECT count(*) FROM q;
+ERROR:  MERGE not supported in WITH query
+LINE 1: WITH q AS (MERGE INTO x07_14a t USING x07_14b s ON t.id = s....
+             ^
+SELECT id, v FROM x07_14a ORDER BY id;
+ id | v  
+----+----
+  1 | 10
+(1 row)
+
+DROP TABLE x07_14a, x07_14b;

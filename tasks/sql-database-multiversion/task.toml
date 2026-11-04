@@ -1,0 +1,108 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward
+# gate, so every step runs and each verifier reports a step-local score in
+# [0, 1] - its own passed-groups fraction, never a running total.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Anything in `exclude` is absent during grading, so
+# excluding build output means the verifier rebuilds from source.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "build", "build/**"] },
+]
+
+[task]
+name = "harbor/sql-database-multiversion"
+version = "1.0.0"
+description = "Implement a SQLite-compatible relational database in C across five public SQLite releases, from the 3.8.0 core engine through CTEs, JSON1, UPSERT and window functions, graded through the sqlite3 CLI and the documented C API."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["sqlite", "sql", "database", "c", "multi-step", "storage-engine"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["sqlite", "sql", "c", "storage-engine", "multi-step"]
+
+[environment]
+# Agent environment, built from environment/Dockerfile. Replace the packages
+# with your task's dependencies; the smoke tests only need a POSIX shell.
+build_timeout_sec = 2400.0
+cpus = 4
+memory_mb = 6144
+storage_mb = 10240
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# The build phase keeps the public network; the agent phase below is an
+# allowlist restricted to the runner's inference endpoint.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. A step can opt out with
+# [steps.verifier] environment_mode = "shared" and then needs no Dockerfile.
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so upstream sources, releases and package
+# registries cannot be fetched by any route. The runner merges its own model
+# host in at launch; the image already contains everything the build needs.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+# Sizes the verifier containers; without this section Harbor silently reuses a
+# copy of [environment]. Size it for the test corpus, not for the agent.
+[verifier.environment]
+build_timeout_sec = 2400.0
+cpus = 4
+memory_mb = 6144
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+# Grading may resolve dependencies but must not depend on a live network:
+# vendor or checksum whatever the tests read.
+network_mode = "public"
+
+# Each verifier writes {"reward": <this step's passed groups / total groups>}
+# to reward.json. No step sets `min_reward`, so a zero or partial score never
+# stops the trial: every step runs and Harbor averages the five. The former
+# gate corpus is now one ordinary scored group (`gate-endtoend`) in each step,
+# so failing it costs one group rather than the whole milestone; its outcome
+# survives as a diagnostic `gate` key in reward_details.json.
+[[steps]]
+name = "01-core-engine"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 2400.0
+
+[[steps]]
+name = "02-cte-and-values"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2400.0
+
+[[steps]]
+name = "03-json-and-expression-indexes"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2400.0
+
+[[steps]]
+name = "04-upsert"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2400.0
+
+[[steps]]
+name = "05-window-functions"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2400.0

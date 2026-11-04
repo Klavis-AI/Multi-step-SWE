@@ -1,0 +1,45 @@
+How environment/docs/ was produced: the build stage below fetches each
+document from its official source, checks it against the pinned sha256,
+and makes the text conversions. The resulting files are stored in docs/
+and copied into the image directly. Re-run these steps to refresh a
+document.
+
+# The PHP manual for an agent that works offline: the DocBook source of php.net's
+# English manual (php/doc-en, CC-BY 3.0; bookinfo.xml carries the notice) at a pinned
+# commit, sha256-checked. Only the language reference, the predefined classes, the
+# "Features" chapter, the appendices (the migration guides 5.6 -> 8.4 among them)
+# and the function references of the extensions the tests exercise are kept. php.net's
+# rendered builds are regenerated weekly, so no hash of them stays valid. Documents
+# only: no php-src, no PHP binary, no .phpt files.
+FROM debian:bookworm-slim AS docs
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+ARG PHP_DOC_EN_COMMIT=a330e2e2d30b14662ead3c060b31101934097bb2
+ARG PHP_DOC_EN_SHA256=e880e0a888621a3891a3d6fa5b85cd618bd51917be03e162c754a5236d54c5e2
+RUN set -eux; \
+    curl -fsSLo /tmp/doc-en.tar.gz "https://github.com/php/doc-en/archive/${PHP_DOC_EN_COMMIT}.tar.gz"; \
+    echo "${PHP_DOC_EN_SHA256}  /tmp/doc-en.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/docs/php-manual; \
+    top="doc-en-${PHP_DOC_EN_COMMIT}"; \
+    tar -xzf /tmp/doc-en.tar.gz -C /opt/docs/php-manual --strip-components=1 --no-same-owner \
+        "$top/bookinfo.xml" "$top/language" "$top/features" "$top/appendices" \
+        "$top/reference/array" "$top/reference/classobj" "$top/reference/ctype" \
+        "$top/reference/errorfunc" "$top/reference/funchand" "$top/reference/info" \
+        "$top/reference/json" "$top/reference/math" "$top/reference/mbstring" \
+        "$top/reference/misc" "$top/reference/strings" "$top/reference/var"; \
+    rm -f /tmp/doc-en.tar.gz; \
+    test -s /opt/docs/php-manual/language/types.xml; \
+    test -s /opt/docs/php-manual/reference/strings/functions/sprintf.xml; \
+    test -s /opt/docs/php-manual/appendices/migration84.xml; \
+    printf '%s\n' \
+      "php.net English manual, DocBook source: https://github.com/php/doc-en" \
+      "commit ${PHP_DOC_EN_COMMIT}" \
+      "archive https://github.com/php/doc-en/archive/${PHP_DOC_EN_COMMIT}.tar.gz" \
+      "archive sha256 ${PHP_DOC_EN_SHA256}" \
+      "Licence: Creative Commons Attribution 3.0 (see bookinfo.xml)." \
+      "Rendered online at https://www.php.net/manual/en/ ; reference/<ext>/functions/<name>.xml is function <name> (- for _)." \
+      > /opt/docs/php-manual/SOURCE.txt; \
+    (cd /opt/docs && find php-manual -type f ! -name MANIFEST.sha256 -print0 | sort -z | xargs -0 sha256sum > php-manual/MANIFEST.sha256); \
+    chmod -R a+rX /opt/docs

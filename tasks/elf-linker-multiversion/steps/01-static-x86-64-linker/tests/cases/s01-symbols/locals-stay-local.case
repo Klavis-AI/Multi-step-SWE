@@ -1,0 +1,52 @@
+# arch: x86_64
+# STB_LOCAL symbols take no part in global resolution: two objects may each
+# define their own `helper`, a third may define a global `helper`, and every
+# reference still binds to the definition in its own object.
+rt_obj rt.o
+cat > p.s <<'S'
+        .text
+helper: mov     $10, %eax
+        ret
+        .globl  from_p
+from_p: jmp     helper
+        .section .note.GNU-stack,"",@progbits
+S
+cat > q.s <<'S'
+        .text
+helper: mov     $20, %eax
+        ret
+        .globl  from_q
+from_q: jmp     helper
+        .section .note.GNU-stack,"",@progbits
+S
+cat > g.s <<'S'
+        .text
+        .globl  helper
+helper: mov     $1000, %eax
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj p.o p.s; as_obj q.o q.s; as_obj g.o g.s
+want "helper is LOCAL in p.o" "$(symbols p.o | awk '$8=="helper"{print $5}')" "LOCAL"
+want "helper is LOCAL in q.o" "$(symbols q.o | awk '$8=="helper"{print $5}')" "LOCAL"
+want "helper is GLOBAL in g.o" "$(symbols g.o | awk '$8=="helper"{print $5}')" "GLOBAL"
+cat > m.c <<'C'
+#include "rt.h"
+int from_p(void); int from_q(void); int helper(void);
+int entry(void) {
+  int r = from_p() + from_q() + helper();
+  putdec(r); print("\n");
+  return r == 1030 ? 0 : 1;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o p.o q.o g.o m.o
+run_expect out "1030" 0
+want "exactly one global helper in the output" \
+     "$(symbols out | awk '$5=="GLOBAL" && $8=="helper"' | grep -c .)" "1"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

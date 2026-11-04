@@ -1,0 +1,108 @@
+# arch: x86_64
+# what: three of spec/12 section 8's mandatory malformed-version-script
+# rejections that only become real at this step, because each depends on a
+# piece of grammar (extern-language validation, nested-extern detection, glob
+# syntax checking) that does not exist before the full grammar lands here. A
+# valid sibling script proves each malformed variant is rejected for its own
+# reason, not because version scripts are broken in general.
+cat > s.c <<'C'
+int pubfun(void) { return 1; }
+C
+cc_obj s.o s.c -fPIC
+
+# A language other than "C"/"C++" inside an extern block must be rejected.
+# spec/12 s8 forbids requiring any particular word in the diagnostic, so each
+# rejection below is graded as: the link fails, and stderr (not stdout --
+# spec/00 s8) carries at least one character.
+cat > lang_ok.map <<'V'
+V1 {
+  global:
+    extern "C" {
+      pubfun;
+    };
+};
+V
+link_ok lang_ok.so -shared --version-script=lang_ok.map s.o
+cat > lang_bad.map <<'V'
+V1 {
+  global:
+    extern "Pascal" {
+      pubfun;
+    };
+};
+V
+link_fails lang_bad -shared --version-script=lang_bad.map s.o
+want_has "the bad extern language is diagnosed on stderr" "$LINK_ERR" '.'
+
+# An extern block nested inside another extern block must be rejected.
+cat > nested_ok.map <<'V'
+V1 {
+  global:
+    extern "C" {
+      pubfun;
+    };
+};
+V
+link_ok nested_ok.so -shared --version-script=nested_ok.map s.o
+cat > nested_bad.map <<'V'
+V1 {
+  global:
+    extern "C" {
+      extern "C++" {
+        pubfun;
+      };
+    };
+};
+V
+link_fails nested_bad -shared --version-script=nested_bad.map s.o
+want_has "the nested extern block is diagnosed on stderr" "$LINK_ERR" '.'
+
+# A pattern that is not valid glob syntax (here, an unterminated bracket
+# expression) must be rejected rather than silently accepted.
+cat > glob_ok.map <<'V'
+V1 {
+  global:
+    pub[fF]un;
+};
+V
+link_ok glob_ok.so -shared --version-script=glob_ok.map s.o
+cat > glob_bad.map <<'V'
+V1 {
+  global:
+    pub[fun;
+};
+V
+link_fails glob_bad -shared --version-script=glob_bad.map s.o
+want_has "the invalid glob is diagnosed on stderr" "$LINK_ERR" '.'
+
+# A node that names a parent version no earlier node defined must be rejected.
+cat > parent_ok.map <<'V'
+V1 { global: pubfun; };
+V2 { global: pubfun; } V1;
+V
+link_ok parent_ok.so -shared --version-script=parent_ok.map s.o
+cat > parent_bad.map <<'V'
+V1 { global: pubfun; };
+V2 { global: pubfun; } VMISSING;
+V
+link_fails parent_bad -shared --version-script=parent_bad.map s.o
+want_has "the undefined parent is diagnosed on stderr" "$LINK_ERR" '.'
+
+# A missing closing brace -- and, separately, a missing `;` after a node --
+# must be rejected. Graded like the four above: rejection plus a non-empty
+# stderr diagnostic, nothing about its contents (spec/12 §8).
+cat > brace_bad.map <<'V'
+V1 {
+  global:
+    pubfun;
+V
+link_fails brace_bad -shared --version-script=brace_bad.map s.o
+want_has "the missing brace is diagnosed on stderr" "$LINK_ERR" '.'
+cat > semi_bad.map <<'V'
+V1 { global: pubfun; }
+V2 { global: pubfun; };
+V
+link_fails semi_bad -shared --version-script=semi_bad.map s.o
+want_has "the missing semicolon is diagnosed on stderr" "$LINK_ERR" '.'
+# 6 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 6

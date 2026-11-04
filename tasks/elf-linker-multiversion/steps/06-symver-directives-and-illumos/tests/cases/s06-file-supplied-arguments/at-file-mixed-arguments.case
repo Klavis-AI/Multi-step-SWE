@@ -1,0 +1,31 @@
+# arch: x86_64
+# @FILE argument files must mix with ordinary command-line arguments, and a
+# double-quoted token inside the file is one argument even with a space in it.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int entry(void) { print("atfile\n"); return 11; }
+C
+cc_obj m.o m.c
+cp m.o 'my obj.o'
+
+# One @file holding an option, one holding a quoted path with a space; the
+# object and -o come from the ordinary command line (caselib appends -o).
+printf -- '--no-gc-sections\n' > opts.args
+printf -- '"my obj.o"\n' > objs.args
+link_ok out rt.o @opts.args @objs.args
+want "e_type" "$(hdr out | awk '/^ *Type:/{print $2}')" "EXEC"
+want_has "quoted path pulled in the object" "$(symbols out)" ' entry$'
+run_expect out "atfile" 11
+
+# Nesting: an @file may itself be named by an ordinary argument list that also
+# carries options after it.
+printf -- 'rt.o\n"my obj.o"\n' > all.args
+link_ok out2 @all.args --no-gc-sections
+run_expect out2 "atfile" 11
+
+# A missing argument file has to be diagnosed, not ignored.
+link_fails out3 rt.o @nope.args
+want_has "diagnostic names the file"  "$LINK_ERR" 'nope\.args'
+
+asserts_at_least 3

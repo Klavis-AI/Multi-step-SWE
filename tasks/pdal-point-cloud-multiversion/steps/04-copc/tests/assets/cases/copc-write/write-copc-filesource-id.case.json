@@ -1,0 +1,25 @@
+{
+  "doc": "stages/writers.copc.rst Options: 'filesource_id  The file source id number to use for this file (a value between 0 and 65535 - 0 implies \"unassigned\") [Default: 0]'. The option is asserted two ways: `pdal info --metadata` on the written file reports the header field as `metadata.filesource_id`, and the default is shown not to be 4242.",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "pipe.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"out.copc.laz\",\"filesource_id\":4242}]"},
+    "default.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"default.copc.laz\"}]"}
+  },
+  "run": [
+    {"argv": ["pipeline", "pipe.json"]},
+    {"argv": ["pipeline", "default.json"]},
+    {"argv": ["info", "--metadata", "out.copc.laz"], "stdout_to": "meta.json"},
+    {"argv": ["info", "--metadata", "default.copc.laz"], "stdout_to": "default-meta.json"}
+  ],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "exit", "run": 1, "equals": 0},
+    {"kind": "exit", "run": 2, "equals": 0},
+    {"kind": "exit", "run": 3, "equals": 0},
+    {"kind": "file_json", "file": "meta.json", "path": ["metadata", "filesource_id"],
+     "equals": 4242},
+    {"kind": "file_json", "file": "default-meta.json", "path": ["metadata", "filesource_id"],
+     "equals": 0},
+    {"kind": "copc", "file": "out.copc.laz", "point_count": {"equals": 1000}}
+  ]
+}

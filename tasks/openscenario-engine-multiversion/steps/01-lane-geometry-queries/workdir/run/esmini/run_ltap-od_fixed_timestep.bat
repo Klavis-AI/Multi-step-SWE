@@ -1,0 +1,1 @@
+"../../bin/esmini" --window 60 60 800 400 --osc ../../resources/xosc/ltap-od.xosc --disable_controllers --fixed_timestep 0.1 --road_features on

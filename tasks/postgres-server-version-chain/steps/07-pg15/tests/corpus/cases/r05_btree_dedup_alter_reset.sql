@@ -1,0 +1,13 @@
+CREATE TABLE x05_43a(a int);
+INSERT INTO x05_43a SELECT g%4 FROM generate_series(1,100) g;
+CREATE INDEX x05_43i ON x05_43a(a);
+SELECT relname, reloptions FROM pg_class WHERE relname='x05_43i';
+ALTER INDEX x05_43i SET (deduplicate_items = off);
+SELECT relname, reloptions FROM pg_class WHERE relname='x05_43i';
+ALTER INDEX x05_43i SET (deduplicate_items = on, fillfactor = 70);
+SELECT relname, reloptions FROM pg_class WHERE relname='x05_43i';
+ALTER INDEX x05_43i RESET (deduplicate_items);
+SELECT relname, reloptions FROM pg_class WHERE relname='x05_43i';
+REINDEX INDEX x05_43i;
+SELECT count(*) FROM x05_43a;
+DROP TABLE x05_43a;

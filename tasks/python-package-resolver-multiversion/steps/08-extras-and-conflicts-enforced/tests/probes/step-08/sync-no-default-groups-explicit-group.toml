@@ -1,0 +1,35 @@
+# PROFILE.md 8 `uv sync` and `uv tree` flags: "`uv sync --no-default-groups`
+# disables every dependency group that would otherwise be enabled by default,
+# `dev` included. A group named explicitly with `--group` is still enabled."
+# `dev` is enabled by default and reaches devpkg; `docs` is not, and reaches
+# leafpkg only through `--group docs`. The installed set is read in full, so
+# leafpkg's presence is the explicitly named group surviving the flag and
+# devpkg's absence is the default group being switched off; asserting one
+# without the other would leave half the sentence untested.
+id = "sync-no-default-groups-explicit-group"
+step = 8
+group = "project-command-flags"
+python = "3.12"
+mode = "bare"
+argv = ["sync", "--no-default-groups", "--group", "docs"]
+observe = ["status", "glob:.venv/lib/python3.12/site-packages/*.dist-info"]
+timeout = 300
+
+[files]
+"pyproject.toml" = """
+[project]
+name = "proj"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = []
+
+[dependency-groups]
+dev = ["devpkg"]
+docs = ["leafpkg"]
+
+[tool.uv]
+index-url = "{INDEX}"
+"""
+
+[index.packages.leafpkg.versions."1.0.0"]
+[index.packages.devpkg.versions."1.0.0"]

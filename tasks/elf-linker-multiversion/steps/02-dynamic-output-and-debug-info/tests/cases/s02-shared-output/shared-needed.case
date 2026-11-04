@@ -1,0 +1,32 @@
+# arch: x86_64
+# -l against a shared object records a DT_NEEDED naming that object's
+# DT_SONAME -- not its path and not its file name.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+nre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" && die "$1: unexpected /$3/"; return 0; }
+dt()  { dynamic "$1" | sed -n "s/.*($2)[ \t]*//p" | sed -n 1p; }
+mkdir -p libdir
+cat > dep.c <<'C'
+int dep_value = 9;
+C
+cc_obj dep.o dep.c -fPIC
+link_ok libdir/libdep.so -shared -soname libdep.so.3 dep.o
+want "dep soname" "$(dt libdir/libdep.so SONAME)" "Library soname: [libdep.so.3]"
+cat > top.c <<'C'
+int top(int x) { return x - 1; }
+C
+cc_obj top.o top.c -fPIC
+link_ok libtop.so -shared -Llibdir -ldep top.o
+want "exactly one DT_NEEDED" "$(dynamic libtop.so | grep -c '(NEEDED)')" "1"
+want "DT_NEEDED is the soname" "$(dt libtop.so NEEDED)" "Shared library: [libdep.so.3]"
+nre "DT_NEEDED is not a path" "$(dt libtop.so NEEDED)" 'libdir'
+# The needed string must live in .dynstr of the output.
+o=$(sections libtop.so | awk '{ for (i=1;i<=NF;i++) if ($i==".dynstr") { print $(i+3) } }' | sed -n 1p)
+s=$(sections libtop.so | awk '{ for (i=1;i<=NF;i++) if ($i==".dynstr") { print $(i+4) } }' | sed -n 1p)
+dd if=libtop.so of=ds.bin bs=1 skip=$(( 16#$o )) count=$(( 16#$s )) status=none
+wre ".dynstr holds libdep.so.3" "$(tr '\0' '\n' < ds.bin)" '^libdep\.so\.3$'
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 5

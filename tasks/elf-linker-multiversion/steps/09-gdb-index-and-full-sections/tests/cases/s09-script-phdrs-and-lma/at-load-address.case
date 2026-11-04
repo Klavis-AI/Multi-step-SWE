@@ -1,0 +1,77 @@
+# arch: x86_64
+# AT(addr) gives an output section a load address distinct from its virtual
+# address. The LMA is read back through LOADADDR(), which is the documented
+# channel for it; what the PT_LOAD must show is that the *virtual* address is
+# untouched by AT() and that a section with no AT() is not rewritten. The
+# program headers' p_paddr is deliberately NOT asserted: spec/10 s.4 says the
+# reference derives p_paddr from the segment's own accumulated LMA offset,
+# which is neither the AT address nor the p_vaddr -- measured, this script's
+# .data PT_LOAD has VirtAddr 0x504000 and PhysAddr 0x504008, off by the
+# segment's own relative alignment. spec/00 s.5 makes that the exception to
+# its p_paddr == p_vaddr rule. LOADADDR is the only graded channel for an LMA.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char msg[] = "lma";
+int g = 9;
+int entry(void) { print(msg); print("\n"); return g; }
+C
+cc_obj m.o m.c
+cat > t.ld <<'L'
+data_lma = LOADADDR(.data);
+SECTIONS {
+  . = 0x500000;
+  .text   : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  . = 0x504000;
+  .data   : AT(0x508000) { *(.data .data.*) }
+}
+L
+# Control: the identical layout with the AT() removed. It links at every tag,
+# so whatever the arm below reports is AT() and not the rest of the script.
+sed 's/ AT(0x508000)//' t.ld > c.ld
+link_ok ctl -T c.ld rt.o m.o
+want "control .data VMA" "$(( 16#$(sec_addr ctl .data) ))" "$(( 0x504000 ))"
+want "control LMA collapses onto the VMA" \
+     "$(( 16#$(sym_value ctl data_lma) ))" "$(( 0x504000 ))"
+run_expect ctl "lma" 9
+
+link_ok out -T t.ld rt.o m.o
+
+# Inline helpers (caselib has none for segments). Since 0.9.0 wild emits a
+# second writable PT_LOAD for RELRO, so a segment is always located by the
+# address it covers, never by its ordinal or its permission bits.
+loads() { local t; t=$(segments "$1"); awk '/^ *LOAD /{f=""; for(i=7;i<NF;i++) f=f $i; print $3, $4, $6, f}' <<<"$t"; }
+seg_of() { # seg_of <file> <hex-addr> -> "<index> <vaddr> <paddr> <flags>"
+  local a=$((16#$2)) i=0 v p m f
+  while read -r v p m f; do
+    [ -n "$v" ] || continue
+    if [ "$a" -ge "$((v))" ] && [ "$a" -lt "$((v + m))" ]; then echo "$i $v $p $f"; return 0; fi
+    i=$((i + 1))
+  done <<<"$(loads "$1")"
+  return 1
+}
+
+want ".data at the scripted VMA" "$(( 16#$(sec_addr out .data) ))" "$(( 0x504000 ))"
+want "AT() is what LOADADDR reports" \
+     "$(( 16#$(sym_value out data_lma) ))" "$(( 0x508000 ))"
+
+# AT() moves the load address only. The VMA the section runs at, and the
+# p_vaddr of the PT_LOAD that covers it, must both stay where the script put
+# them -- AT() is not allowed to drag the virtual layout along with it.
+ds=$(seg_of out "$(sec_addr out .data)") || die ".data is in no PT_LOAD"
+set -- $ds
+want ".data segment p_vaddr" "$(($2))" "$(( 0x504000 ))"
+
+# And a section with no AT() keeps paddr == vaddr, per spec/00 s.5.
+ts=$(seg_of out "$(sec_addr out .text)") || die ".text is in no PT_LOAD"
+set -- $ts
+want ".text segment paddr tracks vaddr" "$(($3))" "$(($2))"
+
+run_expect out "lma" 9
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 6

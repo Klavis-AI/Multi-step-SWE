@@ -1,0 +1,23 @@
+CREATE TABLE x06_55a(a text, b text);
+ALTER TABLE x06_55a ALTER COLUMN a SET COMPRESSION pglz;
+ALTER TABLE x06_55a ALTER COLUMN b SET COMPRESSION lz4;
+INSERT INTO x06_55a SELECT repeat('abcdefgh',1000), repeat('abcdefgh',1000);
+SELECT pg_column_compression(a), pg_column_compression(b) FROM x06_55a;
+ pg_column_compression | pg_column_compression 
+-----------------------+-----------------------
+ pglz                  | lz4
+(1 row)
+
+SELECT length(a), length(b) FROM x06_55a;
+ length | length 
+--------+--------
+   8000 |   8000
+(1 row)
+
+SELECT pg_column_compression('short'::text) IS NULL;
+ ?column? 
+----------
+ t
+(1 row)
+
+DROP TABLE x06_55a;

@@ -1,0 +1,29 @@
+CREATE TABLE x05_18a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x05_18a1 PARTITION OF x05_18a FOR VALUES FROM (0) TO (10);
+CREATE TABLE x05_18a2 PARTITION OF x05_18a FOR VALUES FROM (10) TO (20);
+CREATE PUBLICATION x05_18p FOR TABLE x05_18a WITH (publish_via_partition_root = true);
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to logical before creating subscriptions.
+INSERT INTO x05_18a VALUES (1,'a'),(11,'b');
+SELECT tableoid::regclass::text AS part, a, b FROM x05_18a ORDER BY a;
+   part   | a  | b 
+----------+----+---
+ x05_18a1 |  1 | a
+ x05_18a2 | 11 | b
+(2 rows)
+
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_18p' ORDER BY tablename;
+ tablename 
+-----------
+ x05_18a
+(1 row)
+
+ALTER TABLE x05_18a DETACH PARTITION x05_18a2;
+SELECT tablename FROM pg_publication_tables WHERE pubname='x05_18p' ORDER BY tablename;
+ tablename 
+-----------
+ x05_18a
+(1 row)
+
+DROP PUBLICATION x05_18p;
+DROP TABLE x05_18a, x05_18a2;

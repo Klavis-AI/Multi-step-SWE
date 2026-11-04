@@ -1,0 +1,499 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<HTML
+><HEAD
+><TITLE
+>Release 9.6.14</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.79"><LINK
+REV="MADE"
+HREF="mailto:pgsql-docs@postgresql.org"><LINK
+REL="HOME"
+TITLE="PostgreSQL 9.6.24 Documentation"
+HREF="index.html"><LINK
+REL="UP"
+TITLE="Release Notes"
+HREF="release.html"><LINK
+REL="PREVIOUS"
+TITLE="Release 9.6.15"
+HREF="release-9-6-15.html"><LINK
+REL="NEXT"
+TITLE="Release 9.6.13"
+HREF="release-9-6-13.html"><LINK
+REL="STYLESHEET"
+TYPE="text/css"
+HREF="stylesheet.css"><META
+HTTP-EQUIV="Content-Type"
+CONTENT="text/html; charset=ISO-8859-1"><META
+NAME="creation"
+CONTENT="2021-11-08T22:28:11"></HEAD
+><BODY
+CLASS="SECT1"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+SUMMARY="Header navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="4"
+ALIGN="center"
+VALIGN="bottom"
+><A
+HREF="index.html"
+>PostgreSQL 9.6.24 Documentation</A
+></TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="top"
+><A
+TITLE="Release 9.6.15"
+HREF="release-9-6-15.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="60%"
+ALIGN="center"
+VALIGN="bottom"
+>Appendix E. Release Notes</TD
+><TD
+WIDTH="20%"
+ALIGN="right"
+VALIGN="top"
+><A
+TITLE="Release 9.6.13"
+HREF="release-9-6-13.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="RELEASE-9-6-14"
+>E.11. Release 9.6.14</A
+></H1
+><DIV
+CLASS="FORMALPARA"
+><P
+><B
+>Release date: </B
+>2019-06-20</P
+></DIV
+><P
+>   This release contains a variety of fixes from 9.6.13.
+   For information about new features in the 9.6 major release, see
+   <A
+HREF="release-9-6.html"
+>Section E.25</A
+>.
+  </P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN133621"
+>E.11.1. Migration to Version 9.6.14</A
+></H2
+><P
+>    A dump/restore is not required for those running 9.6.X.
+   </P
+><P
+>    However, if you are upgrading from a version earlier than 9.6.9,
+    see <A
+HREF="release-9-6-9.html"
+>Section E.16</A
+>.
+   </P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN133626"
+>E.11.2. Changes</A
+></H2
+><P
+></P
+><UL
+><LI
+><P
+>      Fix failure of <TT
+CLASS="COMMAND"
+>ALTER TABLE ... ALTER COLUMN TYPE</TT
+>
+      when the table has a partial exclusion constraint (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Fix failure of <TT
+CLASS="COMMAND"
+>COMMENT</TT
+> command for comments on
+      domain constraints (Daniel Gustafsson, Michael Paquier)
+     </P
+></LI
+><LI
+><P
+>      Fix faulty generation of merge-append plans (Tom Lane)
+     </P
+><P
+>      This mistake could lead to <SPAN
+CLASS="QUOTE"
+>"could not find pathkey item to
+      sort"</SPAN
+> errors.
+     </P
+></LI
+><LI
+><P
+>      Fix incorrect printing of queries with duplicate join names
+      (Philip Dub&eacute;)
+     </P
+><P
+>      This oversight caused a dump/restore failure for views containing
+      such queries.
+     </P
+></LI
+><LI
+><P
+>      Fix misoptimization of <TT
+CLASS="LITERAL"
+>{1,1}</TT
+> quantifiers in
+      regular expressions (Tom Lane)
+     </P
+><P
+>      Such quantifiers were treated as no-ops and optimized away;
+      but the documentation specifies that they impose greediness, or
+      non-greediness in the case of the non-greedy
+      variant <TT
+CLASS="LITERAL"
+>{1,1}?</TT
+>, on the subexpression they're
+      attached to, and this did not happen.  The misbehavior occurred
+      only if the subexpression contained capturing parentheses or a
+      back-reference.
+     </P
+></LI
+><LI
+><P
+>      Avoid possible failures while initializing a new
+      process's <TT
+CLASS="STRUCTNAME"
+>pg_stat_activity</TT
+> data (Tom Lane)
+     </P
+><P
+>      Certain operations that could fail, such as converting strings
+      extracted from an SSL certificate into the database encoding, were
+      being performed inside a critical section.  Failure there would
+      result in database-wide lockup due to violating the access protocol
+      for shared <TT
+CLASS="STRUCTNAME"
+>pg_stat_activity</TT
+> data.
+     </P
+></LI
+><LI
+><P
+>      Fix race condition in check to see whether a pre-existing shared
+      memory segment is still in use by a conflicting postmaster (Tom Lane)
+     </P
+></LI
+><LI
+><P
+>      Avoid attempting to do database accesses for parameter checking in
+      processes that are not connected to a specific database (Vignesh C,
+      Andres Freund)
+     </P
+><P
+>      This error could result in failures like <SPAN
+CLASS="QUOTE"
+>"cannot read pg_class
+      without having selected a database"</SPAN
+>.
+     </P
+></LI
+><LI
+><P
+>      Avoid possible hang in <SPAN
+CLASS="APPLICATION"
+>libpq</SPAN
+> if using SSL
+      and OpenSSL's pending-data buffer contains an exact multiple of 256
+      bytes (David Binderman)
+     </P
+></LI
+><LI
+><P
+>      Improve <SPAN
+CLASS="APPLICATION"
+>initdb</SPAN
+>'s handling of multiple
+      equivalent names for the system time zone (Tom Lane, Andrew Gierth)
+     </P
+><P
+>      Make <SPAN
+CLASS="APPLICATION"
+>initdb</SPAN
+> examine
+      the <TT
+CLASS="FILENAME"
+>/etc/localtime</TT
+> symbolic link, if that
+      exists, to break ties between equivalent names for the system time
+      zone.  This makes <SPAN
+CLASS="APPLICATION"
+>initdb</SPAN
+> more likely to
+      select the time zone name that the user would expect when multiple
+      identical time zones exist.  It will not change the behavior
+      if <TT
+CLASS="FILENAME"
+>/etc/localtime</TT
+> is not a symlink to a zone
+      data file, nor if the time zone is determined from
+      the <TT
+CLASS="ENVAR"
+>TZ</TT
+> environment variable.
+     </P
+><P
+>      Separately, prefer <TT
+CLASS="LITERAL"
+>UTC</TT
+> over other spellings of
+      that time zone, when neither <TT
+CLASS="ENVAR"
+>TZ</TT
+>
+      nor <TT
+CLASS="FILENAME"
+>/etc/localtime</TT
+> provide a hint.  This fixes
+      an annoyance introduced by <SPAN
+CLASS="APPLICATION"
+>tzdata</SPAN
+> 2019a's
+      change to make the <TT
+CLASS="LITERAL"
+>UCT</TT
+> and <TT
+CLASS="LITERAL"
+>UTC</TT
+>
+      zone names equivalent: <SPAN
+CLASS="APPLICATION"
+>initdb</SPAN
+> was then
+      preferring <TT
+CLASS="LITERAL"
+>UCT</TT
+>, which almost nobody wants.
+     </P
+></LI
+><LI
+><P
+>      Fix ordering of <TT
+CLASS="COMMAND"
+>GRANT</TT
+> commands emitted
+      by <SPAN
+CLASS="APPLICATION"
+>pg_dump</SPAN
+>
+      and <SPAN
+CLASS="APPLICATION"
+>pg_dumpall</SPAN
+> for databases and
+      tablespaces (Nathan Bossart, Michael Paquier)
+     </P
+><P
+>      If cascading grants had been issued, restore might fail due to
+      the <TT
+CLASS="COMMAND"
+>GRANT</TT
+> commands being given in an order that
+      didn't respect their interdependencies.
+     </P
+></LI
+><LI
+><P
+>      Fix misleading error reports
+      from <SPAN
+CLASS="APPLICATION"
+>reindexdb</SPAN
+> (Julien Rouhaud)
+     </P
+></LI
+><LI
+><P
+>      Ensure that <SPAN
+CLASS="APPLICATION"
+>vacuumdb</SPAN
+> returns correct
+      status if an error occurs while using parallel jobs
+      (Julien Rouhaud)
+     </P
+></LI
+><LI
+><P
+>      Fix <TT
+CLASS="FILENAME"
+>contrib/auto_explain</TT
+> to not cause problems
+      in parallel queries (Tom Lane)
+     </P
+><P
+>      Previously, a parallel worker might try to log its query even if the
+      parent query were not being logged
+      by <TT
+CLASS="FILENAME"
+>auto_explain</TT
+>.  This would work sometimes, but
+      it's confusing, and in some cases it resulted in failures
+      like <SPAN
+CLASS="QUOTE"
+>"could not find key N in shm TOC"</SPAN
+>.
+     </P
+><P
+>      Also, fix an off-by-one error that resulted in not necessarily
+      logging every query even when the sampling rate is set to 1.0.
+     </P
+></LI
+><LI
+><P
+>      In <TT
+CLASS="FILENAME"
+>contrib/postgres_fdw</TT
+>, account for possible
+      data modifications by local <TT
+CLASS="LITERAL"
+>BEFORE ROW UPDATE</TT
+>
+      triggers (Shohei Mochizuki)
+     </P
+><P
+>      If a trigger modified a column that was otherwise not changed by the
+      <TT
+CLASS="COMMAND"
+>UPDATE</TT
+>, the new value was not transmitted to the
+      remote server.
+     </P
+></LI
+><LI
+><P
+>      On Windows, avoid failure when the database encoding is set to
+      SQL_ASCII and we attempt to log a non-ASCII string (Noah Misch)
+     </P
+><P
+>      The code had been assuming that such strings must be in UTF-8, and
+      would throw an error if they didn't appear to be validly encoded.
+      Now, just transmit the untranslated bytes to the log.
+     </P
+></LI
+><LI
+><P
+>      Make <SPAN
+CLASS="APPLICATION"
+>PL/pgSQL</SPAN
+>'s header files C++-safe
+      (George Tarasov)
+     </P
+></LI
+></UL
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+SUMMARY="Footer navigation table"
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="release-9-6-15.html"
+ACCESSKEY="P"
+>Prev</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="index.html"
+ACCESSKEY="H"
+>Home</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="release-9-6-13.html"
+ACCESSKEY="N"
+>Next</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Release 9.6.15</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="release.html"
+ACCESSKEY="U"
+>Up</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Release 9.6.13</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

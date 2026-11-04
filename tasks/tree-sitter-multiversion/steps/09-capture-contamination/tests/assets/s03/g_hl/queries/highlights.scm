@@ -1,0 +1,2 @@
+(keyword) @keyword
+(identifier) @variable

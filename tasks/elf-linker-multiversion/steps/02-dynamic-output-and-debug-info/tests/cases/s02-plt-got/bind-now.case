@@ -1,0 +1,36 @@
+# arch: x86_64
+# -z now yields eager binding: DF_BIND_NOW in DT_FLAGS and DF_1_NOW in
+# DT_FLAGS_1, and no lazily-bound PLT relocations anywhere in the image.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+nre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" && die "$1: unexpected /$3/"; return 0; }
+dt()  { dynamic "$1" | sed -n "s/.*($2)[ \t]*//p" | sed -n 1p; }
+cat > p.c <<'C'
+extern int extfn(int);
+extern int extvar;
+int callit(int x) { return extfn(x) + extvar; }
+C
+cc_obj p.o p.c -fPIC
+link_ok libp.so -shared -z now p.o
+DYN=$(dynamic libp.so)
+wre "DT_FLAGS present"   "$DYN" '\(FLAGS\)'
+wre "DT_FLAGS_1 present" "$DYN" '\(FLAGS_1\)'
+wre "DF_BIND_NOW" "$(dt libp.so FLAGS)"   'BIND_NOW'
+wre "DF_1_NOW"    "$(dt libp.so FLAGS_1)" 'NOW'
+# Eager binding means the PLT is resolved through .rela.dyn GLOB_DAT slots and
+# there is no lazy JUMP_SLOT table to describe.
+nre "no JUMP_SLOT relocations" "$(relocs libp.so)" 'JUMP_SLOT'
+nre "no DT_JMPREL"    "$DYN" '\(JMPREL\)'
+nre "no DT_PLTRELSZ"  "$DYN" '\(PLTRELSZ\)'
+want "no .rela.plt" "$(sections libp.so | grep -c '\.rela\.plt')" "0"
+# ...but the GOT is still fully described by .rela.dyn.
+want "two GLOB_DAT" "$(relocs libp.so | grep -c 'R_X86_64_GLOB_DAT')" "2"
+# -z lazy MUST be accepted (it may be ignored) and binding stays eager either way.
+link_ok libq.so -shared -z lazy p.o
+nre "no JUMP_SLOT under -z lazy" "$(relocs libq.so)" 'JUMP_SLOT'
+want "still two GLOB_DAT under -z lazy" "$(relocs libq.so | grep -c 'R_X86_64_GLOB_DAT')" "2"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 11

@@ -1,0 +1,30 @@
+# 05.06 -- the project itself is not importable from the environment `uv run`
+# prepares: an unpackaged project is never installed, so importing it fails.
+# The `uv sync` in setup_argv is what makes the probe discriminating -- before
+# this milestone the sync itself fails, so the observed status changes here.
+# The empty `.dist-info` set is asserted alongside, so the failed import is
+# attributable to the project never having been installed.
+id = "s05-run-no-build-system-importable"
+step = 5
+group = "project-packaging-default"
+python = "3.12"
+mode = "bare"
+argv = ["run", "--offline", "python", "-c", "import proj; proj.main()"]
+setup_argv = [["sync", "--offline"]]
+observe = ["setup_status", "status", "glob:.venv/lib/python*/site-packages/*.dist-info"]
+
+[files]
+"pyproject.toml" = '''
+[project]
+name = "proj"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+proj-cli = "proj:main"
+'''
+"src/proj/__init__.py" = '''
+def main():
+    print("proj-main")
+'''

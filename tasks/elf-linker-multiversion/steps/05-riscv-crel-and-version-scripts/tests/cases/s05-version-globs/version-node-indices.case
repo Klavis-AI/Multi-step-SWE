@@ -1,0 +1,32 @@
+# arch: x86_64
+# what: with several version nodes in one script each exported name must get
+# the index of the node that actually matched it, and the inheritance chain
+# must be written out as verdef parents.
+cat > s.c <<'C'
+int fooa(void) { return 1; }
+int foob(void) { return 2; }
+int fooc(void) { return 3; }
+int hidden(void) { return 4; }
+C
+cc_obj s.o s.c -fPIC
+cat > v.map <<'V'
+V1 { global: fooa; local: *; };
+V2 { global: foob; } V1;
+V3 { global: fooc; } V2;
+V
+link_ok out.so -shared --version-script=v.map s.o
+dynsyms out.so > ds.txt
+want "each name takes its own node" \
+  "$(awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' ')" \
+  "fooa@@V1 foob@@V2 fooc@@V3 "
+want "hidden is not exported" "$(grep -c 'hidden' ds.txt)" "0"
+vernum out.so > v.txt
+want "four verdef entries" "$(grep -c 'Rev: 1' v.txt)" "4"
+want "V1 index" "$(awk '/Name: V1/{print $7}' v.txt)" "2"
+want "V2 index" "$(awk '/Name: V2/{print $7}' v.txt)" "3"
+want "V3 index" "$(awk '/Name: V3/{print $7}' v.txt)" "4"
+want "V2 inherits V1" "$(grep -c 'Parent 1: V1' v.txt)" "1"
+want "V3 inherits V2" "$(grep -c 'Parent 1: V2' v.txt)" "1"
+want "DT_VERDEFNUM" "$(dynamic out.so | awk '/VERDEFNUM/{print $NF}')" "4"
+# 9 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 9

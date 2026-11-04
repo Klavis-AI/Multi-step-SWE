@@ -1,0 +1,1361 @@
+diff -ruN a/src/bm.h b/src/bm.h
+--- a/src/bm.h	2026-09-23 19:20:02.255654054 +0000
++++ b/src/bm.h	2026-09-23 19:20:49.971754591 +0000
+@@ -7843,7 +7843,7 @@
+         if (ret && (ret == arg_blk) && IS_FULL_BLOCK(dst))
+         {
+             ret = blockman_.get_allocator().alloc_bit_block();
+-#if 0
++#ifdef BMVECTOPT
+         VECT_XOR_ARR_2_MASK(ret,
+                             arg_blk,
+                             arg_blk + bm::set_block_size,
+diff -ruN a/src/bmavx2.h b/src/bmavx2.h
+--- a/src/bmavx2.h	2026-09-23 19:20:02.259654397 +0000
++++ b/src/bmavx2.h	2026-09-23 19:20:49.975754936 +0000
+@@ -96,33 +96,1104 @@
+ 
+ 
+ 
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
+-
++/*!
++    @brief XOR array elements to specified mask
++    *dst = *src ^ mask
++
++    @ingroup AVX2
++*/
++inline
++void avx2_xor_arr_2_mask(__m256i* BMRESTRICT dst,
++                         const __m256i* BMRESTRICT src,
++                         const __m256i* BMRESTRICT src_end,
++                         bm::word_t mask)
++{
++     __m256i yM = _mm256_set1_epi32(int(mask));
++     do
++     {
++        _mm256_store_si256(dst+0, _mm256_xor_si256(_mm256_load_si256(src+0), yM)); // ymm1 = (~ymm1) & ymm2
++        _mm256_store_si256(dst+1, _mm256_xor_si256(_mm256_load_si256(src+1), yM));
++        _mm256_store_si256(dst+2, _mm256_xor_si256(_mm256_load_si256(src+2), yM));
++        _mm256_store_si256(dst+3, _mm256_xor_si256(_mm256_load_si256(src+3), yM));
++        
++        dst += 4; src += 4;
++     } while (src < src_end);
++}
++
++
++/*!
++    @brief Inverts array elements and NOT them to specified mask
++    *dst = ~*src & mask
++
++    @ingroup AVX2
++*/
++inline
++void avx2_andnot_arr_2_mask(__m256i* BMRESTRICT dst,
++                            const __m256i* BMRESTRICT src,
++                            const __m256i* BMRESTRICT src_end,
++                            bm::word_t mask)
++{
++     __m256i yM = _mm256_set1_epi32(int(mask));
++     do
++     {
++        _mm256_store_si256(dst+0, _mm256_andnot_si256(_mm256_load_si256(src+0), yM)); // ymm1 = (~ymm1) & ymm2
++        _mm256_store_si256(dst+1, _mm256_andnot_si256(_mm256_load_si256(src+1), yM));
++        _mm256_store_si256(dst+2, _mm256_andnot_si256(_mm256_load_si256(src+2), yM));
++        _mm256_store_si256(dst+3, _mm256_andnot_si256(_mm256_load_si256(src+3), yM));
++        
++        dst += 4; src += 4;
++     } while (src < src_end);
++}
++
++/*!
++    @brief AND array elements against another array
++    *dst &= *src
++    @return 0 if destination does not have any bits
++    @ingroup AVX2
++*/
++inline
++unsigned avx2_and_block(__m256i* BMRESTRICT dst,
++                        const __m256i* BMRESTRICT src)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i accA, accB, accC, accD;
++
++    const __m256i* BMRESTRICT src_end =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size);
++
++    accA = accB = accC = accD = _mm256_setzero_si256();
++
++    do
++    {
++        m1A = _mm256_and_si256(_mm256_load_si256(src+0), _mm256_load_si256(dst+0));
++        m1B = _mm256_and_si256(_mm256_load_si256(src+1), _mm256_load_si256(dst+1));
++        m1C = _mm256_and_si256(_mm256_load_si256(src+2), _mm256_load_si256(dst+2));
++        m1D = _mm256_and_si256(_mm256_load_si256(src+3), _mm256_load_si256(dst+3));
++
++        _mm256_store_si256(dst+0, m1A);
++        _mm256_store_si256(dst+1, m1B);
++        _mm256_store_si256(dst+2, m1C);
++        _mm256_store_si256(dst+3, m1D);
++        
++        accA = _mm256_or_si256(accA, m1A);
++        accB = _mm256_or_si256(accB, m1B);
++        accC = _mm256_or_si256(accC, m1C);
++        accD = _mm256_or_si256(accD, m1D);
++        
++        src += 4; dst += 4;
++
++    } while (src < src_end);
++    
++    accA = _mm256_or_si256(accA, accB); // A = A | B
++    accC = _mm256_or_si256(accC, accD); // C = C | D
++    accA = _mm256_or_si256(accA, accC); // A = A | C
++    
++    return !_mm256_testz_si256(accA, accA);
++}
++
++/*!
++    @brief AND block digest stride
++    *dst &= *src
++ 
++    @return true if stide is all zero
++    @ingroup AVX2
++*/
++inline
++bool avx2_and_digest(__m256i* BMRESTRICT dst,
++                     const __m256i* BMRESTRICT src)
++{
++    __m256i m1A, m1B, m1C, m1D;
++
++    m1A = _mm256_and_si256(_mm256_load_si256(src+0), _mm256_load_si256(dst+0));
++    m1B = _mm256_and_si256(_mm256_load_si256(src+1), _mm256_load_si256(dst+1));
++    m1C = _mm256_and_si256(_mm256_load_si256(src+2), _mm256_load_si256(dst+2));
++    m1D = _mm256_and_si256(_mm256_load_si256(src+3), _mm256_load_si256(dst+3));
++
++    _mm256_store_si256(dst+0, m1A);
++    _mm256_store_si256(dst+1, m1B);
++    _mm256_store_si256(dst+2, m1C);
++    _mm256_store_si256(dst+3, m1D);
++    
++     m1A = _mm256_or_si256(m1A, m1B);
++     m1C = _mm256_or_si256(m1C, m1D);
++     m1A = _mm256_or_si256(m1A, m1C);
++
++    return _mm256_testz_si256(m1A, m1A);
++}
++
++/*!
++    @brief AND block digest stride 2 way
++    *dst = *src1 & *src2
++ 
++    @return true if stide is all zero
++    @ingroup AVX2
++*/
++inline
++bool avx2_and_digest_2way(__m256i* BMRESTRICT dst,
++                     const __m256i* BMRESTRICT src1,
++                     const __m256i* BMRESTRICT src2)
++{
++    __m256i m1A, m1B, m1C, m1D;
++
++    m1A = _mm256_and_si256(_mm256_load_si256(src1+0), _mm256_load_si256(src2+0));
++    m1B = _mm256_and_si256(_mm256_load_si256(src1+1), _mm256_load_si256(src2+1));
++    m1C = _mm256_and_si256(_mm256_load_si256(src1+2), _mm256_load_si256(src2+2));
++    m1D = _mm256_and_si256(_mm256_load_si256(src1+3), _mm256_load_si256(src2+3));
++
++    _mm256_store_si256(dst+0, m1A);
++    _mm256_store_si256(dst+1, m1B);
++    _mm256_store_si256(dst+2, m1C);
++    _mm256_store_si256(dst+3, m1D);
++    
++     m1A = _mm256_or_si256(m1A, m1B);
++     m1C = _mm256_or_si256(m1C, m1D);
++     m1A = _mm256_or_si256(m1A, m1C);
++
++    return _mm256_testz_si256(m1A, m1A);
++}
++
++/*!
++    @brief AND-OR block digest stride 2 way
++    *dst  |= *src1 & *src2
++
++    @return true if stide is all zero
++    @ingroup AVX2
++*/
++inline
++bool avx2_and_or_digest_2way(__m256i* BMRESTRICT dst,
++                            const __m256i* BMRESTRICT src1,
++                            const __m256i* BMRESTRICT src2)
++{
++    const __m256i maskF = _mm256_set1_epi32(~0u); // brosdcast 0xFF
++
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i mACC1;
++    __m256i mSA, mSB, mSC, mSD;
++
++
++    mSA = _mm256_load_si256(dst+0);
++    mSB = _mm256_load_si256(dst+1);
++    mACC1 = _mm256_and_si256(mSA, mSB);
++
++    mSC = _mm256_load_si256(dst+2);
++    mSD = _mm256_load_si256(dst+3);
++
++    mACC1 = _mm256_and_si256(mACC1, _mm256_and_si256(mSC, mSD));
++
++    mACC1 = _mm256_xor_si256(mACC1, maskF);
++    if (_mm256_testz_si256(mACC1, mACC1)) // whole wave is saturated 1111s already
++        return false;
++
++
++    m1A = _mm256_and_si256(_mm256_load_si256(src1+0), _mm256_load_si256(src2+0));
++    m1B = _mm256_and_si256(_mm256_load_si256(src1+1), _mm256_load_si256(src2+1));
++    m1C = _mm256_and_si256(_mm256_load_si256(src1+2), _mm256_load_si256(src2+2));
++    m1D = _mm256_and_si256(_mm256_load_si256(src1+3), _mm256_load_si256(src2+3));
++
++    mACC1 =
++        _mm256_or_si256(_mm256_or_si256(m1A, m1B), _mm256_or_si256(m1C, m1D));
++    bool all_z = _mm256_testz_si256(mACC1, mACC1);
++    if (all_z)
++        return all_z;
++
++    m1A = _mm256_or_si256(mSA, m1A);
++    m1B = _mm256_or_si256(mSB, m1B);
++    m1C = _mm256_or_si256(mSC, m1C);
++    m1D = _mm256_or_si256(mSD, m1D);
++
++    _mm256_store_si256(dst+0, m1A);
++    _mm256_store_si256(dst+1, m1B);
++    _mm256_store_si256(dst+2, m1C);
++    _mm256_store_si256(dst+3, m1D);
++
++    return all_z;
++}
++
++
++/*!
++    @brief AND block digest stride
++    @ingroup AVX2
++*/
++inline
++bool avx2_and_digest_5way(__m256i* BMRESTRICT dst,
++                          const __m256i* BMRESTRICT src1,
++                          const __m256i* BMRESTRICT src2,
++                          const __m256i* BMRESTRICT src3,
++                          const __m256i* BMRESTRICT src4)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i m1E, m1F, m1G, m1H;
++
++    {
++        __m256i s1_0, s2_0, s1_1, s2_1;
++
++        s1_0 = _mm256_load_si256(src1 + 0); s2_0 = _mm256_load_si256(src2 + 0);
++        s1_1 = _mm256_load_si256(src1 + 1); s2_1 = _mm256_load_si256(src2 + 1);
++        m1A = _mm256_and_si256(s1_0, s2_0);
++        m1B = _mm256_and_si256(s1_1, s2_1);
++        s1_0 = _mm256_load_si256(src1 + 2); s2_0 = _mm256_load_si256(src2 + 2);
++        s1_1 = _mm256_load_si256(src1 + 3); s2_1 = _mm256_load_si256(src2 + 3);
++        m1C = _mm256_and_si256(s1_0, s2_0);
++        m1D = _mm256_and_si256(s1_1, s2_1);
++    }
++    {
++        __m256i s3_0, s4_0, s3_1, s4_1;
++
++        s3_0 = _mm256_load_si256(src3 + 0); s4_0 = _mm256_load_si256(src4 + 0);
++        s3_1 = _mm256_load_si256(src3 + 1); s4_1 = _mm256_load_si256(src4 + 1);
++        m1E = _mm256_and_si256(s3_0, s4_0);
++        m1F = _mm256_and_si256(s3_1, s4_1);
++
++        m1A = _mm256_and_si256(m1A, m1E);
++        m1B = _mm256_and_si256(m1B, m1F);
++
++        s3_0 = _mm256_load_si256(src3 + 2); s4_0 = _mm256_load_si256(src4 + 2);
++        s3_1 = _mm256_load_si256(src3 + 3); s4_1 = _mm256_load_si256(src4 + 3);
++        m1G = _mm256_and_si256(s3_0, s4_0);
++        m1H = _mm256_and_si256(s3_1, s4_1);
++    }
++    {
++        __m256i dst0, dst1;
++        dst0 = _mm256_load_si256(dst + 0); dst1 = _mm256_load_si256(dst + 1);
++        
++        m1C = _mm256_and_si256(m1C, m1G);
++        m1D = _mm256_and_si256(m1D, m1H);
++        m1A = _mm256_and_si256(m1A, dst0);
++        m1B = _mm256_and_si256(m1B, dst1);
++
++        dst0 = _mm256_load_si256(dst + 2); dst1 = _mm256_load_si256(dst + 3);
++        
++        m1C = _mm256_and_si256(m1C, dst0);
++        m1D = _mm256_and_si256(m1D, dst1);
++    }
++    _mm256_store_si256(dst + 0, m1A);
++    _mm256_store_si256(dst + 1, m1B);
++    _mm256_store_si256(dst + 2, m1C);
++    _mm256_store_si256(dst + 3, m1D);
++
++    m1A = _mm256_or_si256(m1A, m1B);
++    m1C = _mm256_or_si256(m1C, m1D);
++    m1A = _mm256_or_si256(m1A, m1C);
++
++    return _mm256_testz_si256(m1A, m1A);
++}
++
++/*!
++    @brief AND block digest stride
++    @ingroup AVX2
++*/
++inline
++bool avx2_and_digest_3way(__m256i* BMRESTRICT dst,
++                          const __m256i* BMRESTRICT src1,
++                          const __m256i* BMRESTRICT src2)
++{
++    __m256i m1A, m1B, m1C, m1D;
++
++    {
++        __m256i s1_0, s2_0, s1_1, s2_1;
++
++        s1_0 = _mm256_load_si256(src1 + 0); s2_0 = _mm256_load_si256(src2 + 0);
++        s1_1 = _mm256_load_si256(src1 + 1); s2_1 = _mm256_load_si256(src2 + 1);
++        m1A = _mm256_and_si256(s1_0, s2_0);
++        m1B = _mm256_and_si256(s1_1, s2_1);
++        s1_0 = _mm256_load_si256(src1 + 2); s2_0 = _mm256_load_si256(src2 + 2);
++        s1_1 = _mm256_load_si256(src1 + 3); s2_1 = _mm256_load_si256(src2 + 3);
++        m1C = _mm256_and_si256(s1_0, s2_0);
++        m1D = _mm256_and_si256(s1_1, s2_1);
++    }
++    {
++        __m256i dst0, dst1;
++        dst0 = _mm256_load_si256(dst + 0); dst1 = _mm256_load_si256(dst + 1);
++
++        m1A = _mm256_and_si256(m1A, dst0);
++        m1B = _mm256_and_si256(m1B, dst1);
++
++        dst0 = _mm256_load_si256(dst + 2); dst1 = _mm256_load_si256(dst + 3);
++
++        m1C = _mm256_and_si256(m1C, dst0);
++        m1D = _mm256_and_si256(m1D, dst1);
++    }
++    _mm256_store_si256(dst + 0, m1A);
++    _mm256_store_si256(dst + 1, m1B);
++    _mm256_store_si256(dst + 2, m1C);
++    _mm256_store_si256(dst + 3, m1D);
++
++    m1A = _mm256_or_si256(m1A, m1B);
++    m1C = _mm256_or_si256(m1C, m1D);
++    m1A = _mm256_or_si256(m1A, m1C);
++
++    return _mm256_testz_si256(m1A, m1A);
++}
++
++
++/*!
++    @brief AND array elements against another array (unaligned)
++    *dst &= *src
++    @return 0 if destination does not have any bits
++    @ingroup AVX2
++*/
++inline
++unsigned avx2_and_arr_unal(__m256i* BMRESTRICT dst,
++                  const __m256i* BMRESTRICT src,
++                  const __m256i* BMRESTRICT src_end)
++{
++    __m256i m1A, m2A, m1B, m2B, m1C, m2C, m1D, m2D;
++    __m256i accA, accB, accC, accD;
++    
++    accA = _mm256_setzero_si256();
++    accB = _mm256_setzero_si256();
++    accC = _mm256_setzero_si256();
++    accD = _mm256_setzero_si256();
++
++    do
++    {
++        m1A = _mm256_loadu_si256(src+0);
++        m2A = _mm256_load_si256(dst+0);
++        m1A = _mm256_and_si256(m1A, m2A);
++        _mm256_store_si256(dst+0, m1A);
++        accA = _mm256_or_si256(accA, m1A);
++        
++        m1B = _mm256_loadu_si256(src+1);
++        m2B = _mm256_load_si256(dst+1);
++        m1B = _mm256_and_si256(m1B, m2B);
++        _mm256_store_si256(dst+1, m1B);
++        accB = _mm256_or_si256(accB, m1B);
++
++        m1C = _mm256_loadu_si256(src+2);
++        m2C = _mm256_load_si256(dst+2);
++        m1C = _mm256_and_si256(m1C, m2C);
++        _mm256_store_si256(dst+2, m1C);
++        accC = _mm256_or_si256(accC, m1C);
++
++        m1D = _mm256_loadu_si256(src+3);
++        m2D = _mm256_load_si256(dst+3);
++        m1D = _mm256_and_si256(m1D, m2D);
++        _mm256_store_si256(dst+3, m1D);
++        accD = _mm256_or_si256(accD, m1D);
++        
++        src += 4; dst += 4;
++
++    } while (src < src_end);
++    
++    accA = _mm256_or_si256(accA, accB); // A = A | B
++    accC = _mm256_or_si256(accC, accD); // C = C | D
++    accA = _mm256_or_si256(accA, accC); // A = A | C
++    
++    return !_mm256_testz_si256(accA, accA);
++}
++
++
++/*!
++    @brief OR array elements against another array
++    *dst |= *src
++    @return true if all bits are 1
++
++    @ingroup AVX2
++*/
++inline
++bool avx2_or_block(__m256i* BMRESTRICT dst,
++                   const __m256i* BMRESTRICT src)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    
++    __m256i mAccF0 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    __m256i mAccF1 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    
++    __m256i* BMRESTRICT dst2 =
++        (__m256i*)((bm::word_t*)(dst) + bm::set_block_size/2);
++    const __m256i* BMRESTRICT src2 =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size/2);
++    const __m256i* BMRESTRICT src_end =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size);
++    do
++    {
++        m1A = _mm256_or_si256(_mm256_load_si256(src), _mm256_load_si256(dst));
++        m1B = _mm256_or_si256(_mm256_load_si256(src+1), _mm256_load_si256(dst+1));
++        mAccF0 = _mm256_and_si256(mAccF0, m1A);
++        mAccF0 = _mm256_and_si256(mAccF0, m1B);
++        
++        _mm256_stream_si256(dst,   m1A);
++        _mm256_stream_si256(dst+1, m1B);
++
++        src += 2; dst += 2;
++
++        m1C = _mm256_or_si256(_mm256_load_si256(src2), _mm256_load_si256(dst2));
++        m1D = _mm256_or_si256(_mm256_load_si256(src2+1), _mm256_load_si256(dst2+1));
++        mAccF1 = _mm256_and_si256(mAccF1, m1C);
++        mAccF1 = _mm256_and_si256(mAccF1, m1D);
++        
++        _mm256_stream_si256(dst2, m1C);
++        _mm256_stream_si256(dst2+1, m1D);
++
++        src2 += 2; dst2 += 2;
++    } while (src2 < src_end);
++
++    __m256i maskF = _mm256_set1_epi32(~0u);
++    mAccF0 = _mm256_and_si256(mAccF0, mAccF1);
++    __m256i wcmpA = _mm256_cmpeq_epi8(mAccF0, maskF);
++    unsigned maskA = unsigned(_mm256_movemask_epi8(wcmpA));
++    return (maskA == ~0u);
++}
++
++
++/*!
++    @brief OR array elements against another unaligned array
++    *dst |= *src
++    @return true if all bits are 1
++
++    @ingroup AVX2
++*/
++inline
++bool avx2_or_arr_unal(__m256i* BMRESTRICT dst,
++                      const __m256i* BMRESTRICT src,
++                      const __m256i* BMRESTRICT src_end)
++{
++    __m256i m1A, m2A, m1B, m2B, m1C, m2C, m1D, m2D;
++    __m256i mAccF0 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    __m256i mAccF1 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    do
++    {
++        m1A = _mm256_loadu_si256(src+0);
++        m2A = _mm256_load_si256(dst+0);
++        m1A = _mm256_or_si256(m1A, m2A);
++        _mm256_store_si256(dst+0, m1A);
++        
++        m1B = _mm256_loadu_si256(src+1);
++        m2B = _mm256_load_si256(dst+1);
++        m1B = _mm256_or_si256(m1B, m2B);
++        _mm256_store_si256(dst+1, m1B);
++
++        m1C = _mm256_loadu_si256(src+2);
++        m2C = _mm256_load_si256(dst+2);
++        m1C = _mm256_or_si256(m1C, m2C);
++        _mm256_store_si256(dst+2, m1C);
++
++        m1D = _mm256_loadu_si256(src+3);
++        m2D = _mm256_load_si256(dst+3);
++        m1D = _mm256_or_si256(m1D, m2D);
++        _mm256_store_si256(dst+3, m1D);
++
++        mAccF1 = _mm256_and_si256(mAccF1, m1C);
++        mAccF1 = _mm256_and_si256(mAccF1, m1D);
++        mAccF0 = _mm256_and_si256(mAccF0, m1A);
++        mAccF0 = _mm256_and_si256(mAccF0, m1B);
++
++        src += 4; dst += 4;
++
++    } while (src < src_end);
++
++    __m256i maskF = _mm256_set1_epi32(~0u);
++    mAccF0 = _mm256_and_si256(mAccF0, mAccF1);
++    __m256i wcmpA = _mm256_cmpeq_epi8(mAccF0, maskF);
++    unsigned maskA = unsigned(_mm256_movemask_epi8(wcmpA));
++    return (maskA == ~0u);
++}
++
++/*!
++    @brief OR 2 arrays and copy to the destination
++    *dst = *src1 | src2
++    @return true if all bits are 1
++
++    @ingroup AVX2
++*/
++inline
++bool avx2_or_block_2way(__m256i* BMRESTRICT dst,
++                        const __m256i* BMRESTRICT src1,
++                        const __m256i* BMRESTRICT src2)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i mAccF0 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    __m256i mAccF1 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    const __m256i* BMRESTRICT src_end1 =
++        (const __m256i*)((bm::word_t*)(src1) + bm::set_block_size);
++
++    do
++    {
++        m1A = _mm256_or_si256(_mm256_load_si256(src1+0), _mm256_load_si256(src2+0));
++        m1B = _mm256_or_si256(_mm256_load_si256(src1+1), _mm256_load_si256(src2+1));
++        m1C = _mm256_or_si256(_mm256_load_si256(src1+2), _mm256_load_si256(src2+2));
++        m1D = _mm256_or_si256(_mm256_load_si256(src1+3), _mm256_load_si256(src2+3));
++
++        _mm256_store_si256(dst+0, m1A);
++        _mm256_store_si256(dst+1, m1B);
++        _mm256_store_si256(dst+2, m1C);
++        _mm256_store_si256(dst+3, m1D);
++
++        mAccF1 = _mm256_and_si256(mAccF1, m1C);
++        mAccF1 = _mm256_and_si256(mAccF1, m1D);
++        mAccF0 = _mm256_and_si256(mAccF0, m1A);
++        mAccF0 = _mm256_and_si256(mAccF0, m1B);
++
++        src1 += 4; src2 += 4; dst += 4;
++
++    } while (src1 < src_end1);
++    
++    __m256i maskF = _mm256_set1_epi32(~0u);
++     mAccF0 = _mm256_and_si256(mAccF0, mAccF1);
++    __m256i wcmpA= _mm256_cmpeq_epi8(mAccF0, maskF);
++     unsigned maskA = unsigned(_mm256_movemask_epi8(wcmpA));
++     return (maskA == ~0u);
++}
++
++/*!
++    @brief OR array elements against another 2 arrays
++    *dst |= *src1 | src2
++    @return true if all bits are 1
++
++    @ingroup AVX2
++*/
++inline
++bool avx2_or_block_3way(__m256i* BMRESTRICT dst,
++                        const __m256i* BMRESTRICT src1,
++                        const __m256i* BMRESTRICT src2)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i mAccF0 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    __m256i mAccF1 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    const __m256i* BMRESTRICT src_end1 =
++        (const __m256i*)((bm::word_t*)(src1) + bm::set_block_size);
++
++    do
++    {
++        m1A = _mm256_or_si256(_mm256_load_si256(src1+0), _mm256_load_si256(dst+0));
++        m1B = _mm256_or_si256(_mm256_load_si256(src1+1), _mm256_load_si256(dst+1));
++        m1C = _mm256_or_si256(_mm256_load_si256(src1+2), _mm256_load_si256(dst+2));
++        m1D = _mm256_or_si256(_mm256_load_si256(src1+3), _mm256_load_si256(dst+3));
++
++        m1A = _mm256_or_si256(m1A, _mm256_load_si256(src2+0));
++        m1B = _mm256_or_si256(m1B, _mm256_load_si256(src2+1));
++        m1C = _mm256_or_si256(m1C, _mm256_load_si256(src2+2));
++        m1D = _mm256_or_si256(m1D, _mm256_load_si256(src2+3));
++
++        _mm256_store_si256(dst+0, m1A);
++        _mm256_store_si256(dst+1, m1B);
++        _mm256_store_si256(dst+2, m1C);
++        _mm256_store_si256(dst+3, m1D);
++
++        mAccF1 = _mm256_and_si256(mAccF1, m1C);
++        mAccF1 = _mm256_and_si256(mAccF1, m1D);
++        mAccF0 = _mm256_and_si256(mAccF0, m1A);
++        mAccF0 = _mm256_and_si256(mAccF0, m1B);
++
++        src1 += 4; src2 += 4; dst += 4;
++
++    } while (src1 < src_end1);
++    
++    __m256i maskF = _mm256_set1_epi32(~0u);
++     mAccF0 = _mm256_and_si256(mAccF0, mAccF1);
++    __m256i wcmpA= _mm256_cmpeq_epi8(mAccF0, maskF);
++     unsigned maskA = unsigned(_mm256_movemask_epi8(wcmpA));
++     return (maskA == ~0u);    
++}
++
++
++/*!
++    @brief OR array elements against another 4 arrays
++    *dst |= *src1 | src2
++    @return true if all bits are 1
++
++    @ingroup AVX2
++*/
++inline
++bool avx2_or_block_5way(__m256i* BMRESTRICT dst,
++                        const __m256i* BMRESTRICT src1,
++                        const __m256i* BMRESTRICT src2,
++                        const __m256i* BMRESTRICT src3,
++                        const __m256i* BMRESTRICT src4)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i mAccF0 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++    __m256i mAccF1 = _mm256_set1_epi32(~0u); // broadcast 0xFF
++
++    const __m256i* BMRESTRICT src_end1 =
++        (const __m256i*)((bm::word_t*)(src1) + bm::set_block_size);
++
++    do
++    {
++        m1A = _mm256_or_si256(_mm256_load_si256(src1+0), _mm256_load_si256(dst+0));
++        m1B = _mm256_or_si256(_mm256_load_si256(src1+1), _mm256_load_si256(dst+1));
++        m1C = _mm256_or_si256(_mm256_load_si256(src1+2), _mm256_load_si256(dst+2));
++        m1D = _mm256_or_si256(_mm256_load_si256(src1+3), _mm256_load_si256(dst+3));
++
++        m1A = _mm256_or_si256(m1A, _mm256_load_si256(src2+0));
++        m1B = _mm256_or_si256(m1B, _mm256_load_si256(src2+1));
++        m1C = _mm256_or_si256(m1C, _mm256_load_si256(src2+2));
++        m1D = _mm256_or_si256(m1D, _mm256_load_si256(src2+3));
++
++        m1A = _mm256_or_si256(m1A, _mm256_load_si256(src3+0));
++        m1B = _mm256_or_si256(m1B, _mm256_load_si256(src3+1));
++        m1C = _mm256_or_si256(m1C, _mm256_load_si256(src3+2));
++        m1D = _mm256_or_si256(m1D, _mm256_load_si256(src3+3));
++
++        m1A = _mm256_or_si256(m1A, _mm256_load_si256(src4+0));
++        m1B = _mm256_or_si256(m1B, _mm256_load_si256(src4+1));
++        m1C = _mm256_or_si256(m1C, _mm256_load_si256(src4+2));
++        m1D = _mm256_or_si256(m1D, _mm256_load_si256(src4+3));
++
++        _mm256_stream_si256(dst+0, m1A);
++        _mm256_stream_si256(dst+1, m1B);
++        _mm256_stream_si256(dst+2, m1C);
++        _mm256_stream_si256(dst+3, m1D);
++
++        mAccF1 = _mm256_and_si256(mAccF1, m1C);
++        mAccF1 = _mm256_and_si256(mAccF1, m1D);
++        mAccF0 = _mm256_and_si256(mAccF0, m1A);
++        mAccF0 = _mm256_and_si256(mAccF0, m1B);
++
++        src1 += 4; src2 += 4;
++        src3 += 4; src4 += 4;
++        _mm_prefetch ((const char*)src3, _MM_HINT_T0);
++        _mm_prefetch ((const char*)src4, _MM_HINT_T0);
++
++        dst += 4;
++
++    } while (src1 < src_end1);
++    
++    __m256i maskF = _mm256_set1_epi32(~0u);
++     mAccF0 = _mm256_and_si256(mAccF0, mAccF1);
++    __m256i wcmpA= _mm256_cmpeq_epi8(mAccF0, maskF);
++     unsigned maskA = unsigned(_mm256_movemask_epi8(wcmpA));
++     return (maskA == ~0u);
++}
++
++
++/*!
++    @brief XOR block against another
++    *dst ^= *src
++    @return 0 if destination does not have any bits
++    @ingroup AVX2
++*/
++inline
++unsigned avx2_xor_block(__m256i* BMRESTRICT dst,
++                        const __m256i* BMRESTRICT src)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i accA, accB, accC, accD;
++
++    const __m256i* BMRESTRICT src_end =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size);
++
++    accA = accB = accC = accD = _mm256_setzero_si256();
++
++    do
++    {
++        m1A = _mm256_xor_si256(_mm256_load_si256(src+0), _mm256_load_si256(dst+0));
++        m1B = _mm256_xor_si256(_mm256_load_si256(src+1), _mm256_load_si256(dst+1));
++        m1C = _mm256_xor_si256(_mm256_load_si256(src+2), _mm256_load_si256(dst+2));
++        m1D = _mm256_xor_si256(_mm256_load_si256(src+3), _mm256_load_si256(dst+3));
++
++        _mm256_store_si256(dst+0, m1A);
++        _mm256_store_si256(dst+1, m1B);
++        _mm256_store_si256(dst+2, m1C);
++        _mm256_store_si256(dst+3, m1D);
++        
++        accA = _mm256_or_si256(accA, m1A);
++        accB = _mm256_or_si256(accB, m1B);
++        accC = _mm256_or_si256(accC, m1C);
++        accD = _mm256_or_si256(accD, m1D);
++        
++        src += 4; dst += 4;
++
++    } while (src < src_end);
++    
++    accA = _mm256_or_si256(accA, accB); // A = A | B
++    accC = _mm256_or_si256(accC, accD); // C = C | D
++    accA = _mm256_or_si256(accA, accC); // A = A | C
++    
++    return !_mm256_testz_si256(accA, accA);
++}
++
++/*!
++    @brief 3 operand XOR 
++    *dst = *src1 ^ src2
++    @return 0 if destination does not have any bits
++    @ingroup AVX2
++*/
++inline
++unsigned avx2_xor_block_2way(__m256i* BMRESTRICT dst,
++                             const __m256i* BMRESTRICT src1,
++                             const __m256i* BMRESTRICT src2)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i accA, accB, accC, accD;
++
++    const __m256i* BMRESTRICT src1_end =
++        (const __m256i*)((bm::word_t*)(src1) + bm::set_block_size);
++
++    accA = accB = accC = accD = _mm256_setzero_si256();
++
++    do
++    {
++        m1A = _mm256_xor_si256(_mm256_load_si256(src1 + 0), _mm256_load_si256(src2 + 0));
++        m1B = _mm256_xor_si256(_mm256_load_si256(src1 + 1), _mm256_load_si256(src2 + 1));
++        m1C = _mm256_xor_si256(_mm256_load_si256(src1 + 2), _mm256_load_si256(src2 + 2));
++        m1D = _mm256_xor_si256(_mm256_load_si256(src1 + 3), _mm256_load_si256(src2 + 3));
++
++        _mm256_store_si256(dst + 0, m1A);
++        _mm256_store_si256(dst + 1, m1B);
++        _mm256_store_si256(dst + 2, m1C);
++        _mm256_store_si256(dst + 3, m1D);
++
++        accA = _mm256_or_si256(accA, m1A);
++        accB = _mm256_or_si256(accB, m1B);
++        accC = _mm256_or_si256(accC, m1C);
++        accD = _mm256_or_si256(accD, m1D);
++
++        src1 += 4; src2 += 4;  dst += 4;
++
++    } while (src1 < src1_end);
++
++    accA = _mm256_or_si256(accA, accB); // A = A | B
++    accC = _mm256_or_si256(accC, accD); // C = C | D
++    accA = _mm256_or_si256(accA, accC); // A = A | C
++
++    return !_mm256_testz_si256(accA, accA);
++}
++
++
++/*!
++    @brief AND-NOT (SUB) array elements against another array
++    *dst &= ~*src
++ 
++    @return 0 if destination does not have any bits
++
++    @ingroup AVX2
++*/
++inline
++unsigned avx2_sub_block(__m256i* BMRESTRICT dst,
++                        const __m256i* BMRESTRICT src)
++{
++    __m256i m1A, m1B,  m1C, m1D;
++    __m256i accA, accB, accC, accD;
++    
++    accA = accB = accC = accD = _mm256_setzero_si256();
++
++    const __m256i* BMRESTRICT src_end =
++        (const __m256i*)((bm::word_t*)(src) + bm::set_block_size);
++
++    do
++    {
++        m1A = _mm256_andnot_si256(_mm256_load_si256(src), _mm256_load_si256(dst));
++        m1B = _mm256_andnot_si256(_mm256_load_si256(src+1), _mm256_load_si256(dst+1));
++        m1C = _mm256_andnot_si256(_mm256_load_si256(src+2), _mm256_load_si256(dst+2));
++        m1D = _mm256_andnot_si256(_mm256_load_si256(src+3), _mm256_load_si256(dst+3));
++
++        _mm256_store_si256(dst+2, m1C);
++        _mm256_store_si256(dst+3, m1D);
++        _mm256_store_si256(dst+0, m1A);
++        _mm256_store_si256(dst+1, m1B);
++
++        accA = _mm256_or_si256(accA, m1A);
++        accB = _mm256_or_si256(accB, m1B);
++        accC = _mm256_or_si256(accC, m1C);
++        accD = _mm256_or_si256(accD, m1D);
++        
++        src += 4; dst += 4;
++    } while (src < src_end);
++    
++    accA = _mm256_or_si256(accA, accB); // A = A | B
++    accC = _mm256_or_si256(accC, accD); // C = C | D
++    accA = _mm256_or_si256(accA, accC); // A = A | C
++    
++    return !_mm256_testz_si256(accA, accA);
++}
++
++/*!
++    @brief SUB (AND NOT) block digest stride
++    *dst &= ~*src
++ 
++    @return true if stide is all zero
++    @ingroup AVX2
++*/
++inline
++bool avx2_sub_digest(__m256i* BMRESTRICT dst,
++                     const __m256i* BMRESTRICT src)
++{
++    __m256i m1A, m1B, m1C, m1D;
++
++    m1A = _mm256_andnot_si256(_mm256_load_si256(src+0), _mm256_load_si256(dst+0));
++    m1B = _mm256_andnot_si256(_mm256_load_si256(src+1), _mm256_load_si256(dst+1));
++    m1C = _mm256_andnot_si256(_mm256_load_si256(src+2), _mm256_load_si256(dst+2));
++    m1D = _mm256_andnot_si256(_mm256_load_si256(src+3), _mm256_load_si256(dst+3));
++
++    _mm256_store_si256(dst+0, m1A);
++    _mm256_store_si256(dst+1, m1B);
++    _mm256_store_si256(dst+2, m1C);
++    _mm256_store_si256(dst+3, m1D);
++    
++     m1A = _mm256_or_si256(m1A, m1B);
++     m1C = _mm256_or_si256(m1C, m1D);
++     m1A = _mm256_or_si256(m1A, m1C);
++
++    return _mm256_testz_si256(m1A, m1A);
++}
++
++/*!
++    @brief 2-operand SUB (AND NOT) block digest stride
++    *dst = *src1 & ~*src2
++ 
++    @return true if stide is all zero
++    @ingroup AVX2
++*/
++inline
++bool avx2_sub_digest_2way(__m256i* BMRESTRICT dst,
++                          const __m256i* BMRESTRICT src1,
++                          const __m256i* BMRESTRICT src2)
++{
++    __m256i m1A, m1B, m1C, m1D;
++
++    m1A = _mm256_andnot_si256(_mm256_load_si256(src2+0), _mm256_load_si256(src1+0));
++    m1B = _mm256_andnot_si256(_mm256_load_si256(src2+1), _mm256_load_si256(src1+1));
++    m1C = _mm256_andnot_si256(_mm256_load_si256(src2+2), _mm256_load_si256(src1+2));
++    m1D = _mm256_andnot_si256(_mm256_load_si256(src2+3), _mm256_load_si256(src1+3));
++
++    _mm256_store_si256(dst+0, m1A);
++    _mm256_store_si256(dst+1, m1B);
++    _mm256_store_si256(dst+2, m1C);
++    _mm256_store_si256(dst+3, m1D);
++    
++     m1A = _mm256_or_si256(m1A, m1B);
++     m1C = _mm256_or_si256(m1C, m1D);
++     m1A = _mm256_or_si256(m1A, m1C);
++
++    return _mm256_testz_si256(m1A, m1A);
++}
++
++
++
++/*!
++    @brief SUB block digest stride
++    @ingroup AVX2
++*/
++inline
++bool avx2_sub_digest_5way(__m256i* BMRESTRICT dst,
++                          const __m256i* BMRESTRICT src1,
++                          const __m256i* BMRESTRICT src2,
++                          const __m256i* BMRESTRICT src3,
++                          const __m256i* BMRESTRICT src4)
++{
++    __m256i m1A, m1B, m1C, m1D;
++    __m256i m1E, m1F, m1G, m1H;
++    const __m256i maskF = _mm256_set1_epi32(~0u); // brosdcast 0xFF
++
++    {
++        __m256i s1_0, s2_0, s1_1, s2_1;
++
++        s1_0 = _mm256_load_si256(src1 + 0); s2_0 = _mm256_load_si256(src2 + 0);
++        s1_1 = _mm256_load_si256(src1 + 1); s2_1 = _mm256_load_si256(src2 + 1);
++        s1_0 = _mm256_xor_si256(s1_0, maskF);s2_0 = _mm256_xor_si256(s2_0, maskF);
++        s1_1 = _mm256_xor_si256(s1_1, maskF);s2_1 = _mm256_xor_si256(s2_1, maskF);
++
++        m1A = _mm256_and_si256(s1_0, s2_0); m1B = _mm256_and_si256(s1_1, s2_1);
++
++        s1_0 = _mm256_load_si256(src1 + 2); s2_0 = _mm256_load_si256(src2 + 2);
++        s1_1 = _mm256_load_si256(src1 + 3); s2_1 = _mm256_load_si256(src2 + 3);
++        s1_0 = _mm256_xor_si256(s1_0, maskF);s2_0 = _mm256_xor_si256(s2_0, maskF);
++        s1_1 = _mm256_xor_si256(s1_1, maskF);s2_1 = _mm256_xor_si256(s2_1, maskF);
++
++        m1C = _mm256_and_si256(s1_0, s2_0);
++        m1D = _mm256_and_si256(s1_1, s2_1);
++    }
++    {
++        __m256i s3_0, s4_0, s3_1, s4_1;
++
++        s3_0 = _mm256_load_si256(src3 + 0); s4_0 = _mm256_load_si256(src4 + 0);
++        s3_1 = _mm256_load_si256(src3 + 1); s4_1 = _mm256_load_si256(src4 + 1);
++        s3_0 = _mm256_xor_si256(s3_0, maskF);s4_0 = _mm256_xor_si256(s4_0, maskF);
++        s3_1 = _mm256_xor_si256(s3_1, maskF);s4_1 = _mm256_xor_si256(s4_1, maskF);
++
++        m1E = _mm256_and_si256(s3_0, s4_0);
++        m1F = _mm256_and_si256(s3_1, s4_1);
++
++        m1A = _mm256_and_si256(m1A, m1E);
++        m1B = _mm256_and_si256(m1B, m1F);
++
++        s3_0 = _mm256_load_si256(src3 + 2); s4_0 = _mm256_load_si256(src4 + 2);
++        s3_1 = _mm256_load_si256(src3 + 3); s4_1 = _mm256_load_si256(src4 + 3);
++        s3_0 = _mm256_xor_si256(s3_0, maskF);s4_0 = _mm256_xor_si256(s4_0, maskF);
++        s3_1 = _mm256_xor_si256(s3_1, maskF);s4_1 = _mm256_xor_si256(s4_1, maskF);
++
++        m1G = _mm256_and_si256(s3_0, s4_0);
++        m1H = _mm256_and_si256(s3_1, s4_1);
++    }
++    {
++        __m256i dst0, dst1;
++        dst0 = _mm256_load_si256(dst + 0); dst1 = _mm256_load_si256(dst + 1);
++
++        m1C = _mm256_and_si256(m1C, m1G);
++        m1D = _mm256_and_si256(m1D, m1H);
++        m1A = _mm256_and_si256(m1A, dst0);
++        m1B = _mm256_and_si256(m1B, dst1);
++
++        dst0 = _mm256_load_si256(dst + 2); dst1 = _mm256_load_si256(dst + 3);
++
++        m1C = _mm256_and_si256(m1C, dst0);
++        m1D = _mm256_and_si256(m1D, dst1);
++    }
++    _mm256_store_si256(dst + 0, m1A);
++    _mm256_store_si256(dst + 1, m1B);
++    _mm256_store_si256(dst + 2, m1C);
++    _mm256_store_si256(dst + 3, m1D);
++
++    m1A = _mm256_or_si256(m1A, m1B);
++    m1C = _mm256_or_si256(m1C, m1D);
++    m1A = _mm256_or_si256(m1A, m1C);
++
++    return _mm256_testz_si256(m1A, m1A);
++}
++
++
++/*!
++    @brief SUB block digest stride
++    @ingroup AVX2
++*/
++inline
++bool avx2_sub_digest_3way(__m256i* BMRESTRICT dst,
++                          const __m256i* BMRESTRICT src1,
++                          const __m256i* BMRESTRICT src2)
++{
++    __m256i m1A, m1B, m1C, m1D;
++//    __m256i m1E, m1F, m1G, m1H;
++    const __m256i maskF = _mm256_set1_epi32(~0u); // brosdcast 0xFF
++
++    {
++        __m256i s1_0, s2_0, s1_1, s2_1;
++
++        s1_0 = _mm256_load_si256(src1 + 0); s2_0 = _mm256_load_si256(src2 + 0);
++        s1_1 = _mm256_load_si256(src1 + 1); s2_1 = _mm256_load_si256(src2 + 1);
++        s1_0 = _mm256_xor_si256(s1_0, maskF);s2_0 = _mm256_xor_si256(s2_0, maskF);
++        s1_1 = _mm256_xor_si256(s1_1, maskF);s2_1 = _mm256_xor_si256(s2_1, maskF);
++
++        m1A = _mm256_and_si256(s1_0, s2_0); m1B = _mm256_and_si256(s1_1, s2_1);
++
++        s1_0 = _mm256_load_si256(src1 + 2); s2_0 = _mm256_load_si256(src2 + 2);
++        s1_1 = _mm256_load_si256(src1 + 3); s2_1 = _mm256_load_si256(src2 + 3);
++        s1_0 = _mm256_xor_si256(s1_0, maskF);s2_0 = _mm256_xor_si256(s2_0, maskF);
++        s1_1 = _mm256_xor_si256(s1_1, maskF);s2_1 = _mm256_xor_si256(s2_1, maskF);
++
++        m1C = _mm256_and_si256(s1_0, s2_0);
++        m1D = _mm256_and_si256(s1_1, s2_1);
++    }
++    /*
++    {
++        __m256i s3_0, s4_0, s3_1, s4_1;
++
++        s3_0 = _mm256_load_si256(src3 + 0); s4_0 = _mm256_load_si256(src4 + 0);
++        s3_1 = _mm256_load_si256(src3 + 1); s4_1 = _mm256_load_si256(src4 + 1);
++        s3_0 = _mm256_xor_si256(s3_0, maskF);s4_0 = _mm256_xor_si256(s4_0, maskF);
++        s3_1 = _mm256_xor_si256(s3_1, maskF);s4_1 = _mm256_xor_si256(s4_1, maskF);
++
++        m1E = _mm256_and_si256(s3_0, s4_0);
++        m1F = _mm256_and_si256(s3_1, s4_1);
++
++        m1A = _mm256_and_si256(m1A, m1E);
++        m1B = _mm256_and_si256(m1B, m1F);
++
++        s3_0 = _mm256_load_si256(src3 + 2); s4_0 = _mm256_load_si256(src4 + 2);
++        s3_1 = _mm256_load_si256(src3 + 3); s4_1 = _mm256_load_si256(src4 + 3);
++        s3_0 = _mm256_xor_si256(s3_0, maskF);s4_0 = _mm256_xor_si256(s4_0, maskF);
++        s3_1 = _mm256_xor_si256(s3_1, maskF);s4_1 = _mm256_xor_si256(s4_1, maskF);
++
++        m1G = _mm256_and_si256(s3_0, s4_0);
++        m1H = _mm256_and_si256(s3_1, s4_1);
++    }
++    */
++    {
++        __m256i dst0, dst1;
++        dst0 = _mm256_load_si256(dst + 0); dst1 = _mm256_load_si256(dst + 1);
++
++//        m1C = _mm256_and_si256(m1C, m1G);
++//        m1D = _mm256_and_si256(m1D, m1H);
++        m1A = _mm256_and_si256(m1A, dst0);
++        m1B = _mm256_and_si256(m1B, dst1);
++
++        dst0 = _mm256_load_si256(dst + 2); dst1 = _mm256_load_si256(dst + 3);
++
++        m1C = _mm256_and_si256(m1C, dst0);
++        m1D = _mm256_and_si256(m1D, dst1);
++    }
++    _mm256_store_si256(dst + 0, m1A);
++    _mm256_store_si256(dst + 1, m1B);
++    _mm256_store_si256(dst + 2, m1C);
++    _mm256_store_si256(dst + 3, m1D);
++
++    m1A = _mm256_or_si256(m1A, m1B);
++    m1C = _mm256_or_si256(m1C, m1D);
++    m1A = _mm256_or_si256(m1A, m1C);
++
++    return _mm256_testz_si256(m1A, m1A);
++}
++
++
++
++
++
++
++
++
++/*!
++    @brief Invert bit-block
++    *dst = ~*dst
++    or
++    *dst ^= *dst
++
++    @ingroup AVX2
++*/
++inline
++void avx2_invert_block(__m256i* BMRESTRICT dst)
++{
++    __m256i maskFF = _mm256_set1_epi32(-1); // broadcast 0xFF
++    const __m256i* BMRESTRICT dst_end =
++        (const __m256i*)((bm::word_t*)(dst) + bm::set_block_size);
++
++    __m256i ymm0, ymm1;
++    do
++    {
++        ymm0 = _mm256_xor_si256(_mm256_load_si256(dst+0), maskFF);
++        ymm1 = _mm256_xor_si256(_mm256_load_si256(dst+1), maskFF);
++
++        _mm256_store_si256(dst+0, ymm0);
++        _mm256_store_si256(dst+1, ymm1);
++
++        ymm0 = _mm256_xor_si256(_mm256_load_si256(dst+2), maskFF);
++        ymm1 = _mm256_xor_si256(_mm256_load_si256(dst+3), maskFF);
++        
++        _mm256_store_si256(dst+2, ymm0);
++        _mm256_store_si256(dst+3, ymm1);
++        
++        dst += 4;
++        
++    } while (dst < dst_end);
++}
++
++
++/*!
++    @brief check if digest stride is all zero bits
++    @ingroup AVX2
++*/
++inline
++bool avx2_is_digest_zero(const __m256i* BMRESTRICT block)
++{
++    __m256i wA = _mm256_or_si256(_mm256_load_si256(block+0), _mm256_load_si256(block+1));
++    __m256i wB = _mm256_or_si256(_mm256_load_si256(block+2), _mm256_load_si256(block+3));
++    wA = _mm256_or_si256(wA, wB);
++
++    return _mm256_testz_si256(wA, wA);
++}
++
++/*!
++    @brief set digest stride to 0xFF.. or 0x0 value
++    @ingroup AVX2
++*/
++inline 
++void avx2_block_set_digest(__m256i* dst, unsigned value)
++{
++    __m256i mV = _mm256_set1_epi32(int(value));
++    _mm256_store_si256(dst, mV);
++    _mm256_store_si256(dst + 1, mV);
++    _mm256_store_si256(dst + 2, mV);
++    _mm256_store_si256(dst + 3, mV);
++}
+ 
+ 
+ 
+@@ -160,31 +1231,73 @@
+ #endif
+ 
+ 
++#define VECT_XOR_ARR_2_MASK(dst, src, src_end, mask)\
++    avx2_xor_arr_2_mask((__m256i*)(dst), (__m256i*)(src), (__m256i*)(src_end), (bm::word_t)mask)
+ 
++#define VECT_ANDNOT_ARR_2_MASK(dst, src, src_end, mask)\
++    avx2_andnot_arr_2_mask((__m256i*)(dst), (__m256i*)(src), (__m256i*)(src_end), (bm::word_t)mask)
+ 
+ 
+ 
+ 
+ 
+ 
++#define VECT_INVERT_BLOCK(first) \
++    avx2_invert_block((__m256i*)first);
+ 
++#define VECT_AND_BLOCK(dst, src) \
++    avx2_and_block((__m256i*) dst, (const __m256i*) (src))
+ 
++#define VECT_AND_DIGEST(dst, src) \
++    avx2_and_digest((__m256i*) dst, (const __m256i*) (src))
+ 
++#define VECT_AND_DIGEST_2WAY(dst, src1, src2) \
++    avx2_and_digest_2way((__m256i*) dst, (const __m256i*) (src1), (const __m256i*) (src2))
+ 
++#define VECT_AND_OR_DIGEST_2WAY(dst, src1, src2) \
++    avx2_and_or_digest_2way((__m256i*) dst, (const __m256i*) (src1), (const __m256i*) (src2))
+ 
++#define VECT_AND_DIGEST_5WAY(dst, src1, src2, src3, src4) \
++    avx2_and_digest_5way((__m256i*) dst, (const __m256i*) (src1), (const __m256i*) (src2), (const __m256i*) (src3), (const __m256i*) (src4))
+ 
++#define VECT_AND_DIGEST_3WAY(dst, src1, src2) \
++    avx2_and_digest_3way((__m256i*) dst, (const __m256i*) (src1), (const __m256i*) (src2))
+ 
++#define VECT_OR_BLOCK(dst, src) \
++    avx2_or_block((__m256i*) dst, (__m256i*) (src))
+ 
++#define VECT_OR_BLOCK_3WAY(dst, src1, src2) \
++    avx2_or_block_3way((__m256i*) dst, (__m256i*) (src1), (__m256i*) (src2))
+ 
++#define VECT_OR_BLOCK_2WAY(dst, src1, src2) \
++    avx2_or_block_2way((__m256i*) dst, (__m256i*) (src1), (__m256i*) (src2))
+ 
++#define VECT_OR_BLOCK_3WAY(dst, src1, src2) \
++    avx2_or_block_3way((__m256i*) dst, (__m256i*) (src1), (__m256i*) (src2))
+ 
++#define VECT_OR_BLOCK_5WAY(dst, src1, src2, src3, src4) \
++    avx2_or_block_5way((__m256i*) dst, (__m256i*) (src1), (__m256i*) (src2), (__m256i*) (src3), (__m256i*) (src4))
+ 
++#define VECT_SUB_BLOCK(dst, src) \
++    avx2_sub_block((__m256i*) dst, (__m256i*) (src))
+ 
++#define VECT_SUB_DIGEST(dst, src) \
++    avx2_sub_digest((__m256i*) dst, (const __m256i*) (src))
+ 
++#define VECT_SUB_DIGEST_2WAY(dst, src1, src2) \
++    avx2_sub_digest_2way((__m256i*) dst, (const __m256i*) (src1), (const __m256i*) (src2))
+ 
++#define VECT_SUB_DIGEST_5WAY(dst, src1, src2, src3, src4) \
++    avx2_sub_digest_5way((__m256i*) dst, (const __m256i*) (src1), (const __m256i*) (src2), (const __m256i*) (src3), (const __m256i*) (src4))
+ 
++#define VECT_SUB_DIGEST_3WAY(dst, src1, src2) \
++    avx2_sub_digest_3way((__m256i*) dst, (const __m256i*) (src1), (const __m256i*) (src2))
+ 
++#define VECT_XOR_BLOCK(dst, src) \
++    avx2_xor_block((__m256i*) dst, (__m256i*) (src))
+ 
++#define VECT_XOR_BLOCK_2WAY(dst, src1, src2) \
++    avx2_xor_block_2way((__m256i*) dst, (__m256i*) (src1), (__m256i*) (src2))
+ 
+ 
+ 
+@@ -193,7 +1306,11 @@
+ 
+ 
+ 
++#define VECT_IS_DIGEST_ZERO(start) \
++    avx2_is_digest_zero((__m256i*)start)
+ 
++#define VECT_BLOCK_SET_DIGEST(dst, val) \
++    avx2_block_set_digest((__m256i*)dst, val)
+ 
+ 
+ 
+diff -ruN a/src/bmfunc.h b/src/bmfunc.h
+--- a/src/bmfunc.h	2026-09-23 19:20:02.295657492 +0000
++++ b/src/bmfunc.h	2026-09-23 19:20:49.979755279 +0000
+@@ -6816,7 +6816,7 @@
+ void bit_invert(T* start) BMNOEXCEPT
+ {
+     BM_ASSERT(IS_VALID_ADDR((bm::word_t*)start));
+-#if 0
++#ifdef BMVECTOPT
+     VECT_INVERT_BLOCK(start);
+ #else
+     T* end = (T*)((unsigned*)(start) + bm::set_block_size);
+@@ -7621,7 +7621,7 @@
+     BM_ASSERT(src);
+     BM_ASSERT(dst != src);
+ 
+-#if 0
++#ifdef BMVECTOPT
+     bm::id64_t acc = VECT_AND_BLOCK(dst, src);
+ #else
+     unsigned arr_sz = bm::set_block_size / 2;
+@@ -8594,7 +8594,7 @@
+ bool bit_block_or(bm::word_t* BMRESTRICT dst, 
+                   const bm::word_t* BMRESTRICT src) BMNOEXCEPT
+ {
+-#if 0
++#ifdef BMVECTOPT
+     return VECT_OR_BLOCK(dst, src);
+ #else
+     const bm::wordop_t* BMRESTRICT wrd_ptr = (wordop_t*)src;
+@@ -8632,7 +8632,7 @@
+                         const bm::word_t* BMRESTRICT src1,
+                         const bm::word_t* BMRESTRICT src2) BMNOEXCEPT
+ {
+-#if 0
++#ifdef BMVECTOPT
+     return VECT_OR_BLOCK_2WAY(dst, src1, src2);
+ #else
+     const bm::wordop_t* BMRESTRICT wrd_ptr1 = (wordop_t*)src1;
+@@ -8671,7 +8671,7 @@
+                               const bm::word_t* BMRESTRICT src1,
+                               const bm::word_t* BMRESTRICT src2) BMNOEXCEPT
+ {
+-#if 0
++#ifdef BMVECTOPT
+     return VECT_XOR_BLOCK_2WAY(dst, src1, src2);
+ #else
+     const bm::wordop_t* BMRESTRICT wrd_ptr1 = (wordop_t*)src1;
+@@ -8712,7 +8712,7 @@
+                         const bm::word_t* BMRESTRICT src1,
+                         const bm::word_t* BMRESTRICT src2) BMNOEXCEPT
+ {
+-#if 0
++#ifdef BMVECTOPT
+     return VECT_OR_BLOCK_3WAY(dst, src1, src2);
+ #else
+     const bm::wordop_t* BMRESTRICT wrd_ptr1 = (wordop_t*)src1;
+@@ -8758,7 +8758,7 @@
+                         const bm::word_t* BMRESTRICT src3,
+                         const bm::word_t* BMRESTRICT src4) BMNOEXCEPT
+ {
+-#if 0
++#ifdef BMVECTOPT
+     return VECT_OR_BLOCK_5WAY(dst, src1, src2, src3, src4);
+ #else
+     const bm::wordop_t* BMRESTRICT wrd_ptr1 = (wordop_t*)src1;
+@@ -8864,7 +8864,7 @@
+ bm::id64_t bit_block_sub(bm::word_t* BMRESTRICT dst,
+                          const bm::word_t* BMRESTRICT src) BMNOEXCEPT
+ {
+-#if 0
++#ifdef BMVECTOPT
+     bm::id64_t acc = VECT_SUB_BLOCK(dst, src);
+     return acc;
+ #else
+@@ -9197,7 +9197,7 @@
+     BM_ASSERT(src);
+     BM_ASSERT(dst != src);
+ 
+-#if 0
++#ifdef BMVECTOPT
+     bm::id64_t acc = VECT_XOR_BLOCK(dst, src);
+ #else
+     unsigned arr_sz = bm::set_block_size / 2;
+@@ -9230,7 +9230,7 @@
+                            const bm::word_t* BMRESTRICT src) BMNOEXCEPT
+ {
+     const bm::word_t* BMRESTRICT src_end = src + bm::set_block_size;
+-#if 0
++#ifdef BMVECTOPT
+     VECT_ANDNOT_ARR_2_MASK(dst, src, src_end, ~0u);
+ #else
+     bm::wordop_t* dst_ptr = (wordop_t*)dst;
+diff -ruN a/src/encoding.h b/src/encoding.h
+--- a/src/encoding.h	2026-09-23 19:20:02.323659898 +0000
++++ b/src/encoding.h	2026-09-23 19:20:49.995756654 +0000
+@@ -1089,13 +1089,13 @@
+         seek(int(count * sizeof(bm::word_t)));
+         return false;
+     }
+-#if 0
++#if defined(BMAVX2OPT)
+         __m256i* buf_start = (__m256i*)buf_;
+         seek(int(count * sizeof(bm::word_t)));
+         __m256i* buf_end = (__m256i*)buf_;
+ 
+         return bm::avx2_or_arr_unal((__m256i*)w, buf_start, buf_end);
+-#elif 0
++#elif defined(BMSSE42OPT) || defined(BMSSE2OPT)
+         __m128i* buf_start = (__m128i*)buf_;
+         seek(int(count * sizeof(bm::word_t)));
+         __m128i* buf_end = (__m128i*)buf_;
+@@ -1130,13 +1130,13 @@
+         seek(int(count * sizeof(bm::word_t)));
+         return;
+     }
+-#if 0
++#if defined(BMAVX2OPT)
+         __m256i* buf_start = (__m256i*)buf_;
+         seek(int(count * sizeof(bm::word_t)));
+         __m256i* buf_end = (__m256i*)buf_;
+ 
+         bm::avx2_and_arr_unal((__m256i*)w, buf_start, buf_end);
+-#elif 0
++#elif defined(BMSSE42OPT) || defined(BMSSE2OPT)
+         __m128i* buf_start = (__m128i*)buf_;
+         seek(int(count * sizeof(bm::word_t)));
+         __m128i* buf_end = (__m128i*)buf_;

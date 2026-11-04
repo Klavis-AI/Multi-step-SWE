@@ -1,0 +1,32 @@
+# Step 06 -- C-6's frozen population: the 6 `Optional.isPresent()` call sites,
+# bucketed into the 3 METHODS that hold them, with each bucket's site count.
+#
+# SCORED PER METHOD, NOT PER SITE, and the buckets are why. Two of the three
+# methods hold more than one site and the sites are not independently
+# convertible:
+#
+#   ContainerRegistryCreator#createRegistry   2 sites -> one ifPresentOrElse
+#   ExceptionProxy#buildObjectFromClassConstructors
+#                                             3 sites -> one or()-chain
+#   ProtocolRegistry#findDefaultProtocol      1 site  -> one or()
+#
+# A per-site score would pay a candidate for converting half of a method into
+# something that does not compile.
+#
+# `optop.get` already reads 0 on the tree this step is handed: step 05 removed
+# every `.get()`. So this leg cannot be satisfied by anything step 05 left
+# behind, and the `isPresent` count is the whole of what is left of the Java-8
+# Optional idiom here.
+#
+# EXP-06G's F4 arm rewrote all three and recorded 0 differing transcripts of
+# 935. The laziness difference `or()` introduces over an if-chain is real --
+# it is why ProtocolRegistry's `protocols.size() == 1` test has to move INSIDE
+# the supplier -- and the arm confirms the rewrite that does that is invisible.
+#
+# Derived:
+#
+#   sed -n 's/^optop\[[0-9]*\]=//p' baseline-step06-source.txt \
+#     | awk '$0 ~ /isPresent/ { ... print bucket }' | sort | uniq -c
+impl-base/src/main/java/org/jboss/arquillian/impl/client/container/ContainerRegistryCreator.java#createRegistry sites=2
+impl-base/src/main/java/org/jboss/arquillian/impl/domain/ProtocolRegistry.java#findDefaultProtocol sites=1
+spi/src/main/java/org/jboss/arquillian/spi/ExceptionProxy.java#buildObjectFromClassConstructors sites=3

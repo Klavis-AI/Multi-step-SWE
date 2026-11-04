@@ -1,0 +1,6 @@
+CREATE TABLE q4_oga(a int);
+ALTER TABLE q4_oga SET WITHOUT OIDS;
+ALTER TABLE q4_oga SET WITH OIDS;
+SELECT a FROM q4_oga ORDER BY a;
+SELECT count(*) FROM pg_attribute WHERE attrelid = 'q4_oga'::regclass AND attname = 'oid';
+DROP TABLE q4_oga;

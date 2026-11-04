@@ -1,0 +1,36 @@
+CREATE TABLE x05_31a(a int, b int GENERATED ALWAYS AS (a*2) STORED, c text);
+INSERT INTO x05_31a(a,c) VALUES (1,'x'),(2,'y');
+SELECT a, b, c FROM x05_31a ORDER BY a;
+ a | b | c 
+---+---+---
+ 1 | 2 | x
+ 2 | 4 | y
+(2 rows)
+
+SELECT attname, attgenerated FROM pg_attribute
+  WHERE attrelid='x05_31a'::regclass AND attnum>0 ORDER BY attnum;
+ attname | attgenerated 
+---------+--------------
+ a       | 
+ b       | s
+ c       | 
+(3 rows)
+
+ALTER TABLE x05_31a ALTER COLUMN b DROP EXPRESSION;
+SELECT attname, attgenerated FROM pg_attribute
+  WHERE attrelid='x05_31a'::regclass AND attnum>0 ORDER BY attnum;
+ attname | attgenerated 
+---------+--------------
+ a       | 
+ b       | 
+ c       | 
+(3 rows)
+
+SELECT a, b, c FROM x05_31a ORDER BY a;
+ a | b | c 
+---+---+---
+ 1 | 2 | x
+ 2 | 4 | y
+(2 rows)
+
+DROP TABLE x05_31a;

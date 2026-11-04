@@ -1,0 +1,4 @@
+CREATE TABLE t(a, b);
+INSERT INTO t VALUES(1,2);
+INSERT INTO t(a, zzz) VALUES(3,4);
+SELECT count(*) FROM t;

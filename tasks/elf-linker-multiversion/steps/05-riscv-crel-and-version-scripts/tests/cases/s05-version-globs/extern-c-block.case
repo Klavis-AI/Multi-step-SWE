@@ -1,0 +1,41 @@
+# arch: x86_64
+# what: an `extern "C" { ... }` block inside a version node must contribute its
+# names -- plain and globbed -- to the enclosing global: or local: list.
+cat > s.s <<'S'
+        .text
+        .globl plainc
+plainc: ret
+        .globl plaind
+plaind: ret
+        .globl other
+other:  ret
+        .globl _ZN2ns3fooEv
+_ZN2ns3fooEv: ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj s.o s.s
+exported() { dynsyms "$1" > ds.txt; awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' '; }
+cat > g.map <<'V'
+{ global: extern "C" { plainc; other; }; local: *; };
+V
+link_ok g.so -shared --version-script=g.map s.o
+want "extern C names are exported" "$(exported g.so)" "other plainc "
+cat > gg.map <<'V'
+{ global: extern "C" { pl*; }; local: *; };
+V
+link_ok gg.so -shared --version-script=gg.map s.o
+want "globs work inside extern C" "$(exported gg.so)" "plainc plaind "
+cat > l.map <<'V'
+{ global: *; local: extern "C" { plainc; plaind; }; };
+V
+link_ok l.so -shared --version-script=l.map s.o
+want "extern C inside local: hides" "$(exported l.so)" "_ZN2ns3fooEv other "
+# An extern "C" pattern is matched against the unmangled name only, so it must
+# not reach into a C++ mangled symbol that happens to contain the same text.
+cat > n.map <<'V'
+{ global: extern "C" { foo; }; local: *; };
+V
+link_ok n.so -shared --version-script=n.map s.o
+want "extern C does not match a mangled name" "$(exported n.so)" ""
+# 4 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 4

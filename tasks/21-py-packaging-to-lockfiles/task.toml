@@ -1,0 +1,125 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score even when an
+# earlier step scored zero.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. `exclude` is empty because the verifier rebuilds every
+# artifact from the migrated tree (pyproject.toml, uv.lock, pylock.toml, the
+# src/ layout and the distributions' sources).
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/21-py-packaging-to-lockfiles"
+version = "1.0.0"
+description = "Migrate the Bento Python monorepo from setup.py to PEP 517/518/621 builds, a uv workspace lockfile, reproducible manylinux/abi3/free-threaded wheels, and PEP 751/639 standards closure -- without changing what the tool does."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["python", "packaging", "pep517", "pep621", "uv", "lockfile", "wheels", "reproducible-builds", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["python", "packaging", "migration", "multi-step"]
+
+[environment]
+# Built from environment/Dockerfile: CPython 3.11 as the reference interpreter,
+# 3.12 / 3.13 / 3.13t alongside it, a pinned packaging toolchain and warm pip
+# and uv caches.
+build_timeout_sec = 1800.0
+# 7, not 8: Harbor GKE requests this many millicores and an e2-standard-8 node
+# has only 7910m allocatable, so cpus = 8 never gets a pod.
+cpus = 7
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench. The caches are warm so a slow index is
+# never scored as a candidate failure, but nothing here depends on withholding
+# the network.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. Every file the steps share is
+# therefore checked in once per step.
+[verifier]
+environment_mode = "separate"
+
+# Sizes the verifier containers; without this section Harbor silently reuses a
+# copy of [environment]. Sized for the scoring work: unpacking the pinned tree,
+# building the candidate's distributions under PEP 517 isolation, creating
+# venvs on four interpreters, and replaying 5715 recorded observations.
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local 0-1>} to reward.json. No
+# min_reward: a zero or partial score never stops the trial.
+
+[[steps]]
+name = "01-pep517-build"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-pep621-src-layout"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-uv-workspace-lock"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-wheels-abi3-freethreaded"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-reproducible-builds"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-standards-closure"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and the step instruction.
+timeout_sec = 7200.0
+[steps.verifier]
+# Covers the verifier image build and the /app artifact round trip too.
+timeout_sec = 3600.0
+
+# Six entries, one per directory under steps/. A step that crashes leaves no
+# reward.json and therefore vanishes from the mean instead of scoring 0. After
+# every multi-step run, count steps/*/verifier/reward.json against the
+# [[steps]] entries above and grep the log for "failed, aborting".

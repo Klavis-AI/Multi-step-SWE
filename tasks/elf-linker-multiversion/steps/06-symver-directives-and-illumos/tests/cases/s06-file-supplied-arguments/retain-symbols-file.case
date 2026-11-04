@@ -1,0 +1,33 @@
+# arch: x86_64
+# --retain-symbols-file limits .symtab to the listed names; everything else
+# from the input objects is dropped, and the program still links and runs.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+char msg[8] = { 'k', 'e', 'p', 't', '!', '\n', 0, 0 };
+int helper(int x) { return x + 1; }
+int entry(void) { sys_write(1, msg, 6); return helper(11); }
+C
+cc_obj m.o m.c
+
+link_ok before --no-gc-sections rt.o m.o
+syms=$(symbols before)
+for s in entry helper msg _start sys_write; do
+  want_has "$s present without the option" "$syms" " $s\$"
+done
+
+printf 'entry\nmsg\n' > keep.txt
+link_ok out --no-gc-sections --retain-symbols-file keep.txt rt.o m.o
+syms=$(symbols out)
+want_has "entry retained" "$syms" ' entry$'
+want_has "msg retained"   "$syms" ' msg$'
+for s in helper _start sys_write; do
+  want_not "$s dropped from .symtab" "$syms" " $s\$"
+done
+want "retained input symbols" "$(grep -cE ' (entry|msg)$' <<<"$syms")" "2"
+# .symtab must still be a whole number of entries and still be present.
+want_has ".symtab still written" "$(sections out)" '\.symtab +SYMTAB'
+want ".symtab is entry-sized" "$(( $(( 16#$(sec_size out .symtab) )) % 24 ))" "0"
+run_expect out "kept!" 12
+
+asserts_at_least 13

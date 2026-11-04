@@ -1,0 +1,33 @@
+# pcre2_dfa_match() no longer uses the C stack for its internal recursion: it
+# reserves one block of stack and takes heap beyond it, so the heap limit now
+# applies to DFA matching as well.  ChangeLog 10.32-RC1 item 12; pcre2api.3,
+# "The match context" (pcre2_set_heap_limit).
+
+# A pattern with no internal recursion is unaffected by the limit.
+/^\(+q\)+$/
+    ((((q))))\=dfa,heap_limit=0
+ 0: ((((q))))
+
+# A recursive pattern needs heap, so a limit of zero stops it.
+/^(\((?:[a-z]|(?1))*\))$/
+    ((q(w))(e))\=dfa
+ 0: ((q(w))(e))
+    ((q(w))(e))\=dfa,heap_limit=0
+Failed: error -63: heap limit exceeded
+    ((q(w))(e))\=dfa,heap_limit=4
+Failed: error -63: heap limit exceeded
+
+# Raising the limit lets the same match complete.
+/^(\((?:[a-z]|(?1))*\))$/
+    ((q(w))(e))\=dfa,heap_limit=4000
+ 0: ((q(w))(e))
+
+# The in-pattern form sets it too, and the error is reported the same way.
+/(*LIMIT_HEAP=0)^(\((?:[a-z]|(?1))*\))$/
+    ((q(w))(e))\=dfa
+Failed: error -63: heap limit exceeded
+
+# Nested atomic groups are the other documented heap user in the DFA.
+/^(?>(?>(?>(?>(?>(?>(?>(?>(?>(?>q))))))))))$/
+    q\=dfa,heap_limit=0
+Failed: error -63: heap limit exceeded

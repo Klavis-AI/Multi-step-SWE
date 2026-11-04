@@ -1,0 +1,39 @@
+# arch: x86_64
+# --auxiliary records DT_AUXILIARY in a shared object, in all three spellings,
+# and is refused when the output is not a shared object.
+cat > a.c <<'C'
+int bump(int x) { return x + 1; }
+C
+cc_obj a.o a.c -fPIC
+
+link_ok libx.so -shared --auxiliary=libaux.so a.o --no-gc-sections
+want "auxiliary output is a shared object" "$(hdr libx.so | awk '/^ *Type:/ { print $2 }')" "DYN"
+d=$(dynamic libx.so)
+want_has "DT_AUXILIARY is present" "$d" 'AUXILIARY'
+want_has "and names the auxiliary library" "$d" 'libaux\.so'
+[ -n "$(dynsyms libx.so | awk '$8 == "bump" { print $2; exit }')" ] \
+  || die "--auxiliary output lost its exported symbol"
+
+# The separate-argument spelling and the short -f spelling do the same thing.
+link_ok liby.so -shared --auxiliary libaux.so a.o --no-gc-sections
+want_has "separate-argument spelling records DT_AUXILIARY" "$(dynamic liby.so)" 'AUXILIARY'
+cmp -s libx.so liby.so || die "--auxiliary=NAME and --auxiliary NAME differ"
+link_ok libz.so -shared -f libaux.so a.o --no-gc-sections
+want_has "-f records DT_AUXILIARY" "$(dynamic libz.so)" 'AUXILIARY'
+cmp -s libx.so libz.so || die "-f NAME and --auxiliary=NAME differ"
+
+# Two auxiliary names give two tags.
+link_ok libw.so -shared --auxiliary=one.so --auxiliary=two.so a.o --no-gc-sections
+w=$(dynamic libw.so)
+want_has "first auxiliary name" "$w" 'one\.so'
+want_has "second auxiliary name" "$w" 'two\.so'
+
+# Without -shared there is nothing to be auxiliary to, and the linker says so.
+link_fails bad --auxiliary=libaux.so a.o --no-gc-sections
+# The documented obligation is that the diagnostic names the option; the rest
+# of the wording is not graded.
+want_has "the refusal names the option" "$LINK_OUT" '\-f|auxiliary'
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 8

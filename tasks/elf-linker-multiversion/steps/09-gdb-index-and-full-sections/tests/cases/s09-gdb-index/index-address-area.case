@@ -1,0 +1,64 @@
+# arch: x86_64
+# The .gdb_index address area maps text ranges back to CU indices: every entry
+# is a (low, high, cu_index) triple with low < high and a cu_index inside the
+# CU list, and the executable's entry point falls inside one of the ranges.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 5;
+int entry(void) { print("area\n"); return g; }
+C
+cc_obj m.o m.c -g
+# rt.o carries _start and no DWARF, so the covering CU must come from m.o.
+cat > s.c <<'C'
+#include "rt.h"
+int helper(void) { return 1; }
+C
+cc_obj s.o s.c -g
+
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+getsec() { local o s; o=$(sec_off "$1" "$2"); s=$(sec_size "$1" "$2")
+           [ -n "$o" ] && [ -n "$s" ] || die "$1 has no section $2"
+           dd if="$1" of="$3" bs=1 skip=$((16#$o)) count=$((16#$s)) status=none; }
+u32() { od -An -tu4 -j "$2" -N 4 -- "$1" | tr -d ' \n'; }
+u64() { od -An -tu8 -j "$2" -N 8 -- "$1" | tr -d ' \n'; }
+
+link_ok out --gdb-index --no-gc-sections rt.o m.o s.o
+has_section out '\.gdb_index' || die "--gdb-index produced no .gdb_index section"
+getsec out .gdb_index gi.bin
+
+# Everything below reads the version-9 header layout, so pin the version first
+# (spec/18 s.2) -- otherwise a v7 index would be decoded at the wrong offsets.
+want ".gdb_index version" "$(u32 gi.bin 0)" "9"
+
+cu_off=$(u32 gi.bin 4); tu_off=$(u32 gi.bin 8)
+addr_off=$(u32 gi.bin 12); sym_off=$(u32 gi.bin 16)
+ncus=$(( (tu_off - cu_off) / 16 ))
+span=$((sym_off - addr_off))
+[ "$span" -gt 0 ] && [ $((span % 20)) -eq 0 ] \
+  || die "address area spans $span bytes, not a positive multiple of 20"
+n=$((span / 20))
+[ "$n" -ge 2 ] || die "address area has $n entries, want one per indexed function at least"
+
+ep=$(( $(hdr out | awk '/Entry point/{print $NF}') ))
+[ "$ep" -gt 0 ] || die "no entry point to locate"
+entry_addr=$(( 16#$(sym_value out entry) ))
+covered=0
+for k in $(seq 0 $((n - 1))); do
+  base=$((addr_off + k * 20))
+  lo=$(u64 gi.bin $base)
+  hi=$(u64 gi.bin $((base + 8)))
+  cu=$(u32 gi.bin $((base + 16)))
+  [ "$lo" -lt "$hi" ] || die "address area entry $k has low $lo >= high $hi"
+  [ "$cu" -lt "$ncus" ] || die "address area entry $k names CU $cu, only $ncus CUs exist"
+  [ "$entry_addr" -ge "$lo" ] && [ "$entry_addr" -lt "$hi" ] && covered=1
+done
+want "entry() is covered by the address area" "$covered" "1"
+
+run_expect out "area" 5
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

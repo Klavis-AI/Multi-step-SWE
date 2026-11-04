@@ -1,0 +1,308 @@
+diff --git a/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c b/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c
+index 7c1dbb6..d5fbd01 100644
+--- a/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c
++++ b/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c
+@@ -11,7 +11,77 @@
+ 
+ 
+ 
++void gc_precinct_stage_scalar_avx2(uint8_t *gcli_data_ptr, uint16_t *coeff_data_ptr_16bit, uint32_t group_size, uint32_t width) {
++    UNUSED(group_size);
++    assert(group_size == GROUP_SIZE);
++    DECLARE_ALIGNED(16, uint16_t, data[16]);
++    const __m256i perm = _mm256_setr_epi32(0, 4, 2, 6, 1, 5, 3, 7);
++    const __m256i one = _mm256_set1_epi16(1);
+ 
++    uint32_t full_group_256 = width / 64;
++    uint32_t leftover = width % 64;
++    for (uint32_t g = 0; g < full_group_256; g++) {
++        __m256i merge_or_0 = _mm256_loadu_si256((__m256i *)(coeff_data_ptr_16bit + 0));
++        __m256i merge_or_1 = _mm256_loadu_si256((__m256i *)(coeff_data_ptr_16bit + 16));
++        __m256i merge_or_2 = _mm256_loadu_si256((__m256i *)(coeff_data_ptr_16bit + 32));
++        __m256i merge_or_3 = _mm256_loadu_si256((__m256i *)(coeff_data_ptr_16bit + 48));
++
++        //transpose
++        __m256i a0 = _mm256_unpacklo_epi32(merge_or_0, merge_or_1);
++        __m256i a1 = _mm256_unpackhi_epi32(merge_or_0, merge_or_1);
++        __m256i a2 = _mm256_unpacklo_epi32(merge_or_2, merge_or_3);
++        __m256i a3 = _mm256_unpackhi_epi32(merge_or_2, merge_or_3);
++
++        __m256i tmp_0 = _mm256_unpacklo_epi16(a0, a1);
++        __m256i tmp_1 = _mm256_unpacklo_epi16(a2, a3);
++        __m256i tmp_2 = _mm256_unpackhi_epi16(a0, a1);
++        __m256i tmp_3 = _mm256_unpackhi_epi16(a2, a3);
++
++        a0 = _mm256_or_si256(tmp_0, tmp_2);
++        a1 = _mm256_or_si256(tmp_1, tmp_3);
++        a0 = _mm256_permutevar8x32_epi32(a0, perm);
++        a1 = _mm256_permutevar8x32_epi32(a1, perm);
++        merge_or_1 = _mm256_permute2x128_si256(a0, a1, 0x20);
++        merge_or_2 = _mm256_permute2x128_si256(a0, a1, 0x31);
++        __m256i merge_or = _mm256_or_si256(merge_or_1, merge_or_2);
++
++        //merge_or <<= 1; //Remove sign bit
++        merge_or = _mm256_slli_epi16(merge_or, 1);
++        merge_or = _mm256_or_si256(merge_or, one);
++        _mm256_storeu_si256((__m256i *)data, merge_or);
++
++        msb_x16_ASM(data, gcli_data_ptr);
++
++        gcli_data_ptr += 16;
++        coeff_data_ptr_16bit += 64;
++    }
++
++    if (leftover) {
++        uint32_t line_groups_num = leftover / GROUP_SIZE;
++        uint32_t line_groups_leftover = leftover % GROUP_SIZE;
++
++        if (line_groups_num) {
++            gc_precinct_stage_scalar_loop(line_groups_num, coeff_data_ptr_16bit, gcli_data_ptr);
++        }
++
++        if (line_groups_leftover) {
++            coeff_data_ptr_16bit += line_groups_num * GROUP_SIZE;
++            gcli_data_ptr += line_groups_num;
++            uint16_t merge_or = 0;
++            for (uint32_t i = 0; i < line_groups_leftover; i++) {
++                merge_or |= coeff_data_ptr_16bit[i];
++            }
++            merge_or <<= 1; //Remove sign bit
++            if (merge_or) {
++                gcli_data_ptr[0] = svt_log2_32(merge_or); //MSB
++                assert(gcli_data_ptr[0] <= TRUNCATION_MAX);
++            }
++            else {
++                gcli_data_ptr[0] = 0;
++            }
++        }
++    }
++}
+ 
+ void convert_packed_to_planar_rgb_8bit_avx2(const void *in_rgb, void *out_comp1, void *out_comp2, void *out_comp3,
+                                             uint32_t line_width) {
+diff --git a/Source/Lib/Encoder/ASM_SSE2/ASM_SSE2.asm b/Source/Lib/Encoder/ASM_SSE2/ASM_SSE2.asm
+new file mode 100644
+index 0000000..f569d3c
+--- /dev/null
++++ b/Source/Lib/Encoder/ASM_SSE2/ASM_SSE2.asm
+@@ -0,0 +1,80 @@
++;
++; Copyright(c) 2024 Intel Corporation
++; SPDX - License - Identifier: BSD - 2 - Clause - Patent
++;
++
++%include "x64inc.asm"
++section .text
++
++; ----------------------------------------------------------------------------------------
++cglobal gc_precinct_stage_scalar_loop_ASM
++.loop:
++    mov r3w, [r1]    ;coeff_data_ptr_16bit[0];
++    or r3w, [r1+2]   ;coeff_data_ptr_16bit[1];
++    or r3w, [r1+4]   ;coeff_data_ptr_16bit[2];
++    or r3w, [r1+6]   ;coeff_data_ptr_16bit[3];
++    shl r3w,1
++    or r3w,1
++    bsr r4w, r3w
++    mov [r2], r4b
++
++  inc r2
++  add r1, 8 ; GROUP_SIZE * sizeof(uint16_t)
++  dec r0
++  jnz .loop
++
++  ret
++
++cglobal msb_x16_ASM
++    mov [RSP-8], R8
++    mov [RSP-16], R9
++    mov [RSP-24], R10
++    mov [RSP-32], R11
++
++    bsr R8W, [r0]
++    bsr R9W, [r0+2]
++    bsr R10W, [r0+4]
++    bsr R11W, [r0+6]
++    mov [r1], R8B
++    mov [r1+1], R9B
++    mov [r1+2], R10B
++    mov [r1+3], R11B
++    add r1, 4
++    add r0, 8
++
++    bsr R8W, [r0]
++    bsr R9W, [r0+2]
++    bsr R10W, [r0+4]
++    bsr R11W, [r0+6]
++    mov [r1], R8B
++    mov [r1+1], R9B
++    mov [r1+2], R10B
++    mov [r1+3], R11B
++    add r1, 4
++    add r0, 8
++
++    bsr R8W, [r0]
++    bsr R9W, [r0+2]
++    bsr R10W, [r0+4]
++    bsr R11W, [r0+6]
++    mov [r1], R8B
++    mov [r1+1], R9B
++    mov [r1+2], R10B
++    mov [r1+3], R11B
++    add r1, 4
++    add r0, 8
++
++    bsr R8W, [r0]
++    bsr R9W, [r0+2]
++    bsr R10W, [r0+4]
++    bsr R11W, [r0+6]
++    mov [r1], R8B
++    mov [r1+1], R9B
++    mov [r1+2], R10B
++    mov [r1+3], R11B
++
++    mov R8, [RSP-8]
++    mov R9, [RSP-16]
++    mov R10, [RSP-24]
++    mov R11, [RSP-32]
++  ret
+diff --git a/Source/Lib/Encoder/ASM_SSE4_1/group_coding_sse4_1.c b/Source/Lib/Encoder/ASM_SSE4_1/group_coding_sse4_1.c
+new file mode 100644
+index 0000000..7ca70bf
+--- /dev/null
++++ b/Source/Lib/Encoder/ASM_SSE4_1/group_coding_sse4_1.c
+@@ -0,0 +1,64 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#include "group_coding_sse4_1.h"
++#include "Definitions.h"
++#include <immintrin.h>
++
++void gc_precinct_sigflags_max_sse4_1(uint8_t *significance_data_max_ptr, uint8_t *gcli_data_ptr, uint32_t group_sign_size,
++                                     uint32_t gcli_width) {
++    UNUSED(group_sign_size);
++    assert(group_sign_size == SIGNIFICANCE_GROUP_SIZE);
++    const uint32_t group_number = gcli_width / SIGNIFICANCE_GROUP_SIZE;
++    const uint32_t size_leftover = gcli_width % SIGNIFICANCE_GROUP_SIZE;
++    const uint32_t simd_group_number = group_number / 8;
++    uint8_t *in = gcli_data_ptr;
++
++    for (uint32_t group = 0; group < simd_group_number; group++) {
++        //transpose 8x8
++        const __m128i a0 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(in + 8 * 0)), _mm_loadl_epi64((__m128i *)(in + 8 * 1)));
++        const __m128i a1 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(in + 8 * 2)), _mm_loadl_epi64((__m128i *)(in + 8 * 3)));
++        const __m128i a2 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(in + 8 * 4)), _mm_loadl_epi64((__m128i *)(in + 8 * 5)));
++        const __m128i a3 = _mm_unpacklo_epi8(_mm_loadl_epi64((__m128i *)(in + 8 * 6)), _mm_loadl_epi64((__m128i *)(in + 8 * 7)));
++        const __m128i b0 = _mm_unpacklo_epi16(a0, a1);
++        const __m128i b1 = _mm_unpackhi_epi16(a0, a1);
++        const __m128i b2 = _mm_unpacklo_epi16(a2, a3);
++        const __m128i b3 = _mm_unpackhi_epi16(a2, a3);
++        const __m128i out0 = _mm_unpacklo_epi32(b0, b2);
++        const __m128i out1 = _mm_unpackhi_epi32(b0, b2);
++        const __m128i out2 = _mm_unpacklo_epi32(b1, b3);
++        const __m128i out3 = _mm_unpackhi_epi32(b1, b3);
++
++        __m128i simd_max = _mm_max_epi8(_mm_max_epi8(out0, out1), _mm_max_epi8(out2, out3));
++        simd_max = _mm_max_epi8(simd_max, _mm_srli_si128(simd_max, 8));
++
++        _mm_storel_epi64((__m128i *)significance_data_max_ptr, simd_max);
++        in += 8 * SIGNIFICANCE_GROUP_SIZE;
++        significance_data_max_ptr += 8;
++    }
++
++    const int16_t max_val_u8 = 255;
++    const __m128i max_val = _mm_set1_epi16(max_val_u8);
++    for (uint32_t group = 0; group < group_number % 8; group++) {
++        __m128i vals = _mm_cvtepi8_epi16(_mm_loadl_epi64((__m128i *)in));
++        __m128i neg_vals = _mm_sub_epi16(max_val, vals);
++        __m128i min_pos = _mm_minpos_epu16(neg_vals);
++        int16_t neg_val = _mm_extract_epi16(min_pos, 0);
++        significance_data_max_ptr[0] = (uint8_t)(max_val_u8 - neg_val);
++        significance_data_max_ptr++;
++        in += SIGNIFICANCE_GROUP_SIZE;
++    }
++
++    //Leftover last column
++    if (size_leftover) {
++        uint8_t max = 0;
++        for (uint32_t j = 0; j < size_leftover; j++) {
++            if (in[j] > max) {
++                max = in[j];
++            }
++        }
++        significance_data_max_ptr[0] = max;
++    }
++}
+diff --git a/Source/Lib/Encoder/ASM_SSE4_1/group_coding_sse4_1.h b/Source/Lib/Encoder/ASM_SSE4_1/group_coding_sse4_1.h
+new file mode 100644
+index 0000000..76d39f7
+--- /dev/null
++++ b/Source/Lib/Encoder/ASM_SSE4_1/group_coding_sse4_1.h
+@@ -0,0 +1,24 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#ifndef group_coding_sse4_1_h
++#define group_coding_sse4_1_h
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#include <stdlib.h>
++#include "SvtType.h"
++#include "Definitions.h"
++#include "Codestream.h"
++
++void gc_precinct_sigflags_max_sse4_1(uint8_t* significance_data_max_ptr, uint8_t* gcli_data_ptr, uint32_t group_sign_size,
++                                     uint32_t gcli_width);
++
++#ifdef __cplusplus
++}
++#endif
++#endif // group_coding_sse4_1_h
+diff --git a/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c b/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
+index 6fd623a..6b9b555 100644
+--- a/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
++++ b/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
+@@ -16,6 +16,7 @@
+ #include "Quant_avx2.h"
+ #include "Quant.h"
+ #include "PackPrecinct.h"
++#include "group_coding_sse4_1.h"
+ #include "RateControl.h"
+ #include "RateControl_avx2.h"
+ 
+@@ -123,14 +124,14 @@ void setup_encoder_rtcd_internal(CPU_FLAGS flags) {
+     SET_AVX2_AVX512(transform_vertical_loop_lf_hf_hf_line_x, transform_vertical_loop_lf_hf_hf_line_x_c, transform_vertical_loop_lf_hf_hf_line_x_avx2, NULL);
+     SET_AVX2_AVX512(transform_vertical_loop_lf_hf_hf_line_last_even, transform_vertical_loop_lf_hf_hf_line_last_even_c, transform_vertical_loop_lf_hf_hf_line_last_even_avx2, NULL);
+ 
+-    SET_ONLY_C(gc_precinct_stage_scalar, gc_precinct_stage_scalar_c);
++    SET_AVX2_AVX512(gc_precinct_stage_scalar, gc_precinct_stage_scalar_c, gc_precinct_stage_scalar_avx2, NULL);
+     SET_SSE41_AVX2_AVX512(quantization, quantization_c, quantization_sse4_1, quantization_avx2, NULL);
+     SET_AVX2_AVX512(linear_input_scaling_line_8bit, linear_input_scaling_line_8bit_c, linear_input_scaling_line_8bit_avx2, NULL);
+     SET_AVX2_AVX512(linear_input_scaling_line_16bit, linear_input_scaling_line_16bit_c, linear_input_scaling_line_16bit_avx2, NULL);
+     SET_AVX2_AVX512(linear_input_scaling_line_16bit_msb, linear_input_scaling_line_16bit_msb_c, linear_input_scaling_line_16bit_msb_avx2, NULL);
+ 
+     SET_ONLY_C(pack_data_single_group, pack_data_single_group_c);
+-    SET_ONLY_C(gc_precinct_stage_scalar_loop, gc_precinct_stage_scalar_loop_c);
++    SET_SSE2(gc_precinct_stage_scalar_loop, gc_precinct_stage_scalar_loop_c, gc_precinct_stage_scalar_loop_ASM);
+     SET_ONLY_C(pack_data_groups, pack_data_groups_c);
+ #ifdef ARCH_X86_64
+     /* One implementation of this stage needs BMI2 and is microcoded and slow on
+@@ -138,8 +139,8 @@ void setup_encoder_rtcd_internal(CPU_FLAGS flags) {
+      * which already subsumes it -- and only when the host (not just the
+      * requested tier) actually has BMI2. */
+ #endif /* ARCH_X86_64 */
+-    SET_ONLY_C(gc_histogram_16, gc_histogram_16_c);
+-    SET_ONLY_C(gc_precinct_sigflags_max, gc_precinct_sigflags_max_c);
++    SET_AVX2_AVX512(gc_histogram_16, gc_histogram_16_c, gc_histogram_16_avx2, NULL);
++    SET_SSE41(gc_precinct_sigflags_max, gc_precinct_sigflags_max_c, gc_precinct_sigflags_max_sse4_1);
+     SET_ONLY_C(rate_control_calc_vpred_cost_nosigf, rate_control_calc_vpred_cost_nosigf_c);
+     SET_ONLY_C(rate_control_calc_vpred_cost_sigf_nosigf, rate_control_calc_vpred_cost_sigf_nosigf_c);
+ 

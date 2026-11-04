@@ -1,0 +1,36 @@
+// NOT a driver -- the extension is deliberately `.cpp.txt`, not `.cpp`, so the
+// runner's `for src in /tests/assets/drivers/*.cpp` loop never picks this file
+// up and never tries to link it into the driver set. It is compiled on purpose,
+// from removed-api/a-align-mode-z-removed.sh, as a compile-must-fail probe.
+//
+// This is the scenario-engine half of the pair. The RM_ probe beside it covers
+// `RM_SetAlignMode`; instruction R7 removes the mirrored `SE_SetAlignMode`
+// family from esminiLib.hpp and from the exported symbols of libesminiLib.so
+// with the same consequence -- "code that calls any of them must fail to
+// link". Without this file the SE_ half is checked only by reading the dynamic
+// symbol table, which catches a genuinely deleted symbol but NOT one that was
+// merely hidden from `nm -D` (a version script, -Wl,--exclude-libs, or a stray
+// static archive on the link line all hide a symbol while leaving it
+// resolvable).
+//
+// The call goes through the PUBLIC HEADER, with no local redeclaration: that is
+// the whole point. At the target tag the declaration is gone from
+// esminiLib.hpp, so compilation stops at the undeclared identifier and the
+// translation unit never reaches the linker. A redeclaration here would defeat
+// the probe by compiling cleanly against a stale header. At the start tag the
+// declaration is present and the symbol is exported, so this compiles -- which
+// is why the assertion belongs to the `new` tier.
+//
+// The pointer indirection keeps the call from being folded away, so a build that
+// hid the symbol instead of removing it would still get an undefined reference
+// out of this translation unit if it were linked.
+#include <esminiLib.hpp>
+
+volatile int se_test_note = 0;
+
+void se_set_align_mode_probe(int object_id, int mode)
+{
+    void (*fn)(int, int) = &SE_SetAlignMode;
+    fn(object_id, mode);
+    se_test_note = 1;
+}

@@ -1,0 +1,26 @@
+# PROFILE.md 8 `uv run` as a parent process: "Every process `uv` spawns has
+# `UV` set in its environment, to the path of the `uv` executable handling the
+# invocation. It is set even when there is no project, as under `uv run
+# --no-project`, and it overwrites any inherited value." The child is handed a
+# bogus inherited `UV`, and decides its own exit status: 0 only if the
+# variable now names an executable file called `uv`. The path itself is not
+# asserted -- `normalise()` rewrites the scratch directory it sits under --
+# so the child does the check where the real path is visible.
+id = "run-exports-uv-env-var"
+step = 8
+group = "run-subprocess-contract"
+mode = "bare"
+argv = ["run", "--no-project", "python", "check_uv_env.py"]
+observe = ["status"]
+
+[env]
+UV = "inherited-bogus"
+
+[files]
+"check_uv_env.py" = """
+import os
+import sys
+
+uv = os.environ.get("UV", "")
+sys.exit(0 if uv and os.path.basename(uv) == "uv" and os.access(uv, os.X_OK) else 3)
+"""

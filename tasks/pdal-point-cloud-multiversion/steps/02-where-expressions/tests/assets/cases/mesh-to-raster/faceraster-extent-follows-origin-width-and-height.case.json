@@ -1,0 +1,71 @@
+{
+ "doc": "stages/filters.faceraster.rst: 'The extent of the raster can be defined by using the origin_x_, origin_y, width_ and height_ options.' and stages/filters.faceraster.rst: 'Each raster cell is given a value that is an interpolation of the known values of containing triangle.  If the raster cell center is outside of the triangulation, it is assigned the nodata_ value.  Use `writers.raster` to write the output.'",
+ "files": {
+  "plane.txt": {
+   "text": "X,Y,Z\n0,0,0\n4,0,4\n0,4,0\n4,4,4\n"
+  },
+  "w.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"plane.txt\"}, {\"type\": \"filters.delaunay\"}, {\"type\": \"filters.faceraster\", \"resolution\": 2, \"origin_x\": 1, \"origin_y\": 1, \"width\": 2, \"height\": 2}, {\"type\": \"writers.raster\", \"filename\": \"r.tif\", \"data_type\": \"double\"}]}"
+  },
+  "r.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.gdal\", \"filename\": \"r.tif\", \"header\": \"Z\"}, {\"type\": \"writers.las\", \"filename\": \"r.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "w.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "r.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "r.las",
+   "header": {
+    "point_count": 4
+   },
+   "dims": {
+    "Z": {
+     "unique": [
+      2,
+      4
+     ],
+     "sum": {
+      "approx": 12,
+      "tol": 0.01
+     }
+    },
+    "X": {
+     "unique": [
+      2,
+      4
+     ]
+    },
+    "Y": {
+     "unique": [
+      2,
+      4
+     ]
+    }
+   }
+  }
+ ]
+}

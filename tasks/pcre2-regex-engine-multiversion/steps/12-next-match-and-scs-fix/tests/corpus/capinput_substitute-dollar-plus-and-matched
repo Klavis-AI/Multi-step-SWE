@@ -1,0 +1,32 @@
+# $+ inserts the highest-numbered capture group that matched, and the input
+# validation for PCRE2_SUBSTITUTE_MATCHED is tightened so that a subject
+# changed between the match and the substitution is an error.
+# ChangeLog 10.47 items 17 and 18; pcre2api.3, "CREATING A NEW STRING WITH
+# SUBSTITUTIONS"; pcre2test.1, "SUBJECT MODIFIERS".
+
+/(a)(b)?(c)/
+    ac\=replace=<$+>
+
+/(x)(y)/
+    xy\=replace=<$+>
+
+/(p)(q)?/
+    p\=replace=<$+>
+
+/(?<one>i)(?<two>j)?/
+    i\=replace=<$+>
+
+# A client that shortens the subject buffer between the two calls is now
+# rejected instead of being undefined behaviour.
+/b(c)d/
+    abcde\=substitute_matched,replace=<$1>
+
+/b(c)d/
+    abcde\=substitute_matched,substitute_subject=abc,replace=<$1>
+
+/b(c)d/
+    abcde\=substitute_matched,substitute_subject=aXcde,replace=<$1>
+
+# Substitution with a NULL match data block.
+/b(c)d/
+    abcde\=null_substitute_match_data,replace=<$1>

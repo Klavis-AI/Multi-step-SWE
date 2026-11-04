@@ -1,0 +1,1273 @@
+{
+ "per_check_timeout": 300,
+ "total_budget": 1800,
+ "checks": [
+  {
+   "id": "g01_expr_parse",
+   "stage": {
+    "s03/g_expr": "."
+   },
+   "write": {
+    "in.txt": "1 + 2 * x;\n(a+b)*3;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [2, 0]\n  (bin [0, 0] - [0, 9]\n    (num [0, 0] - [0, 1])\n    (bin [0, 4] - [0, 9]\n      (num [0, 4] - [0, 5])\n      (ident [0, 8] - [0, 9])))\n  (bin [1, 0] - [1, 7]\n    (paren [1, 0] - [1, 5]\n      (bin [1, 1] - [1, 4]\n        (ident [1, 1] - [1, 2])\n        (ident [1, 3] - [1, 4])))\n    (num [1, 6] - [1, 7])))"
+   }
+  },
+  {
+   "id": "g02_prec_assoc",
+   "stage": {
+    "s03/g_prec": "."
+   },
+   "write": {
+    "a.txt": "a - b - c",
+    "b.txt": "a ^ b ^ c",
+    "c.txt": "a - b ^ c",
+    "d.txt": "- a - b"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "a.txt",
+     "prefix": "left_"
+    },
+    {
+     "kind": "parse",
+     "input": "b.txt",
+     "prefix": "right_"
+    },
+    {
+     "kind": "parse",
+     "input": "c.txt",
+     "prefix": "mixed_"
+    },
+    {
+     "kind": "parse",
+     "input": "d.txt",
+     "prefix": "unary_"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "left_parse_exit_zero": true,
+    "left_tree": "(source_file [0, 0] - [0, 9]\n  (add [0, 0] - [0, 9]\n    (add [0, 0] - [0, 5]\n      (id [0, 0] - [0, 1])\n      (id [0, 4] - [0, 5]))\n    (id [0, 8] - [0, 9])))",
+    "mixed_parse_exit_zero": true,
+    "mixed_tree": "(source_file [0, 0] - [0, 9]\n  (add [0, 0] - [0, 9]\n    (id [0, 0] - [0, 1])\n    (pow [0, 4] - [0, 9]\n      (id [0, 4] - [0, 5])\n      (id [0, 8] - [0, 9]))))",
+    "right_parse_exit_zero": true,
+    "right_tree": "(source_file [0, 0] - [0, 9]\n  (pow [0, 0] - [0, 9]\n    (id [0, 0] - [0, 1])\n    (pow [0, 4] - [0, 9]\n      (id [0, 4] - [0, 5])\n      (id [0, 8] - [0, 9]))))",
+    "unary_parse_exit_zero": true,
+    "unary_tree": "(source_file [0, 0] - [0, 7]\n  (add [0, 0] - [0, 7]\n    (neg [0, 0] - [0, 3]\n      (id [0, 2] - [0, 3]))\n    (id [0, 6] - [0, 7])))"
+   }
+  },
+  {
+   "id": "g03_glr_dynamic",
+   "stage": {
+    "s03/g_glr": "."
+   },
+   "write": {
+    "in.txt": "f(x)"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [0, 4]\n  (call [0, 0] - [0, 4]\n    (id [0, 0] - [0, 1])\n    (id [0, 2] - [0, 3])))"
+   }
+  },
+  {
+   "id": "g04_extras_and_comments",
+   "stage": {
+    "s03/g_extras": "."
+   },
+   "write": {
+    "in.txt": "a; # hi\nb;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [2, 0]\n  (item [0, 0] - [0, 2]\n    (id [0, 0] - [0, 1]))\n  (comment [0, 3] - [0, 7])\n  (item [1, 0] - [1, 2]\n    (id [1, 0] - [1, 1])))"
+   }
+  },
+  {
+   "id": "g05_token_immediate",
+   "stage": {
+    "s03/g_immed": "."
+   },
+   "write": {
+    "a.txt": "a!",
+    "b.txt": "a ?",
+    "c.txt": "b?"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "a.txt",
+     "prefix": "glued_"
+    },
+    {
+     "kind": "parse",
+     "input": "b.txt",
+     "prefix": "spaced_"
+    },
+    {
+     "kind": "parse",
+     "input": "c.txt",
+     "prefix": "loose_"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "glued_parse_exit_zero": true,
+    "glued_tree": "(source_file [0, 0] - [0, 2]\n  (item [0, 0] - [0, 2]\n    (glued [0, 0] - [0, 2]\n      (id [0, 0] - [0, 1]))))",
+    "loose_parse_exit_zero": true,
+    "loose_tree": "(source_file [0, 0] - [0, 2]\n  (item [0, 0] - [0, 2]\n    (loose [0, 0] - [0, 2]\n      (id [0, 0] - [0, 1]))))",
+    "spaced_parse_exit_zero": true,
+    "spaced_tree": "(source_file [0, 0] - [0, 3]\n  (item [0, 0] - [0, 3]\n    (loose [0, 0] - [0, 3]\n      (id [0, 0] - [0, 1]))))"
+   }
+  },
+  {
+   "id": "g06_alias_inline_fields",
+   "stage": {
+    "s03/g_alias": "."
+   },
+   "write": {
+    "in.txt": "let a; var b; kw\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (decl [0, 0] - [0, 6]\n    name: (id [0, 4] - [0, 5]))\n  (decl [0, 7] - [0, 13]\n    name: (varname [0, 11] - [0, 12]))\n  (keyword [0, 14] - [0, 16]))"
+   }
+  },
+  {
+   "id": "g07_unicode_character_class",
+   "stage": {
+    "s03/g_unicode": "."
+   },
+   "write": {
+    "in.txt": "café αβγ plain\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (word [0, 0] - [0, 5])\n  (word [0, 6] - [0, 12])\n  (word [0, 13] - [0, 18]))"
+   }
+  },
+  {
+   "id": "g08_error_recovery",
+   "stage": {
+    "s03/g_error": "."
+   },
+   "write": {
+    "a.txt": "let a",
+    "b.txt": "let ;",
+    "c.txt": "let a ; )( let b ;"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "a.txt",
+     "prefix": "missing_"
+    },
+    {
+     "kind": "parse",
+     "input": "b.txt",
+     "prefix": "badtok_"
+    },
+    {
+     "kind": "parse",
+     "input": "c.txt",
+     "prefix": "recover_"
+    }
+   ],
+   "expect": {
+    "badtok_parse_exit_zero": false,
+    "badtok_tree": "(source_file [0, 0] - [0, 5]\n  (ERROR [0, 0] - [0, 5]))",
+    "generate_exit_zero": true,
+    "missing_parse_exit_zero": false,
+    "missing_tree": "(source_file [0, 0] - [0, 5]\n  (item [0, 0] - [0, 5]\n    (id [0, 4] - [0, 5])))",
+    "recover_parse_exit_zero": false,
+    "recover_tree": "(source_file [0, 0] - [0, 18]\n  (item [0, 0] - [0, 7]\n    (id [0, 4] - [0, 5]))\n  (ERROR [0, 8] - [0, 10]\n    (ERROR [0, 8] - [0, 10]))\n  (item [0, 11] - [0, 18]\n    (id [0, 15] - [0, 16])))"
+   }
+  },
+  {
+   "id": "g09_corpus_test_runner",
+   "stage": {
+    "s03/g_corpus": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "one item",
+     "two items"
+    ]
+   }
+  },
+  {
+   "id": "g10_query_captures",
+   "stage": {
+    "s03/g_query": "."
+   },
+   "write": {
+    "in.txt": "a; bb; ccc;",
+    "q.scm": "(item (id) @name)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "captures": "in.txt\n  pattern: 0\n    capture: 0 - name, start: (0, 0), end: (0, 1), text: `a`\n  pattern: 0\n    capture: 0 - name, start: (0, 3), end: (0, 5), text: `bb`\n  pattern: 0\n    capture: 0 - name, start: (0, 7), end: (0, 10), text: `ccc`",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "id": "g11_query_rejects_unknown_node_type",
+   "stage": {
+    "s03/g_query": "."
+   },
+   "write": {
+    "in.txt": "a;",
+    "q.scm": "(no_such_node) @x\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "captures": "",
+    "generate_exit_zero": true,
+    "query_exit_zero": false
+   }
+  },
+  {
+   "id": "g12_external_scanner_serialization",
+   "stage": {
+    "s03/g_scanner": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "one heredoc",
+     "two heredocs with different tags"
+    ]
+   }
+  },
+  {
+   "id": "g13_generate_writes_its_outputs",
+   "stage": {
+    "s03/g_query": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "files",
+     "expect_files": [
+      "src/parser.c",
+      "src/node-types.json",
+      "src/grammar.json",
+      "src/tree_sitter/parser.h",
+      "binding.gyp",
+      "bindings/node/binding.cc",
+      "bindings/rust/lib.rs",
+      "Cargo.toml"
+     ]
+    }
+   ],
+   "expect": {
+    "file:Cargo.toml": true,
+    "file:binding.gyp": true,
+    "file:bindings/node/binding.cc": true,
+    "file:bindings/rust/lib.rs": true,
+    "file:src/grammar.json": true,
+    "file:src/node-types.json": true,
+    "file:src/parser.c": true,
+    "file:src/tree_sitter/parser.h": true,
+    "generate_exit_zero": true
+   }
+  },
+  {
+   "id": "g14_unknown_predicate_does_not_cause_exit_one",
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\n",
+    "q.scm": "((identifier) @name (#unknown-pred? @name))\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "captures": "in.txt\n  pattern: 0\n    capture: 0 - name, start: (0, 4), end: (0, 9), text: `alpha`\n  pattern: 0\n    capture: 0 - name, start: (1, 6), end: (1, 10), text: `beta`"
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "((identifier) @name (#any-of? @name \"alpha\" \"gamma\"))\n"
+   },
+   "id": "s03_anyof_selects_listed_values",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "captures": "in.txt\n  pattern: 0\n    capture: 0 - name, start: (0, 4), end: (0, 9), text: `alpha`\n  pattern: 0\n    capture: 0 - name, start: (2, 4), end: (2, 9), text: `gamma`",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "((identifier) @name (#not-any-of? @name \"alpha\" \"gamma\"))\n"
+   },
+   "id": "s03_not_anyof_selects_the_complement",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "captures": "in.txt\n  pattern: 0\n    capture: 0 - name, start: (1, 6), end: (1, 10), text: `beta`",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "((identifier) @name (#any-of? @name \"alpha\" \"gamma\"))\n"
+   },
+   "id": "s03_anyof_applies_in_captures_mode",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt",
+     "query_args": [
+      "--captures"
+     ]
+    }
+   ],
+   "expect": {
+    "captures": "in.txt\n    pattern:  0, capture: 0 - name, start: (0, 4), end: (0, 9), text: `alpha`\n    pattern:  0, capture: 0 - name, start: (2, 4), end: (2, 9), text: `gamma`",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "((identifier) @name (#any-of? @name \"zeta\"))\n"
+   },
+   "id": "s03_anyof_with_no_matching_value_yields_nothing",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "captures": "in.txt",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "((identifier) @name (#any-of? \"alpha\" \"gamma\"))\n"
+   },
+   "id": "s03_anyof_first_argument_must_be_a_capture",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "query",
+      "q.scm",
+      "in.txt"
+     ],
+     "stream": "stderr",
+     "contains": {
+      "names_the_predicate": "#any-of?"
+     }
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 1,
+    "cli_exit_zero": false,
+    "contains:names_the_predicate": true,
+    "generate_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "((identifier) @name (#any-of? @name @name))\n"
+   },
+   "id": "s03_anyof_later_arguments_must_be_literals",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "query",
+      "q.scm",
+      "in.txt"
+     ],
+     "stream": "stderr",
+     "contains": {
+      "names_the_predicate": "#any-of?"
+     }
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 1,
+    "cli_exit_zero": false,
+    "contains:names_the_predicate": true,
+    "generate_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "((identifier) @name (#not-any-of? \"alpha\" \"gamma\"))\n"
+   },
+   "id": "s03_not_anyof_first_argument_must_be_a_capture",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "query",
+      "q.scm",
+      "in.txt"
+     ],
+     "stream": "stderr",
+     "regex": {
+      "names_the_predicate": "#(?:not-)?(any-of\\?)"
+     }
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 1,
+    "cli_exit_zero": false,
+    "generate_exit_zero": true,
+    "regex:names_the_predicate": "any-of?"
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "((identifier) @name (#not-any-of? @name @name))\n"
+   },
+   "id": "s03_not_anyof_later_arguments_must_be_literals",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "query",
+      "q.scm",
+      "in.txt"
+     ],
+     "stream": "stderr",
+     "regex": {
+      "names_the_predicate": "#(?:not-)?(any-of\\?)"
+     }
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 1,
+    "cli_exit_zero": false,
+    "generate_exit_zero": true,
+    "regex:names_the_predicate": "any-of?"
+   }
+  },
+  {
+   "id": "s03_abi14_is_the_default_language_version",
+   "stage": {
+    "s03/mini": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "language_version",
+       "file": "src/parser.c",
+       "regex": "#define LANGUAGE_VERSION (\\d+)"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "language_version": "14"
+   }
+  },
+  {
+   "id": "s03_abi14_emits_the_primary_state_table",
+   "stage": {
+    "s03/mini": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "primary_state_table",
+       "file": "src/parser.c",
+       "contains": "ts_primary_state_ids"
+      },
+      {
+       "name": "primary_state_field",
+       "file": "src/parser.c",
+       "contains": ".primary_state_ids ="
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "primary_state_field": true,
+    "primary_state_table": true
+   }
+  },
+  {
+   "id": "s03_abi14_parser_is_loadable",
+   "stage": {
+    "s03/mini": "."
+   },
+   "write": {
+    "in.txt": "a; b;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "language_version",
+       "file": "src/parser.c",
+       "regex": "#define LANGUAGE_VERSION (\\d+)"
+      }
+     ]
+    },
+    {
+     "kind": "parse",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "language_version": "14",
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (item [0, 0] - [0, 2]\n    (id [0, 0] - [0, 1]))\n  (item [0, 3] - [0, 5]\n    (id [0, 3] - [0, 4])))"
+   }
+  },
+  {
+   "id": "s03_abi14_parser_runs_the_corpus",
+   "stage": {
+    "s03/mini": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "language_version",
+       "file": "src/parser.c",
+       "regex": "#define LANGUAGE_VERSION (\\d+)"
+      }
+     ]
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "language_version": "14",
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "two items"
+    ]
+   }
+  },
+  {
+   "id": "s03_generate_build_writes_a_library",
+   "stage": {
+    "s03/mini": "."
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "generate",
+      "--build",
+      "--libdir",
+      "./libs"
+     ],
+     "expect_files": [
+      "libs/mini.so",
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "file:libs/mini.so": true,
+    "file:src/parser.c": true
+   }
+  },
+  {
+   "id": "s03_generate_debug_build_writes_a_debug_library",
+   "stage": {
+    "s03/mini": "."
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "generate",
+      "--build",
+      "--debug-build",
+      "--libdir",
+      "./libs"
+     ],
+     "expect_files": [
+      "libs/mini.debug.so"
+     ],
+     "expect_absent": [
+      "libs/mini.so"
+     ]
+    }
+   ],
+   "expect": {
+    "absent:libs/mini.so": true,
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "file:libs/mini.debug.so": true
+   }
+  },
+  {
+   "id": "s03_generate_build_without_libdir",
+   "stage": {
+    "s03/mini": "."
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "generate",
+      "--build"
+     ],
+     "expect_files": [
+      "src/parser.c"
+     ],
+     "expect_absent": [
+      "libs"
+     ]
+    }
+   ],
+   "expect": {
+    "absent:libs": true,
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "file:src/parser.c": true
+   }
+  },
+  {
+   "id": "s03_generate_libdir_alone_compiles_nothing",
+   "stage": {
+    "s03/mini": "."
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "generate",
+      "--libdir",
+      "./libs"
+     ],
+     "expect_files": [
+      "src/parser.c"
+     ],
+     "expect_absent": [
+      "libs/mini.so"
+     ]
+    }
+   ],
+   "expect": {
+    "absent:libs/mini.so": true,
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "file:src/parser.c": true
+   }
+  },
+  {
+   "id": "s03_generate_rejects_no_minimize",
+   "stage": {
+    "s03/mini": "."
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "args": [
+      "generate",
+      "--no-minimize"
+     ],
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "absent:src/parser.c": true,
+    "cli_exit_code": 1,
+    "cli_exit_zero": false
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "(identifier) @name\n"
+   },
+   "id": "s03_query_row_range_restricts_the_search",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt",
+     "query_args": [
+      "--row-range",
+      "1:2"
+     ]
+    }
+   ],
+   "expect": {
+    "captures": "in.txt\n  pattern: 0\n    capture: 0 - name, start: (1, 6), end: (1, 10), text: `beta`",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "(identifier) @name\n"
+   },
+   "id": "s03_query_row_range_beyond_the_input_matches_nothing",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt",
+     "query_args": [
+      "--row-range",
+      "9:10"
+     ]
+    }
+   ],
+   "expect": {
+    "captures": "in.txt",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "(identifier) @name\n"
+   },
+   "id": "s03_query_quiet_suppresses_the_capture_listing",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt",
+     "query_args": [
+      "--quiet"
+     ]
+    }
+   ],
+   "expect": {
+    "captures": "in.txt",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n",
+    "q.scm": "(identifier) @name\n"
+   },
+   "id": "s03_query_captures_quiet_still_prints_path_line",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.txt",
+     "query_args": [
+      "--captures",
+      "--quiet"
+     ]
+    }
+   ],
+   "expect": {
+    "captures": "in.txt",
+    "generate_exit_zero": true,
+    "query_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n"
+   },
+   "id": "s03_parse_xml_replaces_the_sexpression",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "prefix": "xml_",
+     "args": [
+      "parse",
+      "--xml",
+      "in.txt"
+     ],
+     "stream": "stdout",
+     "contains": {
+      "sexpression": "(source_file [0, 0]"
+     }
+    },
+    {
+     "kind": "cli",
+     "prefix": "plain_",
+     "args": [
+      "parse",
+      "in.txt"
+     ],
+     "stream": "stdout",
+     "contains": {
+      "sexpression": "(source_file [0, 0]"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "plain_cli_exit_code": 0,
+    "plain_cli_exit_zero": true,
+    "plain_contains:sexpression": true,
+    "xml_cli_exit_code": 0,
+    "xml_cli_exit_zero": true,
+    "xml_contains:sexpression": false
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n"
+   },
+   "id": "s03_parse_accepts_an_explicit_utf8_encoding",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "parse",
+      "--encoding",
+      "utf8",
+      "in.txt"
+     ],
+     "stream": "stdout",
+     "contains": {
+      "tree_root": "(source_file [0, 0] - [3, 0]",
+      "keyword_node": "(keyword [0, 0] - [0, 3])"
+     }
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "contains:keyword_node": true,
+    "contains:tree_root": true,
+    "generate_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n"
+   },
+   "id": "s03_parse_detects_a_utf16_byte_order_mark",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "utf16.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 2] - [2, 0]\n  (statement [0, 2] - [0, 22]\n    (keyword [0, 2] - [0, 8])\n    (identifier [0, 10] - [0, 20]))\n  (statement [1, 0] - [1, 22]\n    (keyword [1, 0] - [1, 10])\n    (identifier [1, 12] - [1, 20])))"
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n"
+   },
+   "id": "s03_parse_accepts_an_explicit_utf16_encoding",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "utf16.txt",
+     "parse_args": [
+      "--encoding",
+      "utf16"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 2] - [2, 0]\n  (statement [0, 2] - [0, 22]\n    (keyword [0, 2] - [0, 8])\n    (identifier [0, 10] - [0, 20]))\n  (statement [1, 0] - [1, 22]\n    (keyword [1, 0] - [1, 10])\n    (identifier [1, 12] - [1, 20])))"
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n"
+   },
+   "id": "s03_test_accepts_apply_all_captures",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--apply-all-captures"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "three declarations"
+    ]
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n"
+   },
+   "id": "s03_highlight_accepts_check",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "highlight",
+      "--check",
+      "in.txt"
+     ]
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "generate_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/decl": "."
+   },
+   "write": {
+    "in.txt": "let alpha;\nconst beta;\nvar gamma;\n"
+   },
+   "id": "s03_highlight_accepts_apply_all_captures",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "highlight",
+      "--apply-all-captures",
+      "in.txt"
+     ]
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "generate_exit_zero": true
+   }
+  },
+  {
+   "stage": {
+    "s03/g_hl": "."
+   },
+   "id": "s03_apply_all_captures_runs_highlight_tests",
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--apply-all-captures"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "basic.ghl (2 assertions)"
+    ]
+   }
+  },
+   {
+    "id": "s03_version_reports_the_milestone_release",
+    "steps": [
+     {
+      "kind": "cli",
+      "args": [
+       "--version"
+      ],
+      "stream": "stdout",
+      "contains": {
+       "release": "0.20.9"
+      }
+     }
+    ],
+    "expect": {
+     "cli_exit_code": 0,
+     "cli_exit_zero": true,
+     "contains:release": true
+    }
+   }
+ ]
+}

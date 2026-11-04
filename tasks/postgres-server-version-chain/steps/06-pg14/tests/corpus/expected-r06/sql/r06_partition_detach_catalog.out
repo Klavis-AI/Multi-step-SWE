@@ -1,0 +1,27 @@
+CREATE TABLE x06_68a(a int) PARTITION BY RANGE (a);
+CREATE TABLE x06_68a1 PARTITION OF x06_68a FOR VALUES FROM (0) TO (10);
+SELECT c.relname, c.relispartition FROM pg_class c
+  WHERE c.relname IN ('x06_68a','x06_68a1') ORDER BY c.relname;
+ relname  | relispartition 
+----------+----------------
+ x06_68a  | f
+ x06_68a1 | t
+(2 rows)
+
+SELECT count(*) FROM pg_attribute WHERE attrelid='pg_inherits'::regclass
+  AND attname='inhdetachpending';
+ count 
+-------
+     1
+(1 row)
+
+ALTER TABLE x06_68a DETACH PARTITION x06_68a1 CONCURRENTLY;
+SELECT c.relname, c.relispartition FROM pg_class c
+  WHERE c.relname IN ('x06_68a','x06_68a1') ORDER BY c.relname;
+ relname  | relispartition 
+----------+----------------
+ x06_68a  | f
+ x06_68a1 | f
+(2 rows)
+
+DROP TABLE x06_68a, x06_68a1;

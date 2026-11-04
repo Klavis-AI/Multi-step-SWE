@@ -1,0 +1,38 @@
+# arch: x86_64
+# The address argument is read in decimal as well as hex, and each of the three
+# options acts on its own section.
+rt_obj rt.o
+cat > d.c <<'C'
+int dvar = 7;
+int barr[16];
+int entry(void) { barr[3] = 35; return dvar + barr[3]; }
+C
+cc_obj d.o d.c
+
+link_ok hx -Ttext=0x500000 rt.o d.o --no-gc-sections
+link_ok dc -Ttext=5242880 rt.o d.o --no-gc-sections
+dc_text=$(sec_addr dc .text); hx_text=$(sec_addr hx .text)
+[ -n "$dc_text" ] && [ -n "$hx_text" ] \
+  || die "one of the two links produced no .text to compare (dc '$dc_text', hx '$hx_text')"
+want "decimal and hex place .text alike" "$dc_text" "$hx_text"
+cmp -s hx dc || die "the decimal and hex spellings produced different output"
+run_expect dc "" 42
+
+# -Tbss on its own moves .bss and only .bss.
+link_ok def rt.o d.o --no-gc-sections
+link_ok bo -Tbss=0x700000 rt.o d.o --no-gc-sections
+# Captured first, so that a missing section fails here instead of aborting the
+# comparison during word expansion and never running it.
+bo_bss=$(sec_addr bo .bss); def_bss=$(sec_addr def .bss); bo_text=$(sec_addr bo .text)
+[ -n "$bo_bss" ] && [ -n "$def_bss" ] && [ -n "$bo_text" ] \
+  || die "a link lost .bss or .text (bo .bss '$bo_bss', def .bss '$def_bss', bo .text '$bo_text')"
+want "-Tbss alone places .bss" "$((16#$bo_bss))" "$((0x700000))"
+[ "$((16#$def_bss))" -ne "$((0x700000))" ] \
+  || die "the default link already put .bss at 0x700000"
+[ "$((16#$bo_text))" -lt "$((0x700000))" ] \
+  || die "-Tbss dragged .text up with it"
+run_expect bo "" 42
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh.
+asserts_at_least 2

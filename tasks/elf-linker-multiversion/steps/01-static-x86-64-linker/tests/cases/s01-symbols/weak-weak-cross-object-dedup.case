@@ -1,0 +1,35 @@
+# arch: x86_64
+# Two translation units each provide their own weak definition of the same
+# name -- the shape a compiler emits for an inline function or a COMDAT-like
+# construct (04-layout-and-sections.md #4: "linking two translation units
+# that both include a header defining an inline function MUST produce one
+# definition of that function, and calling it from either translation unit
+# MUST reach the same code"). This is graded as an observable property, not
+# as a particular .symtab shape.
+rt_obj rt.o
+cat > tu1.c <<'C'
+#include "rt.h"
+__attribute__((weak)) int helper(void) { print("tu1"); return 1; }
+int call_from_tu1(void) { return helper(); }
+C
+cat > tu2.c <<'C'
+#include "rt.h"
+__attribute__((weak)) int helper(void) { print("tu2"); return 2; }
+int call_from_tu2(void) { return helper(); }
+C
+cat > m.c <<'C'
+int call_from_tu1(void);
+int call_from_tu2(void);
+int entry(void) {
+  int a = call_from_tu1();
+  int b = call_from_tu2();
+  if (a != b) { return 99; }
+  return a;
+}
+C
+cc_obj tu1.o tu1.c; cc_obj tu2.o tu2.c; cc_obj m.o m.c
+link_ok out rt.o tu1.o tu2.o m.o
+# Both call sites must reach the very same definition: same side effect
+# (whichever translation unit's weak definition wins by command-line order),
+# printed exactly twice, and both calls returning the same value.
+run_expect out "tu1tu1" 1

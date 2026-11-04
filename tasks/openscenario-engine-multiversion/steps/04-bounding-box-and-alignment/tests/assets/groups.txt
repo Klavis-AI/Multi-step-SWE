@@ -1,0 +1,87 @@
+# <group> <case-count> <kind> <share>
+#
+# kind is a graded property, not a label: the scorer reads it.
+#   gate    proof of life + inherited regression. Binary as a SET: if any
+#           gate group fails the step scores 0 however good the new work
+#           is. Earns nothing of its own. Share column is '-'.
+#   scored  this step's new capability. Shares are integers and the scorer
+#           normalises them, so the weights sum to exactly 1.0.
+#
+# reward = gate x score. A no-op preserves inherited behaviour (gate=1) and
+# implements nothing new (score=0), so it scores exactly 0.
+#
+# Step 04 - bounding-box-and-alignment (v2.27.5 -> v2.31.10)
+#
+# Scored must not be outnumbered by gate (8 scored, 6 gate here), and the gate
+# holds at most 10 cases: it is one end-to-end path per inherited milestone,
+# not breadth.
+# The count column must equal the number of .sh files in cases/<group>/ exactly;
+# test.sh:205-211 fails the WHOLE step on any mismatch.
+# It counts FILES, not logical checks. Five files in this step carry a MERGED
+# CASE header because two side-by-side cases were folded into one file to stay
+# inside the per-step budget; each of those is one counted case here. The count
+# column is an integrity check on the corpus, not a grading denominator -- the
+# score is the share-weighted fraction of SCORED GROUPS that passed
+# (test.sh:177), so a merge changes no weight, only how precisely a failure
+# inside a group can be localised.
+#
+# FORMAT WARNING: test.sh:193 parses each line with `read -r gname gcount
+# gkind gshare`, so gshare absorbs the rest of the line -- a trailing # comment
+# would be read as part of the share and corrupt the weight arithmetic. Keep
+# every comment on its own line.
+#
+# scored groups, and the instruction.md requirement each one grades:
+#   csv-bounding-box-columns  req 1  bounding-box and lane-id columns in the CSV recording
+#   se-add-object-role        req 2  SE_AddObject / SE_DeleteObject
+#   se-bounding-box-object    req 3  SE_AddObjectWithBoundingBox
+#   se-distance-to-object     req 4  SE_GetDistanceToObject / SE_PositionDiff
+#   se-align-mode-z           req 5  SE_SetAlignMode / SE_SetAlignModeZ / SE_SetAlignModeP
+#   rm-snap-lane-types        req 6  SE_SetSnapLaneTypes / RM_SetSnapLaneTypes
+#   abi-new-symbols           req 7  the nine additions exported with C linkage
+#   abi-removed-symbols       req 8  SE_AddCustomSemiFixedCamera withdrawn again
+# gate: surfaces that predate this step and must not regress across it. Every
+# value these assert was measured identical at v2.27.5 and v2.31.10. The gate
+# earns nothing; it only vetoes.
+#   rm-core-queries    road-manager core network queries and the position handle
+#   rm-lane-geometry   lane width and lane type, by road id and by handle
+#   se-object-status   object enumeration and SE_ScenarioObjectState readback
+#   dat-recording      --record -> dat2csv round trip, and the esmini-dyn player
+#   artifacts-and-odrplot  the six published artifacts, AND odrplot's rendering
+#                          of a network into track.csv byte for byte. The group
+#                          is named for both because it grades both: a change
+#                          in odrplot's sampling fails it just as a missing
+#                          binary does, and the name has to say so or the
+#                          failure does not localise.
+# The gate also carries proof of life: the build still publishes its six
+# artifacts, the CLI still runs a scenario headless, and the text log keeps its
+# name and its timestamp format.
+#
+# SHARES are NOT uniform at this step, and the asymmetry is deliberate.
+# abi-new-symbols and abi-removed-symbols are `nm -D` checks: nine names
+# exported with C linkage and one withdrawn. Both are genuinely new at
+# v2.31.10 -- both FAIL at v2.27.5, so neither is inherited and neither may be
+# gate -- but both are satisfiable by empty stubs plus one deletion, with no
+# behaviour behind any of the ten names. At one share each out of eight that
+# bought a quarter of the step's score for no implemented capability. The six
+# behavioural groups therefore carry share 2 and the two ABI groups share 1,
+# so SHARE_SUM is 14: stub-and-delete now scores 2/14 = 0.143 instead of
+# 0.250, and every other property of the ladder is unchanged -- at v2.31.10
+# every scored group passes (score 1.0) and at v2.27.5 every scored group
+# fails (score 0.0), whatever the weights are.
+#
+# Gate:    6 groups /  9 cases  (earns nothing; vetoes)
+# Scored:  8 groups / 13 cases  (shares 2x6 + 1x2 -> SHARE_SUM 14)
+csv-bounding-box-columns  2  scored  2
+se-add-object-role        1  scored  2
+se-bounding-box-object    2  scored  2
+se-distance-to-object     2  scored  2
+se-align-mode-z           2  scored  2
+rm-snap-lane-types        2  scored  2
+abi-new-symbols           1  scored  1
+abi-removed-symbols       1  scored  1
+rm-core-queries           1  gate    -
+rm-lane-geometry          1  gate    -
+se-object-status          2  gate    -
+dat-recording             2  gate    -
+artifacts-and-odrplot     1  gate    -
+esmini-cli-headless       2  gate    -

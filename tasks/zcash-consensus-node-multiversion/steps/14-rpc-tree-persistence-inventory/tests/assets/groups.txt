@@ -1,0 +1,58 @@
+# groups.txt -- step 14, rpc-tree-persistence-inventory
+#
+# name <tab> kind <tab> weight <tab> crate <tab> arg
+#
+#   kind   gate    proof of life + inherited regression. Binary, earns nothing,
+#                  vetoes the whole step. Weight column MUST be 0.
+#          scored  this step's new capability + peripheral breadth. Positive
+#                  integer weight; the scored weights sum to 100.
+#   crate  a crate name -> driver group; arg is the exact number of test cases
+#          @build       -> build group;  arg is a whole cargo invocation
+#
+#   reward = gate x score
+#
+# Gate groups carry no weight on purpose. Pricing inherited work is what let a
+# no-op collect a share of the score; under this model it collects nothing.
+#
+# New capability at v1.0.0-beta.6:
+#   - zebra-rpc crate with 7 public RPC methods, served by RpcImpl over a
+#     Buffer<Mempool, mempool::Request> and a ReadRequest/ReadResponse state
+#     service
+#   - zebra-node-services: a whole new crate holding the mempool service
+#     interface (Request, Response, Gossip, BoxError)
+#   - ChainTip trait extended with best_tip_height_and_hash,
+#     best_tip_block_time, estimate_network_chain_tip_height
+#   - Network::bip70_network_name()
+#   - Network::mandatory_checkpoint_height() now returns Canopy + 32256
+#     (ZIP-212 grace period) instead of bare Canopy activation
+#
+# Weighting. The three capability-1 groups carry 52 of the 100 points, which is
+# the milestone's headline work; the two Network accessors carry 28 between
+# them. An earlier distribution had 46 points on mandatory_checkpoint_height
+# and bip70_network_name -- five lines of arithmetic and a two-arm match, both
+# given verbatim in instruction.md -- while the JSON-RPC server carried none at
+# all, so a candidate who skipped zebra-rpc entirely still collected 70.
+#
+# Negative direction:
+#   - bip70_network_name: method absent from app-13 (grep returns 0)
+#   - rpc-response-types: zebra_rpc::methods absent from app-13 (the crate
+#     exists there but is an empty stub that exports no modules)
+#   - rpc-server-impl: same stub, so zebra_rpc::methods::RpcImpl does not
+#     resolve at app-13 and the driver fails to compile
+#   - node-services-mempool-interface: zebra-node-services is not a workspace
+#     member at app-13 and no such directory exists, so the group records 0
+#     with "crate zebra-node-services is absent from the candidate workspace"
+#   - zip212-mandatory-checkpoint: app-13 returns Canopy activation height;
+#     assert (mainnet == Height(1_078_656)) fails on app-13
+#   - chain-tip-extended: best_tip_height_and_hash / best_tip_block_time
+#     absent from ChainTip trait in app-13; driver fails to compile
+
+build	gate	0	@build	build -p zebra-chain --tests
+workspace-checks	gate	0	@build	check --workspace --all-targets --all-features
+rpc-response-types	scored	18	zebra-rpc	11
+rpc-server-impl	scored	22	zebra-rpc	7
+node-services-mempool-interface	scored	12	zebra-node-services	7
+chain-tip-extended	scored	20	zebra-chain	8
+zip212-mandatory-checkpoint	scored	16	zebra-chain	6
+block-codec-regression	gate	0	zebra-chain	14
+bip70-network-name	scored	12	zebra-chain	4

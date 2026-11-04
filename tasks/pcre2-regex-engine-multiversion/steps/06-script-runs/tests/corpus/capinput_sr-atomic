@@ -1,0 +1,27 @@
+# "(*asr:...) is the same as (*sr:(?>...))".  "Note that the atomic group is
+# inside the script run. Putting it outside would not prevent backtracking
+# into the script run pattern."  pcre2pattern.3, "SCRIPT RUNS".
+
+/^(*asr:\S+)\p{L}/utf
+    abcd
+
+/^(*sr:(?>\S+))\p{L}/utf
+    abcd
+
+/^(*sr:\S+)\p{L}/utf
+    abcd
+
+# An atomic group wrapped round the script run still lets the run itself
+# shorten, so it behaves as the plain script run does.
+/(?>(*sr:\S+))/g,utf
+    pay\x{0440}al
+
+/(*sr:\S+)/g,utf
+    pay\x{0440}al
+
+# The atomic form cannot shorten the run to rescue it.
+/(*asr:\S+)/g,utf
+    pay\x{0440}al
+
+/(*atomic_script_run:\S+)/g,utf
+    pay\x{0440}al

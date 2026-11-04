@@ -1,0 +1,8 @@
+CREATE TABLE x07_68a(a int, b text);
+COPY x07_68a FROM stdin WITH (FORMAT csv, HEADER MATCH);
+a,b
+1,x
+2,y
+\.
+SELECT a, b FROM x07_68a ORDER BY a;
+DROP TABLE x07_68a;

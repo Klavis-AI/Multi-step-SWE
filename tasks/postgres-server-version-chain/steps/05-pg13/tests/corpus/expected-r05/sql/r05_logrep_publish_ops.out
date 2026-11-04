@@ -1,0 +1,22 @@
+CREATE TABLE x05_14a(a int primary key, b text);
+CREATE PUBLICATION x05_14p FOR TABLE x05_14a
+  WITH (publish = 'insert, update', publish_via_partition_root = false);
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to logical before creating subscriptions.
+SELECT pubname, pubinsert, pubupdate, pubdelete, pubtruncate, pubviaroot
+  FROM pg_publication WHERE pubname='x05_14p';
+ pubname | pubinsert | pubupdate | pubdelete | pubtruncate | pubviaroot 
+---------+-----------+-----------+-----------+-------------+------------
+ x05_14p | t         | t         | f         | f           | f
+(1 row)
+
+ALTER PUBLICATION x05_14p SET (publish = 'insert');
+SELECT pubname, pubinsert, pubupdate, pubdelete, pubtruncate
+  FROM pg_publication WHERE pubname='x05_14p';
+ pubname | pubinsert | pubupdate | pubdelete | pubtruncate 
+---------+-----------+-----------+-----------+-------------
+ x05_14p | t         | f         | f         | f
+(1 row)
+
+DROP PUBLICATION x05_14p;
+DROP TABLE x05_14a;

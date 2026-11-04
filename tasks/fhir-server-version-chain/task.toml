@@ -1,0 +1,104 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`.  No min_reward gate, so every
+# step runs and every verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches the
+# verifier container.  One directory, text only: the C sources and the makefile.
+# Harbor restores directory artifacts but not file artifacts, and its Kubernetes
+# transfer decodes the stream as UTF-8, so a single source directory is the only
+# shape that arrives intact.  Build products live outside it and the verifier
+# rebuilds from source anyway.
+artifacts = [
+  { source = "/app/src", destination = "workspace/src" },
+]
+
+[task]
+name = "harbor/fhir-server-version-chain"
+version = "1.0.0"
+description = "Six-step C11 FHIR server across the HL7 FHIR version chain: the R4 RESTful API, search, transactions and StructureDefinition validation; DSTU2 and STU3 endpoints with FHIR Mapping Language conversion; US Core and IPS profile validation and the terminology operations; R4B and R5 with topic-based subscriptions in both the native and the backport shape; Bulk Data $export, SMART on FHIR scopes and $everything; and the R6 ballot with fhirVersion media-type negotiation. Graded with the official HL7 FHIR validator, recorded HAPI FHIR exchanges, the published FHIR packages and answers computed from the specifications at scoring time."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["fhir", "hl7", "rest", "healthcare", "c", "multi-step", "interoperability"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["fhir", "hl7", "rest-api", "healthcare-interoperability", "c", "multi-step"]
+
+[environment]
+build_timeout_sec = 2700.0
+cpus = 7
+memory_mb = 12288
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 7
+# 24 GiB, not 16: the output component runs the official validator at three FHIR
+# versions in turn, and the STU3 load (r3 core plus its terminology and
+# extension packages, ~9,000 resources) took the whole pod over a 16 GiB cgroup
+# limit on GKE while passing locally on a machine with 251 GiB.
+memory_mb = 24576
+storage_mb = 40960
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-r4-core"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-dstu2-stu3"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-profiles-terminology"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-r4b-r5"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-bulk-smart"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-r6-ballot"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+

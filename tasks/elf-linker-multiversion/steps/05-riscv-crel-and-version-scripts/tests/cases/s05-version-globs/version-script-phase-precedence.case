@@ -1,0 +1,72 @@
+# arch: x86_64
+# what: spec/12 section 4's three-phase matching precedence (exact patterns
+# first, then glob patterns non-star-before-star with the node order
+# reversed, then the catch-all) decides which of several candidate nodes
+# claims a symbol. These scripts are spec/12 section 5's own worked examples:
+# every name here is matched by more than one node or pattern kind, so a
+# linker that ran the phases in a different order, or that did not reverse
+# node order for the glob phase, would place at least one name under the
+# wrong version.
+cat > s.c <<'C'
+int bar(void) { return 1; }
+int barbaz(void) { return 2; }
+int foo_old(void) { return 3; }
+int foo_new(void) { return 4; }
+int internal_helper(void) { return 5; }
+int other(void) { return 6; }
+C
+cc_obj s.o s.c -fPIC
+exported() { dynsyms "$1" > ds.txt; awk 'NR > 3 && $8 != ""' ds.txt | awk '{print $8}' | sort | tr '\n' ' '; }
+versioned_as() { awk -v n="$2" '$8 ~ "^"n"(@|$)" { print $8 }' "$1"; }
+
+# Phase 1 (exact, first-hit-wins across all nodes) must outrank a phase-2 glob
+# match wherever the two disagree: an exact `bar` in the *second* node beats
+# `bar*` in the first, and `foo_*` in the second node claims both foo_old and
+# foo_new since no other node's pattern touches them.
+cat > v1.map <<'V'
+VERS_1.0 {
+  global:
+    bar*;
+  local:
+    *;
+};
+VERS_2.0 {
+  global:
+    bar;
+    foo_*;
+} VERS_1.0;
+V
+link_ok v1.so -shared --version-script=v1.map s.o
+dynsyms v1.so > ds1.txt
+want "exact pattern beats a glob in an earlier node" "$(versioned_as ds1.txt bar)" "bar@@VERS_2.0"
+want "the unclaimed star glob still lands in its own node" "$(versioned_as ds1.txt barbaz)" "barbaz@@VERS_1.0"
+want "foo_old takes the only node with a matching glob"    "$(versioned_as ds1.txt foo_old)" "foo_old@@VERS_2.0"
+want "foo_new takes the only node with a matching glob"    "$(versioned_as ds1.txt foo_new)" "foo_new@@VERS_2.0"
+want "everything else falls to the catch-all local" "$(exported v1.so)" \
+  "bar@@VERS_2.0 barbaz@@VERS_1.0 foo_new@@VERS_2.0 foo_old@@VERS_2.0 "
+
+# Phase 2: within the glob phase, a NonStar pattern (here `?`) beats a Star
+# pattern (`*`) even though the Star pattern's node is declared later.
+cat > v2.map <<'V'
+A { global: foo*;    local: *; };
+B { global: foo_ol?;              };
+V
+link_ok v2.so -shared --version-script=v2.map s.o
+dynsyms v2.so > ds2.txt
+want "NonStar in the earlier node still beats Star in the later node" \
+  "$(versioned_as ds2.txt foo_old)" "foo_old@@B"
+want "the name only the Star pattern reaches stays in the Star node" \
+  "$(versioned_as ds2.txt foo_new)" "foo_new@@A"
+
+# Once both nodes' patterns are the same kind (Star), the tie-break flips:
+# the later-declared node wins for every name it also matches.
+cat > v3.map <<'V'
+A { global: foo*; local: *; };
+B { global: foo*; };
+V
+link_ok v3.so -shared --version-script=v3.map s.o
+dynsyms v3.so > ds3.txt
+want "same-kind globs: the later node wins (foo_old)" "$(versioned_as ds3.txt foo_old)" "foo_old@@B"
+want "same-kind globs: the later node wins (foo_new)" "$(versioned_as ds3.txt foo_new)" "foo_new@@B"
+# 9 assertions run against the reference at 0.6.0 and 0.10.0.
+asserts_at_least 9

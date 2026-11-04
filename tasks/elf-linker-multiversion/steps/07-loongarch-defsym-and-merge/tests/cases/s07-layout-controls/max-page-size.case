@@ -1,0 +1,41 @@
+# arch: x86_64
+# -z max-page-size=N must set p_align on every PT_LOAD to N and keep the
+# congruence p_vaddr == p_offset (mod N), so the image is still mappable.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int gdata = 4242;
+int entry(void) { putdec(gdata); print("\n"); return 6; }
+C
+cc_obj m.o m.c
+link_ok base --no-gc-sections rt.o m.o
+link_ok big  -z max-page-size=0x10000 --no-gc-sections rt.o m.o
+
+# The checks go through want/want_not so they are counted: a raw `|| die`
+# chain is invisible to asserts_at_least, and a body that stopped producing
+# PT_LOAD lines would then report a pass with nothing executed. check_align is
+# a plain function, not a subshell, so the counter it bumps is the case's own.
+check_align() { # check_align <file> <page size>
+  local f=$1 sz=$2 n=0 line off vaddr align
+  while read -r line; do
+    n=$((n + 1))
+    off=$(awk '{print $2}' <<<"$line")
+    vaddr=$(awk '{print $3}' <<<"$line")
+    align=$(awk '{print $NF}' <<<"$line")
+    [ -n "$off" ] && [ -n "$vaddr" ] && [ -n "$align" ] \
+      || die "$f: unparsable PT_LOAD line '$line'"
+    want "$f PT_LOAD $n p_align" "$(( align ))" "$(( sz ))"
+    want "$f PT_LOAD $n vaddr $vaddr and offset $off are congruent mod $sz" \
+      "$(( (vaddr - off) % sz ))" "0"
+  done < <(grep -E '^ *LOAD ' <<<"$(segments "$f")")
+  want "$f has at least one PT_LOAD" "$(( n > 0 ))" "1"
+}
+check_align base 0x1000
+check_align big  0x10000
+# p_align is the graded property. A larger page size may be satisfied either by
+# moving .text or by padding the file between segments -- spec/00 section 5
+# grades both as correct -- so the address is deliberately not asserted here.
+run_expect big "4242" 6
+run_expect base "4242" 6
+
+asserts_at_least 14

@@ -1,0 +1,96 @@
+{
+ "doc": "stages/filters.crop.rst: 'The **crop filter** removes points that fall outside or inside a cropping bounding box (2D or 3D), polygon, or point+distance.' and 'bounds: The extent of the clipping rectangle in the format \"([xmin, xmax], [ymin, ymax])\".' /app/spec/PROFILE.md 1.2: 'A `bounds` string of the form `([xmin,xmax],[ymin,ymax],[zmin,zmax])` now constrains Z as well; at 2.0.1 the Z range was parsed and ignored. Two-dimensional `([xmin,xmax],[ymin,ymax])` is unchanged.' grid.las is a 10x10x10 integer lattice: the two-dimensional box ([0,3],[0,3]) keeps the 4x4x10 = 160 points in that column and every Z from 0 to 9, exactly as it did at 2.0.1, while the three-dimensional ([0,3],[0,3],[0,3]) over the same X and Y keeps only the 4x4x4 = 64 points of the cube.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "xy.las",
+    "crop",
+    "--filters.crop.bounds=([0,3],[0,3])"
+   ]
+  },
+  {
+   "argv": [
+    "translate",
+    "in.las",
+    "xyz.las",
+    "crop",
+    "--filters.crop.bounds=([0,3],[0,3],[0,3])"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "xy.las",
+   "header": {
+    "point_count": 160
+   },
+   "dims": {
+    "Z": {
+     "unique": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+     ]
+    },
+    "X": {
+     "unique": [
+      0,
+      1,
+      2,
+      3
+     ]
+    },
+    "Y": {
+     "unique": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "xyz.las",
+   "header": {
+    "point_count": 64
+   },
+   "dims": {
+    "Z": {
+     "unique": [
+      0,
+      1,
+      2,
+      3
+     ]
+    }
+   }
+  }
+ ]
+}

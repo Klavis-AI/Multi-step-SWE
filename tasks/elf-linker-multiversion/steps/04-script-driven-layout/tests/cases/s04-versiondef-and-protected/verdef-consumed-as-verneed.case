@@ -1,0 +1,52 @@
+# arch: x86_64
+# what: the version a shared object *defines* is what a consumer records as a
+# need: the exe gets .gnu.version_r naming that soname and version, one @-stamp
+# per imported symbol, and no version definitions of its own.
+dtag() { dynamic "$1" | sed -n "s/.*($2)[[:space:]]*//p" | head -1 | awk '{print $1}'; }
+rt_obj rt.o
+cat > v.c <<'C'
+int api_a(void) { return 3; }
+int api_b(void) { return 4; }
+int priv(void)  { return 5; }
+C
+cc_obj v.o v.c -fPIC
+cat > v.map <<'M'
+LIBV_3 { global: api_a; api_b; local: *; };
+M
+link_ok libv.so -shared --version-script v.map -soname libv.so.3 v.o
+# Producer side: the version is defined here.
+want "producer defines LIBV_3" \
+  "$(vernum libv.so | grep -cE 'Flags: none +Index: 2 +Cnt: 1 +Name: LIBV_3')" "1"
+want "producer has no version needs" \
+  "$(sections libv.so | grep -cE ' \.gnu\.version_r ')" "0"
+cat > m.c <<'C'
+#include "rt.h"
+int api_a(void); int api_b(void);
+int entry(void) { print("needs\n"); return api_a() + api_b(); }
+C
+cc_obj m.o m.c -fPIC
+link_ok exe -pie -dynamic-linker /nonexistent rt.o m.o libv.so
+# Consumer side: a need, not a definition.
+want "consumer has .gnu.version_r" "$(sections exe | grep -cE ' \.gnu\.version_r ')" "1"
+want "consumer defines no versions" "$(sections exe | grep -cE ' \.gnu\.version_d ')" "0"
+want "consumer has no DT_VERDEF"    "$(dynamic exe | grep -cE '\(VERDEF\)')" "0"
+want "DT_VERNEEDNUM"                "$(( $(dtag exe VERNEEDNUM) ))" "1"
+want "DT_VERNEED == addr(.gnu.version_r)" \
+  "$(( $(dtag exe VERNEED) ))" "$(( 16#$(sec_addr exe .gnu.version_r) ))"
+N=$(vernum exe)
+want "need is filed under the soname" \
+  "$(grep -cE 'Version: 1 +File: libv\.so\.3 +Cnt: 1' <<<"$N")" "1"
+want "need names the defined version" \
+  "$(grep -cE 'Name: LIBV_3 +Flags: none +Version: 2' <<<"$N")" "1"
+want "DT_NEEDED is the soname, not the file name" \
+  "$(dynamic exe | grep -cE '\(NEEDED\).*libv\.so\.3')" "1"
+# Every imported symbol carries a single-@ reference stamp.
+D=$(dynsyms exe)
+want "api_a@LIBV_3 undefined" "$(grep -cE 'UND api_a@LIBV_3$' <<<"$D")" "1"
+want "api_b@LIBV_3 undefined" "$(grep -cE 'UND api_b@LIBV_3$' <<<"$D")" "1"
+want "no @@ definitions in the exe" "$(grep -c '@@' <<<"$D")" "0"
+want "priv was never exported"      "$(grep -c 'priv' <<<"$D")" "0"
+# .gnu.version must still be one 16-bit entry per .dynsym entry.
+want "versym entry count == dynsym count" \
+  "$(( 16#$(sec_size exe .gnu.version) / 2 ))" "$(( 16#$(sec_size exe .dynsym) / 24 ))"
+asserts_at_least 15

@@ -1,0 +1,10 @@
+SHOW transaction_timeout;
+SET transaction_timeout = '30s';
+SHOW transaction_timeout;
+BEGIN;
+SET LOCAL transaction_timeout = '60s';
+SHOW transaction_timeout;
+COMMIT;
+SHOW transaction_timeout;
+RESET transaction_timeout;
+SHOW transaction_timeout;

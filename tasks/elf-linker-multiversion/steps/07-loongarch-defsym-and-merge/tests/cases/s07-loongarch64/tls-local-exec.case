@@ -1,0 +1,38 @@
+# arch: loongarch64
+# R_LARCH_TLS_LE_HI20/LO12 must be resolved against a real PT_TLS template.
+# Nothing under -nostdlib installs a thread pointer, so this is graded
+# structurally: the TLS segment, its sections and its memory size.
+rt_obj rt.o
+cat > t.c <<'C'
+__thread long tv1 = 0x11;
+__thread long tv2;
+long *tvp1(void) { return &tv1; }
+long *tvp2(void) { return &tv2; }
+C
+cc_obj t.o t.c -ftls-model=local-exec
+cat > m.c <<'C'
+#include "rt.h"
+long *tvp1(void); long *tvp2(void);
+int entry(void) { print("tls\n"); return 0; }
+C
+cc_obj m.o m.c
+relocs t.o > t.rel
+grep -q 'R_LARCH_TLS_LE_HI20' t.rel || die "input lacks TLS_LE_HI20: $(cat t.rel)"
+grep -q 'R_LARCH_TLS_LE_LO12' t.rel || die "input lacks TLS_LE_LO12: $(cat t.rel)"
+link_ok out --no-gc-sections rt.o t.o m.o
+seg=$(segments out)
+want_has "a PT_TLS segment exists" "$seg" '^ *TLS '
+has_section out '\.tdata' || die "no .tdata in the output: $(sections out)"
+has_section out '\.tbss'  || die "no .tbss in the output: $(sections out)"
+want "tdata holds one long"  "$(( 0x$(sec_size out .tdata) ))" "8"
+want "tbss holds one long"   "$(( 0x$(sec_size out .tbss) ))"  "8"
+# MemSiz covers .tdata + .tbss. (FileSiz is not graded: it changes across
+# releases because .tbss is NOBITS.)
+memsz=$(awk '/^ *TLS /{print $6}' <<<"$seg")
+want "PT_TLS MemSiz covers tdata+tbss" "$(( memsz ))" "16"
+# .tbss must be laid out immediately after .tdata inside the TLS block.
+want "tbss follows tdata" \
+  "$(( 0x$(sec_addr out .tbss) - 0x$(sec_addr out .tdata) ))" "8"
+run_expect out "tls" 0
+
+asserts_at_least 5

@@ -1,0 +1,429 @@
+Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+ Developing OpenType Fonts for Hebrew Script
+
+ Feedback
+
+ Summarize this article for me
+
+This document presents information that will help font developers create or support OpenType fonts for all Hebrew script languages covered by the Unicode Standard.
+
+Introduction
+
+In this specification, font developers will learn how to encode complex script features in their fonts, choose character sets, organize font information, and use existing tools to produce Hebrew fonts. Registered features of the Hebrew script are defined and illustrated, encodings are listed, and templates are included for compiling Hebrew layout tables for OpenType fonts.
+
+This document also presents information about the Hebrew OpenType shaping engine of Uniscribe, the Windows component responsible for text layout.
+
+In addition to being a primer and specification for the creation and support of Hebrew fonts, this document is intended to more broadly illustrate the OpenType Layout architecture, feature schemes, and operating system support for shaping and positioning text.
+
+Glossary
+
+The following terms are useful for understanding the layout features and script rules discussed in this document.
+
+Base Glyph - Any glyph that can carry one or more combining marks, typically above, below or, in the case of the dagesh mark, within the base glyph shape. Layout operations are defined in terms of a base /glyph/, not a base /character/, as a ligature may act as a base glyph.
+
+Cantillation Mark (Teamin) – A feature of Masoretic Bible text, these marks are positioned above or below a base glyph as a guide to the correct chanting of the text during liturgical worship. The correct position of the cantillation marks is frequently influenced by that of other diacritic marks, and should be be handled contextually by the font.
+
+Character - Each character represents a Unicode character code point. For example the 'א' is the Alef character is U+05D0. A character may have multiple forms of glyphs.
+
+Diacritic Mark (Nikud) - A combining mark character that is applied to a base character to provide pronunciation guidance. In Hebrew, most diacritic marks are optional in most circumstances, and are omitted in most text. When they occur, they need to be correctly positioned relative to the base character. Typographic conventions may vary slightly between biblical and modern Hebrew. Most diacritic marks are vowel signs and all but one of are positioned below the base. In addition to these vowel signs, there are three consonant markers: the dagesh, shin and sin dots. A base character may carry both a consonant marker and a vowel sign, and in biblical text may also carry a cantillation mark.
+
+Glyph - A glyph represents a form of one or more characters.
+
+Note: The Unicode Hebrew block contains the Tiberian (Palestinian) vowel system, which has been the standard for western Judaism for many centuries. There are other ancient vowel systems, the most important of which is the Babylonian system which has not yet been encoded.
+
+Shaping Engine
+
+Analyzing the Characters
+
+Shaping with OTLS
+
+Positioning Glyphs with OTLS
+
+Handling Invalid Combining Marks
+
+The Uniscribe Hebrew shaping engine processes text in stages. The stages are:
+
+Shaping (substituting) glyphs with OTLS (OpenType Library Services)
+
+Positioning glyphs with OTLS
+
+The descriptions which follow will help font developers understand the rationale for the Hebrew feature encoding model, and help application developers better understand how layout clients can divide responsibilities with operating system functions.
+
+Analyzing the Characters
+
+The unit that the shaping engine receives for the purpose of shaping is a string of Unicode characters, in a sequence. The contextual analysis engine verifies valid diacritic combinations. For additional information, see Handling Invalid Combining Marks, later on in this document.
+
+Shaping with OTLS
+
+The first step Uniscribe takes in shaping the character string is to map all characters to their nominal form glyphs.
+
+Next, Uniscribe calls OTLS to apply the features. All OTL processing is divided into a set of predefined features (described and illustrated in the Features section of this document). Each feature is applied, one by one, to the appropriate glyphs in the syllable and OTLS processes them. Uniscribe makes as many calls to the OTL Services as there are features. This ensures that the features are executed in the desired order.
+
+The steps of the shaping process are outlined below. Not all of the features listed apply to all Hebrew script languages.
+
+Shaping features:
+
+Language forms
+
+Apply feature 'ccmp' to preprocess any glyphs that require composition or decomposition. For example, the 'sin dot' and 'shin dot' are only used with the 'SHIN', therefore a dotted circle would be inserted for the 'sin/shin dot' to sit on if the base is not a 'SHIN'.
+
+Typographical forms
+
+Apply feature 'dlig' to compose any discretionary ligatures
+
+Positioning glyphs with OTLS
+
+Uniscribe next applies features concerned with positioning, calling functions of OTLS to position glyphs.
+
+Positioning features:
+
+Kerning
+
+Apply feature 'kern' to provide pair kerning between base glyphs requiring adjustment for better typographical quality
+
+Mark to base
+
+Apply feature 'mark' to position diacritic glyphs to the base glyph
+
+Handling Invalid Combining Marks
+
+Combining marks and signs that appear in text not in conjunction with a valid consonant base are considered invalid. Uniscribe displays these marks using the fallback rendering mechanism defined in the Unicode Standard (section 5.12, 'Rendering Non-Spacing Marks' of the Unicode Standard 3.1), i.e. positioned on a dotted circle.
+
+For the fallback mechanism to work properly, a Hebrew OTL font should contain a glyph for the dotted circle (U+25CC). In case this glyph is missing form the font, the invalid signs will be displayed on the missing glyph shape (white box).
+
+In addition to the 'dotted circle,' other Unicode code points that are recommended for inclusion in any Hebrew font are: LTR (left to right mark; U+200E), and RTL (right to left mark; U+200F).
+
+If an invalid combination is found, like two 'nikuds' on the same base character, the diacritic that causes the invalid state is placed on a dotted circle to indicate to the user the invalid combination. The shaping engine for non-OpenType fonts will cause invalid mark combinations to overstrike. This is the problem that inserting the dotted circle for the invalid base solves. It should also be noted that the dotted circle is not inserted into the application's backing store. This is a run-time insertion into the glyph array that is returned from the ScriptShape function.
+
+The invalid diacritic logic for Hebrew is based on the classes listed below. There is a check to make sure more than one mark of a class is not placed on the same base.
+
+ROW 
+Class | 
+Description | 
+Code points | 
+
+ROW 
+DIAC | 
+Hebrew diacritic | 
+U+05B0 - U+05B6, U+05BB | 
+
+ROW 
+CANT1 | 
+Hebrew cantilation - above left | 
+U+0599, U+05A1, U+05A9, U+05AE | 
+
+ROW 
+CANT2 | 
+Hebrew cantilation - above center left | 
+U+0597, U+05A8, U+05AC | 
+
+ROW 
+CANT3 | 
+Hebrew cantilation - above center | 
+U+0592 - U+0595, U+05A7, U+05AB | 
+
+ROW 
+CANT4 | 
+Hebrew cantilation - above center right | 
+U+0598, u+059C, U+059E, U+059F | 
+
+ROW 
+CANT5 | 
+Hebrew cantilation - above right | 
+U+059D, U+05A0 | 
+
+ROW 
+CANT6 | 
+Hebrew cantilation - below left | 
+U+059B, U+05A5 | 
+
+ROW 
+CANT7 | 
+Hebrew cantilation - below center left | 
+U+0591, U+05A3, U+05A6 | 
+
+ROW 
+CANT8 | 
+Hebrew cantilation - below center right | 
+U+0596, U+05A4, U+05AA | 
+
+ROW 
+CANT9 | 
+Hebrew cantilation - below right | 
+U+059A, U+05AD | 
+
+ROW 
+CANT10 | 
+Hebrew cantilation - Masora Circle | 
+U+05AF | 
+
+ROW 
+DAGESH | 
+Hebrew dagesh/mapiq | 
+U+05BC | 
+
+ROW 
+DOTABV | 
+Hebrew upper dot | 
+U+05C4 | 
+
+ROW 
+HOLAM | 
+Hebrew holam | 
+U+05B9 | 
+
+ROW 
+METEG | 
+Hebrew Meteg/sof pasuq | 
+U+05BD | 
+
+ROW 
+PATAH | 
+Hebrew patah | 
+U+05B7 | 
+
+ROW 
+QAMATS | 
+Hebrew shin/sin dot | 
+U+05B8 | 
+
+ROW 
+RAFE | 
+Hebrew Rafe | 
+U+05BF | 
+
+ROW 
+SHINSIN | 
+Hebrew shin/sin dot | 
+U+05C1, U+05C2 | 
+
+Features
+
+The features listed below have been defined to create the basic forms for the languages that are supported on Hebrew systems. Regardless of the model an application chooses for supporting layout of complex scripts, Uniscribe requires a fixed order for executing features within a run of text to consistently obtain the proper basic form. This is achieved by calling features one-by-one in the standard order listed below.
+
+The order of the lookups within each feature is also very important. For more information on lookups and defining features in OpenType fonts, see the Encoding section of the OpenType Font Development document.
+
+The standard order for applying Hebrew features encoded in OpenType fonts:
+
+Not all of the features listed below apply to all Hebrew script languages.
+
+ROW 
+Feature | 
+Feature function | 
+Layout operation | 
+Required | 
+
+ROW 
+Language based forms: | 
+ | 
+ | 
+
+ROW 
+ccmp | 
+Character composition/decomposition substitution | 
+GSUB | 
+ | 
+
+ROW 
+Typographical forms: | 
+ | 
+ | 
+
+ROW 
+dlig | 
+Discretionary ligature substitution | 
+GSUB | 
+ | 
+
+ROW 
+Positioning features: | 
+ | 
+ | 
+
+ROW 
+kern | 
+Pair kerning | 
+GPOS | 
+ | 
+
+ROW 
+mark | 
+Mark to base positioning | 
+GPOS | 
+X | 
+
+ROW 
+ 
+[GSUB = glyph substitution, GPOS = glyph positioning] | 
+
+Descriptions and examples of above features
+
+Character composition (and decomposition)
+
+Feature Tag: "ccmp"
+
+The 'ccmp' feature is used to compose a number of glyphs into one glyph, or decompose one glyph into a number of glyphs. This feature is implemented before any other features because there may be times when a font vender wants to control certain shaping of glyphs. An example of using this table is seen below. The 'ccmp' table maps default alphabetic forms to both a composed form (essentially a ligature, GSUB lookup type 4), and decomposed forms (GSUB lookup type 2).
+
+Example; the 'ccmp' feature used to pre-compose the Yiddish ligature 'yod yod patah'. (uni05F2 + uni05B7 -> uniFB1F)
+
+Discretionary ligatures
+
+Feature Tag: "dlig"
+
+The 'dlig' feature is also used to map glyphs to their optional ligated form. Font developers should use this table for all ligatures that they want the user to be able to control by user preference. Uniscribe has a flag that will allow this type of feature to be deactivated. The 'dlig' feature maps sequences of glyphs to corresponding ligatures (GSUB lookup type 4). Ligatures with more components must be stored ahead of those with fewer components in order to be found. See Ordering ligatures in the Encoding section of the OpenType Font Development document. The set of optional ligatures will vary by typeface design and script.
+
+Example; the 'dlig' feature used to substitute the alef lamed ligature.
+
+Kerning
+
+Feature Tag: "kern"
+
+The 'kern' feature is used to adjust amount of space between glyphs, generally to provide optically consistent spacing between glyphs. Although a well-designed typeface has consistent inter-glyph spacing overall, some glyph combinations require adjustment for improved legibility. Besides standard adjustment in either horizontal or vertical direction, this feature can supply size-dependent kerning data via device tables, "cross-stream" kerning in the Y text direction, and adjustment of glyph placement independent of the advance adjustment. Note that this feature would not be used in monospaced fonts.
+
+The font stores a set of adjustments for pairs of glyphs (GPOS lookup type 2 or 8). These may be stored as one or more tables matching left and right classes, and/or as individual pairs. If both forms are used, the classes should be listed last, so as to provide a means to replace any non-ideal values that may result from the class tables. Additional adjustments may be provided for larger sets of glyphs (e.g., triplets, quadruplets, etc.) to overwrite the results of pair kerns in particular combinations. These should precede the pairs.
+
+It is unlikely that there are many needs for kerning in Hebrew fonts. A few exceptions may be the use of kerning for adding space to bases with diactitics (Nikud or Teamin) or for better spacing on handwriting style typefaces. However, this feature is being made available for the instances that a type designer might want to take advantage of kerning.
+
+Mark to base positioning
+
+Feature Tag: "mark"
+
+The 'mark' feature positions mark glyphs in relation to a base glyph, or a ligature glyph. This feature may be implemented as a MarkToBase Attachment lookup (GPOS LookupType = 4) or a MarkToLigature Attachment lookup (GPOS LookupType = 5).
+
+Positioning mark to base using Microsoft VOLT
+
+Appendices
+
+Appendix A: Writing System Tags
+
+Appendix B: VILNA.TTF (sample font)
+
+Appendix C: Suggest Glyphs
+
+Appendix A: Writing System Tags
+
+Features are encoded according to both a designated script and language system. The language system tag specifies a typographic convention associated with a language or linguistic subgroup. For example, there are different language systems defined for the Hebrew script; Hebrew, Judezmo, Yiddish, etc.
+
+Currently, the Uniscribe engine only supports the "default" language for each script. However, font developers may want to build language specific features which are supported in other applications and will be supported in future Microsoft OpenType implementations.
+
+NOTE: It is strongly recommended to include the "dflt" language tag in all OpenType fonts because it defines the basic script handling for a font. The "dflt" language system is used as the default if no other language specific features are defined or if the application does not support that particular language. If the "dflt" tag is not present for the script being used, the font may not work in some applications.
+
+The following tables list the registered tag names for scripts and language systems.
+
+ROW 
+Registered tags for the Hebrew script | 
+Registered tags for Hebrew language systems | 
+
+ROW 
+Script tag | 
+Script | 
+Language system tag | 
+Language | 
+
+ROW 
+"hebr" | 
+Hebrew | 
+"dflt" | 
+*default script handling | 
+
+ROW 
+ | 
+ | 
+"IWR " | 
+Hebrew | 
+
+ROW 
+ | 
+ | 
+"JUD " | 
+Ladino | 
+
+ROW 
+ | 
+ | 
+"JII " | 
+Yiddish | 
+
+Note: both the script and language tags are case sensitive (script tags should be lowercase, language tags are all caps) and must contain four characters (ie. you must add a space to the three character language tags).
+
+Appendix B: VILNA.TTF (sample font)
+
+The Guttman Vilna font will be distributed with Microsoft Visual OpenType Layout Tool (VOLT) and is provided under the terms of the VOLT supplemental files end user license agreement. It is provided for illustration only, and may not be altered or redistributed.
+
+Guttman Vilna contains layout information and glyphs to support all of the required features for the languages supported in a Hebrew script. Each font should be designed as the font creator desires.
+
+Some shaped glyph forms (such as ligatures) have no Unicode encoding. These glyphs have id's in the font, and applications can access these glyphs by "running" the layout features which depend on these glyphs. An application can also identify non-Unicode glyphs contained in the font by traversing the OpenType layout tables, or using the layout services for purely informational purposes.
+
+Guttman Vilna contains three OpenType Layout tables: GSUB (glyph substitution), GPOS (glyph positioning), and GDEF (glyph definition, distinguishing base glyphs, ligatures, classes of mark glyphs, etc.).
+
+Go to the VOLT community web site to download this sample font. Please be sure to read the end user license agreement that accompanies the download.
+
+Appendix C: Suggested Glyphs
+
+Hebrew has three cases where the METEG/SOF PASUQ is put between parts of a nikud. To allow correct display, it is suggested to add the following three glyphs to the font. The 'ccmp' feature can be used with a Lookup Type 4 to shape the ligated form. These glyphs do not need Unicode character values assigned.
+
+In addition, Unicode gives further advice for combinations of meteg and hataf vowels.
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ Script development specifications
+
+ Open a documentation issue
+
+ Provide product feedback
+
+ Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2022-06-11

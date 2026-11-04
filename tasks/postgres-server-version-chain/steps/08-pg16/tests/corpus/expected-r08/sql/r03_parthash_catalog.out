@@ -1,0 +1,24 @@
+CREATE TABLE q3_hsc(a int) PARTITION BY HASH (a);
+CREATE TABLE q3_hsc_0 PARTITION OF q3_hsc FOR VALUES WITH (MODULUS 2, REMAINDER 0);
+CREATE TABLE q3_hsc_1 PARTITION OF q3_hsc FOR VALUES WITH (MODULUS 2, REMAINDER 1);
+SELECT partstrat, partnatts FROM pg_partitioned_table WHERE partrelid = 'q3_hsc'::regclass;
+ partstrat | partnatts 
+-----------+-----------
+ h         |         1
+(1 row)
+
+SELECT pg_get_partkeydef('q3_hsc'::regclass);
+ pg_get_partkeydef 
+-------------------
+ HASH (a)
+(1 row)
+
+SELECT relname, pg_get_expr(relpartbound, oid) FROM pg_class
+  WHERE relname IN ('q3_hsc_0','q3_hsc_1') ORDER BY relname;
+ relname  |               pg_get_expr                
+----------+------------------------------------------
+ q3_hsc_0 | FOR VALUES WITH (modulus 2, remainder 0)
+ q3_hsc_1 | FOR VALUES WITH (modulus 2, remainder 1)
+(2 rows)
+
+DROP TABLE q3_hsc;

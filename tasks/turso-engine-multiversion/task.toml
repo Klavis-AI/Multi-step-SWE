@@ -1,0 +1,165 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of the fifteen step rewards. No step sets
+# `min_reward`, so a zero at one step never stops the trial and every later
+# step still runs and is still scored.
+multi_step_reward_strategy = "mean"
+
+# The cumulative /app, carried from each step to the next and into the
+# verifier container. `target/` is excluded because a cargo target directory
+# is multi-gigabyte build scratch; `bin/` is NOT excluded, because the
+# engine shell binary installed there is the graded artefact itself -- this
+# task grades a subprocess's observable behaviour and the bytes it writes,
+# and the verifier never compiles, imports or type-checks Rust.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "target", "target/**"] },
+]
+
+[task]
+name = "harbor/turso-engine-multiversion"
+version = "1.0.0"
+description = "Build a SQLite-file-format-compatible embedded database engine in Rust across fifteen upstream turso releases, from the baseline parser/VDBE/pager/B-tree through checkpointing, balancing, WAL integrity, indexes, ALTER TABLE, views and page encryption, graded entirely through the process boundary against the pinned stock sqlite3 binary."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["sqlite", "database", "rust", "storage-engine", "b-tree", "wal", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["sqlite", "rust", "storage-engine", "file-format", "multi-step"]
+
+[environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 30720
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+network_mode = "public"
+
+[agent]
+# The agent's work runs against an allowlist: only the inference endpoint is
+# reachable at the network layer, so an upstream copy cannot be fetched by any
+# route -- git, release tarball, package registry or docs mirror. The runner
+# merges its own model host in at launch, so no host is pinned here.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+# The verifier runs the candidate's shell as a subprocess and compiles one
+# public-domain C amalgamation at image build time. It never builds Rust, so
+# it is sized for a corpus run rather than for a compiler.
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 4096
+storage_mb = 10240
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+[[steps]]
+name = "01-baseline-engine"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "02-checkpointing-and-json"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "03-transactions-and-ctes"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "04-btree-balancing"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "05-schema-mutation-and-jsonb"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "06-wal-integrity"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "07-index-creation"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "08-index-maintenance"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "09-set-operations-and-collations"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "10-alter-table-and-checkpoint-modes"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "11-rename-and-database-header"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "12-vector-values"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "13-change-data-capture"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "14-views"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0
+
+[[steps]]
+name = "15-encryption"
+[steps.agent]
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 1800.0

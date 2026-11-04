@@ -1,0 +1,8 @@
+CREATE TABLE q4_gcu(a int, b int GENERATED ALWAYS AS (a + 1) STORED);
+INSERT INTO q4_gcu(a) VALUES (5);
+UPDATE q4_gcu SET b = 99;
+UPDATE q4_gcu SET b = DEFAULT;
+SELECT a, b FROM q4_gcu ORDER BY a;
+UPDATE q4_gcu SET a = 8;
+SELECT a, b FROM q4_gcu ORDER BY a;
+DROP TABLE q4_gcu;

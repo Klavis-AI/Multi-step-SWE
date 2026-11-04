@@ -1,0 +1,38 @@
+# arch: x86_64
+# A run of consecutive relative relocations is encoded as one address word
+# plus bitmap words. Earlier tags emit .relr.dyn as a bare list of addresses,
+# eight bytes each, so the same 64 relocations cost eight times as much.
+n=64
+{ echo 'static int target[4];'
+  printf 'int *const ptrs[%d] = {' "$n"
+  for i in $(seq 0 $((n - 1))); do printf '&target[%d],' $((i % 4)); done
+  echo '};'
+  echo 'int fetch(int i) { return *ptrs[i]; }'
+} > p.c
+cc_obj p.o p.c -fPIC
+link_ok lib.so -shared -z pack-relative-relocs --no-gc-sections p.o
+
+has_section lib.so '\.relr\.dyn' || die "no .relr.dyn was produced"
+has_dyn_tag lib.so RELR   || die "no DT_RELR"
+has_dyn_tag lib.so RELRSZ || die "no DT_RELRSZ"
+has_dyn_tag lib.so RELRENT|| die "no DT_RELRENT"
+
+r=$(relocs lib.so)
+got=$(awk "/'.relr.dyn'/{for(i=1;i<=NF;i++) if(\$i==\"contains\"){print \$(i+1); exit}}" <<<"$r")
+want "every relative relocation is still described" "$got" "$n"
+
+sz=$(awk '/\(RELRSZ\)/{print $(NF-1)}' <<<"$(dynamic lib.so)")
+ent=$(awk '/\(RELRENT\)/{print $(NF-1)}' <<<"$(dynamic lib.so)")
+want "RELRENT" "$ent" "8"
+# A bare address list would need 8*64 = 512 bytes. A bitmap needs one address
+# word plus one bitmap word per 63 slots, so at most 24 here.
+[ "$sz" -le 32 ] || die "RELRSZ is $sz bytes for $n relocations: not bitmap-packed"
+want "RELRSZ is a whole number of entries" "$((sz % 8))" "0"
+# The section header and the dynamic tag must agree.
+want "DT_RELRSZ matches the section size" "$((16#$(sec_size lib.so .relr.dyn)))" "$sz"
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

@@ -1,0 +1,80 @@
+class ScratchPad
+  def self.record(v); @v = v; end
+  def self.recorded; @v; end
+  def self.<<(x); @v << x; end
+  def self.clear; @v = nil; end
+end
+def suppress_warning; yield; end
+module BlockSpecs
+  class Yielder
+    def z
+      yield
+    end
+
+    def m(*a)
+      yield(*a)
+    end
+
+    def s(a)
+      yield(a)
+    end
+
+    def r(a)
+      yield(*a)
+    end
+
+    def k(*a)
+      yield(*a, b: true)
+    end
+  end
+
+  # TODO: rewrite all specs that use Yield to use Yielder
+
+  class Yield
+    def splat(*args)
+      yield(*args)
+    end
+
+    def two_args
+      yield 1, 2
+    end
+
+    def two_arg_array
+      yield [1, 2]
+    end
+
+    def yield_splat_inside_block
+      [1, 2].send(:each_with_index) {|*args| yield(*args)}
+    end
+
+    def yield_this(obj)
+      yield obj
+    end
+  end
+
+  class OverwriteBlockVariable
+    def initialize
+      @y = Yielder.new
+    end
+
+    def method_missing(method, *args, &block)
+      self.class.send :define_method, method do |*a, &b|
+        @y.send method, *a, &b
+      end
+
+      send method, *args, &block
+    end
+  end
+end
+
+p(proc do |a=5, *b, c|
+        [a, b, c]
+      end.call(2, 3))
+
+      p(proc do |a=5, b=6, *c, d|
+        [a, b, c, d]
+      end.call(1, 2, 3))
+
+      p(proc do |a=5, *b, c, d|
+        [a, b, c, d]
+      end.call(1, 2, 3))

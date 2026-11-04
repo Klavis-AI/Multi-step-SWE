@@ -1,0 +1,106 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. Build products are excluded so the transferred tree
+# stays small, and so the verifier always rebuilds from source.  Harbor applies
+# these as unanchored `tar --exclude` patterns, which drop a matching name at ANY
+# depth, file or directory alike, so "ruby" and "core" (the binary and core
+# dumps) are not listed: they would also drop any source directory called
+# `core/` or `ruby/`.  runner.py deletes every file named `ruby` and every ELF
+# (core dumps included) before the rebuild instead.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [
+    "*.o", "*.a", "*.so", "*.d", ".git",
+  ] },
+]
+
+[task]
+name = "harbor/ruby-interpreter-version-chain"
+version = "1.0.0"
+description = "Six-step C11 Ruby interpreter across the CRuby release chain: 1.8.7, 2.0.0, 2.7, 3.1, 3.3 and 3.4, graded by running conformance programs drawn from ruby/spec and ruby/ruby's own test suite through the ruby command-line interface and comparing against the output of the real CRuby release."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["ruby", "interpreter", "parser", "c", "multi-step", "conformance"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["ruby", "interpreter", "language-implementation", "c", "multi-step"]
+
+[environment]
+build_timeout_sec = 1200.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# no-network: the build only compiles C and the scorer fetches nothing, so the
+# verifier needs no network, and nothing (a real CRuby, say) can be fetched at
+# grade time.  The agent's [environment] stays public.
+network_mode = "no-network"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-ruby-1-8"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "02-ruby-2-0"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "03-ruby-2-7"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "04-ruby-3-1"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "05-ruby-3-3"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0
+
+[[steps]]
+name = "06-ruby-3-4"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 3600.0

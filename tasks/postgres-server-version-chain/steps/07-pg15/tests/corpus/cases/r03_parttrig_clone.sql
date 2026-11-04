@@ -1,0 +1,12 @@
+CREATE TABLE q3_ptc(a int) PARTITION BY RANGE (a);
+CREATE TABLE q3_ptc_1 PARTITION OF q3_ptc FOR VALUES FROM (1) TO (10);
+CREATE FUNCTION q3_ptc_f() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RETURN NULL; END $$;
+CREATE TRIGGER q3_ptc_t AFTER INSERT ON q3_ptc FOR EACH ROW EXECUTE PROCEDURE q3_ptc_f();
+SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+  WHERE c.relname IN ('q3_ptc','q3_ptc_1') AND NOT t.tgisinternal ORDER BY c.relname;
+CREATE TABLE q3_ptc_2 PARTITION OF q3_ptc FOR VALUES FROM (10) TO (20);
+SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+  WHERE c.relname = 'q3_ptc_2' AND NOT t.tgisinternal;
+DROP TABLE q3_ptc;
+DROP FUNCTION q3_ptc_f();

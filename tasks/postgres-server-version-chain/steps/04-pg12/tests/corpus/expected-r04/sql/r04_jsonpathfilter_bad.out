@@ -1,0 +1,23 @@
+SELECT jsonb_path_query_array('[1,2]'::jsonb, '$[*] ? (@ > "x")');
+ jsonb_path_query_array 
+------------------------
+ []
+(1 row)
+
+SELECT jsonb_path_query_array('["a"]'::jsonb, '$[*] ? (@ like_regex "[")');
+ERROR:  invalid regular expression: brackets [] not balanced
+LINE 1: SELECT jsonb_path_query_array('["a"]'::jsonb, '$[*] ? (@ lik...
+                                                      ^
+SELECT jsonb_path_query_array('[1]'::jsonb, '$[*] ? (@ starts with 1)');
+ERROR:  syntax error at or near "1" of jsonpath input
+LINE 1: SELECT jsonb_path_query_array('[1]'::jsonb, '$[*] ? (@ start...
+                                                    ^
+SELECT jsonb_path_query_array('{"a":[1,2,3]}'::jsonb, '$.a[*] ? (@ > $min)', '[1,2]');
+ERROR:  "vars" argument is not an object
+DETAIL:  Jsonpath parameters should be encoded as key-value pairs of "vars" object.
+SELECT jsonb_path_query_array('{"a":[1,2,3]}'::jsonb, '$.a[*] ? (@ > $min)', 'notjson');
+ERROR:  invalid input syntax for type json
+LINE 1: ...ay('{"a":[1,2,3]}'::jsonb, '$.a[*] ? (@ > $min)', 'notjson')...
+                                                             ^
+DETAIL:  Token "notjson" is invalid.
+CONTEXT:  JSON data, line 1: notjson

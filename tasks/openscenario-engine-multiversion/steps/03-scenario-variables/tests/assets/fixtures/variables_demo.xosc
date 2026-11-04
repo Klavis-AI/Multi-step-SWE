@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Verifier-owned scenario. Catalog-free: both vehicles are declared inline,
+     the road network is named by a relative path, and nothing in the
+     candidate's resources/ takes part.
+
+     The point of this file is the pair of declaration blocks below. Two names
+     live in the parameter namespace and seven in the variable namespace, and
+     no name appears in both. A VariableAction/SetAction fires at 2 s so a reader
+     can also observe a variable that the storyboard changed rather than only
+     one that was parsed out of the file.
+
+     The storyboard stops itself at 6 s, so a headless run always terminates. -->
+<OpenSCENARIO>
+    <FileHeader revMajor="1" revMinor="2" date="2026-01-01T00:00:00" description="taskgen variable fixture" author="taskgen"/>
+    <ParameterDeclarations>
+        <ParameterDeclaration name="EgoStartSpeed" parameterType="double" value="18.5"/>
+        <ParameterDeclaration name="ParamOnlyTag" parameterType="string" value="parameter_side"/>
+    </ParameterDeclarations>
+    <VariableDeclarations>
+        <VariableDeclaration name="CruiseCount" variableType="integer" value="7"/>
+        <VariableDeclaration name="SegmentIndex" variableType="integer" value="-13"/>
+        <VariableDeclaration name="HeadwayTarget" variableType="double" value="2.75"/>
+        <VariableDeclaration name="ManoeuvreTag" variableType="string" value="overtake_left"/>
+        <VariableDeclaration name="AssistEnabled" variableType="boolean" value="true"/>
+        <VariableDeclaration name="AssistArmed" variableType="boolean" value="false"/>
+        <VariableDeclaration name="PhaseTag" variableType="string" value="phase_initial"/>
+    </VariableDeclarations>
+    <CatalogLocations/>
+    <RoadNetwork>
+        <LogicFile filepath="straight_500m.xodr"/>
+    </RoadNetwork>
+    <Entities>
+        <ScenarioObject name="Ego">
+            <Vehicle name="fixture_car" vehicleCategory="car">
+                <ParameterDeclarations/>
+                <Performance maxSpeed="69" maxAcceleration="10" maxDeceleration="10"/>
+                <BoundingBox>
+                    <Center x="1.4" y="0.0" z="0.75"/>
+                    <Dimensions width="2.0" length="5.0" height="1.5"/>
+                </BoundingBox>
+                <Axles>
+                    <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="2.98" positionZ="0.3"/>
+                    <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
+                </Axles>
+                <Properties/>
+            </Vehicle>
+        </ScenarioObject>
+        <ScenarioObject name="Target">
+            <Vehicle name="fixture_car" vehicleCategory="car">
+                <ParameterDeclarations/>
+                <Performance maxSpeed="69" maxAcceleration="10" maxDeceleration="10"/>
+                <BoundingBox>
+                    <Center x="1.4" y="0.0" z="0.75"/>
+                    <Dimensions width="2.0" length="5.0" height="1.5"/>
+                </BoundingBox>
+                <Axles>
+                    <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="2.98" positionZ="0.3"/>
+                    <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
+                </Axles>
+                <Properties/>
+            </Vehicle>
+        </ScenarioObject>
+    </Entities>
+    <Storyboard>
+        <Init>
+            <Actions>
+                <Private entityRef="Ego">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition roadId="1" laneId="-1" offset="0" s="20"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0"/>
+                                <SpeedActionTarget><AbsoluteTargetSpeed value="$EgoStartSpeed"/></SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+                <Private entityRef="Target">
+                    <PrivateAction>
+                        <TeleportAction>
+                            <Position>
+                                <LanePosition roadId="1" laneId="-1" offset="0" s="140"/>
+                            </Position>
+                        </TeleportAction>
+                    </PrivateAction>
+                    <PrivateAction>
+                        <LongitudinalAction>
+                            <SpeedAction>
+                                <SpeedActionDynamics dynamicsShape="step" dynamicsDimension="time" value="0"/>
+                                <SpeedActionTarget><AbsoluteTargetSpeed value="10"/></SpeedActionTarget>
+                            </SpeedAction>
+                        </LongitudinalAction>
+                    </PrivateAction>
+                </Private>
+            </Actions>
+        </Init>
+        <Story name="Story">
+            <Act name="Act">
+                <ManeuverGroup maximumExecutionCount="1" name="Group">
+                    <Actors selectTriggeringEntities="false">
+                        <EntityRef entityRef="Ego"/>
+                    </Actors>
+                    <Maneuver name="Maneuver">
+                        <Event name="PhaseEvent" priority="overwrite">
+                            <Action name="PhaseAction">
+                                <GlobalAction>
+                                    <VariableAction variableRef="PhaseTag">
+                                        <SetAction value="phase_running"/>
+                                    </VariableAction>
+                                </GlobalAction>
+                            </Action>
+                            <StartTrigger>
+                                <ConditionGroup>
+                                    <Condition name="PhaseAt2s" delay="0" conditionEdge="none">
+                                        <ByValueCondition>
+                                            <SimulationTimeCondition value="2" rule="greaterThan"/>
+                                        </ByValueCondition>
+                                    </Condition>
+                                </ConditionGroup>
+                            </StartTrigger>
+                        </Event>
+                    </Maneuver>
+                </ManeuverGroup>
+                <StartTrigger>
+                    <ConditionGroup>
+                        <Condition name="ActStart" delay="0" conditionEdge="none">
+                            <ByValueCondition><SimulationTimeCondition value="0" rule="greaterThan"/></ByValueCondition>
+                        </Condition>
+                    </ConditionGroup>
+                </StartTrigger>
+                <StopTrigger>
+                    <ConditionGroup>
+                        <Condition name="ActStop" delay="0" conditionEdge="none">
+                            <ByValueCondition><SimulationTimeCondition value="6" rule="greaterThan"/></ByValueCondition>
+                        </Condition>
+                    </ConditionGroup>
+                </StopTrigger>
+            </Act>
+        </Story>
+        <StopTrigger>
+            <ConditionGroup>
+                <Condition name="StoryboardStop" delay="0" conditionEdge="none">
+                    <ByValueCondition><SimulationTimeCondition value="6" rule="greaterThan"/></ByValueCondition>
+                </Condition>
+            </ConditionGroup>
+        </StopTrigger>
+    </Storyboard>
+</OpenSCENARIO>

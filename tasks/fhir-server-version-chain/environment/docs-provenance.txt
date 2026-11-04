@@ -1,0 +1,23 @@
+How environment/docs/ was produced: the build stage below fetched each
+document from its official source, checked it against the pinned sha256,
+and made the text conversions. It ran at image build time until
+2026-10-20; the files are now stored in docs/ and copied in directly.
+Re-run these steps to refresh a document.
+
+# Reference documentation for the agent (the agent phase has no network).
+# Fetched at build time from the official HL7 publication, pinned by sha256;
+# only /opt/docs leaves this stage. It holds the R4 specification page an
+# instruction names that the step SPEC directories do not carry.
+FROM debian:bookworm-slim AS docs
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    fetch() { curl -fsSL --retry 3 --max-time 300 -o "$2" "$1"; echo "$3  $2" | sha256sum -c -; }; \
+    D=/opt/docs; mkdir -p $D/fhir/R4; \
+    fetch https://hl7.org/fhir/R4/compartmentdefinition.html \
+          $D/fhir/R4/compartmentdefinition.html \
+          323a1107d1160337d71609450b98f2b9e3eaf036a3de3986421dd727604983c2; \
+    (cd $D && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > /tmp/SHA256SUMS) && mv /tmp/SHA256SUMS $D/SHA256SUMS; \
+    du -sh $D

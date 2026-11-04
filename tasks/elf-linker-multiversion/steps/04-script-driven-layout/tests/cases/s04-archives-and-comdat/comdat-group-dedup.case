@@ -1,0 +1,54 @@
+# arch: x86_64
+# what: a GRP_COMDAT section group that appears in two inputs contributes
+# exactly one copy of each of its sections; the surviving copy is the first
+# one, and the symbols of the discarded copy do not reach the output.
+rt_obj rt.o
+mkcomdat() { # mkcomdat <file.s> <value> <marker-symbol> <outer-fn>
+cat > "$1" <<S
+        .section .text.inline_impl,"axG",@progbits,grp_inline,comdat
+        .globl inline_impl
+inline_impl:
+        mov \$$2, %eax
+        ret
+        .globl $3
+$3:     ret
+        .section .data.inline_impl,"awG",@progbits,grp_inline,comdat
+        .p2align 2
+        .globl inline_data
+inline_data: .long $2
+        .section .text.$4,"ax",@progbits
+        .globl $4
+$4:     jmp inline_impl
+        .section .note.GNU-stack,"",@progbits
+S
+}
+mkcomdat c1.s 11 marker_one call_one
+mkcomdat c2.s 22 marker_two call_two
+as_obj c1.o c1.s
+as_obj c2.o c2.s
+cat > m.c <<'C'
+#include "rt.h"
+int call_one(void); int call_two(void); extern int inline_data;
+int entry(void) { return call_one() + call_two() + inline_data; }
+C
+cc_obj m.o m.c
+want "the group really is GRP_COMDAT" "$(sections c1.o | grep -cE 'GROUP')" "1"
+link_ok out --start-lib c1.o c2.o --end-lib rt.o m.o
+# Layout and sections 4, rule 5: the SHT_GROUP section itself is never copied
+# to the output. The assertion above inspects the INPUT object; this one
+# inspects the output's own section table.
+want "no SHT_GROUP in the output" "$(sections out | grep -cE 'GROUP')" "0"
+seen() { symbols "$1" | awk -v n="$2" '$8 == n { c++ } END { print c + 0 }'; }
+want "one inline_impl" "$(seen out inline_impl)" "1"
+want "one inline_data" "$(seen out inline_data)" "1"
+# The first group wins, so c1's marker survives and c2's is discarded with its
+# copy of the group.
+want "marker_one kept"      "$(seen out marker_one)" "1"
+want "marker_two discarded" "$(seen out marker_two)" "0"
+# Exactly one 4-byte copy of the group's data section reached the output.
+want ".data holds one copy" "$(( 16#$(sec_size out .data) ))" "4"
+want "surviving inline_data value" \
+  "$($OBJDUMP -s -j .data out | awk 'NR==4{print $2}')" "0b000000"
+# Both outer functions therefore jump into the same surviving body: 11+11+11.
+run_expect out "" 33
+asserts_at_least 8

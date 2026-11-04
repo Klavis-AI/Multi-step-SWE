@@ -1,0 +1,14 @@
+{
+  "doc": "stages/filters.expression.rst: 'The **Expression Filter** applies filtering to the input point cloud based on a set of criteria on the given dimensions.' -- grid.las is a 10x10x10 integer lattice whose Classification is 1 where Z < 5 and 2 otherwise, so 'Classification == 2' keeps exactly the 500 points with Z in [5,9].",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "p.json": {"text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.expression\",\"expression\":\"Classification == 2\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"}
+  },
+  "run": [{"argv": ["pipeline", "p.json"]}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "las", "file": "out.las", "header": {"point_count": 500},
+     "dims": {"Classification": {"count_equal": {"2": 500}},
+              "Z": {"min": {"equals": 5.0}, "max": {"equals": 9.0}, "mean": {"approx": 7.0, "tol": 1e-9}}}}
+  ]
+}

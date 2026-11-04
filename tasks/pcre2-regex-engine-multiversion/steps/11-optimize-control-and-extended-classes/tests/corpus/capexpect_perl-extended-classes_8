@@ -1,0 +1,80 @@
+# Perl's (?[...]) extended character classes: an expression syntax with
+# set operators, always with PCRE2_EXTENDED_MORE in force.
+# ChangeLog 10.45 item 42; pcre2pattern.3, "PERL EXTENDED CHARACTER CLASSES".
+
+# & is intersection, | and + are union, - is subtraction, ^ is symmetric
+# difference, ! is complement.
+/^(?[ \w & [^\d] ])+$/
+    hedge
+ 0: hedge
+    hedge7
+No match
+
+/^(?[ [aeiou] + \d ])+$/
+    oi42
+ 0: oi42
+    oiz
+No match
+
+/^(?[ [aeiou] | \d ])+$/
+    ea90
+ 0: ea90
+
+/^(?[ \w - [aeiou] ])+$/
+    rhythm
+ 0: rhythm
+    rhyme
+No match
+
+/^(?[ [a-m] ^ [g-z] ])+$/
+    abcdef
+ 0: abcdef
+    nopqrs
+ 0: nopqrs
+    ghijk
+No match
+
+/^(?[ ! \W ])+$/
+    word7
+ 0: word7
+    wo rd
+No match
+
+/^(?[ [:alpha:] & [^p-z] ])+$/
+    cabbage
+ 0: cabbage
+    zap
+No match
+
+# & binds tighter than -, and parentheses group.
+/^(?[ \w - [:digit:] & [0-4] ])+$/
+    tin7
+ 0: tin7
+    tin3
+No match
+
+/^(?[ ( \w - [:digit:] ) & [a-c] ])+$/
+    cab
+ 0: cab
+    tin
+No match
+
+# A nested ordinary class follows the ordinary rules, so literals and ranges
+# are allowed there and nowhere else.
+/^(?[ [a-c[] ])+$/
+    ab[c
+ 0: ab[c
+
+/(?[ a ])/
+Failed: error 216 at offset 5: unexpected character in (?[...]) extended character class
+
+/(?[ a-c ])/
+Failed: error 216 at offset 5: unexpected character in (?[...]) extended character class
+
+# ^ is an operator, not a negation.
+/(?[ ^\d ])/
+Failed: error 209 at offset 5: unexpected operator in extended character class (no preceding operand)
+
+# The extended syntax adds no escape sequences.
+/(?[ \y ])/
+Failed: error 103 at offset 5: unrecognized character follows \

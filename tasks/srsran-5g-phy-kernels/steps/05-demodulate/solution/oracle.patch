@@ -1,0 +1,1751 @@
+diff --git a/lib/phy/upper/channel_modulation/avx2_helpers.h b/lib/phy/upper/channel_modulation/avx2_helpers.h
+new file mode 100644
+index 0000000..dfd72c1
+--- /dev/null
++++ b/lib/phy/upper/channel_modulation/avx2_helpers.h
+@@ -0,0 +1,274 @@
++/*
++ *
++ * Copyright 2021-2025 Software Radio Systems Limited
++ *
++ * This file is part of srsRAN.
++ *
++ * srsRAN is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU Affero General Public License as
++ * published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version.
++ *
++ * srsRAN is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Affero General Public License for more details.
++ *
++ * A copy of the GNU Affero General Public License can be found in
++ * the LICENSE file in the top-level directory of this distribution
++ * and at http://www.gnu.org/licenses/.
++ *
++ */
++
++#pragma once
++
++#include <immintrin.h>
++
++namespace srsran {
++
++namespace mm256 {
++
++/// \brief Computes absolute values.
++/// \param[in] value Input single-precision AVX register.
++/// \return A single-precision AVX register with the absolute value.
++inline __m256 abs_ps(__m256 value)
++{
++  const __m256 mask = _mm256_castsi256_ps(_mm256_set1_epi32(0x7fffffff));
++  return _mm256_and_ps(value, mask);
++}
++
++/// \brief Copies sign from a single-precision AVX register.
++/// \param[in] value0 Single-precision AVX register.
++/// \param[in] value1 Single-precision AVX register.
++/// \return A single-precision AVX register with the magnitudes of \c value0 and the signs of \c value1.
++/// \remark A zero in the second argument is considered as a positive number, following the convention of \c
++/// std::copysign.
++inline __m256 copysign_ps(__m256 value0, __m256 value1)
++{
++  __m256 abs_value0  = abs_ps(value0);
++  __m256 sign_value1 = _mm256_and_ps(value1, _mm256_set1_ps(-0.0));
++  return _mm256_or_ps(abs_value0, sign_value1);
++}
++
++/// \brief Clips the values of a single-precision AVX register.
++///
++/// Values greater than \c range_ceil or lower than \c range_floor are substituted by their corresponding range
++/// limits.
++///
++/// \param[in] value       Input values.
++/// \param[in] range_ceil  Ceiling values.
++/// \param[in] range_floor Floor values.
++/// \return A single-precision AVX register containing the clipped values.
++inline __m256 clip_ps(__m256 value, __m256 range_ceil, __m256 range_floor)
++{
++  value = _mm256_blendv_ps(value, range_ceil, _mm256_cmp_ps(value, range_ceil, _CMP_GT_OS));
++  value = _mm256_blendv_ps(value, range_floor, _mm256_cmp_ps(value, range_floor, _CMP_LT_OS));
++  return value;
++}
++
++/// \brief Clips the values of an AVX register carrying eight signed 32-bit integers.
++///
++/// Values greater than \c range_ceil or lower than \c range_floor are substituted by their corresponding range
++/// limits.
++///
++/// \param[in] value       Input values.
++/// \param[in] range_ceil  Ceiling values.
++/// \param[in] range_floor Floor values.
++/// \return An AVX register containing the clipped values.
++inline __m256i clip_epi32(__m256i value, __m256i range_ceil, __m256i range_floor)
++{
++  value = _mm256_blendv_epi8(value, range_ceil, _mm256_cmpgt_epi32(value, range_ceil));
++  value = _mm256_blendv_epi8(value, range_floor, _mm256_cmpgt_epi32(range_floor, value));
++  return value;
++}
++
++/// \brief Ensures that 32-bit integers in an AVX register are bounded, otherwise set them to zero.
++///
++/// \param[in] value      Integers to be tested.
++/// \param[in] bound_up   Upper bounds.
++/// \param[in] bound_low  Lower bounds.
++/// \return The input integers with zeros in place of the out-of-bound values.
++inline __m256i check_bounds_epi32(__m256i value, __m256i bound_up, __m256i bound_low)
++{
++  __m256i ZEROS = _mm256_set1_epi8(0);
++  __m256i mask  = _mm256_cmpgt_epi32(value, bound_up);
++  // Since the mask is set for all bytes of the int32_t integers, we can use the byte-wise blend.
++  value = _mm256_blendv_epi8(value, ZEROS, mask);
++
++  mask = _mm256_cmpgt_epi32(bound_low, value);
++  // Since the mask is set for all bytes of the int32_t integers, we can use the byte-wise blend.
++  value = _mm256_blendv_epi8(value, ZEROS, mask);
++
++  return value;
++}
++
++/// \brief Clips and quantizes four single-precision AVX registers.
++///
++/// Each AVX register contains eight 32-bit single-precission log-likelihood ratios. These are converted into a
++/// 8-bit discrete representation of type \c log_likelihood_ratio in a single AVX register.
++///
++/// \param[in] value_0      Single-precision AVX register with the first eight log-likelihood ratios.
++/// \param[in] value_1      Single-precision AVX register with the second eight log-likelihood ratios.
++/// \param[in] value_2      Single-precision AVX register with the third eight log-likelihood ratios.
++/// \param[in] value_3      Single-precision AVX register with the fourth eight log-likelihood ratios.
++/// \param[in] range_limit  The input value mapped to \ref log_likelihood_ratio::max().
++/// \return A quantized representation of the input values as \c log_likelihood_ratio quantity.
++/// \note The quantization in the range <tt>(-range_limit, range_limit)</tt> is [mid-tread
++/// uniform](https://en.wikipedia.org/wiki/Quantization_(signal_processing)#Mid-riser_and_mid-tread_uniform_quantizers),
++/// with quantization step <tt> range_limit / LLR_MAX </tt>.
++/// \note All values larger (in magnitude) than \c range_limit, will be clipped and mapped to
++/// <tt>&plusmn;LLR_MAX</tt>, depending on their sign.
++inline __m256i quantize_ps(__m256 value_0, __m256 value_1, __m256 value_2, __m256 value_3, float range_limit)
++{
++  // Scale.
++  __m256 SCALE = _mm256_set1_ps(static_cast<float>(log_likelihood_ratio::max().to_int()) / range_limit);
++  value_0      = _mm256_mul_ps(value_0, SCALE);
++  value_1      = _mm256_mul_ps(value_1, SCALE);
++  value_2      = _mm256_mul_ps(value_2, SCALE);
++  value_3      = _mm256_mul_ps(value_3, SCALE);
++
++  // Clip and round to the nearest integer.
++  __m256 RANGE_CEIL  = _mm256_set1_ps(log_likelihood_ratio::max().to_int());
++  __m256 RANGE_FLOOR = _mm256_set1_ps(log_likelihood_ratio::min().to_int());
++  value_0            = _mm256_round_ps(clip_ps(value_0, RANGE_CEIL, RANGE_FLOOR), _MM_FROUND_NINT);
++  value_1            = _mm256_round_ps(clip_ps(value_1, RANGE_CEIL, RANGE_FLOOR), _MM_FROUND_NINT);
++  value_2            = _mm256_round_ps(clip_ps(value_2, RANGE_CEIL, RANGE_FLOOR), _MM_FROUND_NINT);
++  value_3            = _mm256_round_ps(clip_ps(value_3, RANGE_CEIL, RANGE_FLOOR), _MM_FROUND_NINT);
++
++  // Convert to 32 bit.
++  __m256i llr_i32_0 = _mm256_cvtps_epi32(value_0);
++  __m256i llr_i32_1 = _mm256_cvtps_epi32(value_1);
++  __m256i llr_i32_2 = _mm256_cvtps_epi32(value_2);
++  __m256i llr_i32_3 = _mm256_cvtps_epi32(value_3);
++
++  // Check bounds one more time: if value_X contains a NaN, its casting to int32_t is indeterminate - set it to zero.
++  __m256i BOUND_UP  = _mm256_set1_epi32(log_likelihood_ratio::max().to_int());
++  __m256i BOUND_LOW = _mm256_set1_epi32(log_likelihood_ratio::min().to_int());
++  llr_i32_0         = check_bounds_epi32(llr_i32_0, BOUND_UP, BOUND_LOW);
++  llr_i32_1         = check_bounds_epi32(llr_i32_1, BOUND_UP, BOUND_LOW);
++  llr_i32_2         = check_bounds_epi32(llr_i32_2, BOUND_UP, BOUND_LOW);
++  llr_i32_3         = check_bounds_epi32(llr_i32_3, BOUND_UP, BOUND_LOW);
++
++  // Re-collocate SSE registers.
++  __m256i llr_i32_0_ = _mm256_permute2f128_si256(llr_i32_0, llr_i32_1, 0x20);
++  __m256i llr_i32_1_ = _mm256_permute2f128_si256(llr_i32_0, llr_i32_1, 0x31);
++  __m256i llr_i32_2_ = _mm256_permute2f128_si256(llr_i32_2, llr_i32_3, 0x20);
++  __m256i llr_i32_3_ = _mm256_permute2f128_si256(llr_i32_2, llr_i32_3, 0x31);
++
++  // Conversion to 16 bit.
++  __m256i llr_i16_0 = _mm256_packs_epi32(llr_i32_0_, llr_i32_1_);
++  __m256i llr_i16_1 = _mm256_packs_epi32(llr_i32_2_, llr_i32_3_);
++
++  // Re-collocate SSE registers.
++  __m256i llr_i16_0_ = _mm256_permute2f128_si256(llr_i16_0, llr_i16_1, 0x20);
++  __m256i llr_i16_1_ = _mm256_permute2f128_si256(llr_i16_0, llr_i16_1, 0x31);
++
++  // Conversion to 8 bit.
++  return _mm256_packs_epi16(llr_i16_0_, llr_i16_1_);
++}
++
++/// \brief Computes an interval index from single-precision AVX register values.
++/// \param[in] value          Input AVX register.
++/// \param[in] interval_width Interval width.
++/// \param[in] nof_intervals  Number of intervals.
++/// \return An AVX register carrying eight signed 32-bit integers with the corresponding interval indices.
++inline __m256i compute_interval_idx(__m256 value, float interval_width, int nof_intervals)
++{
++  // Scale.
++  value = _mm256_mul_ps(value, _mm256_set1_ps(1.0F / interval_width));
++
++  // Round to the lowest integer.
++  value = _mm256_round_ps(value, _MM_FROUND_FLOOR);
++
++  // Convert to int32.
++  __m256i idx = _mm256_cvtps_epi32(value);
++
++  // Add interval offset.
++  idx = _mm256_add_epi32(idx, _mm256_set1_epi32(nof_intervals / 2));
++
++  // Clip index.
++  idx = clip_epi32(idx, _mm256_set1_epi32(nof_intervals - 1), _mm256_setzero_si256());
++
++  // Clip integer and return.
++  return idx;
++}
++
++/// \brief Gets values from a look-up table.
++/// \param[in] table   Look-up table containing eight single-precision values.
++/// \param[in] indices AVX register containing eight indices.
++/// \return A single-precision AVX register containing the eight values corresponding to the given indices.
++inline __m256 look_up_table(const std::array<float, 8>& table, __m256i indices)
++{
++  return _mm256_permutevar8x32_ps(_mm256_loadu_ps(table.data()), indices);
++}
++
++/// \brief Gets values from a look-up table.
++/// \param[in] table   Look-up table containing sixteen single-precision values.
++/// \param[in] indices AVX register containing eight indices.
++/// \return A single-precision AVX register containing the eight values corresponding to the given indices.
++inline __m256 look_up_table(const std::array<float, 16>& table, __m256i indices)
++{
++  // Get lower part of the table.
++  __m256 lower = _mm256_permutevar8x32_ps(_mm256_loadu_ps(table.data()), indices);
++
++  // Get upper part of the table.
++  __m256 upper = _mm256_permutevar8x32_ps(_mm256_loadu_ps(table.data() + 8), indices);
++
++  // Generate mask. Set to true if the MSB of the index is greater than zero.
++  __m256i mask = _mm256_cmpgt_epi32(indices, _mm256_set1_epi32(0b111));
++
++  // Select upper or lower value.
++  return _mm256_blendv_ps(lower, upper, (__m256)mask);
++}
++
++/// \brief Applies a piecewise defined function (provided by look-up tables) to a series of values.
++/// \tparam Table             Look-up table type. All tables mut be of the same type.
++/// \param[in] value          Single-precision AVX register with eight input values.
++/// \param[in] rcp_noise      Single-precision AVX register with the reciprocal of the noise variance corresponding to
++///                           the values.
++/// \param[in] nof_intervals  Number of intervals.
++/// \param[in] interval_width Interval width to quantify the interval indices.
++/// \param[in] slopes         Table with the slope of each interval.
++/// \param[in] intercepts     Table with the interception points of each interval.
++/// \return A single-precision AVX register containing the results of the interval function.
++/// \remark The number of intervals must be lower than or equal to \c Table size.
++template <typename Table>
++inline __m256 interval_function(__m256       value,
++                                __m256       rcp_noise,
++                                float        interval_width,
++                                unsigned     nof_intervals,
++                                const Table& slopes,
++                                const Table& intercepts)
++{
++  __m256i interval_index = mm256::compute_interval_idx(value, interval_width, nof_intervals);
++
++  __m256 slope     = mm256::look_up_table(slopes, interval_index);
++  __m256 intercept = mm256::look_up_table(intercepts, interval_index);
++
++  __m256 result = _mm256_mul_ps(_mm256_add_ps(_mm256_mul_ps(slope, value), intercept), rcp_noise);
++
++  __m256 zero_thr  = _mm256_set1_ps(near_zero);
++  __m256 zero_mask = _mm256_cmp_ps(abs_ps(value), zero_thr, _CMP_LE_OQ);
++
++  return _mm256_blendv_ps(result, _mm256_setzero_ps(), zero_mask);
++}
++
++/// \brief Safe division.
++///
++/// \return <tt>dividend / divisor</tt> if \c divisor is greater than zero, \c 0 otherwise.
++inline __m256 safe_div(__m256 dividend, __m256 divisor)
++{
++  const __m256 all_zero = _mm256_setzero_ps();
++  // _CMP_GT_OQ: compare greater than, ordered (nan is false) and quiet (no exceptions raised).
++#if defined(__AVX512F__) && defined(__AVX512VL__)
++  __mmask8 mask = _mm256_cmp_ps_mask(divisor, all_zero, _CMP_GT_OQ);
++  return _mm256_maskz_div_ps(mask, dividend, divisor);
++#else  // defined(__AVX512F__) && defined(__AVX512VL__)
++  __m256 mask   = _mm256_cmp_ps(divisor, all_zero, _CMP_GT_OQ);
++  __m256 result = _mm256_div_ps(dividend, divisor);
++  return _mm256_blendv_ps(all_zero, result, mask);
++#endif // defined(__AVX512F__) && defined(__AVX512VL__)
++}
++
++} // namespace mm256
++} // namespace srsran
+diff --git a/lib/phy/upper/channel_modulation/avx512_helpers.h b/lib/phy/upper/channel_modulation/avx512_helpers.h
+new file mode 100644
+index 0000000..1feb5b1
+--- /dev/null
++++ b/lib/phy/upper/channel_modulation/avx512_helpers.h
+@@ -0,0 +1,264 @@
++/*
++ *
++ * Copyright 2021-2025 Software Radio Systems Limited
++ *
++ * This file is part of srsRAN.
++ *
++ * srsRAN is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU Affero General Public License as
++ * published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version.
++ *
++ * srsRAN is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Affero General Public License for more details.
++ *
++ * A copy of the GNU Affero General Public License can be found in
++ * the LICENSE file in the top-level directory of this distribution
++ * and at http://www.gnu.org/licenses/.
++ *
++ */
++
++#pragma once
++
++#include <immintrin.h>
++
++#ifndef __AVX512F__
++#error "Architecture missmatch. Missing avx512f."
++#endif // __AVX512F__
++
++#ifndef __AVX512BW__
++#error "Architecture missmatch. Missing avx512bw."
++#endif // __AVX512BW__
++
++#if defined(__GNUC__) && (__GNUC__ <= 9)
++#error "GCC version must be greater than 9."
++#endif // defined(__GNUC__) && (__GNUC__ <= 9)
++
++namespace srsran {
++
++namespace mm512 {
++
++/// \brief Applies a scaling factor, rounds to the nearest integer and clips the resulting values.
++///
++/// Values greater than \c range_ceil or lower than \c range_floor are substituted by their corresponding range
++/// limits. Also, it sets to zero all the input values that are not a number.
++///
++/// \param[in] value       Input values.
++/// \param[in] scale       Scaling factor.
++/// \param[in] range_ceil  Ceiling values.
++/// \param[in] range_floor Floor values.
++/// \return A single-precision AVX512 register containing the clipped values.
++inline __m512 scale_clip_and_round_ps(__m512 value, __m512 scale, __m512 range_ceil, __m512 range_floor)
++{
++  // Detect NAN and set them to zero.
++  __mmask16 mask = _mm512_cmp_ps_mask(value, value, _CMP_ORD_Q);
++  // Apply scaling, round and discard NaN.
++  value = _mm512_maskz_mul_round_ps(mask, scale, value, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
++  // Apply ceil.
++  value = _mm512_min_ps(value, range_ceil);
++  // Apply floor.
++  return _mm512_max_ps(value, range_floor);
++}
++
++/// \brief Clips the values of an AVX512 register carrying sixteen signed 32-bit integers.
++///
++/// Values greater than \c range_ceil or lower than \c range_floor are substituted by their corresponding range
++/// limits.
++///
++/// \param[in] value       Input values.
++/// \param[in] range_ceil  Ceiling values.
++/// \param[in] range_floor Floor values.
++/// \return An AVX512 register containing the clipped values.
++inline __m512i clip_epi32(__m512i value, __m512i range_ceil, __m512i range_floor)
++{
++  value = _mm512_min_epi32(value, range_ceil);
++  value = _mm512_max_epi32(value, range_floor);
++  return value;
++}
++
++/// \brief Clips and quantizes four single-precision AVX512 registers.
++///
++/// Each AVX512 register contains sixteen 32-bit single-precission log-likelihood ratios. These are converted into a
++/// 8-bit discrete representation of type \c log_likelihood_ratio in a single AVX512 register.
++///
++/// \param[in] value_0      Single-precision AVX512 register with the first eight log-likelihood ratios.
++/// \param[in] value_1      Single-precision AVX512 register with the second eight log-likelihood ratios.
++/// \param[in] value_2      Single-precision AVX512 register with the third eight log-likelihood ratios.
++/// \param[in] value_3      Single-precision AVX512 register with the fourth eight log-likelihood ratios.
++/// \param[in] range_limit  The input value mapped to \ref log_likelihood_ratio::max().
++/// \return A quantized representation of the input values as \c log_likelihood_ratio quantity.
++/// \note The quantization in the range <tt>(-range_limit, range_limit)</tt> is [mid-tread
++/// uniform](https://en.wikipedia.org/wiki/Quantization_(signal_processing)#Mid-riser_and_mid-tread_uniform_quantizers),
++/// with quantization step <tt> range_limit / LLR_MAX </tt>.
++/// \note All values larger (in magnitude) than \c range_limit, will be clipped and mapped to
++/// <tt>&plusmn;LLR_MAX</tt>, depending on their sign.
++inline __m512i quantize_ps(__m512 value_0, __m512 value_1, __m512 value_2, __m512 value_3, float range_limit)
++{
++  // Scale and clip and round to the nearest integer.
++  __m512 SCALE       = _mm512_set1_ps(static_cast<float>(log_likelihood_ratio::max().to_int()) / range_limit);
++  __m512 RANGE_CEIL  = _mm512_set1_ps(log_likelihood_ratio::max().to_int());
++  __m512 RANGE_FLOOR = _mm512_set1_ps(log_likelihood_ratio::min().to_int());
++  value_0            = scale_clip_and_round_ps(value_0, SCALE, RANGE_CEIL, RANGE_FLOOR);
++  value_1            = scale_clip_and_round_ps(value_1, SCALE, RANGE_CEIL, RANGE_FLOOR);
++  value_2            = scale_clip_and_round_ps(value_2, SCALE, RANGE_CEIL, RANGE_FLOOR);
++  value_3            = scale_clip_and_round_ps(value_3, SCALE, RANGE_CEIL, RANGE_FLOOR);
++
++  // Convert to 32 bit.
++  __m512i llr_i32_0 = _mm512_cvtps_epi32(value_0);
++  __m512i llr_i32_1 = _mm512_cvtps_epi32(value_1);
++  __m512i llr_i32_2 = _mm512_cvtps_epi32(value_2);
++  __m512i llr_i32_3 = _mm512_cvtps_epi32(value_3);
++
++  // Conversion to 16 bit.
++  __m512i llr_i16_0 = _mm512_packs_epi32(llr_i32_0, llr_i32_1);
++  __m512i llr_i16_1 = _mm512_packs_epi32(llr_i32_2, llr_i32_3);
++
++  // Conversion to 8 bit.
++  return _mm512_packs_epi16(llr_i16_0, llr_i16_1);
++}
++
++/// \brief Clips and quantizes three single-precision AVX512 registers.
++///
++/// Each AVX512 register contains sixteen 32-bit single-precission log-likelihood ratios. These are converted into a
++/// 8-bit discrete representation of type \c log_likelihood_ratio in a single AVX512 register.
++///
++/// \param[in] value_0      Single-precision AVX512 register with the first eight log-likelihood ratios.
++/// \param[in] value_1      Single-precision AVX512 register with the second eight log-likelihood ratios.
++/// \param[in] value_2      Single-precision AVX512 register with the third eight log-likelihood ratios.
++/// \param[in] range_limit  The input value mapped to \ref log_likelihood_ratio::max().
++/// \return A quantized representation of the input values as \c log_likelihood_ratio quantity.
++/// \note The quantization in the range <tt>(-range_limit, range_limit)</tt> is [mid-tread
++/// uniform](https://en.wikipedia.org/wiki/Quantization_(signal_processing)#Mid-riser_and_mid-tread_uniform_quantizers),
++/// with quantization step <tt> range_limit / LLR_MAX </tt>.
++/// \note All values larger (in magnitude) than \c range_limit, will be clipped and mapped to
++/// <tt>&plusmn;LLR_MAX</tt>, depending on their sign.
++inline __m512i quantize_ps(__m512 value_0, __m512 value_1, __m512 value_2, float range_limit)
++{
++  // Scale, clip and round to the nearest integer.
++  __m512 SCALE       = _mm512_set1_ps(static_cast<float>(log_likelihood_ratio::max().to_int()) / range_limit);
++  __m512 RANGE_CEIL  = _mm512_set1_ps(log_likelihood_ratio::max().to_int());
++  __m512 RANGE_FLOOR = _mm512_set1_ps(log_likelihood_ratio::min().to_int());
++  value_0            = scale_clip_and_round_ps(value_0, SCALE, RANGE_CEIL, RANGE_FLOOR);
++  value_1            = scale_clip_and_round_ps(value_1, SCALE, RANGE_CEIL, RANGE_FLOOR);
++  value_2            = scale_clip_and_round_ps(value_2, SCALE, RANGE_CEIL, RANGE_FLOOR);
++
++  // Convert to 32-bit integer.
++  __m512i llr_i32_0 = _mm512_cvtps_epi32(value_0);
++  __m512i llr_i32_1 = _mm512_cvtps_epi32(value_1);
++  __m512i llr_i32_2 = _mm512_cvtps_epi32(value_2);
++
++  // Pack into 16-bit integer.
++  __m512i llr_i16_0 = _mm512_packs_epi32(llr_i32_0, llr_i32_1);
++  __m512i llr_i16_1 = _mm512_packs_epi32(llr_i32_2, _mm512_setzero_si512());
++
++  // Conversion to 8 bit.
++  return _mm512_packs_epi16(llr_i16_0, llr_i16_1);
++}
++
++/// \brief Computes an interval index from single-precision AVX512 register values.
++/// \param[in] value          Input AVX512 register.
++/// \param[in] interval_width Interval width.
++/// \param[in] nof_intervals  Number of intervals.
++/// \return An AVX512 register carrying sixteen signed 32-bit integers with interval indices of the corresponding
++/// values.
++inline __m512i compute_interval_idx(__m512 value, float interval_width, int nof_intervals)
++{
++  // Scale.
++  value = _mm512_fmadd_ps(value, _mm512_set1_ps(1.0F / interval_width), _mm512_set1_ps(nof_intervals / 2));
++
++  // Round to the lowest integer.
++  value = _mm512_roundscale_ps(value, _MM_FROUND_TO_NEG_INF);
++
++  // Convert to int32.
++  __m512i idx = _mm512_cvtps_epi32(value);
++
++  // Clip index.
++  idx = clip_epi32(idx, _mm512_set1_epi32(nof_intervals - 1), _mm512_setzero_si512());
++
++  // Clip integer and return.
++  return idx;
++}
++
++/// \brief Gets values from a look-up table.
++/// \param[in] table   Look-up table containing sixteen single-precision values.
++/// \param[in] indices AVX512 register containing sixteen indices.
++/// \return A single-precision AVX512 register containing the sixteen values corresponding to the given indices.
++inline __m512 look_up_table(const std::array<float, 8>& table, __m512i indices)
++{
++  // Load table in 256-bit register.
++  __m256 table_m256 = _mm256_loadu_ps(table.data());
++  // Cast the 256-bit register into a 512-bit register.
++  __m512 table_m512 = _mm512_castps256_ps512(table_m256);
++  // Read the table.
++  return _mm512_permutexvar_ps(indices, table_m512);
++}
++
++/// \brief Gets values from a look-up table.
++/// \param[in] table   Look-up table containing sixteen single-precision values.
++/// \param[in] indices AVX512 register containing sixteen indices.
++/// \return A single-precision AVX512 register containing the sixteen values corresponding to the given indices.
++inline __m512 look_up_table(const std::array<float, 16>& table, __m512i indices)
++{
++  // Load the entire table into a 512-bit register.
++  __m512 table_m512 = _mm512_loadu_ps(table.data());
++  // Read the table.
++  return _mm512_permutexvar_ps(indices, table_m512);
++}
++
++/// \brief Applies a piecewise defined function (provided by look-up tables) to a series of values.
++/// \tparam Table             Look-up table type. All tables mut be of the same type.
++/// \param[in] value          Single-precision AVX512 register with sixteen input values.
++/// \param[in] rcp_noise      Single-precision AVX512 register with the reciprocal of the noise variance corresponding
++///                           to the values.
++/// \param[in] nof_intervals  Number of intervals.
++/// \param[in] interval_width Interval width to quantify the interval indices.
++/// \param[in] slopes         Table with the slope of each interval.
++/// \param[in] intercepts     Table with the interception points of each interval.
++/// \return A single-precision AVX512 register containing the results of the interval function.
++/// \remark The number of intervals must be lower than or equal to \c Table size.
++template <typename Table>
++inline __m512 interval_function(__m512       value,
++                                __m512       rcp_noise,
++                                float        interval_width,
++                                unsigned     nof_intervals,
++                                const Table& slopes,
++                                const Table& intercepts)
++{
++  // Compute interval indices.
++  __m512i interval_indices = compute_interval_idx(value, interval_width, nof_intervals);
++
++  // Look up slopes and intercepts using the computed indices.
++  __m512 slope     = mm512::look_up_table(slopes, interval_indices);
++  __m512 intercept = mm512::look_up_table(intercepts, interval_indices);
++
++  // Compute the result: (slope * value + intercept) * rcp_noise.
++  __m512 result = _mm512_fmadd_ps(slope, value, intercept);
++  result        = _mm512_mul_ps(result, rcp_noise);
++
++  // Mask out results where |value| <= near_zero to avoid indeterminate results.
++  __m512    zero_thr  = _mm512_set1_ps(near_zero);
++  __mmask16 zero_mask = _mm512_cmp_ps_mask(_mm512_abs_ps(value), zero_thr, _CMP_GT_OQ);
++  return _mm512_maskz_mov_ps(zero_mask, result);
++}
++
++/// \brief Safe division.
++///
++/// \return <tt>dividend / divisor</tt> if \c divisor is greater than zero, \c 0 otherwise.
++inline __m256 safe_div(__m256 dividend, __m256 divisor)
++{
++  const __m256 all_zero = _mm256_setzero_ps();
++  // _CMP_GT_OQ: compare greater than, ordered (nan is false) and quiet (no exceptions raised).
++#ifdef __AVX512VL__
++  __mmask8 mask = _mm256_cmp_ps_mask(divisor, all_zero, _CMP_GT_OQ);
++  return _mm256_maskz_div_ps(mask, dividend, divisor);
++#else  // __AVX512VL__
++  __m256 mask   = _mm256_cmp_ps(divisor, all_zero, _CMP_GT_OQ);
++  __m256 result = _mm256_div_ps(dividend, divisor);
++  return _mm256_blendv_ps(all_zero, result, mask);
++#endif // __AVX512VL__
++}
++
++} // namespace mm512
++} // namespace srsran
+diff --git a/lib/phy/upper/channel_modulation/demodulation_mapper_qam16.cpp b/lib/phy/upper/channel_modulation/demodulation_mapper_qam16.cpp
+index f917f47..c93f937 100644
+--- a/lib/phy/upper/channel_modulation/demodulation_mapper_qam16.cpp
++++ b/lib/phy/upper/channel_modulation/demodulation_mapper_qam16.cpp
+@@ -23,7 +23,13 @@
+ #include "demodulation_mapper_qam16.h"
+ #include "srsran/phy/upper/log_likelihood_ratio.h"
+ 
++#ifdef __AVX2__
++#include "avx2_helpers.h"
++#endif // __AVX2__
+ 
++#ifdef __ARM_NEON
++#include "neon_helpers.h"
++#endif // __ARM_NEON
+ 
+ using namespace srsran;
+ 
+@@ -33,7 +39,160 @@ static constexpr float RANGE_LIMIT_FLOAT = 20;
+ // Square root of 1/10.
+ static const float M_SQRT1_10 = 1.0F / std::sqrt(10.0F);
+ 
++#ifdef __AVX2__
++static void demod_QAM16_avx2(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  // Load symbols.
++  __m256 symbols_0 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 0));
++  __m256 symbols_1 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 4));
++
++  __m256 abs_symbols_0 = mm256::abs_ps(symbols_0);
++  __m256 abs_symbols_1 = mm256::abs_ps(symbols_1);
++
++  // Load noise.
++  __m256 noise_0 = _mm256_loadu_ps(noise_var + 0);
++
++  // Take the reciprocal of the noise variance.
++  __m256 rcp_noise_0 = mm256::safe_div(_mm256_set1_ps(1), noise_0);
++
++  // Repeat noise values for real and imaginary parts.
++  __m256 rcp_noise_1 = _mm256_unpackhi_ps(rcp_noise_0, rcp_noise_0);
++  rcp_noise_0        = _mm256_unpacklo_ps(rcp_noise_0, rcp_noise_0);
++
++  // Re-collocate SSE registers.
++  __m256 rcp_noise_0_ = _mm256_permute2f128_ps(rcp_noise_0, rcp_noise_1, 0x20);
++  __m256 rcp_noise_1_ = _mm256_permute2f128_ps(rcp_noise_0, rcp_noise_1, 0x31);
++
++  // Calculate l_value for bits 0 and 1.
++  __m256 GAIN_FIRST         = _mm256_set1_ps(4.0F * M_SQRT1_10);
++  __m256 GAIN_LARGE         = _mm256_set1_ps(2.0F);
++  __m256 CONST_0_8          = _mm256_set1_ps(0.8F);
++  __m256 l_value_01_first_0 = _mm256_mul_ps(GAIN_FIRST, symbols_0);
++  __m256 l_value_01_first_1 = _mm256_mul_ps(GAIN_FIRST, symbols_1);
++  __m256 l_value_01_second_0 =
++      _mm256_sub_ps(_mm256_mul_ps(GAIN_LARGE, l_value_01_first_0), mm256::copysign_ps(CONST_0_8, symbols_0));
++  __m256 l_value_01_second_1 =
++      _mm256_sub_ps(_mm256_mul_ps(GAIN_LARGE, l_value_01_first_1), mm256::copysign_ps(CONST_0_8, symbols_1));
++
++  // Calculate threshold mask.
++  __m256 THRESHOLD_ABS    = _mm256_set1_ps(2 * M_SQRT1_10);
++  __m256 threshold_mask_0 = _mm256_cmp_ps(abs_symbols_0, THRESHOLD_ABS, _CMP_GT_OS);
++  __m256 threshold_mask_1 = _mm256_cmp_ps(abs_symbols_1, THRESHOLD_ABS, _CMP_GT_OS);
++
++  // Select l_value for bits 0 and 1.
++  __m256 l_value_01_0 = _mm256_blendv_ps(l_value_01_first_0, l_value_01_second_0, threshold_mask_0);
++  __m256 l_value_01_1 = _mm256_blendv_ps(l_value_01_first_1, l_value_01_second_1, threshold_mask_1);
++
++  // Calculate l_value for bits 2 and 3.
++  __m256 l_value_23_0 = _mm256_sub_ps(CONST_0_8, mm256::abs_ps(l_value_01_first_0));
++  __m256 l_value_23_1 = _mm256_sub_ps(CONST_0_8, mm256::abs_ps(l_value_01_first_1));
++
++  // Multiply by noise reciprocal.
++  l_value_01_0 = _mm256_mul_ps(l_value_01_0, rcp_noise_0_);
++  l_value_01_1 = _mm256_mul_ps(l_value_01_1, rcp_noise_1_);
++  l_value_23_0 = _mm256_mul_ps(l_value_23_0, rcp_noise_0_);
++  l_value_23_1 = _mm256_mul_ps(l_value_23_1, rcp_noise_1_);
++
++  // Force zero values if the inputs are near zero.
++  __m256 zero_thr    = _mm256_set1_ps(near_zero);
++  __m256 zero_mask_0 = _mm256_cmp_ps(mm256::abs_ps(symbols_0), zero_thr, _CMP_LE_OQ);
++  __m256 zero_mask_1 = _mm256_cmp_ps(mm256::abs_ps(symbols_1), zero_thr, _CMP_LE_OQ);
++  l_value_01_0       = _mm256_blendv_ps(l_value_01_0, _mm256_setzero_ps(), zero_mask_0);
++  l_value_01_1       = _mm256_blendv_ps(l_value_01_1, _mm256_setzero_ps(), zero_mask_1);
++  l_value_23_0       = _mm256_blendv_ps(l_value_23_0, _mm256_setzero_ps(), zero_mask_0);
++  l_value_23_1       = _mm256_blendv_ps(l_value_23_1, _mm256_setzero_ps(), zero_mask_1);
++
++  // Re-collocate values.
++  __m256 l_value_0 = _mm256_shuffle_ps(l_value_01_0, l_value_23_0, _MM_SHUFFLE(1, 0, 1, 0));
++  __m256 l_value_1 = _mm256_shuffle_ps(l_value_01_0, l_value_23_0, _MM_SHUFFLE(3, 2, 3, 2));
++  __m256 l_value_2 = _mm256_shuffle_ps(l_value_01_1, l_value_23_1, _MM_SHUFFLE(1, 0, 1, 0));
++  __m256 l_value_3 = _mm256_shuffle_ps(l_value_01_1, l_value_23_1, _MM_SHUFFLE(3, 2, 3, 2));
++
++  // Re-collocate SSE registers.
++  __m256 l_value_0_ = _mm256_permute2f128_ps(l_value_0, l_value_1, 0x20);
++  __m256 l_value_1_ = _mm256_permute2f128_ps(l_value_0, l_value_1, 0x31);
++  __m256 l_value_2_ = _mm256_permute2f128_ps(l_value_2, l_value_3, 0x20);
++  __m256 l_value_3_ = _mm256_permute2f128_ps(l_value_2, l_value_3, 0x31);
++
++  // Store result.
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(llr),
++                      mm256::quantize_ps(l_value_0_, l_value_1_, l_value_2_, l_value_3_, RANGE_LIMIT_FLOAT));
++}
++#endif // __AVX2__
++
++#ifdef __ARM_NEON
++static void demod_QAM16_neon(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  // Load symbols.
++  float32x4_t symbols_0 = vld1q_f32(reinterpret_cast<const float*>(symbol + 0));
++  float32x4_t symbols_1 = vld1q_f32(reinterpret_cast<const float*>(symbol + 2));
++
++  float32x4_t abs_symbols_0 = neon::abs_f32(symbols_0);
++  float32x4_t abs_symbols_1 = neon::abs_f32(symbols_1);
++
++  // Load noise.
++  float32x4_t noise_0 = vld1q_f32(noise_var);
++
++  // Take the reciprocal of the noise variance.
++  float32x4_t rcp_noise_0 = neon::safe_div(vdupq_n_f32(1.0f), noise_0);
++
++  // Repeat noise values for real and imaginary parts.
++  float32x4x2_t noise_rep    = vzipq_f32(rcp_noise_0, rcp_noise_0);
++  float32x4_t   rcp_noise_0_ = noise_rep.val[0];
++  float32x4_t   rcp_noise_1_ = noise_rep.val[1];
++
++  // Calculate l_value for bits 0 and 1.
++  float32x4_t GAIN_FIRST         = vdupq_n_f32(4.0F * M_SQRT1_10);
++  float32x4_t GAIN_LARGE         = vdupq_n_f32(2.0F);
++  float32x4_t CONST_0_8          = vdupq_n_f32(0.8F);
++  float32x4_t l_value_01_first_0 = vmulq_f32(GAIN_FIRST, symbols_0);
++  float32x4_t l_value_01_first_1 = vmulq_f32(GAIN_FIRST, symbols_1);
++  float32x4_t l_value_01_second_0 =
++      vsubq_f32(vmulq_f32(GAIN_LARGE, l_value_01_first_0), neon::copysign_f32(CONST_0_8, symbols_0));
++  float32x4_t l_value_01_second_1 =
++      vsubq_f32(vmulq_f32(GAIN_LARGE, l_value_01_first_1), neon::copysign_f32(CONST_0_8, symbols_1));
++
++  // Calculate threshold mask.
++  float32x4_t THRESHOLD_ABS    = vdupq_n_f32(2 * M_SQRT1_10);
++  uint32x4_t  threshold_mask_0 = vcgtq_f32(abs_symbols_0, THRESHOLD_ABS);
++  uint32x4_t  threshold_mask_1 = vcgtq_f32(abs_symbols_1, THRESHOLD_ABS);
++
++  // Select l_value for bits 0 and 1.
++  float32x4_t l_value_01_0 = vbslq_f32(threshold_mask_0, l_value_01_second_0, l_value_01_first_0);
++  float32x4_t l_value_01_1 = vbslq_f32(threshold_mask_1, l_value_01_second_1, l_value_01_first_1);
++
++  // Calculate l_value for bits 2 and 3.
++  float32x4_t l_value_23_0 = vsubq_f32(CONST_0_8, neon::abs_f32(l_value_01_first_0));
++  float32x4_t l_value_23_1 = vsubq_f32(CONST_0_8, neon::abs_f32(l_value_01_first_1));
+ 
++  // Multiply by noise reciprocal.
++  l_value_01_0 = vmulq_f32(l_value_01_0, rcp_noise_0_);
++  l_value_01_1 = vmulq_f32(l_value_01_1, rcp_noise_1_);
++  l_value_23_0 = vmulq_f32(l_value_23_0, rcp_noise_0_);
++  l_value_23_1 = vmulq_f32(l_value_23_1, rcp_noise_1_);
++
++  float32x4_t threshold = vdupq_n_f32(near_zero);
++  float32x4_t zero      = vdupq_n_f32(0.0f);
++  l_value_01_0          = vbslq_f32(vcgeq_f32(abs_symbols_0, threshold), l_value_01_0, zero);
++  l_value_01_1          = vbslq_f32(vcgeq_f32(abs_symbols_1, threshold), l_value_01_1, zero);
++  l_value_23_0          = vbslq_f32(vcgeq_f32(abs_symbols_0, threshold), l_value_23_0, zero);
++  l_value_23_1          = vbslq_f32(vcgeq_f32(abs_symbols_1, threshold), l_value_23_1, zero);
++
++  // Re-collocate values.
++  float32x4_t l_value_0 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_01_0), vreinterpretq_u64_f32(l_value_23_0)));
++  float32x4_t l_value_1 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_01_0), vreinterpretq_u64_f32(l_value_23_0)));
++  float32x4_t l_value_2 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_01_1), vreinterpretq_u64_f32(l_value_23_1)));
++  float32x4_t l_value_3 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_01_1), vreinterpretq_u64_f32(l_value_23_1)));
++
++  // Store result.
++  vst1q_s8(reinterpret_cast<int8_t*>(llr),
++           neon::quantize_f32(l_value_0, l_value_1, l_value_2, l_value_3, RANGE_LIMIT_FLOAT));
++}
++#endif // __ARM_NEON
+ 
+ static log_likelihood_ratio demod_16QAM_symbol_01(float x, float noise_var)
+ {
+@@ -73,7 +232,27 @@ void srsran::demodulate_soft_QAM16(span<log_likelihood_ratio> llrs,
+   log_likelihood_ratio* llr_it       = llrs.begin();
+   std::size_t           symbol_index = 0;
+ 
++#ifdef __AVX2__
++  // For AVX2, it generates 32 LLRs simultaneously. The input is read in batches of 8 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 8) * 8; symbol_index != symbol_index_end; symbol_index += 8) {
++    demod_QAM16_avx2(llr_it, symbols_it, noise_it);
+ 
++    llr_it += 32;
++    symbols_it += 8;
++    noise_it += 8;
++  }
++#endif // __AVX2__
++
++#ifdef __ARM_NEON
++  // For NEON, it generates 16 LLRs simultaneously. The input is read in batches of 4 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 4) * 4; symbol_index != symbol_index_end; symbol_index += 4) {
++    demod_QAM16_neon(llr_it, symbols_it, noise_it);
++
++    llr_it += 16;
++    symbols_it += 4;
++    noise_it += 4;
++  }
++#endif // __ARM_NEON
+ 
+   for (std::size_t symbol_index_end = symbols.size(); symbol_index != symbol_index_end; ++symbol_index) {
+     //  Set all LLR to zero if the symbol is near zero.
+diff --git a/lib/phy/upper/channel_modulation/demodulation_mapper_qam256.cpp b/lib/phy/upper/channel_modulation/demodulation_mapper_qam256.cpp
+index c16f4ee..2223fd5 100644
+--- a/lib/phy/upper/channel_modulation/demodulation_mapper_qam256.cpp
++++ b/lib/phy/upper/channel_modulation/demodulation_mapper_qam256.cpp
+@@ -24,8 +24,18 @@
+ #include "demodulation_mapper_intervals.h"
+ #include "srsran/phy/upper/log_likelihood_ratio.h"
+ 
++#if defined(__AVX512F__) && defined(__AVX512BW__) && (!defined(__GNUC__) || (__GNUC__ > 9))
++#define HAVE_AVX512
++#include "avx512_helpers.h"
++#endif
+ 
++#ifdef __AVX2__
++#include "avx2_helpers.h"
++#endif // __AVX2__
+ 
++#ifdef __ARM_NEON
++#include "neon_helpers.h"
++#endif // __ARM_NEON
+ 
+ using namespace srsran;
+ 
+@@ -150,8 +160,174 @@ static const std::array<float, NOF_INTERVALS_67>     SLOPE_67          = {4 * M_
+ static constexpr std::array<float, NOF_INTERVALS_67> INTERCEPT_67 =
+     {28.0F / 85, -20.0F / 85, 12.0F / 85, -4.0F / 85, -4.0F / 85, 12.0F / 85, -20.0F / 85, 28.0F / 85};
+ 
++#ifdef HAVE_AVX512
++static void demod_QAM256_avx512(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  __m512i rcp_noise_idx = _mm512_setr_epi32(0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7);
++
++  // Load symbols.
++  __m512 symbols = _mm512_loadu_ps(reinterpret_cast<const float*>(symbol));
++
++  // Load noise. 8 values only.
++  __m256 noise = _mm256_loadu_ps(noise_var);
++
++  // Take the reciprocal of the noise variance.
++  // _CMP_GT_OQ: compare greater than, ordered (nan is false) and quiet (no exceptions raised).
++  __m256 rcp_noise = mm512::safe_div(_mm256_set1_ps(1), noise);
++
++  // Repeat noise values for real and imaginary parts and put the results in an AVX register.
++  __m512 rcp_noise_ = _mm512_zextps256_ps512(rcp_noise);
++  rcp_noise_        = _mm512_permutexvar_ps(rcp_noise_idx, rcp_noise_);
++
++  // Calculate l_value for bits 0 and 1.
++  __m512 l_value_01 =
++      mm512::interval_function(symbols, rcp_noise_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++
++  // Calculate l_value for bits 2 and 3.
++  __m512 l_value_23 =
++      mm512::interval_function(symbols, rcp_noise_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++
++  // Calculate l_value for bits 4 and 5.
++  __m512 l_value_45 =
++      mm512::interval_function(symbols, rcp_noise_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++
++  // Calculate l_value for bits 6 and 7.
++  __m512 l_value_67 =
++      mm512::interval_function(symbols, rcp_noise_, INTERVAL_WIDTH_67, NOF_INTERVALS_67, SLOPE_67, INTERCEPT_67);
++
++  // Store result.
++  __m512i llr_i8 = mm512::quantize_ps(l_value_01, l_value_23, l_value_45, l_value_67, RANGE_LIMIT_FLOAT);
++
++  // Recolocate LLR within the 512-bit register.
++  uint16_t idx_[32]  = {0x00, 0x02, 0x04, 0x06, 0x01, 0x03, 0x05, 0x07, 0x08, 0x0a, 0x0c, 0x0e, 0x09, 0x0b, 0x0d, 0x0f,
++                        0x10, 0x12, 0x14, 0x16, 0x11, 0x13, 0x15, 0x17, 0x18, 0x1a, 0x1c, 0x1e, 0x19, 0x1b, 0x1d, 0x1f};
++  __m512i  idx       = _mm512_loadu_si512(idx_);
++  __m512i  reordered = _mm512_permutexvar_epi16(idx, llr_i8);
++
++  _mm512_storeu_si512(reinterpret_cast<__m512i*>(llr), reordered);
++}
++#endif // HAVE_AVX512
++
++#ifdef __AVX2__
++static void demod_QAM256_avx2(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  // Load symbols.
++  __m256 symbols = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol));
++
++  // Load noise. 4 values only.
++  __m128 noise = _mm_loadu_ps(noise_var);
++
++  // Take the reciprocal of the noise variance.
++  // _CMP_GT_OQ: compare greater than, ordered (nan is false) and quiet (no exceptions raised).
++  __m128 mask      = _mm_cmp_ps(noise, _mm_set1_ps(0), _CMP_GT_OQ);
++  __m128 rcp_noise = _mm_div_ps(_mm_set1_ps(1), noise);
++  rcp_noise        = _mm_blendv_ps(_mm_set1_ps(0), rcp_noise, mask);
++
++  // Repeat noise values for real and imaginary parts and put the results in an AVX register.
++  __m256 rcp_noise_ = _mm256_set_m128(_mm_unpackhi_ps(rcp_noise, rcp_noise), _mm_unpacklo_ps(rcp_noise, rcp_noise));
++
++  // Calculate l_value for bits 0 and 1.
++  __m256 l_value_01 =
++      mm256::interval_function(symbols, rcp_noise_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++
++  // Calculate l_value for bits 2 and 3.
++  __m256 l_value_23 =
++      mm256::interval_function(symbols, rcp_noise_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++
++  // Calculate l_value for bits 4 and 5.
++  __m256 l_value_45 =
++      mm256::interval_function(symbols, rcp_noise_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
+ 
++  // Calculate l_value for bits 6 and 7.
++  __m256 l_value_67 =
++      mm256::interval_function(symbols, rcp_noise_, INTERVAL_WIDTH_67, NOF_INTERVALS_67, SLOPE_67, INTERCEPT_67);
+ 
++  // Re-collocate values.
++  __m256 l_value_0 = _mm256_shuffle_ps(l_value_01, l_value_23, _MM_SHUFFLE(1, 0, 1, 0));
++  __m256 l_value_1 = _mm256_shuffle_ps(l_value_45, l_value_67, _MM_SHUFFLE(1, 0, 1, 0));
++  __m256 l_value_2 = _mm256_shuffle_ps(l_value_01, l_value_23, _MM_SHUFFLE(3, 2, 3, 2));
++  __m256 l_value_3 = _mm256_shuffle_ps(l_value_45, l_value_67, _MM_SHUFFLE(3, 2, 3, 2));
++
++  // Re-collocate SSE registers.
++  __m256 l_value_0_ = _mm256_permute2f128_ps(l_value_0, l_value_1, 0x20);
++  __m256 l_value_1_ = _mm256_permute2f128_ps(l_value_2, l_value_3, 0x20);
++  __m256 l_value_2_ = _mm256_permute2f128_ps(l_value_0, l_value_1, 0x31);
++  __m256 l_value_3_ = _mm256_permute2f128_ps(l_value_2, l_value_3, 0x31);
++
++  // Store result.
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(llr),
++                      mm256::quantize_ps(l_value_0_, l_value_1_, l_value_2_, l_value_3_, RANGE_LIMIT_FLOAT));
++}
++#endif // __AVX2__
++
++#ifdef __ARM_NEON
++static void demod_QAM256_neon(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  // Load symbols.
++  float32x4_t symbols_0 = vld1q_f32(reinterpret_cast<const float*>(symbol + 0));
++  float32x4_t symbols_1 = vld1q_f32(reinterpret_cast<const float*>(symbol + 2));
++
++  // Load noise.
++  float32x4_t noise_0 = vld1q_f32(noise_var);
++
++  // Take the reciprocal of the noise variance.
++  float32x4_t rcp_noise_0 = neon::safe_div(vdupq_n_f32(1.0f), noise_0);
++
++  // Repeat noise values for real and imaginary parts.
++  float32x4x2_t noise_rep_0  = vzipq_f32(rcp_noise_0, rcp_noise_0);
++  float32x4_t   rcp_noise_0_ = noise_rep_0.val[0];
++  float32x4_t   rcp_noise_1_ = noise_rep_0.val[1];
++
++  // Calculate l_value for bits 0 and 1.
++  float32x4_t l_value_01_0 =
++      neon::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  float32x4_t l_value_01_1 =
++      neon::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++
++  // Calculate l_value for bits 2 and 3.
++  float32x4_t l_value_23_0 =
++      neon::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  float32x4_t l_value_23_1 =
++      neon::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++
++  // Calculate l_value for bits 4 and 5.
++  float32x4_t l_value_45_0 =
++      neon::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  float32x4_t l_value_45_1 =
++      neon::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++
++  // Calculate l_value for bits 6 and 7.
++  float32x4_t l_value_67_0 =
++      neon::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_67, NOF_INTERVALS_67, SLOPE_67, INTERCEPT_67);
++  float32x4_t l_value_67_1 =
++      neon::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_67, NOF_INTERVALS_67, SLOPE_67, INTERCEPT_67);
++
++  // Re-collocate values.
++  float32x4_t l_value_0 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_01_0), vreinterpretq_u64_f32(l_value_23_0)));
++  float32x4_t l_value_1 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_45_0), vreinterpretq_u64_f32(l_value_67_0)));
++  float32x4_t l_value_2 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_01_0), vreinterpretq_u64_f32(l_value_23_0)));
++  float32x4_t l_value_3 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_45_0), vreinterpretq_u64_f32(l_value_67_0)));
++  //
++  float32x4_t l_value_4 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_01_1), vreinterpretq_u64_f32(l_value_23_1)));
++  float32x4_t l_value_5 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_45_1), vreinterpretq_u64_f32(l_value_67_1)));
++  float32x4_t l_value_6 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_01_1), vreinterpretq_u64_f32(l_value_23_1)));
++  float32x4_t l_value_7 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_45_1), vreinterpretq_u64_f32(l_value_67_1)));
++
++  // Store result.
++  vst1q_s8(reinterpret_cast<int8_t*>(llr),
++           neon::quantize_f32(l_value_0, l_value_1, l_value_2, l_value_3, RANGE_LIMIT_FLOAT));
++  vst1q_s8(reinterpret_cast<int8_t*>(llr + 16),
++           neon::quantize_f32(l_value_4, l_value_5, l_value_6, l_value_7, RANGE_LIMIT_FLOAT));
++}
++#endif // __ARM_NEON
+ 
+ static log_likelihood_ratio demod_256QAM_symbol_01(float value, float rcp_noise_var)
+ {
+@@ -186,8 +362,38 @@ void srsran::demodulate_soft_QAM256(span<log_likelihood_ratio> llrs,
+   log_likelihood_ratio* llr_it       = llrs.begin();
+   std::size_t           symbol_index = 0;
+ 
++#ifdef HAVE_AVX512
++  // For AVX512, it generates 64 LLRs simultaneously. The input is read in batches of 8 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 8) * 8; symbol_index != symbol_index_end; symbol_index += 8) {
++    demod_QAM256_avx512(llr_it, symbols_it, noise_it);
++
++    llr_it += 64;
++    symbols_it += 8;
++    noise_it += 8;
++  }
++#endif // HAVE_AVX512
++
++#ifdef __AVX2__
++  // For AVX2, it generates 32 LLRs simultaneously. The input is read in batches of 4 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 4) * 4; symbol_index != symbol_index_end; symbol_index += 4) {
++    demod_QAM256_avx2(llr_it, symbols_it, noise_it);
+ 
++    llr_it += 32;
++    symbols_it += 4;
++    noise_it += 4;
++  }
++#endif // __AVX2__
+ 
++#ifdef __ARM_NEON
++  // For NEON, it generates 32 LLRs simultaneously. The input is read in batches of 4 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 4) * 4; symbol_index != symbol_index_end; symbol_index += 4) {
++    demod_QAM256_neon(llr_it, symbols_it, noise_it);
++
++    llr_it += 32;
++    symbols_it += 4;
++    noise_it += 4;
++  }
++#endif // __ARM_NEON
+ 
+   for (std::size_t symbol_index_end = symbols.size(); symbol_index != symbol_index_end; ++symbol_index) {
+     //  Set all LLR to zero if the symbol is near zero.
+diff --git a/lib/phy/upper/channel_modulation/demodulation_mapper_qam64.cpp b/lib/phy/upper/channel_modulation/demodulation_mapper_qam64.cpp
+index ddcb912..24984de 100644
+--- a/lib/phy/upper/channel_modulation/demodulation_mapper_qam64.cpp
++++ b/lib/phy/upper/channel_modulation/demodulation_mapper_qam64.cpp
+@@ -24,8 +24,18 @@
+ #include "demodulation_mapper_intervals.h"
+ #include "srsran/phy/upper/log_likelihood_ratio.h"
+ 
++#if defined(__AVX512F__) && defined(__AVX512BW__) && (!defined(__GNUC__) || (__GNUC__ > 9))
++#define HAVE_AVX512
++#include "avx512_helpers.h"
++#endif
+ 
++#ifdef __AVX2__
++#include "avx2_helpers.h"
++#endif // __AVX2__
+ 
++#ifdef __ARM_NEON
++#include "neon_helpers.h"
++#endif // __ARM_NEON
+ 
+ using namespace srsran;
+ 
+@@ -67,8 +77,301 @@ static const std::array<float, 8> SLOPE_45 =
+     {4 * M_SQRT1_42, -4 * M_SQRT1_42, 4 * M_SQRT1_42, -4 * M_SQRT1_42, 0, 0, 0, 0};
+ static constexpr std::array<float, 8> INTERCEPT_45 = {12.0F / 21, -4.0F / 21, -4.0F / 21, 12.0F / 21, 0, 0, 0, 0};
+ 
++#ifdef HAVE_AVX512
++static void demod_QAM64_avx512(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  __m512i rcp_noise_idx = _mm512_setr_epi32(0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7);
++
++  // Load symbols.
++  __m512 symbols_0 = _mm512_loadu_ps(reinterpret_cast<const float*>(symbol + 0));
++  __m512 symbols_1 = _mm512_loadu_ps(reinterpret_cast<const float*>(symbol + 8));
++  __m512 symbols_2 = _mm512_loadu_ps(reinterpret_cast<const float*>(symbol + 16));
++  __m512 symbols_3 = _mm512_loadu_ps(reinterpret_cast<const float*>(symbol + 24));
++
++  // Load noise.
++  __m256 noise_0 = _mm256_loadu_ps(noise_var + 0);
++  __m256 noise_1 = _mm256_loadu_ps(noise_var + 8);
++  __m256 noise_2 = _mm256_loadu_ps(noise_var + 16);
++  __m256 noise_3 = _mm256_loadu_ps(noise_var + 24);
++
++  // Take the reciprocal of the noise variance.
++  __m256 rcp_noise_si256_0 = mm512::safe_div(_mm256_set1_ps(1), noise_0);
++  __m256 rcp_noise_si256_1 = mm512::safe_div(_mm256_set1_ps(1), noise_1);
++  __m256 rcp_noise_si256_2 = mm512::safe_div(_mm256_set1_ps(1), noise_2);
++  __m256 rcp_noise_si256_3 = mm512::safe_div(_mm256_set1_ps(1), noise_3);
++
++  // Repeat noise values for real and imaginary parts and put the results in an AVX512 register.
++  __m512 rcp_noise_0 = _mm512_permutexvar_ps(rcp_noise_idx, _mm512_zextps256_ps512(rcp_noise_si256_0));
++  __m512 rcp_noise_1 = _mm512_permutexvar_ps(rcp_noise_idx, _mm512_zextps256_ps512(rcp_noise_si256_1));
++  __m512 rcp_noise_2 = _mm512_permutexvar_ps(rcp_noise_idx, _mm512_zextps256_ps512(rcp_noise_si256_2));
++  __m512 rcp_noise_3 = _mm512_permutexvar_ps(rcp_noise_idx, _mm512_zextps256_ps512(rcp_noise_si256_3));
++
++  // Calculate l_value for bits 0 and 1.
++  __m512 l_value_01_0 =
++      mm512::interval_function(symbols_0, rcp_noise_0, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  __m512 l_value_01_1 =
++      mm512::interval_function(symbols_1, rcp_noise_1, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  __m512 l_value_01_2 =
++      mm512::interval_function(symbols_2, rcp_noise_2, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  __m512 l_value_01_3 =
++      mm512::interval_function(symbols_3, rcp_noise_3, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++
++  // Calculate l_value for bits 2 and 3.
++  __m512 l_value_23_0 =
++      mm512::interval_function(symbols_0, rcp_noise_0, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  __m512 l_value_23_1 =
++      mm512::interval_function(symbols_1, rcp_noise_1, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  __m512 l_value_23_2 =
++      mm512::interval_function(symbols_2, rcp_noise_2, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  __m512 l_value_23_3 =
++      mm512::interval_function(symbols_3, rcp_noise_3, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++
++  // Calculate l_value for bits 4 and 5.
++  __m512 l_value_45_0 =
++      mm512::interval_function(symbols_0, rcp_noise_0, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  __m512 l_value_45_1 =
++      mm512::interval_function(symbols_1, rcp_noise_1, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  __m512 l_value_45_2 =
++      mm512::interval_function(symbols_2, rcp_noise_2, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  __m512 l_value_45_3 =
++      mm512::interval_function(symbols_3, rcp_noise_3, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++
++  // Quantize LLRs.
++  __m512i llr_i8_0 = mm512::quantize_ps(l_value_01_0, l_value_23_0, l_value_45_0, RANGE_LIMIT_FLOAT);
++  __m512i llr_i8_1 = mm512::quantize_ps(l_value_01_1, l_value_23_1, l_value_45_1, RANGE_LIMIT_FLOAT);
++  __m512i llr_i8_2 = mm512::quantize_ps(l_value_01_2, l_value_23_2, l_value_45_2, RANGE_LIMIT_FLOAT);
++  __m512i llr_i8_3 = mm512::quantize_ps(l_value_01_3, l_value_23_3, l_value_45_3, RANGE_LIMIT_FLOAT);
++
++  // Reorganize 8-bit LLRs in three 512-bit registers.
++  uint16_t idx0_[32] = {
++      0x00, 0x02, 0x04, 0x01, 0x03, 0x05, // 0 - 11
++      0x08, 0x0a, 0x0c, 0x09, 0x0b, 0x0d, // 12 - 23
++      0x10, 0x12, 0x14, 0x11, 0x13, 0x15, // 24 - 35
++      0x18, 0x1a, 0x1c, 0x19, 0x1b, 0x1d, // 36 - 47
++      0x20, 0x22, 0x24, 0x21, 0x23, 0x25, // 48 - 59
++      0x28, 0x2a                          // 60 - 63
++  };
++  uint16_t idx1_[32] = {
++      0x0c, 0x09, 0x0b, 0x0d,             // 0 - 7
++      0x10, 0x12, 0x14, 0x11, 0x13, 0x15, // 8 - 19
++      0x18, 0x1a, 0x1c, 0x19, 0x1b, 0x1d, // 20 - 31
++      0x20, 0x22, 0x24, 0x21, 0x23, 0x25, // 32 - 43
++      0x28, 0x2a, 0x2c, 0x29, 0x2b, 0x2d, // 44 - 55
++      0x30, 0x32, 0x34, 0x31              // 56 - 63
++  };
++  uint16_t idx2_[32] = {
++      0x13, 0x15,                         // 0 - 3
++      0x18, 0x1a, 0x1c, 0x19, 0x1b, 0x1d, // 4 - 15
++      0x20, 0x22, 0x24, 0x21, 0x23, 0x25, // 16 - 27
++      0x28, 0x2a, 0x2c, 0x29, 0x2b, 0x2d, // 28 - 39
++      0x30, 0x32, 0x34, 0x31, 0x33, 0x35, // 40 - 41
++      0x38, 0x3a, 0x3c, 0x39, 0x3b, 0x3d  // 52 - 63
++  };
++  __m512i idx0      = _mm512_loadu_si512(idx0_);
++  __m512i idx1      = _mm512_loadu_si512(idx1_);
++  __m512i idx2      = _mm512_loadu_si512(idx2_);
++  __m512i llr_i8_0_ = _mm512_permutex2var_epi16(llr_i8_0, idx0, llr_i8_1);
++  __m512i llr_i8_1_ = _mm512_permutex2var_epi16(llr_i8_1, idx1, llr_i8_2);
++  __m512i llr_i8_2_ = _mm512_permutex2var_epi16(llr_i8_2, idx2, llr_i8_3);
++
++  // Store results.
++  _mm512_storeu_si512(reinterpret_cast<__m512i*>(llr + 0), llr_i8_0_);
++  _mm512_storeu_si512(reinterpret_cast<__m512i*>(llr + 64), llr_i8_1_);
++  _mm512_storeu_si512(reinterpret_cast<__m512i*>(llr + 128), llr_i8_2_);
++}
++#endif // HAVE_AVX512
++
++#ifdef __AVX2__
++static void demod_QAM64_avx2(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  // Load symbols.
++  __m256 symbols_0 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 0));
++  __m256 symbols_1 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 4));
++  __m256 symbols_2 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 8));
++  __m256 symbols_3 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 12));
++
++  // Load noise.
++  __m256 noise_0 = _mm256_loadu_ps(noise_var + 0);
++  __m256 noise_1 = _mm256_loadu_ps(noise_var + 8);
++
++  // Take the reciprocal of the noise variance.
++  __m256 rcp_noise_0 = mm256::safe_div(_mm256_set1_ps(1), noise_0);
++  __m256 rcp_noise_1 = mm256::safe_div(_mm256_set1_ps(1), noise_1);
++
++  // Repeat noise values for real and imaginary parts.
++  __m256 rcp_noise_3 = _mm256_unpackhi_ps(rcp_noise_1, rcp_noise_1);
++  __m256 rcp_noise_2 = _mm256_unpacklo_ps(rcp_noise_1, rcp_noise_1);
++  rcp_noise_1        = _mm256_unpackhi_ps(rcp_noise_0, rcp_noise_0);
++  rcp_noise_0        = _mm256_unpacklo_ps(rcp_noise_0, rcp_noise_0);
++
++  // Re-collocate SSE registers.
++  __m256 rcp_noise_0_ = _mm256_permute2f128_ps(rcp_noise_0, rcp_noise_1, 0x20);
++  __m256 rcp_noise_1_ = _mm256_permute2f128_ps(rcp_noise_0, rcp_noise_1, 0x31);
++  __m256 rcp_noise_2_ = _mm256_permute2f128_ps(rcp_noise_2, rcp_noise_3, 0x20);
++  __m256 rcp_noise_3_ = _mm256_permute2f128_ps(rcp_noise_2, rcp_noise_3, 0x31);
++
++  // Calculate l_value for bits 0 and 1.
++  __m256 l_value_01_0 =
++      mm256::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  __m256 l_value_01_1 =
++      mm256::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  __m256 l_value_01_2 =
++      mm256::interval_function(symbols_2, rcp_noise_2_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  __m256 l_value_01_3 =
++      mm256::interval_function(symbols_3, rcp_noise_3_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++
++  // Calculate l_value for bits 2 and 3.
++  __m256 l_value_23_0 =
++      mm256::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  __m256 l_value_23_1 =
++      mm256::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  __m256 l_value_23_2 =
++      mm256::interval_function(symbols_2, rcp_noise_2_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  __m256 l_value_23_3 =
++      mm256::interval_function(symbols_3, rcp_noise_3_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++
++  // Calculate l_value for bits 4 and 5.
++  __m256 l_value_45_0 =
++      mm256::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  __m256 l_value_45_1 =
++      mm256::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  __m256 l_value_45_2 =
++      mm256::interval_function(symbols_2, rcp_noise_2_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  __m256 l_value_45_3 =
++      mm256::interval_function(symbols_3, rcp_noise_3_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
+ 
++  // Re-collocate values.
++  __m256 l_value_0  = _mm256_shuffle_ps(l_value_01_0, l_value_23_0, _MM_SHUFFLE(1, 0, 1, 0));
++  __m256 l_value_1  = _mm256_shuffle_ps(l_value_45_0, l_value_01_0, _MM_SHUFFLE(3, 2, 1, 0));
++  __m256 l_value_2  = _mm256_shuffle_ps(l_value_23_0, l_value_45_0, _MM_SHUFFLE(3, 2, 3, 2));
++  __m256 l_value_3  = _mm256_shuffle_ps(l_value_01_1, l_value_23_1, _MM_SHUFFLE(1, 0, 1, 0));
++  __m256 l_value_4  = _mm256_shuffle_ps(l_value_45_1, l_value_01_1, _MM_SHUFFLE(3, 2, 1, 0));
++  __m256 l_value_5  = _mm256_shuffle_ps(l_value_23_1, l_value_45_1, _MM_SHUFFLE(3, 2, 3, 2));
++  __m256 l_value_6  = _mm256_shuffle_ps(l_value_01_2, l_value_23_2, _MM_SHUFFLE(1, 0, 1, 0));
++  __m256 l_value_7  = _mm256_shuffle_ps(l_value_45_2, l_value_01_2, _MM_SHUFFLE(3, 2, 1, 0));
++  __m256 l_value_8  = _mm256_shuffle_ps(l_value_23_2, l_value_45_2, _MM_SHUFFLE(3, 2, 3, 2));
++  __m256 l_value_9  = _mm256_shuffle_ps(l_value_01_3, l_value_23_3, _MM_SHUFFLE(1, 0, 1, 0));
++  __m256 l_value_10 = _mm256_shuffle_ps(l_value_45_3, l_value_01_3, _MM_SHUFFLE(3, 2, 1, 0));
++  __m256 l_value_11 = _mm256_shuffle_ps(l_value_23_3, l_value_45_3, _MM_SHUFFLE(3, 2, 3, 2));
+ 
++  // Re-collocate SSE registers.
++  __m256 l_value_0_  = _mm256_permute2f128_ps(l_value_0, l_value_1, 0x20);
++  __m256 l_value_1_  = _mm256_permute2f128_ps(l_value_2, l_value_0, 0x30);
++  __m256 l_value_2_  = _mm256_permute2f128_ps(l_value_1, l_value_2, 0x31);
++  __m256 l_value_3_  = _mm256_permute2f128_ps(l_value_3, l_value_4, 0x20);
++  __m256 l_value_4_  = _mm256_permute2f128_ps(l_value_5, l_value_3, 0x30);
++  __m256 l_value_5_  = _mm256_permute2f128_ps(l_value_4, l_value_5, 0x31);
++  __m256 l_value_6_  = _mm256_permute2f128_ps(l_value_6, l_value_7, 0x20);
++  __m256 l_value_7_  = _mm256_permute2f128_ps(l_value_8, l_value_6, 0x30);
++  __m256 l_value_8_  = _mm256_permute2f128_ps(l_value_7, l_value_8, 0x31);
++  __m256 l_value_9_  = _mm256_permute2f128_ps(l_value_9, l_value_10, 0x20);
++  __m256 l_value_10_ = _mm256_permute2f128_ps(l_value_11, l_value_9, 0x30);
++  __m256 l_value_11_ = _mm256_permute2f128_ps(l_value_10, l_value_11, 0x31);
++
++  // Store result.
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(llr + 0),
++                      mm256::quantize_ps(l_value_0_, l_value_1_, l_value_2_, l_value_3_, RANGE_LIMIT_FLOAT));
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(llr + 32),
++                      mm256::quantize_ps(l_value_4_, l_value_5_, l_value_6_, l_value_7_, RANGE_LIMIT_FLOAT));
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(llr + 64),
++                      mm256::quantize_ps(l_value_8_, l_value_9_, l_value_10_, l_value_11_, RANGE_LIMIT_FLOAT));
++}
++#endif // __AVX2__
++
++#ifdef __ARM_NEON
++
++static void demod_QAM64_neon(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  // Load symbols.
++  float32x4_t symbols_0 = vld1q_f32(reinterpret_cast<const float*>(symbol + 0));
++  float32x4_t symbols_1 = vld1q_f32(reinterpret_cast<const float*>(symbol + 2));
++  float32x4_t symbols_2 = vld1q_f32(reinterpret_cast<const float*>(symbol + 4));
++  float32x4_t symbols_3 = vld1q_f32(reinterpret_cast<const float*>(symbol + 6));
++
++  // Load noise.
++  float32x4_t noise_0 = vld1q_f32(noise_var);
++  float32x4_t noise_1 = vld1q_f32(noise_var + 4);
++
++  // Take the reciprocal of the noise variance.
++  float32x4_t rcp_noise_0 = neon::safe_div(vdupq_n_f32(1.0f), noise_0);
++  float32x4_t rcp_noise_1 = neon::safe_div(vdupq_n_f32(1.0f), noise_1);
++
++  // Repeat noise values for real and imaginary parts.
++  float32x4x2_t noise_rep_0  = vzipq_f32(rcp_noise_0, rcp_noise_0);
++  float32x4_t   rcp_noise_0_ = noise_rep_0.val[0];
++  float32x4_t   rcp_noise_1_ = noise_rep_0.val[1];
++  float32x4x2_t noise_rep_1  = vzipq_f32(rcp_noise_1, rcp_noise_1);
++  float32x4_t   rcp_noise_2_ = noise_rep_1.val[0];
++  float32x4_t   rcp_noise_3_ = noise_rep_1.val[1];
++
++  // Calculate l_value for bits 0 and 1.
++  float32x4_t l_value_01_0 =
++      neon::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  float32x4_t l_value_01_1 =
++      neon::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  float32x4_t l_value_01_2 =
++      neon::interval_function(symbols_2, rcp_noise_2_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++  float32x4_t l_value_01_3 =
++      neon::interval_function(symbols_3, rcp_noise_3_, INTERVAL_WIDTH_01, NOF_INTERVALS_01, SLOPE_01, INTERCEPT_01);
++
++  // Calculate l_value for bits 2 and 3.
++  float32x4_t l_value_23_0 =
++      neon::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  float32x4_t l_value_23_1 =
++      neon::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  float32x4_t l_value_23_2 =
++      neon::interval_function(symbols_2, rcp_noise_2_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++  float32x4_t l_value_23_3 =
++      neon::interval_function(symbols_3, rcp_noise_3_, INTERVAL_WIDTH_23, NOF_INTERVALS_23, SLOPE_23, INTERCEPT_23);
++
++  // Calculate l_value for bits 4 and 5.
++  float32x4_t l_value_45_0 =
++      neon::interval_function(symbols_0, rcp_noise_0_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  float32x4_t l_value_45_1 =
++      neon::interval_function(symbols_1, rcp_noise_1_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  float32x4_t l_value_45_2 =
++      neon::interval_function(symbols_2, rcp_noise_2_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++  float32x4_t l_value_45_3 =
++      neon::interval_function(symbols_3, rcp_noise_3_, INTERVAL_WIDTH_45, NOF_INTERVALS_45, SLOPE_45, INTERCEPT_45);
++
++  // Re-collocate values.
++  float32x4_t l_value_0 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_01_0), vreinterpretq_u64_f32(l_value_23_0)));
++  float32x4_t l_value_1 = vreinterpretq_f32_u64(
++      vtrn1q_u64(vreinterpretq_u64_f32(l_value_45_0), vreinterpretq_u64_f32(vextq_f32(l_value_01_0, l_value_01_0, 2))));
++  float32x4_t l_value_2 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_23_0), vreinterpretq_u64_f32(l_value_45_0)));
++  //
++  float32x4_t l_value_3 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_01_1), vreinterpretq_u64_f32(l_value_23_1)));
++  float32x4_t l_value_4 = vreinterpretq_f32_u64(
++      vtrn1q_u64(vreinterpretq_u64_f32(l_value_45_1), vreinterpretq_u64_f32(vextq_f32(l_value_01_1, l_value_01_1, 2))));
++  float32x4_t l_value_5 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_23_1), vreinterpretq_u64_f32(l_value_45_1)));
++  //
++  float32x4_t l_value_6 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_01_2), vreinterpretq_u64_f32(l_value_23_2)));
++  float32x4_t l_value_7 = vreinterpretq_f32_u64(
++      vtrn1q_u64(vreinterpretq_u64_f32(l_value_45_2), vreinterpretq_u64_f32(vextq_f32(l_value_01_2, l_value_01_2, 2))));
++  float32x4_t l_value_8 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_23_2), vreinterpretq_u64_f32(l_value_45_2)));
++  //
++  float32x4_t l_value_9 =
++      vreinterpretq_f32_u64(vtrn1q_u64(vreinterpretq_u64_f32(l_value_01_3), vreinterpretq_u64_f32(l_value_23_3)));
++  float32x4_t l_value_10 = vreinterpretq_f32_u64(
++      vtrn1q_u64(vreinterpretq_u64_f32(l_value_45_3), vreinterpretq_u64_f32(vextq_f32(l_value_01_3, l_value_01_3, 2))));
++  float32x4_t l_value_11 =
++      vreinterpretq_f32_u64(vtrn2q_u64(vreinterpretq_u64_f32(l_value_23_3), vreinterpretq_u64_f32(l_value_45_3)));
++
++  // Store result.
++  vst1q_s8(reinterpret_cast<int8_t*>(llr),
++           neon::quantize_f32(l_value_0, l_value_1, l_value_2, l_value_3, RANGE_LIMIT_FLOAT));
++  vst1q_s8(reinterpret_cast<int8_t*>(llr + 16),
++           neon::quantize_f32(l_value_4, l_value_5, l_value_6, l_value_7, RANGE_LIMIT_FLOAT));
++  vst1q_s8(reinterpret_cast<int8_t*>(llr + 32),
++           neon::quantize_f32(l_value_8, l_value_9, l_value_10, l_value_11, RANGE_LIMIT_FLOAT));
++}
++#endif // __ARM_NEON
+ 
+ static log_likelihood_ratio demod_64QAM_symbol_01(float value, float rcp_noise_var)
+ {
+@@ -97,8 +400,40 @@ void srsran::demodulate_soft_QAM64(span<log_likelihood_ratio> llrs,
+   log_likelihood_ratio* llr_it       = llrs.begin();
+   std::size_t           symbol_index = 0;
+ 
++#ifdef HAVE_AVX512
++  // For AVX512, it generates 192 LLRs simultaneously. The input is read in batches of 32 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 32) * 32; symbol_index != symbol_index_end;
++       symbol_index += 32) {
++    demod_QAM64_avx512(llr_it, symbols_it, noise_it);
++
++    llr_it += 192;
++    symbols_it += 32;
++    noise_it += 32;
++  }
++#endif // HAVE_AVX512
++
++#ifdef __AVX2__
++  // For AVX2, it generates 96 LLRs simultaneously. The input is read in batches of 16 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 16) * 16; symbol_index != symbol_index_end;
++       symbol_index += 16) {
++    demod_QAM64_avx2(llr_it, symbols_it, noise_it);
+ 
++    llr_it += 96;
++    symbols_it += 16;
++    noise_it += 16;
++  }
++#endif // __AVX2__
+ 
++#ifdef __ARM_NEON
++  // For NEON, it generates 48 LLRs simultaneously. The input is read in batches of 8 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 8) * 8; symbol_index != symbol_index_end; symbol_index += 8) {
++    demod_QAM64_neon(llr_it, symbols_it, noise_it);
++
++    llr_it += 48;
++    symbols_it += 8;
++    noise_it += 8;
++  }
++#endif // __ARM_NEON
+ 
+   for (std::size_t symbol_index_end = symbols.size(); symbol_index != symbol_index_end; ++symbol_index) {
+     //  Set all LLR to zero if the symbol is near zero.
+diff --git a/lib/phy/upper/channel_modulation/demodulation_mapper_qpsk.cpp b/lib/phy/upper/channel_modulation/demodulation_mapper_qpsk.cpp
+index f0dd350..1bce416 100644
+--- a/lib/phy/upper/channel_modulation/demodulation_mapper_qpsk.cpp
++++ b/lib/phy/upper/channel_modulation/demodulation_mapper_qpsk.cpp
+@@ -22,14 +22,102 @@
+ 
+ #include "demodulation_mapper_qpsk.h"
+ 
++#ifdef __AVX2__
++#include "avx2_helpers.h"
++#endif // __AVX2__
+ 
++#ifdef __ARM_NEON
++#include "neon_helpers.h"
++#endif // __ARM_NEON
+ 
+ using namespace srsran;
+ 
+ // Maximum (absolute) value considered for quantization. Larger values will be clipped.
+ static constexpr float RANGE_LIMIT_FLOAT = 24;
+ 
++#ifdef __AVX2__
+ 
++static void demod_QPSK_avx2(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  // Load symbols.
++  __m256 symbols_0 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 0));
++  __m256 symbols_1 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 4));
++  __m256 symbols_2 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 8));
++  __m256 symbols_3 = _mm256_loadu_ps(reinterpret_cast<const float*>(symbol + 12));
++
++  // Load noise.
++  __m256 noise_0 = _mm256_loadu_ps(noise_var + 0);
++  __m256 noise_1 = _mm256_loadu_ps(noise_var + 8);
++
++  // Compute noise inverses.
++  __m256 rcp_noise_0 = mm256::safe_div(_mm256_set1_ps(1), noise_0);
++  __m256 rcp_noise_1 = mm256::safe_div(_mm256_set1_ps(1), noise_1);
++
++  // Repeat noise values for real and imaginary parts.
++  __m256 rcp_noise_3 = _mm256_unpackhi_ps(rcp_noise_1, rcp_noise_1);
++  __m256 rcp_noise_2 = _mm256_unpacklo_ps(rcp_noise_1, rcp_noise_1);
++  rcp_noise_1        = _mm256_unpackhi_ps(rcp_noise_0, rcp_noise_0);
++  rcp_noise_0        = _mm256_unpacklo_ps(rcp_noise_0, rcp_noise_0);
++
++  // Re-collocate SSE registers.
++  __m256 rcp_noise_0_ = _mm256_permute2f128_ps(rcp_noise_0, rcp_noise_1, 0x20);
++  __m256 rcp_noise_1_ = _mm256_permute2f128_ps(rcp_noise_0, rcp_noise_1, 0x31);
++  __m256 rcp_noise_2_ = _mm256_permute2f128_ps(rcp_noise_2, rcp_noise_3, 0x20);
++  __m256 rcp_noise_3_ = _mm256_permute2f128_ps(rcp_noise_2, rcp_noise_3, 0x31);
++
++  // Calculate l_value.
++  __m256 GAIN      = _mm256_set1_ps(2.0F * M_SQRT2f32);
++  __m256 l_value_0 = _mm256_mul_ps(_mm256_mul_ps(GAIN, symbols_0), rcp_noise_0_);
++  __m256 l_value_1 = _mm256_mul_ps(_mm256_mul_ps(GAIN, symbols_1), rcp_noise_1_);
++  __m256 l_value_2 = _mm256_mul_ps(_mm256_mul_ps(GAIN, symbols_2), rcp_noise_2_);
++  __m256 l_value_3 = _mm256_mul_ps(_mm256_mul_ps(GAIN, symbols_3), rcp_noise_3_);
++
++  // Store result.
++  _mm256_storeu_si256(reinterpret_cast<__m256i*>(llr),
++                      mm256::quantize_ps(l_value_0, l_value_1, l_value_2, l_value_3, RANGE_LIMIT_FLOAT));
++}
++
++#endif // __AVX2__
++
++#ifdef __ARM_NEON
++
++static void demod_QPSK_neon(log_likelihood_ratio* llr, const cf_t* symbol, const float* noise_var)
++{
++  // Load symbols.
++  float32x4_t symbols_0 = vld1q_f32(reinterpret_cast<const float*>(symbol + 0));
++  float32x4_t symbols_1 = vld1q_f32(reinterpret_cast<const float*>(symbol + 2));
++  float32x4_t symbols_2 = vld1q_f32(reinterpret_cast<const float*>(symbol + 4));
++  float32x4_t symbols_3 = vld1q_f32(reinterpret_cast<const float*>(symbol + 6));
++
++  // Load noise.
++  float32x4_t noise_0 = vld1q_f32(noise_var + 0);
++  float32x4_t noise_1 = vld1q_f32(noise_var + 4);
++
++  // Compute noise inverses.
++  float32x4_t rcp_noise_0 = neon::safe_div(vdupq_n_f32(1), noise_0);
++  float32x4_t rcp_noise_1 = neon::safe_div(vdupq_n_f32(1), noise_1);
++
++  // Repeat noise values for real and imaginary parts.
++  float32x4x2_t noise_rep_0 = vzipq_f32(rcp_noise_0, rcp_noise_0);
++  float32x4x2_t noise_rep_1 = vzipq_f32(rcp_noise_1, rcp_noise_1);
++  // float32x4_t   rcp_noise_0_ = noise_rep_0.val[0];
++  // float32x4_t   rcp_noise_1_ = noise_rep_0.val[1];
++  // float32x4_t   rcp_noise_2_ = noise_rep_1.val[0];
++  // float32x4_t   rcp_noise_3_ = noise_rep_1.val[1];
++
++  // Calculate l_value.
++  float32x4_t GAIN      = vdupq_n_f32(2.0F * M_SQRT2f32);
++  float32x4_t l_value_0 = vmulq_f32(vmulq_f32(GAIN, symbols_0), noise_rep_0.val[0]);
++  float32x4_t l_value_1 = vmulq_f32(vmulq_f32(GAIN, symbols_1), noise_rep_0.val[1]);
++  float32x4_t l_value_2 = vmulq_f32(vmulq_f32(GAIN, symbols_2), noise_rep_1.val[0]);
++  float32x4_t l_value_3 = vmulq_f32(vmulq_f32(GAIN, symbols_3), noise_rep_1.val[1]);
++
++  // Store result.
++  vst1q_s8(reinterpret_cast<int8_t*>(llr),
++           neon::quantize_f32(l_value_0, l_value_1, l_value_2, l_value_3, RANGE_LIMIT_FLOAT));
++}
++
++#endif // __ARM_NEON
+ 
+ static log_likelihood_ratio demod_QPSK_symbol(float x, float noise_var)
+ {
+@@ -50,7 +138,28 @@ void srsran::demodulate_soft_QPSK(span<log_likelihood_ratio> llrs,
+   log_likelihood_ratio* llr_it       = llrs.begin();
+   std::size_t           symbol_index = 0;
+ 
++#ifdef __AVX2__
++  // For AVX2, it generates 32 LLRs simultaneously. The input is read in batches of 16 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 16) * 16; symbol_index != symbol_index_end;
++       symbol_index += 16) {
++    demod_QPSK_avx2(llr_it, symbols_it, noise_it);
++
++    llr_it += 32;
++    symbols_it += 16;
++    noise_it += 16;
++  }
++#endif // __AVX2__
+ 
++#ifdef __ARM_NEON
++  // For NEON, it generates 16 LLRs simultaneously. The input is read in batches of 8 symbols.
++  for (std::size_t symbol_index_end = (symbols.size() / 8) * 8; symbol_index != symbol_index_end; symbol_index += 8) {
++    demod_QPSK_neon(llr_it, symbols_it, noise_it);
++
++    llr_it += 16;
++    symbols_it += 8;
++    noise_it += 8;
++  }
++#endif // __ARM_NEON
+ 
+   // Process remainder symbols with the generic algorithm.
+   for (std::size_t symbol_index_end = symbols.size(); symbol_index != symbol_index_end; ++symbol_index) {
+diff --git a/lib/phy/upper/channel_modulation/neon_helpers.h b/lib/phy/upper/channel_modulation/neon_helpers.h
+new file mode 100644
+index 0000000..758b20a
+--- /dev/null
++++ b/lib/phy/upper/channel_modulation/neon_helpers.h
+@@ -0,0 +1,249 @@
++/*
++ *
++ * Copyright 2021-2025 Software Radio Systems Limited
++ *
++ * This file is part of srsRAN.
++ *
++ * srsRAN is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU Affero General Public License as
++ * published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version.
++ *
++ * srsRAN is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Affero General Public License for more details.
++ *
++ * A copy of the GNU Affero General Public License can be found in
++ * the LICENSE file in the top-level directory of this distribution
++ * and at http://www.gnu.org/licenses/.
++ *
++ */
++
++#pragma once
++
++#include "srsran/support/math/math_utils.h"
++#include <arm_neon.h>
++
++namespace srsran {
++
++namespace neon {
++
++/// \brief Computes absolute values.
++/// \brief Computes absolute values.
++/// \param[in] value Input single-precision NEON register.
++/// \return A single-precision NEON register with the absolute value.
++inline float32x4_t abs_f32(float32x4_t value)
++{
++  return vabsq_f32(value);
++}
++
++/// \brief Copy sign from a single-precision NEON register.
++/// \param[in] value0 Single-precision NEON register.
++/// \param[in] value1 Single-precision NEON register.
++/// \return A single-precision NEON register with the magnitudes of \c value0 and the signs of \c value1.
++/// \remark A zero in the second argument is considered as a positive number, following the convention of \c
++/// std::copysign.
++inline float32x4_t copysign_f32(float32x4_t value0, float32x4_t value1)
++{
++  float32x4_t abs_value0 = vabsq_f32(value0);
++  float32x4_t neg_value0 = vnegq_f32(abs_value0);
++  // uint32x4_t  sign_mask  = vtstq_s32(vreinterpretq_s32_f32(value1), vdupq_n_s32(0x80000000));
++  uint32x4_t sign_mask = vreinterpretq_u32_s32(vshrq_n_s32(vreinterpretq_s32_f32(value1), 31));
++  return vbslq_f32(sign_mask, neg_value0, abs_value0);
++}
++
++/// \brief Clips the values of a single-precision NEON register.
++///
++/// Values greater than \c range_ceil or lower than \c range_floor are substituted by their corresponding range
++/// limits.
++///
++/// \param[in] value       Input values.
++/// \param[in] range_ceil  Ceiling values.
++/// \param[in] range_floor Floor values.
++/// \return A single-precision NEON register containing the clipped values.
++inline float32x4_t clip_f32(float32x4_t value, float32x4_t range_ceil, float32x4_t range_floor)
++{
++  value = vbslq_f32(vcgtq_f32(value, range_ceil), range_ceil, value);
++  value = vbslq_f32(vcgtq_f32(range_floor, value), range_floor, value);
++  return value;
++}
++
++/// \brief Clips the values of a NEON register carrying four signed 32-bit integers.
++///
++/// Values greater than \c range_ceil or lower than \c range_floor are substituted by their corresponding range
++/// limits.
++///
++/// \param[in] value       Input values.
++/// \param[in] range_ceil  Ceiling values.
++/// \param[in] range_floor Floor values.
++/// \return A NEON register containing the clipped values.
++inline int32x4_t clip_s32(int32x4_t value, int32x4_t range_ceil, int32x4_t range_floor)
++{
++  value = vbslq_s32(vcgtq_s32(value, range_ceil), range_ceil, value);
++  value = vbslq_s32(vcgtq_s32(range_floor, value), range_floor, value);
++  return value;
++}
++
++/// \brief Ensures that 32-bit integers in a NEON register are bounded, otherwise set them to zero.
++///
++/// \param[in] value      Integers to be tested.
++/// \param[in] bound_up   Upper bounds.
++/// \param[in] bound_low  Lower bounds.
++/// \return The input integers with zeros in place of the out-of-bound values.
++inline int32x4_t check_bounds_s32(int32x4_t value, int32x4_t bound_up, int32x4_t bound_low)
++{
++  int32x4_t  ZEROS = vdupq_n_s32(0);
++  uint32x4_t mask  = vcgtq_s32(value, bound_up);
++  value            = vbslq_s32(mask, ZEROS, value);
++
++  mask  = vcgtq_s32(bound_low, value);
++  value = vbslq_s32(mask, ZEROS, value);
++
++  return value;
++}
++
++/// \brief Clips and quantizes four single-precision NEON registers.
++///
++/// Each NEON register contains four 32-bit single-precission log-likelihood ratios. These are converted into a
++/// 8-bit discrete representation of type \c log_likelihood_ratio in a single NEON register.
++///
++/// \param[in] value_0      Single-precision NEON register with the first eight log-likelihood ratios.
++/// \param[in] value_1      Single-precision NEON register with the second eight log-likelihood ratios.
++/// \param[in] value_2      Single-precision NEON register with the third eight log-likelihood ratios.
++/// \param[in] value_3      Single-precision NEON register with the fourth eight log-likelihood ratios.
++/// \param[in] range_limit  The input value mapped to \ref log_likelihood_ratio::max().
++/// \return A quantized representation of the input values as \c log_likelihood_ratio quantity.
++/// \note The quantization in the range <tt>(-range_limit, range_limit)</tt> is [mid-tread
++/// uniform](https://en.wikipedia.org/wiki/Quantization_(signal_processing)#Mid-riser_and_mid-tread_uniform_quantizers),
++/// with quantization step <tt> range_limit / LLR_MAX </tt>.
++/// \note All values larger (in magnitude) than \c range_limit, will be clipped and mapped to
++/// <tt>&plusmn;LLR_MAX</tt>, depending on their sign.
++inline int8x16_t
++quantize_f32(float32x4_t value_0, float32x4_t value_1, float32x4_t value_2, float32x4_t value_3, float range_limit)
++{
++  // Scale.
++  float32x4_t SCALE = vdupq_n_f32(static_cast<float>(log_likelihood_ratio::max().to_int()) / range_limit);
++  value_0           = vmulq_f32(value_0, SCALE);
++  value_1           = vmulq_f32(value_1, SCALE);
++  value_2           = vmulq_f32(value_2, SCALE);
++  value_3           = vmulq_f32(value_3, SCALE);
++
++  // Clip and round to the nearest integer.
++  float32x4_t RANGE_CEIL  = vdupq_n_f32(log_likelihood_ratio::max().to_int());
++  float32x4_t RANGE_FLOOR = vdupq_n_f32(log_likelihood_ratio::min().to_int());
++  value_0                 = vrndnq_f32(clip_f32(value_0, RANGE_CEIL, RANGE_FLOOR));
++  value_1                 = vrndnq_f32(clip_f32(value_1, RANGE_CEIL, RANGE_FLOOR));
++  value_2                 = vrndnq_f32(clip_f32(value_2, RANGE_CEIL, RANGE_FLOOR));
++  value_3                 = vrndnq_f32(clip_f32(value_3, RANGE_CEIL, RANGE_FLOOR));
++
++  // Convert to 32 bit integer.
++  int32x4_t llr_s32_0 = vcvtq_s32_f32(value_0);
++  int32x4_t llr_s32_1 = vcvtq_s32_f32(value_1);
++  int32x4_t llr_s32_2 = vcvtq_s32_f32(value_2);
++  int32x4_t llr_s32_3 = vcvtq_s32_f32(value_3);
++
++  // Check bounds one more time: if value_X contains a NaN, its casting to int32_t is indeterminate - set it to zero.
++  int32x4_t BOUND_UP  = vdupq_n_s32(log_likelihood_ratio::max().to_int());
++  int32x4_t BOUND_LOW = vdupq_n_s32(log_likelihood_ratio::min().to_int());
++  llr_s32_0           = check_bounds_s32(llr_s32_0, BOUND_UP, BOUND_LOW);
++  llr_s32_1           = check_bounds_s32(llr_s32_1, BOUND_UP, BOUND_LOW);
++  llr_s32_2           = check_bounds_s32(llr_s32_2, BOUND_UP, BOUND_LOW);
++  llr_s32_3           = check_bounds_s32(llr_s32_3, BOUND_UP, BOUND_LOW);
++
++  // Conversion to 16 bit and cast to int8 (every odd element of the vector will be 0 or 0xff).
++  int8x8_t llr_s8_0 = vreinterpret_s8_s16(vmovn_s32(llr_s32_0));
++  int8x8_t llr_s8_1 = vreinterpret_s8_s16(vmovn_s32(llr_s32_1));
++  int8x8_t llr_s8_2 = vreinterpret_s8_s16(vmovn_s32(llr_s32_2));
++  int8x8_t llr_s8_3 = vreinterpret_s8_s16(vmovn_s32(llr_s32_3));
++
++  // Merge resulting LLRs into a single register.
++  int8x8_t out_llrs_s8_0 = vuzp1_s8(llr_s8_0, llr_s8_1);
++  int8x8_t out_llrs_s8_1 = vuzp1_s8(llr_s8_2, llr_s8_3);
++  return vcombine_s8(out_llrs_s8_0, out_llrs_s8_1);
++}
++
++/// \brief Helper function to calculate an interval index from single-precision NEON register values.
++/// \param[in] value          Input NEON register.
++/// \param[in] interval_width Interval width.
++/// \param[in] nof_intervals  Number of intervals.
++/// \return A NEON register carrying four signed 32-bit integers with the corresponding interval indices.
++inline uint32x4_t compute_interval_idx(float32x4_t value, float interval_width, int nof_intervals)
++{
++  // Scale.
++  value = vmulq_f32(value, vdupq_n_f32(1.0F / interval_width));
++
++  // Round to the lowest integer.
++  value = vrndmq_f32(value);
++
++  // Convert to int32.
++  int32x4_t idx = vcvtq_s32_f32(value);
++
++  // Add interval offset.
++  idx = vaddq_s32(idx, vdupq_n_s32(nof_intervals / 2));
++
++  // Clip index and return.
++  return vreinterpretq_u32_s32(clip_s32(idx, vdupq_n_s32(nof_intervals - 1), vdupq_n_s32(0)));
++}
++
++/// \brief Gets values from a look-up table.
++/// \param[in] table   Look-up table containing eight single-precision values.
++/// \param[in] indices NEON register containing four indices.
++/// \return A single-precision NEON register containing the eight values corresponding to the given indices.
++inline float32x4_t look_up_table(const float* table, uint32x4_t indices)
++{
++  float32x4_t value = vdupq_n_f32(0.0);
++  value             = vsetq_lane_f32(table[vgetq_lane_u32(indices, 0)], value, 0);
++  value             = vsetq_lane_f32(table[vgetq_lane_u32(indices, 1)], value, 1);
++  value             = vsetq_lane_f32(table[vgetq_lane_u32(indices, 2)], value, 2);
++  value             = vsetq_lane_f32(table[vgetq_lane_u32(indices, 3)], value, 3);
++  return value;
++}
++
++/// \brief Applies a piecewise defined function (provided by look-up tables) to a series of values.
++/// \tparam Table             Look-up table type. All tables mut be of the same type.
++/// \param[in] value          Single-precision NEON register with eight input values.
++/// \param[in] rcp_noise      Single-precision NEON register with the reciprocal noise corresponding to the values.
++/// \param[in] nof_intervals  Number of intervals.
++/// \param[in] interval_width Interval width to quantify the interval indices.
++/// \param[in] slopes         Table with the slope of each interval.
++/// \param[in] intercepts     Table with the interception points of each interval.
++/// \return A single-precision NEON register containing the results of the interval function.
++/// \remark The number of intervals must be lower than or equal to \c Table size.
++template <typename Table>
++inline float32x4_t interval_function(float32x4_t  value,
++                                     float32x4_t  rcp_noise,
++                                     float        interval_width,
++                                     unsigned     nof_intervals,
++                                     const Table& slopes,
++                                     const Table& intercepts)
++{
++  uint32x4_t interval_index = neon::compute_interval_idx(value, interval_width, nof_intervals);
++
++  float32x4_t slope     = neon::look_up_table(slopes.data(), interval_index);
++  float32x4_t intercept = neon::look_up_table(intercepts.data(), interval_index);
++
++  float32x4_t result = vmulq_f32(vaddq_f32(vmulq_f32(slope, value), intercept), rcp_noise);
++
++  float32x4_t threshold = vdupq_n_f32(near_zero);
++  float32x4_t zero      = vdupq_n_f32(0.0f);
++  result                = vbslq_f32(vcgeq_f32(vabdq_f32(value, zero), threshold), result, zero);
++
++  return result;
++}
++
++/// \brief Safe division.
++///
++/// \return <tt>dividend / divisor</tt> if \c divisor is not zero, \c 0 otherwise.
++inline float32x4_t safe_div(float32x4_t dividend, float32x4_t divisor)
++{
++  static const float32x4_t all_zero = vdupq_n_f32(0.0f);
++  // Compare divisor to zero (greater than).
++  uint32x4_t  mask   = vcgtq_f32(divisor, all_zero);
++  float32x4_t result = vdivq_f32(dividend, divisor);
++  return vbslq_f32(mask, result, all_zero);
++}
++
++} // namespace neon
++
++} // namespace srsran

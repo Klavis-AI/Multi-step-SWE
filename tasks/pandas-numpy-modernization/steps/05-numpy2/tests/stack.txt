@@ -1,0 +1,88 @@
+# Step 5's verifier stack.
+#
+# The library pins are character-for-character the ones this step's
+# workdir/setup.sh installs into the agent's /opt/venv. They have to be: this
+# step's expectation is step 1's recording plus 166 declared flips, and a
+# replay under a different numpy or pandas would report the library's own
+# changes as the candidate's regressions -- or, worse, would silently satisfy a
+# flip that the pinned stack does not actually produce.
+#
+# The verifier installs them itself rather than inheriting the agent image, so
+# nothing the candidate did to /opt/venv can reach the scorer.
+#
+# numpy moves to 2.0.2 here and it is the whole point of the step: the 166 flips
+# isolate numpy's own 1.26->2.0 changes (NEP 50 weak-scalar promotion, NEP 51
+# scalar repr, the numpy.bool rename, the 2.0 linalg tie-reorder), so every
+# other pin holds its step-4 value -- scipy 1.13.1, pandas 2.2.3, pyarrow
+# 17.0.0, scikit-learn 1.6.1, matplotlib 3.8.4, seaborn 0.13.2, Cython 3.0.11.
+#
+# The build system moves with numpy: numpy.distutils is gone at 2.0, so skutil's
+# C/Cython/Fortran extensions are built by meson-python instead. meson-python,
+# meson and ninja are new here and are build-time backend, not runtime imports;
+# setuptools moves to 75.3.2 and wheel to 0.45.1 (the step-4 pins 59.8.0/0.37.1
+# existed only to keep numpy.distutils importable, which no longer matters).
+setuptools==75.3.2
+wheel==0.45.1
+numpy==2.0.2
+scipy==1.13.1
+pandas==2.2.3
+pyarrow==17.0.0
+scikit-learn==1.6.1
+matplotlib==3.8.4
+seaborn==0.13.2
+Cython==3.0.11
+pytest==8.3.5
+meson-python==0.17.1
+
+# Scorer-only, never in the agent image.
+#
+# tomli: skutil_gates.suppress reads pyproject.toml to count the suppressions
+# configured there, and at this step meson-python reads the same file to drive
+# the build. Python grew tomllib in 3.11; on 3.9 there is no reader in the
+# stdlib, and without one the suppression scan reports a single
+# `toml-unreadable` finding instead of what the file actually contains -- a
+# ceiling that cannot be compared with the one measured on the entry tree.
+#
+# The same 1.2.3 pin steps 1-4 carry, deliberately. The suppression ceiling is a
+# carried check: it was first measured with this reader and every later step
+# re-measures it, and two steps reading the same file with two different parsers
+# is a difference the score would charge to the candidate. It satisfies
+# meson-python's own `tomli>=1.0.0` bound, so pinning it here fixes both readers
+# to the one the ladder has used since step 1 rather than letting pip pick the
+# latest.
+tomli==1.2.3
+
+# ---- transitive closure, pinned (tools/pin_closure.py) ----
+#
+# Not named by anything above; pip chose them while resolving it.
+# Written down because the behaviour corpus was recorded against
+# these exact versions and some of them move on their own
+# schedule -- pytz publishes a release whenever a government
+# changes a timezone rule -- so an image rebuilt later would not
+# be the image the recording came from. meson, ninja and
+# pyproject-metadata are new at this step: they are meson-python's
+# own dependencies, pulled in when it resolves the build backend.
+#
+# Regenerate: python tools/pin_closure.py <image> <this file>
+contourpy==1.3.0
+cycler==0.12.1
+exceptiongroup==1.3.1
+fonttools==4.60.2
+importlib_resources==6.5.2
+iniconfig==2.1.0
+joblib==1.5.3
+kiwisolver==1.4.7
+meson==1.11.2
+ninja==1.11.1.4
+packaging==26.3
+pillow==11.3.0
+pluggy==1.6.0
+pyparsing==3.3.2
+pyproject-metadata==0.12.1
+python-dateutil==2.9.0.post0
+pytz==2026.3.post1
+six==1.17.0
+threadpoolctl==3.7.0
+typing_extensions==4.16.0
+tzdata==2026.4
+zipp==3.23.1

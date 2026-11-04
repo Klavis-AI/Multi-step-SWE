@@ -1,0 +1,91 @@
+{
+ "doc": "stages/filters.sparsesurface.rst: 'The **Sparse Surface filter** segments input points into two classes: ground or low point. It does this by adding ground points in ascending elevation order, and masking all neighbor points within a specified radius as low points. This process creates a sparse sampling of the ground estimate akin to the Poisson disk sampling available in :ref:`filters.sample` and marks all other points as low noise.' and its Options block: radius 'Mask neighbor points as low noise. [Default: **1.0**]' -- the page's Example #2 calls the sampling radius 'the only option unique to the sparse sample filter', and at 2.7.1 that is literally true: the stage takes no other option.  PROFILE.md 7.1 fixes the distance convention: 'every still-unselected point *strictly* within `radius` of it *horizontally* — X and Y only, Z is not part of the distance — is a low point [...] A point at horizontal distance *exactly* `radius` is **not** masked.'  Raising the radius again thins the ground sample further, to a band strictly below the one radius 2.0 is graded against, while all 1652 points are still present and still carry one of the two classes.  PROFILE.md 7.1 also states how far the count is determined: 'Points that share a Z value may be walked in any order, so once `radius` is wide enough for neighbourhoods to overlap the ground count is not fixed by the rule above. This task therefore grades `radius` 1.0 exactly [...] and grades a coarser radius as a range rather than a number. The total point count never changes at any radius, because the filter only classifies.'  So this case brackets the ground count instead of pinning it, and the bracket is disjoint from the one the next radius up is given, which is what makes 'larger radius, fewer ground points' a graded property rather than a remark.  The page names the two classes -- 'ground or low point' -- but nowhere states the `Classification` codes it writes, so those come from the profile.  PROFILE.md 7.1: '**The classes it writes, how it picks them, and how far this task grades the result are not on the page, so they are stated here.** Every input point is kept — nothing is dropped, so the output holds exactly as many points as the input. The filter reassigns `Classification` on the whole view: points it picks as ground become `2` and every point it masks becomes `7`, and no other `Classification` value survives.'",
+ "files": {
+  "t.las": {
+   "fixture": "terrain.las"
+  },
+  "p.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"t.las\"}, {\"type\": \"filters.sparsesurface\", \"radius\": 3.0}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]"
+  },
+  "cnt.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"out.las\"}, {\"type\": \"filters.expression\", \"expression\": \"Classification==7\"}, {\"type\": \"writers.las\", \"filename\": \"cnt.las\"}]"
+  },
+  "grnd.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"out.las\"}, {\"type\": \"filters.expression\", \"expression\": \"Classification==2\"}, {\"type\": \"writers.las\", \"filename\": \"grnd.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "cnt.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "grnd.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 2,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": {
+     "equals": 1652
+    }
+   },
+   "dims": {
+    "Classification": {
+     "unique": [
+      2,
+      7
+     ]
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "grnd.las",
+   "header": {
+    "point_count": {
+     "min": 140,
+     "max": 210
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "cnt.las",
+   "header": {
+    "point_count": {
+     "min": 1442,
+     "max": 1512
+    }
+   }
+  }
+ ]
+}

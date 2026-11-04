@@ -1,0 +1,64 @@
+# arch: x86_64
+# .fini_array.NNNNN is ordered by priority in exactly the same way as
+# .init_array; walking it in reverse is the runtime's job, not the linker's.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+extern void (*__init_array_start[])(void);
+extern void (*__init_array_end[])(void);
+extern void (*__fini_array_start[])(void);
+extern void (*__fini_array_end[])(void);
+int entry(void) {
+    long n = __init_array_end - __init_array_start;
+    for (long i = 0; i < n; i++) __init_array_start[i]();
+    print("|");
+    long k = __fini_array_end - __fini_array_start;
+    for (long i = k - 1; i >= 0; i--) __fini_array_start[i]();
+    print("\n");
+    return (int)(n * 10 + k);
+}
+C
+cc_obj m.o m.c
+cat > i.s <<'S'
+        .text
+        .globl g1
+g1:     mov $0x41, %edi
+        jmp pr
+        .globl g2
+g2:     mov $0x42, %edi
+        jmp pr
+        .globl g3
+g3:     mov $0x43, %edi
+        jmp pr
+pr:     mov %edi, ch(%rip)
+        lea ch(%rip), %rsi
+        mov $1, %edi
+        mov $1, %edx
+        jmp sys_write
+        .data
+ch:     .byte 0
+        .section .init_array.00500,"aw",@init_array
+        .quad g2
+        .section .init_array.00100,"aw",@init_array
+        .quad g1
+        .section .init_array,"aw",@init_array
+        .quad g3
+        .section .fini_array.00500,"aw",@fini_array
+        .quad g2
+        .section .fini_array.00100,"aw",@fini_array
+        .quad g1
+        .section .fini_array,"aw",@fini_array
+        .quad g3
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj i.o i.s
+link_ok out --no-gc-sections rt.o m.o i.o
+want "three init entries" "$(( 0x$(sec_size out .init_array) ))" "24"
+want "three fini entries" "$(( 0x$(sec_size out .fini_array) ))" "24"
+sec=$(sections out)
+want_has ".init_array keeps its type" "$sec" '\.init_array +INIT_ARRAY'
+want_has ".fini_array keeps its type" "$sec" '\.fini_array +FINI_ARRAY'
+# Forwards through .init_array is ABC; backwards through .fini_array is CBA.
+run_expect out "ABC|CBA" 33
+
+asserts_at_least 4

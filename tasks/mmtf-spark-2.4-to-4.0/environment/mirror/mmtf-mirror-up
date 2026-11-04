@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Bring the containerized external services up if they are not already running.
+#
+# There is no container init hook, so this is wired to BASH_ENV and to
+# /etc/profile.d: every shell in the image runs it, and it is a no-op after the
+# first. The image installs it, so the repository's own tests reach the same
+# services wherever they are run.
+#
+# Because BASH_ENV makes this file *sourced* by every non-interactive shell, it
+# must not disturb the shell that sources it: no bare `set`, no `exit`, no stray
+# variables. Everything lives in one function whose `local -` restores shell
+# options on return. (A bare `set -u` here exits bash 5 outright when bash is
+# PID 1, taking the real command with it and reporting only rc=1.)
+
+__mmtf_mirror_up() {
+    local -
+    set -u
+
+    local pidfile=${MMTF_MIRROR_PIDFILE:-/run/mmtf-mirror.pid}
+    local log=${MMTF_MIRROR_LOG:-/var/log/mmtf-mirror.log}
+    # The same variable serve.py reads HOSTS_FILE from, and for the same reason:
+    # the FTP routing is this file's writes read back by that file's
+    # _ftp_routes(), so the two must always be talking about one file.
+    # Overriding it also lets these loops run for real against a scratch file
+    # instead of being parsed by a second copy of this list.
+    local hosts=${MMTF_MIRROR_HOSTS:-/etc/hosts}
+    local i host
+
+    # mmtf.rcsb.org has no DNS record anywhere; the other served hosts resolve but
+    # are retired, relocated or licence-gated. Point all
+    # of them at the loopback mirror so the tree never reaches the real internet
+    # for data, while the network stays public for everything else.
+    # /etc/hosts is writable by root inside the container.
+    #
+    # The second group is every *other* host named anywhere in the tree, pinned
+    # even though nothing serves it. The container has a public network, so an
+    # unpinned host resolves for real: code that reaches a dead
+    # g2s.genomenexus.org would get whatever that name answers on the day, and
+    # what this tree printed would depend on the state of the public internet
+    # rather than on the tree. Pinned, they get the mirror's deterministic
+    # 404/550 -- the same answer in every container built from here, with no
+    # route to the outside for any of them. Comment-only and javadoc hosts are
+    # pinned too: the cost is one line each, and deciding per host which URL
+    # string is reachable from executable code is exactly the judgement that
+    # goes stale the moment the code is edited.
+    # files.rcsb.org is in the first group even though no line of this tree names
+    # it: BioJava's DownloadChemCompProvider reaches it from inside the jar, once
+    # per distinct residue name in a PDB-format input. "Named in src/main" is the
+    # wrong reachability test for a dependency's dependency.
+    for host in mmtf.rcsb.org www.rcsb.org resources.rcsb.org files.rcsb.org \
+                pdbj.org \
+                dunbrack.fccc.edu myvariant.info www.drugbank.ca \
+                www.drugbank.com \
+                \
+                cathdb.info doi.org dx.doi.org en.wikipedia.org ftp.ebi.ac.uk \
+                ftp.ncbi.nih.gov \
+                g2s.genomenexus.org github.com gremlin2.bakerlab.org \
+                link.springer.com mmcif.wwpdb.org \
+                pdb-redo.eu pdb101.rcsb.org \
+                swissmodel.expasy.org varnomen.hgvs.org \
+                www.compbio.dundee.ac.uk www.ebi.ac.uk www.uniprot.org \
+                www.w3schools.com www.wwpdb.org; do
+        if ! grep -q "[[:space:]]${host//./\\.}\$" "$hosts" 2>/dev/null; then
+            echo "127.0.0.1 $host" >> "$hosts" 2>/dev/null
+        fi
+    done
+
+    # The ftp:// hosts, one loopback address each.
+    #
+    # An FTP control connection carries no Host header, so the listener can only
+    # tell two mirrored FTP hosts apart by the address the connection arrived
+    # on. These lines are that discriminator, and serve.py's _ftp_routes() reads
+    # them back out of /etc/hosts rather than keeping a copy: the file that does
+    # the routing is the file that describes it.
+    #
+    # resources.rcsb.org stays on 127.0.0.1 above and is serve.py's FTP_HOST
+    # default, so the address a client reaches always names exactly one tree.
+    # 127.0.0.0/8 is on lo in full on Linux, so none of these needs an
+    # interface brought up.
+    local n=2
+    for host in ftp.uniprot.org ftp.wwpdb.org orengoftp.biochem.ucl.ac.uk; do
+        if ! grep -q "[[:space:]]${host//./\\.}\$" "$hosts" 2>/dev/null; then
+            echo "127.0.0.$n $host" >> "$hosts" 2>/dev/null
+        fi
+        n=$((n + 1))
+    done
+
+    # The listeners first, and not as an optimisation. `kill -0` is not a
+    # liveness test for an unprivileged caller: the mirror belongs to root, and
+    # signalling it as nobody fails with EPERM. This file is sourced by every
+    # non-interactive bash in the image -- including shells it does not own --
+    # so an EPERM read as "not running" would send nobody on to start a second
+    # mirror it has no permission to start, printing two Permission denied
+    # lines into the middle of an otherwise green log. A socket answers the
+    # question "is the mirror up" for any caller at all.
+    if (exec 3<>/dev/tcp/127.0.0.1/443) 2>/dev/null &&
+       (exec 3<>/dev/tcp/127.0.0.1/21) 2>/dev/null; then
+        return 0
+    fi
+    if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile" 2>/dev/null)" 2>/dev/null; then
+        return 0
+    fi
+
+    # Nothing is listening and this caller cannot write where the mirror keeps
+    # its pid, which means it is not the user who can start one. Said once, on
+    # stderr, rather than as a failed start and a pair of denied redirections.
+    if ! (mkdir -p "${pidfile%/*}" "${log%/*}" && : >> "$log") 2>/dev/null; then
+        echo "mmtf-mirror-up: the mirror is down and $(id -un) cannot start it" >&2
+        return 0
+    fi
+    setsid python3 /opt/mmtf-mirror/serve.py >>"$log" 2>&1 &
+    echo $! > "$pidfile"
+
+    # Wait for the listeners rather than racing the first download. 443 comes up
+    # last in serve.py, but the FTP thread is started before it, so both are
+    # checked: waiting on only one of two listeners is a race that shows up as a
+    # single flaky test rather than as a mirror that is down.
+    for i in $(seq 1 100); do
+        if (exec 3<>/dev/tcp/127.0.0.1/443) 2>/dev/null &&
+           (exec 3<>/dev/tcp/127.0.0.1/21) 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    return 0
+}
+
+__mmtf_mirror_up

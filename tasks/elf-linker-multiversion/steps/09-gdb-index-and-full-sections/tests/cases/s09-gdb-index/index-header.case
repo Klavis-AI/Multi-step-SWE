@@ -1,0 +1,68 @@
+# arch: x86_64
+# --gdb-index builds a real .gdb_index section: version 9, a seven-word 28-byte
+# header whose six offset words are non-decreasing, start right after the
+# header and stay inside the section. Version 9 is the only accepted value --
+# see spec/18 s.2; earlier gdb index versions have a different header shape and
+# the rest of this group reads the v9 layout. At 0.9.0 the option is accepted
+# with a warning and nothing is built.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+int g = 5;
+int entry(void) { print("indexed\n"); return g; }
+C
+cc_obj m.o m.c -g
+
+# Inline helpers (caselib has no section-extractor): pull a section's bytes out
+# with dd and read little-endian words with od, so this needs only coreutils.
+sec_off() { local t; t=$(sections "$1"); awk -v n="$2" '{for(i=1;i<=NF;i++) if($i==n){print $(i+3); exit}}' <<<"$t"; }
+getsec() { local o s; o=$(sec_off "$1" "$2"); s=$(sec_size "$1" "$2")
+           [ -n "$o" ] && [ -n "$s" ] || die "$1 has no section $2"
+           dd if="$1" of="$3" bs=1 skip=$((16#$o)) count=$((16#$s)) status=none; }
+u32() { od -An -tu4 -j "$2" -N 4 -- "$1" | tr -d ' \n'; }
+
+link_ok out --gdb-index rt.o m.o
+has_section out '\.gdb_index' || die "--gdb-index produced no .gdb_index section"
+getsec out .gdb_index gi.bin
+size=$(stat -c %s gi.bin)
+[ "$size" -ge 28 ] || die ".gdb_index is $size bytes, too small to hold a header"
+
+want ".gdb_index version" "$(u32 gi.bin 0)" "9"
+
+# spec/18 s.1 also fixes the section header itself: SHT_PROGBITS, sh_flags 0
+# (NOT SHF_ALLOC, so readelf prints no flag letters at all and the row is one
+# field shorter than an allocated section's), sh_addr 0, sh_link 0, sh_info 0,
+# sh_addralign 1. An implementation that marks it SHF_ALLOC would put debug
+# bytes in a PT_LOAD.
+gi=$(sections out | awk '{for(i=1;i<=NF;i++) if($i==".gdb_index"){print (NF-i), $(i+1), $(i+2), $(NF-2), $(NF-1), $NF; exit}}')
+want ".gdb_index is unallocated PROGBITS at addr 0, link 0, info 0, align 1" \
+     "$gi" "8 PROGBITS 0000000000000000 0 0 1"
+# sh_entsize is the seventh attribute of the same row: the section is not a
+# table of fixed-size entries, so it MUST be 0.
+es=$(sections out | awk '{for(i=1;i<=NF;i++) if($i==".gdb_index"){print $(i+5); exit}}')
+want ".gdb_index sh_entsize is 0" "$(( 16#$es ))" "0"
+
+# Words 1..6 are section-relative offsets and must be non-decreasing, start
+# right after the header and end at the section size.
+prev=0
+for w in 1 2 3 4 5 6; do
+  off=$(u32 gi.bin $((w * 4)))
+  [ "$off" -ge "$prev" ] || die "header offset $w ($off) goes backwards from $prev"
+  [ "$off" -le "$size" ] || die "header offset $w ($off) is past the section end $size"
+  prev=$off
+done
+want "cu list starts right after the header" "$(u32 gi.bin 4)" "28"
+# Word 6 is the constant pool's *offset*. The pool runs from there to the end
+# of the section, so with no pubnames in the inputs it may be empty -- but it
+# may never start past the end. (The populated case is index-symbol-table.)
+[ "$prev" -le "$size" ] || die "constant pool offset $prev is past the section end $size"
+
+# Between the symbol table and the constant pool sits the shortcut table:
+# exactly two zero words, per spec/18 s.2.
+sc_off=$(u32 gi.bin 20)
+want "shortcut table is 8 bytes" "$(( $(u32 gi.bin 24) - sc_off ))" "8"
+want "shortcut table is eight zero bytes" \
+     "$(od -An -tu1 -j "$sc_off" -N 8 -v gi.bin | tr -s ' ' | tr -d ' \n')" "00000000"
+
+run_expect out "indexed" 5
+asserts_at_least 6

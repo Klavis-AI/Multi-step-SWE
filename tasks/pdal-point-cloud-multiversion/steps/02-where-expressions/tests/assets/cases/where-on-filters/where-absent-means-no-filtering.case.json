@@ -1,0 +1,62 @@
+{
+ "doc": "stages/filter_opts.rst: 'where -- An expression that limits points passed to a filter.  Points that don't pass the expression skip the stage but are available to subsequent stages in a pipeline. [Default: no filtering]'",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "none.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.range\", \"limits\": \"Z[5:9]\"}, {\"type\": \"writers.las\", \"filename\": \"none.las\"}]}"
+  },
+  "some.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.range\", \"limits\": \"Z[5:9]\", \"where\": \"X < 2\", \"where_merge\": \"true\"}, {\"type\": \"writers.las\", \"filename\": \"some.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "none.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "some.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "none.las",
+   "header": {
+    "point_count": 500
+   }
+  },
+  {
+   "kind": "las",
+   "file": "some.las",
+   "header": {
+    "point_count": 900
+   },
+   "dims": {
+    "Z": {
+     "count_equal": {
+      "0": 80,
+      "9": 100
+     }
+    }
+   }
+  }
+ ]
+}

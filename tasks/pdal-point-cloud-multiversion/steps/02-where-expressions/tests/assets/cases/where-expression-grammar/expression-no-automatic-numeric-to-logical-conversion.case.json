@@ -1,0 +1,62 @@
+{
+ "doc": "stages/expression.rst: 'There is no automatic conversion of numeric values to logical values.  For example, the following is not permitted: ((Intensity > 0) && Classification).  Instead, you must write: ((Intensity > 0) && (Classification != 0))'",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "bad.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"assignment\": \"Classification[:]=7\", \"where\": \"((Intensity > 0) && Classification)\"}, {\"type\": \"writers.las\", \"filename\": \"bad.las\"}]}"
+  },
+  "good.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"assignment\": \"Classification[:]=7\", \"where\": \"((Intensity > 0) && (Classification != 0))\"}, {\"type\": \"filters.range\", \"limits\": \"Classification[7:7]\"}, {\"type\": \"writers.las\", \"filename\": \"good.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "bad.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "good.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "nonzero": true
+  },
+  {
+   "kind": "stderr_regex",
+   "run": 0,
+   "regex": "filters\\.assign"
+  },
+  {
+   "kind": "file_absent",
+   "file": "bad.las"
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "good.las",
+   "header": {
+    "point_count": 999
+   },
+   "dims": {
+    "Intensity": {
+     "min": 1,
+     "max": 999
+    }
+   }
+  }
+ ]
+}

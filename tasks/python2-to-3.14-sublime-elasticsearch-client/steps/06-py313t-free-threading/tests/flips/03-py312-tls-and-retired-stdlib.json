@@ -1,0 +1,163 @@
+{
+  "cases": {
+    "conn.tls-client-through-elasticsearch": {
+      "owned": true,
+      "reason": "The same handshake driven from the public `Elasticsearch(...).info()` surface rather than from the connection class, so the port has to hold all the way up through the transport rather than only inside urllib3."
+    },
+    "conn.tls-requests-untrusted-ca-rejected": {
+      "owned": true,
+      "reason": "Adversarial counterpart of the above on requests' copy: the rejection must still arrive as elasticsearch.SSLError, not as whatever the stdlib raised."
+    },
+    "conn.tls-requests-verified-roundtrip": {
+      "owned": true,
+      "reason": "The verified roundtrip again through RequestsHttpConnection, which reaches `lib/requests/packages/urllib3` -- the second vendored copy. The two copies are byte-identical today and each is imported by a different half of the tree, so porting one and not the other is the single most likely way to half-finish this rung, and this is where that shows up as a number."
+    },
+    "conn.tls-untrusted-ca-rejected": {
+      "owned": true,
+      "reason": "Adversarial. No ca_certs, so the throwaway issuer is in no trust store and verification must fail. `raised` records the exception class, so a port that lets the stdlib's SSLCertVerificationError escape urllib3's own hierarchy fails here even though it refused the connection correctly: the recorded answer is elasticsearch.SSLError."
+    },
+    "conn.tls-unverified-warns": {
+      "owned": true,
+      "reason": "verify_certs=False is the library's documented escape hatch and its UserWarning is a contract warning, so the warning is scored alongside the response. The request still has to complete, which on 3.12 means CERT_NONE has to be reachable without the never-bound module-level `CERT_NONE`."
+    },
+    "conn.tls-verified-roundtrip": {
+      "owned": true,
+      "reason": "elasticsearch's Urllib3HttpConnection with verify_certs=True and the fixture CA: a complete verified GET through `lib/urllib3`. On 3.12 it dies inside `util/ssl_.ssl_wrap_socket`, which calls the never-bound `wrap_socket`. The case also pins the one thing a TLS tidy-up must not fix: `transport_schema` is a class attribute fixed at 'http' and is not overridden for TLS, so a verified https connection still describes itself as `http://...` in `host` and in every log line it writes."
+    },
+    "urllib3.assert-fingerprint-pins-connection": {
+      "owned": true,
+      "reason": "Adversarial, against lib/urllib3. A certificate pinned by SHA-256 `assert_fingerprint` against the untrusted chain: the right pin connects, a wrong pin is refused, and a right pin outranks a hostname the certificate does not carry -- which is urllib3 1.x's documented precedence and the half of the pinning contract a port can silently drop by letting the context verify first. Reaches the 3.12-removed binding on every row, like every other TLS case here, so the predecessor scores none of it."
+    },
+    "urllib3.assert-hostname-overrides": {
+      "owned": true,
+      "reason": "Adversarial, against lib/urllib3. The three `assert_hostname` spellings (`VerifiedHTTPSConnection`'s default, a *different* hostname named explicitly, and `assert_hostname=False`) and a second fixture chain signed by a CA nothing trusts, each under `CERT_REQUIRED` against a real listener, with the count of requests that reached the server. Every row runs through the same import-time `wrap_socket` / `CERT_NONE` binding 3.12 removes, so the predecessor raises before a socket is opened and the whole case is this rung's work. It is owned rather than inherited for that reason: the answers are the 3.8 recording's answers unchanged, and the conditions under which they have to come out are not. It is also the case that stops `assert_hostname=False` from being ported as \"skip verification\": waiving the hostname check waives only the hostname check, and the untrusted chain is still refused with nothing written to the socket."
+    },
+    "urllib3.https-cert-none-warns": {
+      "owned": true,
+      "reason": "CERT_NONE. The InsecureRequestWarning is part of urllib3's contract and is scored, and the request still has to succeed: a port that cannot build a context with verification off fails here."
+    },
+    "urllib3.https-client-certificate": {
+      "owned": true,
+      "reason": "Client-certificate handshake through `HTTPSConnectionPool`. The pool hands `cert_reqs=\"CERT_REQUIRED\"` to `resolve_cert_reqs`, which returns the import-time `CERT_NONE` binding that 3.12 takes away with `wrap_socket`, so the predecessor raises `NameError` before any socket is opened. A correct port restores the recorded answer: the server sees `harness-client` on the connection that carried a certificate and nothing on the one that did not."
+    },
+    "urllib3.https-untrusted-rejected": {
+      "owned": true,
+      "reason": "Adversarial. CERT_REQUIRED with no CA supplied. `raised` is the exception class, so the failure has to stay inside urllib3's own SSLError rather than surfacing as the stdlib's."
+    },
+    "urllib3.https-verified": {
+      "owned": true,
+      "reason": "`HTTPSConnectionPool` driven directly with CERT_REQUIRED and the fixture CA -- the handshake without the elasticsearch layer on top of it."
+    },
+    "urllib3.resolve-cert-reqs-and-version": {
+      "owned": true,
+      "reason": "`resolve_cert_reqs(None)` and `resolve_ssl_version(None)` return the module-level `CERT_NONE` and `PROTOCOL_SSLv23` that the dead import was supposed to have bound; on 3.12 both raise NameError. The recorded answer is the numeric constants for every candidate spelling, so the port has to keep the same defaults rather than pick new ones while it is in there. Against lib/urllib3."
+    },
+    "urllib3.ssl-module-shims-present": {
+      "owned": true,
+      "reason": "Adversarial. Which names `lib/urllib3/util/ssl_.py` actually ended up bound to at import time. On the predecessor the `except ImportError: pass` swallows the whole atomic import and HAS_SNI is left False; the recorded answer says True, that SSLContext comes from the stdlib `ssl` module, that `create_urllib3_context` exists, and that DEFAULT_CIPHERS is the whole literal this tree ships and not just its leading ECDH+AESGCM -- the round-1 static review widened that observation from the first token to the entire string. A port that leaves the hand-rolled non-SNI fallback in place, or that quiets the ImportError instead of removing the dead names, fails here while every happy-path handshake still passes."
+    },
+    "urllib3.tls-verification-outcomes": {
+      "owned": true,
+      "reason": "Adversarial, against lib/urllib3. Three certificates (right names from the fixture CA, wrong names from the fixture CA, right names from a second CA nothing trusts) x two verification modes against a real listener, plus the count of requests that actually reached the server. This is the case that makes 'TLS works again' mean 'and it still refuses what it used to refuse': wrong-name and unknown-CA must both fail under CERT_REQUIRED with nothing written to the socket, both must be accepted under CERT_NONE, and every failure must be inside the library's own HTTPError hierarchy. The exception class and message are deliberately not observed here -- the message carries the ephemeral port and OpenSSL's wording, and the class legitimately moves when the hostname check leaves the vendored matcher."
+    },
+    "urllib3v.assert-fingerprint-pins-connection": {
+      "owned": true,
+      "reason": "Adversarial, against lib/requests/packages/urllib3. A certificate pinned by SHA-256 `assert_fingerprint` against the untrusted chain: the right pin connects, a wrong pin is refused, and a right pin outranks a hostname the certificate does not carry -- which is urllib3 1.x's documented precedence and the half of the pinning contract a port can silently drop by letting the context verify first. Reaches the 3.12-removed binding on every row, like every other TLS case here, so the predecessor scores none of it."
+    },
+    "urllib3v.assert-hostname-overrides": {
+      "owned": true,
+      "reason": "Adversarial, against lib/requests/packages/urllib3. The three `assert_hostname` spellings (`VerifiedHTTPSConnection`'s default, a *different* hostname named explicitly, and `assert_hostname=False`) and a second fixture chain signed by a CA nothing trusts, each under `CERT_REQUIRED` against a real listener, with the count of requests that reached the server. Every row runs through the same import-time `wrap_socket` / `CERT_NONE` binding 3.12 removes, so the predecessor raises before a socket is opened and the whole case is this rung's work. It is owned rather than inherited for that reason: the answers are the 3.8 recording's answers unchanged, and the conditions under which they have to come out are not. It is also the case that stops `assert_hostname=False` from being ported as \"skip verification\": waiving the hostname check waives only the hostname check, and the untrusted chain is still refused with nothing written to the socket."
+    },
+    "urllib3v.https-client-certificate": {
+      "owned": true,
+      "reason": "The same case against requests' vendored copy. The two trees are byte-identical today and each is imported by a different half of the repo; a port that fixes one and not the other fails exactly here."
+    },
+    "urllib3v.resolve-cert-reqs-and-version": {
+      "owned": true,
+      "reason": "`resolve_cert_reqs(None)` and `resolve_ssl_version(None)` return the module-level `CERT_NONE` and `PROTOCOL_SSLv23` that the dead import was supposed to have bound; on 3.12 both raise NameError. The recorded answer is the numeric constants for every candidate spelling, so the port has to keep the same defaults rather than pick new ones while it is in there. Against lib/requests/packages/urllib3."
+    },
+    "urllib3v.ssl-module-shims-present": {
+      "owned": true,
+      "reason": "Adversarial. Which names `lib/requests/packages/urllib3/util/ssl_.py` actually ended up bound to at import time. On the predecessor the `except ImportError: pass` swallows the whole atomic import and HAS_SNI is left False; the recorded answer says True, that SSLContext comes from the stdlib `ssl` module, that `create_urllib3_context` exists, and that DEFAULT_CIPHERS is the whole literal this tree ships and not just its leading ECDH+AESGCM -- the round-1 static review widened that observation from the first token to the entire string. A port that leaves the hand-rolled non-SNI fallback in place, or that quiets the ImportError instead of removing the dead names, fails here while every happy-path handshake still passes."
+    },
+    "urllib3v.tls-verification-outcomes": {
+      "owned": true,
+      "reason": "Adversarial, against lib/requests/packages/urllib3. Three certificates (right names from the fixture CA, wrong names from the fixture CA, right names from a second CA nothing trusts) x two verification modes against a real listener, plus the count of requests that actually reached the server. This is the case that makes 'TLS works again' mean 'and it still refuses what it used to refuse': wrong-name and unknown-CA must both fail under CERT_REQUIRED with nothing written to the socket, both must be accepted under CERT_NONE, and every failure must be inside the library's own HTTPError hierarchy. The exception class and message are deliberately not observed here -- the message carries the ephemeral port and OpenSSL's wording, and the class legitimately moves when the hostname check leaves the vendored matcher."
+    },
+    "requests.internal-callers-stay-silent": {
+      "expect": {
+        "logs": [
+          {
+            "exc": null,
+            "level": "INFO",
+            "logger": "requests.packages.urllib3.connectionpool",
+            "message": "Starting new HTTP connection (1): 127.0.0.1"
+          },
+          {
+            "exc": null,
+            "level": "DEBUG",
+            "logger": "requests.packages.urllib3.connectionpool",
+            "message": "\"GET /x HTTP/1.1\" 200 11"
+          }
+        ],
+        "result": {
+          "__dict__": [
+            [
+              "value",
+              {
+                "__dict__": [
+                  [
+                    "ok",
+                    {
+                      "__dict__": [
+                        [
+                          "ok",
+                          true
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              "warnings",
+              []
+            ]
+          ]
+        },
+        "stderr": "",
+        "stdout": "",
+        "warnings": [],
+        "wire": [
+          {
+            "body": "",
+            "headers": [
+              [
+                "accept",
+                "*/*"
+              ],
+              [
+                "accept-encoding",
+                "gzip, deflate"
+              ],
+              [
+                "connection",
+                "keep-alive"
+              ],
+              [
+                "user-agent",
+                "python-requests/2.7.0 CPython/<PYVER> Linux/<KERNEL>"
+              ]
+            ],
+            "method": "GET",
+            "path": "/x"
+          }
+        ]
+      },
+      "reason": "Revived from rung 01's retirement, which is where the shape of this entry comes from: rung 01 dropped the case rather than let one construct take half of that rung's family 2, and a rung that brings a case back has to restate the expectation it is reviving it to. That expectation is the recording with one list emptied -- structurally diffed against the recording, the only difference is `[\"DeprecationWarning@tree\"]` becoming `[]`; the two log lines, the wire record and the return value are identical.\n\nWhy this rung. The case drives an ordinary `requests.get` + `.text` + `.json()` and records which deprecation categories the tree raised while doing it. By rung 02 the answer is already `[]` -- the `collections` ABC aliases that produced the recorded warning went at rung 01 -- and 3.11 adds nothing, so the case says nothing there. On 3.12 it says something again: `datetime.utcnow()` is deprecated at 3.12 and `requests/sessions.py` calls it twice on every request, so the untouched rung-02 tree replayed at 3.12 puts `DeprecationWarning@tree` back and cannot pass however well it preserves anything else. Measured, both ends: the predecessor at 3.12.14 warns from `sessions.py` lines 570 and 576; the golden is silent. Instruction item 4 is the requirement that fixes it -- the behavioural half of the bar `no-naive-utc` states statically -- and the instruction states the expectation in the agent's own terms, because the agent is never shown the suite."
+    }
+  },
+  "step": "03-py312-tls-and-retired-stdlib",
+  "why": "Step 03's requirement is that the tree's TLS stack goes on doing exactly what it does today, on an interpreter that has removed the three `ssl` names it is built on. CPython 3.12 deleted `ssl.wrap_socket()` and the `ssl.match_hostname()`/`ssl.CertificateError` pair (What's New In Python 3.12, Removed; both had been deprecated since 3.7). Both vendored copies of urllib3 1.10.4 bind their TLS names in one atomic `from ssl import wrap_socket, CERT_NONE, PROTOCOL_SSLv23` inside a `try: ... except ImportError: pass`, so on 3.12 that import fails as a unit and all three names are never bound at all: `HAS_SNI` stays False, `resolve_cert_reqs(None)` raises NameError, and every HTTPS handshake in the tree dies before it reaches the socket.\n\nNone of the twenty-one cases below changes its expected answer -- this rung re-records nothing, and rule 5's must-flip exception is not invoked. What changes is the condition the recorded answer has to hold under, which is why every entry is `\"owned\": true` with no `expect`: on 3.12 the answer is unreachable until the stack is ported, and reachable again the moment it is. That is what `owned` means in build/flips, and why it is spelled separately from `expect`: ownership claims the conditions a recorded answer has to survive, where `expect` would claim the answer itself.\n\nMeasured, both ends, NOTES section 9.2: the untouched rung-02 tree on 3.12.14 scores 0 of these 21 and 488 of the other 488 inherited cases; the golden scores 21/21. The set is not 'whatever the predecessor fails' -- it is the cases that drive a TLS handshake or read `util/ssl_`'s import-time bindings, which is the rung's subject, and the measurement is the confirmation rather than the definition. The other TLS-adjacent cases (`urllib3.create-urllib3-context`, `urllib3.assert-fingerprint`, `conn.tls-plain-client-against-tls-server`, `conn.*-ca-certs-without-verify-raises`, `requests.adapter-cert-verify`) never reach the dead names, pass on the predecessor unchanged, and stay in family 1 where they belong.\n\nTwo cases joined this set after the rung's own coverage measurement (NOTES section 9.2). `util/ssl_.py` is the file this rung bears on hardest and the suite reached only 71 of its 112 statements; of the 41 it missed, 33 are the Python-2/3.1 fallback shim and its `except ImportError` arms, which cannot execute on any interpreter in the ladder, but the rest were real: the `ca_certs`-cannot-be-loaded translation to the library's own `SSLError`, and the `certfile`/`keyfile` branch, which no case had ever passed an argument to. `ssl-wrap-socket-bad-ca-file` and `https-client-certificate` were written for those two, one per vendored root, and each was proved load-bearing against a mutant of the tree before it was trusted (trap 6). Measured, the two client-certificate cases fail on the predecessor at 3.12 for this rung's own reason and are claimed here; the two bad-ca-file cases pass it -- they never reach `resolve_cert_reqs` -- and stay in family 1, where a port that rewrites `ssl_wrap_socket` and drops the `SSLError` wrapper loses them.\n\nFour more joined after the round-1 static review (NOTES section 9.6), which graded the step a Blocker for stating three `assert_hostname` overrides and a connection-deciding `assert_fingerprint` in `instruction.md` and scoring none of them: `urllib3.assert-hostname-overrides`, `urllib3.assert-fingerprint-pins-connection` and their vendored twins. Their ownership was measured rather than assumed, and the measurement corrected a rule this authoring log had been applying. The recorded 3.8 answers do not change, so they look like preservation work and were first left in family 1 -- which put the predecessor at 0.247942 with inherited 482 of 486, the four failures in `failed_sample` being exactly these ids. Every row in them runs through the import-time `wrap_socket`/`CERT_NONE` binding 3.12 removes, so the predecessor cannot produce them *at this rung's interpreter* even though it produces them at rung 02's. Eligibility for family 2 is therefore decided at the rung's own interpreter, not at the predecessor's, and claiming all four restored predecessor 0.250000 and pyupgrade 0.300000 -- build item 4.3's cap is untouched, because the tree it caps was already failing them."
+}

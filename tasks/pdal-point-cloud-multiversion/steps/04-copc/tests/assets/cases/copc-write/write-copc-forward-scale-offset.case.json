@@ -1,0 +1,29 @@
+{
+  "doc": "stages/writers.copc.rst Options: 'forward  List of header fields whose values should be preserved from a source LAS file. ... Scale and offset values can be forwarded as a group by using the special values scale and offset respectively. ... [Default: .01]' and 'offset_x ... [Default: 0]'. Asserted by reading the written file's header back with an independent reader, against the source header and against the writer's own defaults.",
+  "files": {
+    "in.las": {"fixture": "utm17.las"},
+    "fwd.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"fwd.copc.laz\",\"forward\":\"scale,offset\"}]"},
+    "plain.json": {"text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"plain.copc.laz\"}]"}
+  },
+  "run": [
+    {"argv": ["pipeline", "fwd.json"]},
+    {"argv": ["pipeline", "plain.json"]}
+  ],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "exit", "run": 1, "equals": 0},
+    {"kind": "las", "file": "in.las",
+     "header": {"scales": {"equals": [0.001, 0.001, 0.001]},
+                "offsets": {"equals": [500000.0, 4600000.0, 0.0]}}},
+    {"kind": "las", "file": "fwd.copc.laz",
+     "header": {"point_count": {"equals": 100},
+                "scales": {"equals": [0.001, 0.001, 0.001]},
+                "offsets": {"equals": [500000.0, 4600000.0, 0.0]},
+                "mins": {"length": 3},
+                "maxs": {"length": 3}}},
+    {"kind": "las", "file": "plain.copc.laz",
+     "header": {"point_count": {"equals": 100},
+                "scales": {"equals": [0.01, 0.01, 0.01]},
+                "offsets": {"equals": [0.0, 0.0, 0.0]}}}
+  ]
+}

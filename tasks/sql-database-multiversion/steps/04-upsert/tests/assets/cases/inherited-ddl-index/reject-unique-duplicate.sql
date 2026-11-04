@@ -1,0 +1,6 @@
+CREATE TABLE t(a, b);
+CREATE UNIQUE INDEX u1 ON t(a);
+INSERT INTO t VALUES(1,'p');
+INSERT INTO t VALUES(1,'q');
+SELECT a, b FROM t ORDER BY a, b;
+SELECT count(*) FROM t;

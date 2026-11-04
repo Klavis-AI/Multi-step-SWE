@@ -1,0 +1,70 @@
+{
+ "doc": "stages/writers.copc.rst: 'The **COPC Writer** supports writing to `COPC format`_ files. COPC is *Cloud Optimized Point Clouds*, and it is a LAZ 1.4 file that is organized stored as a clustered octree.' and stages/readers.copc.rst: 'The **COPC Reader** supports reading from `COPC format`_ files.' -- the step-05 milestone still runs end to end: the lattice written as COPC reads back with every point.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "write.json": {
+   "text": "[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.copc\",\"filename\":\"mid.copc.laz\"}]"
+  },
+  "read.json": {
+   "text": "[{\"type\":\"readers.copc\",\"filename\":\"mid.copc.laz\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "write.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "read.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "copc",
+   "file": "mid.copc.laz",
+   "point_count": {
+    "equals": 1000
+   }
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": {
+     "equals": 1000
+    }
+   },
+   "dims": {
+    "X": {
+     "min": 0,
+     "max": 9
+    },
+    "Y": {
+     "min": 0,
+     "max": 9
+    },
+    "Z": {
+     "min": 0,
+     "max": 9
+    }
+   }
+  }
+ ]
+}

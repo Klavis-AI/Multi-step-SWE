@@ -1,0 +1,12 @@
+SET enable_partition_pruning = on;
+CREATE TABLE q3_ppq(a int, b int) PARTITION BY RANGE (a);
+CREATE TABLE q3_ppq_1 PARTITION OF q3_ppq FOR VALUES FROM (1) TO (10) PARTITION BY RANGE (b);
+CREATE TABLE q3_ppq_1a PARTITION OF q3_ppq_1 FOR VALUES FROM (1) TO (10);
+CREATE TABLE q3_ppq_1b PARTITION OF q3_ppq_1 FOR VALUES FROM (10) TO (20);
+CREATE TABLE q3_ppq_2 PARTITION OF q3_ppq FOR VALUES FROM (10) TO (20);
+INSERT INTO q3_ppq VALUES (2,2),(3,12),(15,1);
+SELECT count(*) FROM q3_ppq WHERE a < 10 AND b < 10;
+SELECT count(*) FROM q3_ppq WHERE a < 10;
+SELECT tableoid::regclass::text AS part, a, b FROM q3_ppq ORDER BY a, b;
+RESET enable_partition_pruning;
+DROP TABLE q3_ppq;

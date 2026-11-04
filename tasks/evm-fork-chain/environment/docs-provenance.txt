@@ -1,0 +1,34 @@
+How environment/docs/ was produced: the build stage below fetches each
+document from its official source, checks it against the pinned sha256,
+and makes the text conversions. The resulting files are stored in docs/
+and copied into the image directly. Re-run these steps to refresh a
+document.
+
+# Reference documentation for the agent (the agent phase has no network).
+# Fetched at build time from the official sources, pinned by sha256; only
+# /opt/docs leaves this stage. It holds EIP texts the instructions name that the
+# step SPEC directories do not carry, and a plain-text conversion of the Yellow
+# Paper that /app/SPEC ships as PDF only.
+FROM debian:bookworm-slim AS docs
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+COPY app/SPEC/ethereum-yellowpaper.pdf /tmp/ethereum-yellowpaper.pdf
+RUN set -eux; \
+    fetch() { curl -fsSL --retry 3 --max-time 300 -o "$2" "$1"; echo "$3  $2" | sha256sum -c -; }; \
+    D=/opt/docs; mkdir -p $D/eips $D/yellowpaper; \
+    for p in \
+        2070:2a49fa7a489bf8a9640af918c2907220e201e39536bb85c31c283bf7fb03fa30 \
+        7568:a19f179d7199b4d9c5caee785fe64490ec0d6513e5451b4055af7ed20b98efe7 \
+        7610:e934db8fded813da2d2cf231dbdcd0f829418b5394db3750fb31292d3dbfacd6; do \
+      fetch "https://raw.githubusercontent.com/ethereum/EIPs/068e50ad2afa94c3bd967ce584867fb27d371c01/EIPS/eip-${p%%:*}.md" \
+            "$D/eips/eip-${p%%:*}.md" "${p#*:}"; \
+    done; \
+    echo "d67c009c5d5a0542c8288aee3c4d470b3e2dbe6e664f72f00011543608477fa9  /tmp/ethereum-yellowpaper.pdf" | sha256sum -c -; \
+    mv /tmp/ethereum-yellowpaper.pdf $D/yellowpaper/ethereum-yellowpaper.pdf; \
+    pdftotext -layout $D/yellowpaper/ethereum-yellowpaper.pdf $D/yellowpaper/ethereum-yellowpaper.txt; \
+    grep -q 'Appendix H' $D/yellowpaper/ethereum-yellowpaper.txt; \
+    find $D -type f -empty | { ! grep .; }; \
+    (cd $D && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > /tmp/SHA256SUMS) && mv /tmp/SHA256SUMS $D/SHA256SUMS; \
+    du -sh $D

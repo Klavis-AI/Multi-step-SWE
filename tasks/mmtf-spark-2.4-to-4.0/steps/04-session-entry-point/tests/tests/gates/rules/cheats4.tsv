@@ -1,0 +1,150 @@
+# Step 4's prohibitions: the dodges that would make m2 and m3 look satisfied.
+#
+# The split is rung3.tsv's. A *requirement* says the work was done; a
+# *prohibition* says it was not faked, and a prohibition is priced at the whole
+# reward because a faked step is worth nothing at all. So "ANSI is on" lives in
+# m04.tsv and is worth its share, and the nine rules here are the ways a
+# candidate could get that share without doing the step. Two were added by the
+# static review's round 1, three by its round 2 and one by its round 3
+# (NOTES 6.4.8, 6.4.9, 6.4.10).
+#
+#   the reflection dodge   m2 reads the jar for `org/apache/spark/SparkConf` in
+#                          the constant pool, and a SparkConf built by
+#                          reflection is not there -- it is a *string*. The
+#                          class name does not appear as a string constant
+#                          anywhere in the start tree's jar (measured), so this
+#                          rule costs an honest candidate nothing. Same shape
+#                          and same reason as cheats3.tsv's no-describe-reflect.
+#   the system-property    A SparkConf loads every `spark.*` JVM system property
+#   dodge                  that is set when it is constructed, so one
+#                          `System.setProperty("spark.sql.ansi.enabled",
+#                          "true")` in a static initializer puts the dialect on
+#                          every session in the JVM -- including the ones this
+#                          step is asking the candidate to create and has not.
+#                          It is the one route to m3 that does not pass through
+#                          the entry point m2 is about. This codebase sets no
+#                          system property at all, in src/main or src/test --
+#                          0 occurrences of setProperty, setProperties or
+#                          getProperties on any receiver, measured on the handed
+#                          tree and the golden one -- so the rule is scoped to
+#                          the whole call and costs an honest candidate nothing.
+#                          
+#                          Two rules, because the receiver on an `ast.call` row
+#                          is syntax. `System.setProperty(...)` names System;
+#                          `System.getProperties().setProperty(...)` does the
+#                          same thing and names `System.getProperties()`, and
+#                          assigning that table to a local first names the
+#                          local. What every route has in common is that it
+#                          reaches the table through `System`, so the second
+#                          rule prohibits reaching it at all. Round 2 of the
+#                          static review found the first hole.
+#   the gate's own class   GateProbe is on the driver class path, in the
+#                          candidate's JVM, and its dump is guarded by a
+#                          counter that fires once. Candidate code that calls
+#                          `gate.GateProbe.dump()` early spends that counter,
+#                          so the listener's own dump is a no-op and whatever
+#                          the candidate writes on the descriptor afterwards is
+#                          the whole file -- with no real rows to land beside
+#                          the invented ones, which is the signature the
+#                          forged-row rule below depends on. cheats.tsv
+#                          prohibits *shipping* a `gate/*` class and prohibits
+#                          the class name appearing as a string constant;
+#                          neither reads a direct call, which is a methodref
+#                          and not a string. This does. The same hole is open
+#                          at steps 2 and 3, whose review rounds are spent
+#                          (NOTES 6.4.9).
+#   the dropped program    Every rule over the per-program kinds is `absent`, so
+#                          a program that reported nothing satisfies all of
+#                          them, and on the handed tree 29 of the 96 report a
+#                          red row. Deleting those 29 files is therefore worth
+#                          more than migrating the 29 programs. A probe file
+#                          exists for every job that started a SparkContext, so
+#                          test.sh can tell a program that never reached one --
+#                          17 of this census's 140 jobs, every one an
+#                          argument-validation exit, and exactly one of those
+#                          exiting 0 -- from a file that was removed, and seeds
+#                          the second as `appsession <label> dropped`. This is
+#                          the rule that prices it.
+#   the store-assignment   ANSI mode changes two things: how expressions
+#   dodge                  evaluate, and how values cast on insert. The second
+#                          is governed by spark.sql.storeAssignmentPolicy, which
+#                          is already ANSI by default here -- measured as ANSI on
+#                          all 124 probe files of the step-3 oracle run. Setting
+#                          it to LEGACY buys back exactly the casting behaviour
+#                          the step is adopting, while leaving `ansi.enabled`
+#                          reading true for m3 to find. Both reads are guarded:
+#                          the setconf one because that is where a candidate
+#                          would write it, the conf one because that is where it
+#                          would take effect.
+#
+#   the forged probe row   GateProbe runs inside the candidate's driver JVM and
+#                          writes on a descriptor that is open in it, so rows
+#                          can be appended to a probe file and a probe file can
+#                          be rewritten. Nothing on this side of the wall can
+#                          stop that. What it cannot do is stop the real rows
+#                          from landing beside the invented ones: GateProbe
+#                          emits each of its own `probe` keys exactly once per
+#                          JVM, so a second `app.label` or a second
+#                          `session.present` in one file is a row something
+#                          other than GateProbe put there. probe-derive.py
+#                          reports that as `appsession <label> tampered`. Round
+#                          2 of the static review found the same reasoning
+#                          missing on the `setconf` rows, which come from
+#                          `conf.getAll()` filtered to spark.sql.* and are
+#                          therefore a map -- once per key per dump, so a
+#                          repeat is a forgery there too. The `conf` rows are
+#                          the one kind where a repeat is legitimate, and they
+#                          are handled the other way: a repeat that disagrees
+#                          becomes `<disagreement>`, which no rule reads as
+#                          good. Measured across the 246 recorded probe files
+#                          of the before and gold suites: 0 repeats of either
+#                          kind and 0 disagreements (NOTES 6.4.9). It reports
+#                          tampering before it applies the filter that
+#                          skips the harness's own jobs -- otherwise writing
+#                          `app.label HarnessDriver-x` as the first row of your
+#                          own file would be the way past it.
+#
+#                          This is a backstop, not the defence. The defence is
+#                          that every rule over the derived kinds is `absent`,
+#                          so a forged row can only add a reading to a rule
+#                          that fails on readings (m04.tsv).
+#
+#   the unattributable row Round 3 of the static review took the same question
+#                          one step past the file: the runner and every job of
+#                          the replay share one uid, so a later job could empty
+#                          or rewrite an earlier job's probe file, and an
+#                          `absent` rule reads an emptied file as a clean one.
+#                          So the files are no longer written on that side of
+#                          the wall at all. Root drains one fifo for the whole
+#                          replay and names each job's rows by a token it
+#                          issued to that job and recorded on a descriptor the
+#                          job does not inherit (gates/probe-split.py). A
+#                          process that outlives its job still holds the pipe,
+#                          but it holds its own token: its rows land in its own
+#                          file, beside the real ones, where a repeated key is
+#                          the forgery above. Rows carrying a token nobody was
+#                          issued belong to no job and are not given to one --
+#                          attributing a forgery to a program would be the same
+#                          mistake in the other direction. They are collected
+#                          under the label `stray`, which no job in jobs.tsv
+#                          has and no plan can produce, and this is the rule
+#                          that prices them. A stray file is a reading nobody
+#                          can stand behind, so m2-session-live goes red on it
+#                          too; two rules saying the channel is void is not a
+#                          double charge, it is the same void seen from the
+#                          two sides that look at it.
+#
+# The conf-side rule carries the `<unset>` exclusion the other conf rules carry
+# (cheats3.tsv): an angle-bracketed value is the probe failing to read, not a
+# candidate setting something, and GateProbe already reports that separately as
+# an `error` fact for common.tsv's probe-clean to catch.
+
+no-sparkconf-reflect	absent	bytecode.strconst\torg\.apache\.spark\.SparkConf\t*	bytecode-sparkconf-strconst.tsv	the jar carries SparkConf's class name as a string constant, which is how a class gets constructed by reflection when the constant pool is being read for its absence
+no-storeassignment-loosened-set	absent	probe.setconf\tspark\.sql\.storeAssignmentPolicy\t(?!ANSI$).*	probe-storeassign-legacy.tsv	a replayed job set the store-assignment policy away from ANSI, which buys back the casting behaviour ANSI mode was adopted to replace
+no-storeassignment-loosened-conf	absent	probe.conf\tspark\.sql\.storeAssignmentPolicy\t(?!ANSI$)(?!<unset>$).*	probe-storeassign-legacy.tsv	a live session ran with the store-assignment policy away from ANSI, so ANSI mode was on in name while the casting rules it governs were not in force
+no-system-property-spark	absent	ast.call\t(.*/)?src/main/.*\t*\tsetPropert(y|ies)\t(.*\.)?System	ast-system-property.tsv	a JVM system property is set from the sources; a SparkConf reads every spark.* system property when it is built, so this installs a Spark setting on sessions the step asked the candidate to write rather than on the ones they did
+no-system-property-table	absent	ast.call\t(.*/)?src/main/.*\t*\tgetProperties\t(.*\.)?System	ast-system-property-table.tsv	the JVM's system-property table is reached from the sources, which is the same dodge as setting one directly with the receiver spelled differently; this codebase never asks for it
+no-gate-class-ref	absent	bytecode.ref\tedu/sdsc/mmtf/.*\tgate/.*\t*\t*	bytecode-gate-ref.tsv	the jar under test calls into this verifier's own observer; a candidate class that can reach GateProbe can spend its once-per-JVM dump before the listener does and leave the file to be written by something else
+no-dropped-program	absent	probe.appsession\t*\tdropped	probe-program-dropped.tsv	a program that finished successfully left no probe file behind, so nothing this gate asks about it can be answered; every per-program rule is absent and silence would satisfy all of them
+no-probe-row-forgery	absent	probe.appsession\t*\ttampered	probe-tampered.tsv	a probe file carries two of a key the listener writes once per JVM, so rows in it were written by something other than the listener and no reading taken from that file means anything
+no-probe-stray	absent	probe.appsession\tstray\t*	probe-stray.tsv	rows arrived on the replay's probe channel carrying a token no job was issued, so something wrote on it that the runner never handed a place in the reading, and no file it did hand out can be trusted to be only its own

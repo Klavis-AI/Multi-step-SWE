@@ -1,0 +1,45 @@
+{
+ "doc": "stages/filters.hag_delaunay.rst: 'If the non-ground point is within the trianulated area, the assigned ``HeightAboveGround`` is the difference between its ``Z`` value and a ground height interpolated from the three vertices of the containing triangle.' The ground is the plane z=x, so interpolation at (1.5,1.5) and (2.5,2.5) is exact: HAG 10 for both non-ground points.",
+ "files": {
+  "in.txt": {
+   "text": "X,Y,Z,Classification\n0,0,0,2\n0,1,0,2\n0,2,0,2\n0,3,0,2\n0,4,0,2\n1,0,1,2\n1,1,1,2\n1,2,1,2\n1,3,1,2\n1,4,1,2\n2,0,2,2\n2,1,2,2\n2,2,2,2\n2,3,2,2\n2,4,2,2\n3,0,3,2\n3,1,3,2\n3,2,3,2\n3,3,3,2\n3,4,3,2\n4,0,4,2\n4,1,4,2\n4,2,4,2\n4,3,4,2\n4,4,4,2\n1.5,1.5,11.5,1\n2.5,2.5,12.5,1\n"
+  },
+  "p.json": {
+   "text": "{\"pipeline\": [{\"type\": \"readers.text\", \"filename\": \"in.txt\"}, {\"type\": \"filters.hag_delaunay\"}, {\"type\": \"filters.ferry\", \"dimensions\": \"HeightAboveGround=>Z\"}, {\"type\": \"writers.las\", \"filename\": \"out.las\"}]}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "out.las",
+   "header": {
+    "point_count": 27
+   },
+   "dims": {
+    "Z": {
+     "sum": 20,
+     "max": 10,
+     "min": 0,
+     "unique": [
+      0,
+      10
+     ],
+     "tol": 1e-06
+    }
+   }
+  }
+ ]
+}

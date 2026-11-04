@@ -1,0 +1,41 @@
+# arch: x86_64
+# The ternary operator works in script expressions, picks its branch from a
+# real link-time fact, and the value it selects reaches the program.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+extern char picked[];
+int g = 5;
+int entry(void) { print("ternary\n"); return (int)(long)picked; }
+C
+cc_obj m.o m.c
+mkscript() { cat > t.ld <<L
+$1
+SECTIONS {
+  . = 0x500000;
+  .text : { *(.text .text.*) }
+  .data : { *(.data .data.*) }
+}
+L
+}
+# Control: the same carrier with only pre-existing operators -- comparison,
+# SIZEOF and '+'. It must link and deliver 11, so anything the feature arm
+# below reports is the ternary and not the way the symbol is assigned.
+mkscript 'picked = (SIZEOF(.text) > 0) + 10;'
+link_ok ctl -T t.ld rt.o m.o
+run_expect ctl "ternary" 11
+
+mkscript 'picked    = (SIZEOF(.text) > 0) ? 11 : 22;
+empty_arm = (SIZEOF(.text) < 0) ? 33 : 44;
+nested    = (1 == 2) ? 1 : ((3 > 2) ? 55 : 66);'
+link_ok out -T t.ld rt.o m.o
+want "true arm taken"  "$(( 16#$(sym_value out picked) ))"    "11"
+want "false arm taken" "$(( 16#$(sym_value out empty_arm) ))" "44"
+want "nested ternary"  "$(( 16#$(sym_value out nested) ))"    "55"
+run_expect out "ternary" 11
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

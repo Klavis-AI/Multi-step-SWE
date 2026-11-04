@@ -1,0 +1,86 @@
+{
+ "doc": "stages/filters.gpstimeconvert.rst: '_`wrap`  Whether to output wrapped (true) or unwrapped (false) GPS week seconds. [Default: false]' and 'When converting to GPS week seconds, the week second wrapping preference should be specified with the wrap_ option.'",
+ "files": {
+  "in.txt": {
+   "text": "X,Y,Z,GpsTime\n0,0,0,604700\n1,0,0,604750\n2,0,0,604800\n3,0,0,604850\n"
+  },
+  "wrapped.json": {
+   "text": "{\n \"pipeline\": [\n  {\n   \"type\": \"readers.text\",\n   \"filename\": \"in.txt\"\n  },\n  {\n   \"type\": \"filters.gpstimeconvert\",\n   \"conversion\": \"gt2gws\",\n   \"wrap\": true\n  },\n  \"wrapped.las\"\n ]\n}"
+  },
+  "unwrapped.json": {
+   "text": "{\n \"pipeline\": [\n  {\n   \"type\": \"readers.text\",\n   \"filename\": \"in.txt\"\n  },\n  {\n   \"type\": \"filters.gpstimeconvert\",\n   \"conversion\": \"gt2gws\",\n   \"wrap\": false\n  },\n  \"unwrapped.las\"\n ]\n}"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "wrapped.json"
+   ]
+  },
+  {
+   "argv": [
+    "pipeline",
+    "unwrapped.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "exit",
+   "run": 1,
+   "equals": 0
+  },
+  {
+   "kind": "las",
+   "file": "wrapped.las",
+   "header": {
+    "point_count": 4
+   },
+   "dims": {
+    "GpsTime": {
+     "min": {
+      "approx": 0.0,
+      "tol": 0.001
+     },
+     "max": {
+      "approx": 604750.0,
+      "tol": 0.001
+     },
+     "sum": {
+      "approx": 1209500.0,
+      "tol": 0.01
+     }
+    }
+   }
+  },
+  {
+   "kind": "las",
+   "file": "unwrapped.las",
+   "header": {
+    "point_count": 4
+   },
+   "dims": {
+    "GpsTime": {
+     "min": {
+      "approx": 604700.0,
+      "tol": 0.001
+     },
+     "max": {
+      "approx": 604850.0,
+      "tol": 0.001
+     },
+     "sum": {
+      "approx": 2419100.0,
+      "tol": 0.01
+     }
+    }
+   }
+  }
+ ]
+}

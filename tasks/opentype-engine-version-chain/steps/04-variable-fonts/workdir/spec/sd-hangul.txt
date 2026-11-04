@@ -1,0 +1,3972 @@
+Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+ Developing OpenType Fonts for Korean Hangul Script
+
+ Feedback
+
+ Summarize this article for me
+
+This document presents information that will help font developers create or support OpenType fonts for the Korean Hangul script covered by the Unicode Standard.
+
+Introduction
+
+The Korean Hangul script is a 'syllabic' script. The syllables are formed by combining sequences of elemental, alphabetic consonants and vowels. The process of composing syllables is additive in nature and follows a set of predefined rules. The glyph elements of each composed syllable are shaped and positioned into a square display cell, often referred to as a 'syllable block', or 'syllable glyph'.
+
+The Unicode Standard provides encodings for pre-composed Hangul syllables known as 'Modern Hangul', as well as encodings for individual Hangul alphabetic elements, called 'Jamo' and known as 'Old Hangul'. 'Modern Hangul' has 11,172 pre-composed characters in the Unicode range U+AC00 through U+D7AF. 'Old Hangul' syllables can be composed from the individual Hangul Jamos encoded in the Unicode Hangul Jamo block (U+1100 through U+11FF). More specifically, only certain sequences of these Jamo characters can combine to form Old Hangul syllables. These sequences are defined in Appendix B. Only sequences defined in Appendix B will result in formation of Old Hangul syllables. Sequences of character codes from the Hangul Jamo Block that do not match any sequence pattern in Appendix B, will be considered as a sequence of individual non-Old Hangul characters.
+
+In this specification, font developers will learn how to address Old Hangul syllable formation, encode complex script features in their fonts, choose character sets, organize font information, and use existing tools to produce Old Hangul fonts. Registered features of the Korean Hangul script are defined and illustrated, encodings are listed, and templates are included for compiling Korean Hangul layout tables for OpenType fonts.
+
+This document also presents information about the Korean OpenType shaping engine of Uniscribe, the Windows component responsible for text layout.
+
+In addition to being a primer and specification for the creation and support of Hangul fonts, this document is intended to more broadly illustrate the OpenType Layout architecture, feature schemes, and operating system support for shaping and positioning text.
+
+Glossary
+
+The following terms are useful for understanding the layout features and script rules discussed in this document.
+
+Jamo - Individual Hangul alphabetic elements or atomic unit in a syllable. Consonants and vowels are both known as Jamos.
+
+Consonant - Represents a single consonant sound. Consonants are further divided into leading consonants and trailing consonants.
+
+Leading consonant (Leading Jamo) "Choseong" - the syllable initial character
+
+Trailing Consonant (Trailing Jamo) "Jongseong" - the syllable final character
+
+Vowel (Vowel Jamo) "Jungseong" - A phoneme; an independent unit in a syllable. It does not combine with any consonant to result in the transformation of any consonant-vowel combination.
+
+Notation
+
+The following notation is used in this document to illustrate layout operations:
+
+L – Leading consonant
+
+V – Vowel
+
+T – Trailing consonant
+
+S – Syllable
+
+X – Non-Jamo character
+
+{ } – Indicates 0, 1 or multiple occurrence
+
+[ ] – Indicates 0 or 1 occurrence
+
+() – Indicates 1 or multiple occurrence
+
+Shaping Engine
+
+Compose Old Hangul Jamo Combinations
+
+Analyze the Syllables
+
+Shape Glyphs with OTLS
+
+Handling Invalid Combining Marks
+
+The Uniscribe Korean shaping engine processes text in stages. The stages are:
+
+Compose Old Hangul Jamo combinations
+
+Identify syllable boundaries with OTLS
+
+Analyze the syllables
+
+Shape glyphs with OTLS (OpenType Library Services)
+
+The descriptions which follow will help font developers understand the rationale for the Korean Hangul feature encoding model, and help application developers better understand how layout clients can divide responsibilities with operating system functions.
+
+Compose Old Hangul Jamo combinations
+
+The shaping engine receives a sequence of characters (character run), which have been identified into sequences of leading consonant (L), vowel (V) and trailing consonant (T) Jamos. In each of these sequences, the shaping engine identifies the maximum length of characters which can combine to form registered Jamos. This is done according to the list of standard character combinations in Appendix B.
+
+Next, it replaces these with the corresponding old Hangul Jamo. This process is repeated on the next longest string in the sequence. This process of identification and replacement is repeated for all sequences.
+
+The result of this process is a string of registered Old Hangul Jamos like the example below:
+
+V1L1L2L3V2V3T1T2T3L4L5V4T4V5V6L6V7
+---> V1L1(L2L3)V2V3(T1T2T3)L4L5V4T4(V5V6)L6V7
+---> V1L1(L23)V2V3(T123)L4L5V4T4(V56)L6V7
+
+Analyze the Syllables
+
+The syllable unit that the shaping engine receives for the purpose of shaping is a string of Unicode characters, in a sequence. Since each Hangul syllable has the canonical format of LVT, fillers Lf and Vf, are then added, where required, in the registered Jamo sequence to convert each of them to canonical form. The shaping engine then flags each of these for appropriate feature processing. OTLS will then be called to perform OpenType layout processing for each syllable in turn.
+
+It is important to note that if any of the Jamo sequences being analyzed is capable of forming a Modern Hangul Syllable, the shaping engine does not apply OpenType features to shape them. Composition of Modern Hangul syllables is expected to be done using the pre-composed section (U+AC00 – U+D7AF), as described in the Unicode Standard.
+
+Shaping with OTLS
+
+The first step Uniscribe takes in shaping the character string is to map all characters to their nominal form glyphs.
+
+Next, Uniscribe calls the OTL Services Library to shape the Old Hangul syllable. All OTL processing is divided into a set of predefined features (described and illustrated in the Features section of this document). Each feature is applied, one by one, to the appropriate glyphs in the syllable and OTLS processes them. Uniscribe makes as many calls to the OTL Services as there are features. This ensures that the features are executed in the desired order.
+
+The steps of the shaping process are outlined below.
+
+Shaping features:
+
+Language forms
+
+Apply feature 'ccmp' to preprocess any glyphs that require composition
+
+Apply feature 'ljmo' to get the leading consonant Jamo
+
+Apply feature 'vjmo' to get the vowel Jamo
+
+Apply feature 'tjmo' to get the trailing consonant Jamo
+
+Handling Invalid Combining Marks
+
+Combining marks and signs that appear in text not in conjunction with a valid consonant base are considered invalid. When an invalid combination of letters is encountered, Uniscribe simply starts a new syllable/cluster.
+
+Please note that to render a sign standalone (in apparent isolation from any base) one should apply it on a space (see section 2.5 'Combining Marks' of Unicode Standard 3.1). Uniscribe requires a ZWJ to be placed between the space and a mark for them to combine into a standalone sign.
+
+While not required for OpenType functionality, inclusion of the ZWJ (zero width joiner; U+200C), the ZWNJ (zero width non-joiner; U+200D) and the ZWSP (zero width space; U+200B) are recommended for inclusion in Korean Hangul fonts.
+
+Features
+
+The features listed below have been defined to create the basic forms for the languages that are supported on Korean Hangul systems. Regardless of the model an application chooses for supporting layout of complex scripts, Uniscribe requires a fixed order for executing features within a run of text to consistently obtain the proper basic form. This is achieved by calling features one-by-one in the standard order listed below.
+
+The order of the lookups within each feature is also very important. For more information on lookups and defining features in OpenType fonts, see the Encoding section of the OpenType Development document.
+
+The standard order for applying Korean Hangul features encoded in OpenType fonts:
+
+ROW 
+Feature | 
+Feature function | 
+Layout operation | 
+Required | 
+
+ROW 
+Language based forms: | 
+ | 
+ | 
+
+ROW 
+ccmp | 
+Character composition/decomposition substitution | 
+GSUB | 
+ | 
+
+ROW 
+ljmo | 
+Leading consonant Jamo | 
+GSUB | 
+X | 
+
+ROW 
+vjmo | 
+Vowel Jamo | 
+GSUB | 
+X | 
+
+ROW 
+tjmo | 
+Trailing consonant Jamo | 
+GSUB | 
+X | 
+
+ROW 
+ 
+[GSUB = glyph substitution, GPOS = glyph positioning] | 
+
+Descriptions and examples of above features
+
+Character composition (and decomposition)
+
+Feature Tag: "ccmp"
+
+The 'ccmp' feature is used to compose a number of glyphs into one glyph (GSUB lookup type 4). This feature is implemented before any other features because there may be times when a font vender wants to control certain shaping of glyphs.
+
+This feature permits the composition of Old Hangul Jamos corresponding to sequences described in Appendix B. To compose Old Hangul syllables, these Jamo glyphs are then substituted to the appropriate form using the 'ljmo', 'vjmo' and 'tjmo' features. The 'ccmp' feature should be implemented before any other feature, so that these actions are given topmost priority. It is applicable to each of: Leading, Vowel and Trailing Jamo sequences.
+
+For example: the below sequence (U1107 + U1109 + U1110) of leading Jamos composed with the 'ccmp' feature.
+
+Leading consonant Jamo
+
+Feature Tag: "ljmo"
+
+The 'ljmo' feature is used to substitute the correct shape of a leading consonant Jamo for a Hangul syllable. The shaping of leading consonant Jamos is context based and depends on whether the leading Jamo is followed by a vowel Jamo alone or a sequence of vowel and trailing Jamo.
+
+For example: the leading Jamo (U1113) is replaced by the correct leading form when followed by a vowel Jamo alone.
+
+Vowel Jamo
+
+Feature Tag: "vjmo"
+
+The 'vjmo' feature is used to substitute the correct shape of a vowel Jamo for a Hangul syllable. The shaping of vowel Jamos is context based and depends on whether it is preceded by a leading Jamo alone, or a leading Jamo and followed by a trailing Jamo.
+
+For example: the Hangul vowel Jungseong AE (U1162) is replaced by the correct form when preceded by a leading Jamo alone.
+
+Trailing consonant Jamo
+
+Feature Tag: "tjmo"
+
+The 'tjmo' feature is used to substitute the correct shape of a trailing consonant Jamo for a Hangul syllable. The shaping of trailing consonant Jamos is context based and depends on whether the trailing Jamo is preceded by a leading Jamo filler and vowel Jamo or by a leading Jamo and vowel Jamo.
+
+For example: U11C7 is replaced by the correct trailing consonant when preceded by a leading Jamo and vowel Jamo.
+
+More Examples
+
+1. Old Hangul Jamo containing leading consonants, vowels and trailing Jamos.
+
+Input sequence: This sequence consists of: Choseong Pieup, Choseong Sios, Choseong Thieuth, Jungseong O, Jungseong Ya, Jungseong I, Jongseong Rieul, Jongseong Mieum, Jongseong Hieuh.
+
+'ccmp' feature applied:
+
+'ljmo', 'vjmo' and 'tjmo' features applied:
+
+2. Leading consonant Jamo + vowel Jamo + trailing Jamo.
+
+Input sequence: This sequence consists of: Choseong Ssangkiyeok, Jungseong A, Jongseong Nieun-Sios.
+
+'ljmo', 'vjmo' and 'tjmo' features applied:
+
+3. Leading consonant Jamo + vowel Jamo
+
+Input sequence: This sequence consists of: Choseong Nieun-Kiyeok, Jungseong Ae.
+
+'ljmo' and 'vjmo' features applied:
+
+Appendices
+
+Appendix A: Writing System Tags
+
+Appendix B: Standard Composition for Old Hangul Jamos
+
+Appendix A: Writing System Tags
+
+Features are encoded according to both a designated script and language system. The language system tag specifies a typographic convention associated with a language or linguistic subgroup.
+
+Currently, the Uniscribe engine only supports the "default" language for each script. However, font developers may want to build language specific features which are supported in other applications and will be supported in future Microsoft OpenType implementations.
+
+NOTE: It is strongly recommended to include the "dflt" language tag in all OpenType fonts because it defines the basic script handling for a font. The "dflt" language system is used as the default if no other language specific features are defined or if the application does not support that particular language. If the "dflt" tag is not present for the script being used, the font may not work in some applications.
+
+The following tables list the registered tag names for scripts and language systems.
+
+ROW 
+Registered tags for the Korean Hangul script | 
+Registered tags for Korean Hangul language systems | 
+
+ROW 
+Script tag | 
+Script | 
+Language system tag | 
+Language | 
+
+ROW 
+"hang" | 
+Korean Hangul | 
+"dflt" | 
+*default script handling | 
+
+ROW 
+ | 
+ | 
+"KOR " | 
+Korean | 
+
+Note: both the script and language tags are case sensitive (script tags should be lowercase, language tags are all caps) and must contain four characters (ie. you must add a space to the three character language tags).
+
+Appendix B: Standard Composition for Old Hangul Jamos
+
+ROW 
+Leading Consonants | 
+
+ROW 
+Code point | 
+Glyph | 
+ | 
+Code point | 
+Glyph | 
+ | 
+Code point | 
+Glyph | 
+
+ROW 
+U+115F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1100 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1101 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1102 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1113 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1114 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1115 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1116 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1102 | 
+ | 
++ | 
+U+1109 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1102 | 
+ | 
++ | 
+U+110C | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1102 | 
+ | 
++ | 
+U+1112 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1103 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1117 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1104 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1103 | 
+ | 
++ | 
+U+1105 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1103 | 
+ | 
++ | 
+U+1106 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1103 | 
+ | 
++ | 
+U+1107 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1103 | 
+ | 
++ | 
+U+1109 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1103 | 
+ | 
++ | 
+U+110C | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+1100 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+1100 | 
+ | 
++ | 
+U+1100 | 
+ | 
+
+ROW 
+U+1118 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+1103 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+1103 | 
+ | 
++ | 
+U+1103 | 
+ | 
+
+ROW 
+U+1119 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+1106 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+1107 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+1107 | 
+ | 
++ | 
+U+1107 | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+112B | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+1109 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+110C | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1105 | 
+ | 
++ | 
+U+110F | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+111A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+111B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1106 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1106 | 
+ | 
++ | 
+U+1100 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1106 | 
+ | 
++ | 
+U+1103 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+111C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1106 | 
+ | 
++ | 
+U+1109 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+111D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1107 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+111E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+111F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1120 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1108 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1121 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1122 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1123 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1124 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1125 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1126 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1107 | 
+ | 
++ | 
+U+1109 | 
+ | 
++ | 
+U+1110 | 
+ | 
+
+ROW 
+U+1127 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1128 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1107 | 
+ | 
++ | 
+U+110F | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1129 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+112A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1107 | 
+ | 
++ | 
+U+1112 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+112B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+112C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1109 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+112D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+112E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+112F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1130 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1131 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1132 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1133 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1109 | 
+ | 
++ | 
+U+1109 | 
+ | 
++ | 
+U+1107 | 
+ | 
+
+ROW 
+U+1134 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1135 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1136 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1137 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1138 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1139 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+113A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+113B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+113C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+113D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+113E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+113F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1140 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1141 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1142 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110B | 
+ | 
++ | 
+U+1105 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1143 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1144 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1145 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1146 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1147 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1148 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1149 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+114A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+114B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110B | 
+ | 
++ | 
+U+1112 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+114C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+114D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110C | 
+ | 
++ | 
+U+110C | 
+ | 
++ | 
+U+1112 | 
+ | 
+
+ROW 
+U+114E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+114F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1150 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1151 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1152 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1153 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1154 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1155 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+110F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1110 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1110 | 
+ | 
++ | 
+U+1110 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1111 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1156 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1111 | 
+ | 
++ | 
+U+1112 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1157 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1112 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1112 | 
+ | 
++ | 
+U+1109 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1158 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1159 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1159 | 
+ | 
++ | 
+U+1159 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+Vowels | 
+
+ROW 
+Code point | 
+Glyph | 
+ | 
+Code point | 
+Glyph | 
+ | 
+Code point | 
+Glyph | 
+
+ROW 
+U+1160 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1161 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1176 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1177 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1161 | 
+ | 
++ | 
+U+1173 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1162 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1163 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1178 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1179 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1163 | 
+ | 
++ | 
+U+116E | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1164 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1165 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+117A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+117B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+117C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1166 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1167 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1167 | 
+ | 
++ | 
+U+1163 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+117D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+117E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1168 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1169 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1169 | 
+ | 
++ | 
+U+1163 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1169 | 
+ | 
++ | 
+U+1163 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+117F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1180 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1169 | 
+ | 
++ | 
+U+1167 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1181 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1182 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1169 | 
+ | 
++ | 
+U+1169 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+1183 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116D | 
+ | 
++ | 
+U+1161 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116D | 
+ | 
++ | 
+U+1161 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+1184 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1185 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116D | 
+ | 
++ | 
+U+1165 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1186 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1187 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1188 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1189 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+118A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+118B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1170 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116E | 
+ | 
++ | 
+U+1167 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+118C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+118D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1171 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+116E | 
+ | 
++ | 
+U+1175 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+1172 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+118E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1172 | 
+ | 
++ | 
+U+1161 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+118F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1190 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1191 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1192 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1172 | 
+ | 
++ | 
+U+1169 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1193 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1194 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1173 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1173 | 
+ | 
++ | 
+U+1161 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1173 | 
+ | 
++ | 
+U+1165 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1173 | 
+ | 
++ | 
+U+1165 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+1173 | 
+ | 
++ | 
+U+1169 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1195 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1196 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1174 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1197 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1198 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1199 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
++ | 
+U+1163 | 
+ | 
++ | 
+U+1169 | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
++ | 
+U+1163 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
++ | 
+U+1167 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
++ | 
+U+1167 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+119A | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
++ | 
+U+1169 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
++ | 
+U+116D | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+119B | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
++ | 
+U+1172 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+119C | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+1175 | 
+ | 
++ | 
+U+1175 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+119D | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+119E | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+119E | 
+ | 
++ | 
+U+1161 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+119F | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+119E | 
+ | 
++ | 
+U+1165 | 
+ | 
++ | 
+U+1175 | 
+ | 
+
+ROW 
+U+11A0 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11A1 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11A2 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+**Trailing Consonants** | 
+
+ROW 
+Code point | 
+Glyph | 
+ | 
+Code point | 
+Glyph | 
+ | 
+Code point | 
+Glyph | 
+
+ROW 
+U+11A8 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11A9 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11A8 | 
+ | 
++ | 
+U+11AB | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C3 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11A8 | 
+ | 
++ | 
+U+11B8 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AA | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C4 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11A8 | 
+ | 
++ | 
+U+11BE | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11A8 | 
+ | 
++ | 
+U+11BF | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11A8 | 
+ | 
++ | 
+U+11C2 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AB | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C5 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AB | 
+ | 
++ | 
+U+11AB | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C6 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AB | 
+ | 
++ | 
+U+11AF | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C7 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C8 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AC | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AB | 
+ | 
++ | 
+U+11BE | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C9 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AD | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11CA | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
++ | 
+U+11AE | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
++ | 
+U+11AE | 
+ | 
++ | 
+U+11B8 | 
+ | 
+
+ROW 
+U+11CB | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
++ | 
+U+11B8 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
++ | 
+U+11BA | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
++ | 
+U+11BA | 
+ | 
++ | 
+U+11A8 | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
++ | 
+U+11BD | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
++ | 
+U+11BE | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AE | 
+ | 
++ | 
+U+11C0 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B0 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11A8 | 
+ | 
++ | 
+U+11A8 | 
+ | 
+
+ROW 
+U+11CC | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11A8 | 
+ | 
++ | 
+U+11C2 | 
+ | 
+
+ROW 
+U+11CD | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11CE | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11CF | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11D0 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11AF | 
+ | 
++ | 
+U+11BF | 
+ | 
+
+ROW 
+U+11B1 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11D1 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11D2 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11B7 | 
+ | 
++ | 
+U+11C2 | 
+ | 
+
+ROW 
+U+11B2 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11B8 | 
+ | 
++ | 
+U+11AE | 
+ | 
+
+ROW 
+U+11D3 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11B8 | 
+ | 
++ | 
+U+11C1 | 
+ | 
+
+ROW 
+U+11D4 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11D5 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B3 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11D6 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11D7 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11F0 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11D8 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B4 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B5 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B6 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11D9 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11F9 | 
+ | 
++ | 
+U+11C2 | 
+ | 
+
+ROW 
+U+11AF | 
+ | 
++ | 
+U+11BC | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B7 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11DA | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B7 | 
+ | 
++ | 
+U+11AB | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B7 | 
+ | 
++ | 
+U+11AB | 
+ | 
++ | 
+U+11AB | 
+ | 
+
+ROW 
+U+11DB | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B7 | 
+ | 
++ | 
+U+11B7 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11DC | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B7 | 
+ | 
++ | 
+U+11B8 | 
+ | 
++ | 
+U+11BA | 
+ | 
+
+ROW 
+U+11DD | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11DE | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11DF | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B7 | 
+ | 
++ | 
+U+11BD | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E0 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E1 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E2 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B8 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B8 | 
+ | 
++ | 
+U+11AE | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E3 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B8 | 
+ | 
++ | 
+U+11AF | 
+ | 
++ | 
+U+11C1 | 
+ | 
+
+ROW 
+U+11B8 | 
+ | 
++ | 
+U+11B7 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B8 | 
+ | 
++ | 
+U+11B8 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B9 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B8 | 
+ | 
++ | 
+U+11BA | 
+ | 
++ | 
+U+11AE | 
+ | 
+
+ROW 
+U+11B8 | 
+ | 
++ | 
+U+11BD | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11B8 | 
+ | 
++ | 
+U+11BE | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E4 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E5 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E6 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E7 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E8 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11E9 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11B7 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11EA | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11E6 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BB | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11BA | 
+ | 
++ | 
+U+11A8 | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11BA | 
+ | 
++ | 
+U+11AE | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11EB | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11BD | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11BE | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11C0 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BA | 
+ | 
++ | 
+U+11C2 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11EB | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11EB | 
+ | 
++ | 
+U+11B8 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11EB | 
+ | 
++ | 
+U+11E6 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BC | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11EC | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11ED | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BC | 
+ | 
++ | 
+U+11B7 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BC | 
+ | 
++ | 
+U+11BA | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11EE | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11EF | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BC | 
+ | 
++ | 
+U+11C2 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F0 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F0 | 
+ | 
++ | 
+U+11A8 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F1 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F2 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F0 | 
+ | 
++ | 
+U+11BF | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F0 | 
+ | 
++ | 
+U+11C2 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BD | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BD | 
+ | 
++ | 
+U+11B8 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BD | 
+ | 
++ | 
+U+11B8 | 
+ | 
++ | 
+U+11B8 | 
+ | 
+
+ROW 
+U+11BD | 
+ | 
++ | 
+U+11BD | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BE | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11BF | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C0 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C1 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F3 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C1 | 
+ | 
++ | 
+U+11BA | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C1 | 
+ | 
++ | 
+U+11C0 | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F4 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11C2 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F5 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F6 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F7 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F8 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ROW 
+U+11F9 | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+ | 
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ Script development specifications
+
+ Open a documentation issue
+
+ Provide product feedback
+
+ Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2022-06-16

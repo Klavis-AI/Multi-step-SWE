@@ -1,0 +1,36 @@
+# Scored input: Lennard-Jones melt. Verifier-owned; never read from /app.
+#
+# thermostatted melt of a single species, cut at 2.5 sigma, in the reduced
+# units the upstream benchmark uses. The two configurations differ only in how
+# LAMMPS resolves `lj/cut`: with the intel suffix on, the accelerated twin if
+# the tree has one, the reference implementation otherwise.
+#
+# The first 50 steps are warm-up; the compared window (the grader compares the
+# first 25 printed timesteps) lies inside them and inside the timed run, so the
+# compared window and the timed run are the same trajectory.
+
+units           lj
+atom_style      atomic
+newton          on
+
+lattice         fcc 0.8442
+region          box block 0 20 0 20 0 20
+create_box      1 box
+create_atoms    1 box
+mass            1 1.0
+
+velocity        all create 1.44 87287 loop geom
+
+pair_style      lj/cut 2.5
+pair_coeff      1 1 1.0 1.0 2.5
+
+neighbor        0.3 bin
+neigh_modify    delay 0 every 20 check no
+
+fix             1 all nve
+timestep        0.005
+thermo          1
+thermo_style    custom step temp pe ke etotal press
+
+run             50
+run             200

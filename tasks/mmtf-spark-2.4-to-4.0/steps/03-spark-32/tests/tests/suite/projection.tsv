@@ -1,0 +1,80 @@
+# job	class	rule	reason
+#
+# The per-job scoring projection NOTES-authoring.md 4.5.4 describes. A recording
+# is what the baseline did and stays whole; this file is what the *scorer* is
+# allowed to compare, per job, and why.
+#
+# Rules:
+#   head:N          keep the first N lines, discard the rest
+#   drop:<regex>    discard every line the (unanchored, re.search) pattern hits
+#   sort            sort each maximal run of lines starting with "|", which is
+#                   a show() grid's data rows; the header is a run of one, so
+#                   it does not move. Gives up row order, nothing else
+#   cut:A;;B        drop the block from the first line matching A up to the
+#                   next line matching B, which is kept; repeatable, runs to
+#                   EOF if B never matches
+#   vec             canonicalize a show() grid -- drop the +---+ rules, rstrip
+#                   every cell -- and rewrite a cell that is a bracketed list of
+#                   numbers as [<vec:N>], N being the element count, or
+#                   [<vec:...>] where show() truncated the cell. Names, row
+#                   order, row count, every string cell and the printed arity
+#                   still compare; only the float values stop comparing.
+#
+# Classes. There are two reasons a line cannot be compared as text, they are not
+# the same reason, and the file used to have only the first:
+#
+#   RUN   the line moves between two runs of the *same* build. The job must
+#         therefore also be declared ORDER or VALUE in build/determinism.tsv,
+#         which is the file that says what a recording may be compared as
+#         within a rung.
+#   RUNG  the line is perfectly repeatable within a rung -- determinism.tsv
+#         says STABLE and means it -- and moves between Spark versions for a
+#         mechanism no migration guide documents. Rule 5 lets a step re-record
+#         an input only when the target version documents the change, so an
+#         undocumented cross-version move can be neither scored as text nor
+#         made must-flip. It is projected instead, and the job must be STABLE
+#         in determinism.tsv, not loose.
+#
+# The distinction is load-bearing and was got wrong first: the tempting fix for
+# the two RUNG rows below was to relabel them VALUE in determinism.tsv so that
+# the old one-way cross-check would pass. That would have been a false statement
+# about within-run repeatability, made to satisfy a bookkeeping invariant, and
+# it would have silently licensed every later step to stop comparing those jobs
+# as text within a rung. projection.py --selftest now asserts the classes
+# separately: RUN rows and the ORDER/VALUE declarations must name exactly the
+# same jobs, and every RUNG row must name a job declared STABLE.
+#
+# Every row is a line of the baseline's behavior this suite has given up on
+# measuring, so each one carries the mechanism, named in source or in an
+# upstream library. "Looked flaky once" is not a mechanism: rule 7's "record
+# every candidate twice" is the floor for admitting a row here, not the
+# standard. Twenty rows, and twenty is meant to be the whole list.
+#
+# A RUNG row costs more than a RUN row and the cost is easy to miss: the
+# projection is one file shipped to all ten steps, so a job projected for a
+# mechanism that lands at rung 7 stops being compared at rungs 1-6 as well,
+# where it was byte-exact. That is why `vec` was built instead of reusing
+# `drop`: the cheap line-class rule drop:^[+|] would have reconciled the same
+# five jobs while keeping 11, 18, 5, 15 and 14 of their 40, 47, 73, 44 and 35
+# lines, throwing away whole neighbouring tables that never moved. `vec` keeps
+# 37, 44, 67, 41 and 32.
+ReadLocalMmtfHadoopFile	RUN	head:1	sample(false, 0.01) at ReadLocalMmtfHadoopFile.java:36 takes no seed, so the structures dumped after the count are a different draw each run; the count itself is over the whole corpus and does not move
+ReadLocalMmtfHadoopFile-rosetta	RUN	head:1	the same unseeded sample, over the 4-entry rosetta corpus; the recording is the single line "# structures: 4" and a dump appears after it on about 4% of runs
+HarnessDriver-exhaustive	RUN	drop:^l: 	ExhaustiveAligner superposes into the broadcast arrays (2.5 #12), so the alignment rows vary in value and in count; the schema, the header and the trailing counts do not
+DatasetClassifier	RUNG	head:9	DatasetBalancer.java:52 downsamples with sample(false, minCount/c[i], seed); the same seed and fraction draw 2 of the 16 alpha rows at Spark 2.4 and 0 from 3.0 on, so "Dataset size (balanced)" goes 3 -> 1 and the one-row training set then decides whether the run survives at all (NOTES 4.9.1). Nothing in the 2.4-to-3.0 migration guide documents a Dataset.sample change, so this cannot be must-flip. head:9 is the exact prefix: the feature and class counts, the unbalanced size and the whole unbalanced group-by table are byte-identical at r23, c02, c04, c09, c10 and c12, and line 10 is the first that moves
+PdbToUniProtMappingDemo	RUNG	drop:^[0-9][A-Z0-9]{3}$	PdbToUniProt.downloadData puts System.out.println(pdbId) inside the FlatMapFunction, and the demo materializes with show() -- take(20). CollectLimitExec scans partitions incrementally, so how many ids get echoed is a count of how much input the limit happened to touch: one at Spark 3.4 and earlier, two from 3.5 (NOTES 4.10.3). All 20 scored rows are byte-identical at every rung, and with these lines dropped the whole recording is, r23 through c12. CreatePdbToUniProtMappingFile{,-u} echo through the same path and are not projected because they have not moved; if they ever do, this is the row to copy
+SecondaryStructureWord2VecEncoder	RUNG	vec	Word2Vec.fit trains by asynchronous SGD over setNumPartitions(8) with the default class-name-hash seed; the partition-merge order is a race, so the vectors differ at every rung while the sequence, ngram and label columns that feed them do not. No migration guide documents it (4.10.3). The control that makes this affordable: SecondaryStructureOneHotEncoder, -PropertyEncoder and -Blosum62Encoder print the same structureChainId, sequence and label columns from the same windowing code and are byte-identical at all six rungs, so the substance is still scored.
+SecondaryStructureShiftedWord2VecEncoder	RUNG	vec	the same Word2Vec training race, over the shifted-window variant; three ngram columns and three feature columns, and only the six feature cells move. Control: SecondaryStructureSegmentDemo, byte-identical at all six rungs.
+SecondaryStructureElementsWord2VecEncoder	RUNG	vec	the same Word2Vec training race. This job prints two tables and only the second has a vector column; a line-class rule would have taken the first table with it, which is what `vec` exists to avoid. Control: SecondaryStructureElementDemo, byte-identical at all six rungs.
+SecondaryStructureWord2VecModelEncoder	RUNG	vec	reads the pre-trained {PROD}/w2v-pdb.model rather than training, but that model was itself produced by the same asynchronous SGD, and Spark's Word2VecModel.transform reconstructs the vectors from it, so the values still move across rungs.
+ProteinFoldDatasetCreator	RUNG	vec	the same Word2Vec training race. This one prints with the default truncate=20, so its vector cells arrive cut off with no closing bracket and no visible element count: they project to [<vec:...>] and the arity is genuinely unscored here, unlike the four truncate=false jobs above. The alpha/beta/coil fractions, the DSSP strings and the foldType label are all still compared.
+HarnessDriver-siftslocal	RUNG	drop:^[0-9][A-Z0-9]{3}$	PdbToUniProt.downloadData:335 puts System.out.println(pdbId) inside the FlatMapFunction, so the ids that reach stdout are however many partitions show()'s CollectLimitExec scanned before it had its rows -- 4 at Spark 2.4, 0 from 3.0 on. Same mechanism as PdbToUniProtMappingDemo. This row removes only the echo: the job's own table still moves at Spark 3.5 for SPARK-43063 (null -> NULL), which is documented, and stays a must-flip at step 7.
+PdbMetadataDemo	RUNG	drop:\|6[01] +\|$	the top-10-journals table is a tie all the way down -- seven journals at 61 and three at 60 for ten slots -- so groupBy().count().sort() picks an order Spark is not obliged to keep, and the 60-tie decides which of the three gets the tenth row (Nucleic Acids Res. through 3.0, Embo J. from 3.2). Anchored on the counts rather than on the row shape so that a count that actually changed, 61 -> 62, would resurface the row and fail loudly; a shape-anchored rule reconciles the same six rungs but would hide that. The other two tables this job prints are untouched.
+DemoAllVsAll	RUNG	drop:^\|[0-9]	SPARK-23643 (Bug, Fix Version 3.0.0, Resolution Fixed) rewrote XORShiftRandom.hashSeed to stop zero-padding the seed to 64 bytes, so the same user seed maps to a different internal seed and every sampler built on it draws a different stream from Spark 3.0 on. It is a memory fix whose title says nothing about behaviour, no migration guide mentions sampling (checked: core, sql and ml guides, with statisticalAggregate and castComplexTypesToString as the positive controls), and it ships no legacy flag -- so it is a citable mechanism but not a documented semantic change, and rule 5 will not let it be must-flip. Projected instead. MmtfReader.readSequenceFile(path, fraction, seed, sc) at MmtfReader.java:152 picks which structures get aligned, so every alignment row is a different pair from Spark 3.0 on, and they reorder again at 3.4. The row count, the header, the schema and the timing survive; 9 of 37 lines.
+DemoQueryVsAll	RUNG	drop:^\|[0-9]|^Pairs: 	SPARK-23643 (Bug, Fix Version 3.0.0, Resolution Fixed) rewrote XORShiftRandom.hashSeed to stop zero-padding the seed to 64 bytes, so the same user seed maps to a different internal seed and every sampler built on it draws a different stream from Spark 3.0 on. It is a memory fix whose title says nothing about behaviour, no migration guide mentions sampling (checked: core, sql and ml guides, with statisticalAggregate and castComplexTypesToString as the positive controls), and it ships no legacy flag -- so it is a citable mechanism but not a documented semantic change, and rule 5 will not let it be must-flip. Projected instead. Same reader call. `Pairs: N` counts the drawn pairs (2 at Spark 2.4, 6 from 3.0) so it goes with the rows; the query structure list, which is hard-coded and not drawn, stays.
+WriteMmtfCustom	RUNG	drop:^# structures in custom set: 	SPARK-23643 (Bug, Fix Version 3.0.0, Resolution Fixed) rewrote XORShiftRandom.hashSeed to stop zero-padding the seed to 64 bytes, so the same user seed maps to a different internal seed and every sampler built on it draws a different stream from Spark 3.0 on. It is a memory fix whose title says nothing about behaviour, no migration guide mentions sampling (checked: core, sql and ml guides, with statisticalAggregate and castComplexTypesToString as the positive controls), and it ships no legacy flag -- so it is a citable mechanism but not a documented semantic change, and rule 5 will not let it be must-flip. Projected instead. WriteMmtfCustom.java:41 hard-codes fraction=0.2 seed=123 and then counts what three filters left: 1 structure at Spark 2.4, 4 from 3.0. That count is the whole answer, so what is left is the path echo and the timing: this job is coverage for the MmtfWriter path and is not behaviour-scored. Said plainly here rather than left to look like a scored job.
+DatasetRegressor	RUNG	drop:rmse=	SPARK-23643 (Bug, Fix Version 3.0.0, Resolution Fixed) rewrote XORShiftRandom.hashSeed to stop zero-padding the seed to 64 bytes, so the same user seed maps to a different internal seed and every sampler built on it draws a different stream from Spark 3.0 on. It is a memory fix whose title says nothing about behaviour, no migration guide mentions sampling (checked: core, sql and ml guides, with statisticalAggregate and castComplexTypesToString as the positive controls), and it ships no legacy flag -- so it is a citable mechanism but not a documented semantic change, and rule 5 will not let it be must-flip. Projected instead. Two drifts on one line. The 2.4 -> 3.0 jump is the redraw (0.0954 -> 0.0187 for LinearRegression); every later rung moves the last few digits instead (…384486524 -> …384475441 at 3.2, …765638293 at 3.4, …524182713 at 4.0), which is summation order inside the optimiser. Rounding would reconcile the second but not the first. The feature count, the dataset size, all three method headers and all three prediction tables still compare; 18 of 21 lines.
+HarnessDriver-balance	RUNG	cut:^balance downsampled: ;;^balance upsampled: 	SPARK-23643 (Bug, Fix Version 3.0.0, Resolution Fixed) rewrote XORShiftRandom.hashSeed to stop zero-padding the seed to 64 bytes, so the same user seed maps to a different internal seed and every sampler built on it draws a different stream from Spark 3.0 on. It is a memory fix whose title says nothing about behaviour, no migration guide mentions sampling (checked: core, sql and ml guides, with statisticalAggregate and castComplexTypesToString as the positive controls), and it ships no legacy flag -- so it is a citable mechanism but not a documented semantic change, and rule 5 will not let it be must-flip. Projected instead. DatasetBalancer.java:52 downsamples with sample(false, minCount/count, seed), so both the row count and the per-class counts are a draw. The downsample table has exactly the shape of the input table printed above it, so no line pattern reaches it without taking stable input rows too -- which is why `cut` exists. Cost is the block and nothing else: the 82-row input table and the whole 441-row upsample table, which is not sampled, still compare; 25 of 37 lines.
+AtpInteractionAnalysis	RUNG	sort	show() over a groupBy().count() with no total order: the rows tie and Spark is not obliged to break the tie the same way twice. Every row is still present with the same cells at every rung -- rung-diff calls this ORDER, not VALUE -- so the rows are sorted rather than dropped, which gives up the order and keeps all 51 lines. Declared STABLE in determinism.tsv and meant: inside one rung the tie breaks the same way every run, which is why this is a RUNG row and not a RUN row. Two rows tie at 2; they swap at Spark 3.2 and again at 3.4.
+InteractionAnalysisAdvanced	RUNG	sort	show() over a groupBy().count() with no total order: the rows tie and Spark is not obliged to break the tie the same way twice. Every row is still present with the same cells at every rung -- rung-diff calls this ORDER, not VALUE -- so the rows are sorted rather than dropped, which gives up the order and keeps all 84 lines. Declared STABLE in determinism.tsv and meant: inside one rung the tie breaks the same way every run, which is why this is a RUNG row and not a RUN row. Rows tie at 1 across five separate tables; they reorder at Spark 3.2.
+PdbLigandDemo	RUNG	sort	show() over a groupBy().count() with no total order: the rows tie and Spark is not obliged to break the tie the same way twice. Every row is still present with the same cells at every rung -- rung-diff calls this ORDER, not VALUE -- so the rows are sorted rather than dropped, which gives up the order and keeps all 39 lines. Declared STABLE in determinism.tsv and meant: inside one rung the tie breaks the same way every run, which is why this is a RUNG row and not a RUN row. Ties across three tables; they reorder at Spark 3.2 and again at 3.4.

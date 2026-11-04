@@ -1,0 +1,1200 @@
+{
+ "per_check_timeout": 300,
+ "total_budget": 1800,
+ "checks": [
+  {
+   "id": "g04_precedence_tree",
+   "stage": {
+    "common/alx": "."
+   },
+   "write": {
+    "in.txt": "1 + 2 * 3"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.txt"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [0, 9]\n  (expression [0, 0] - [0, 9]\n    (sum [0, 0] - [0, 9]\n      (expression [0, 0] - [0, 1]\n        (number [0, 0] - [0, 1]))\n      (expression [0, 4] - [0, 9]\n        (product [0, 4] - [0, 9]\n          (expression [0, 4] - [0, 5]\n            (number [0, 4] - [0, 5]))\n          (expression [0, 8] - [0, 9]\n            (number [0, 8] - [0, 9])))))))"
+   }
+  },
+  {
+   "id": "g04_corpus_suite",
+   "stage": {
+    "common/alx": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "precedence"
+    ]
+   }
+  },
+  {
+   "id": "g04_glr_and_precedence_tree",
+   "stage": {
+    "s04/gexpr": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.gexpr"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [3, 0]\n  (bin [0, 0] - [0, 9]\n    (num [0, 0] - [0, 1])\n    (bin [0, 4] - [0, 9]\n      (num [0, 4] - [0, 5])\n      (ident [0, 8] - [0, 9])))\n  (bin [1, 0] - [1, 7]\n    (paren [1, 0] - [1, 5]\n      (bin [1, 1] - [1, 4]\n        (ident [1, 1] - [1, 2])\n        (ident [1, 3] - [1, 4])))\n    (num [1, 6] - [1, 7]))\n  (call [2, 0] - [2, 4]\n    (ident [2, 0] - [2, 1])\n    (ident [2, 2] - [2, 3])))"
+   }
+  },
+  {
+   "id": "g04_gexpr_corpus_and_query",
+   "stage": {
+    "s04/gexpr": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    },
+    {
+     "kind": "query",
+     "query": "q.scm",
+     "input": "in.gexpr",
+     "query_args": [
+      "--captures"
+     ]
+    }
+   ],
+   "expect": {
+    "captures": "in.gexpr\n    pattern:  0, capture: 0 - number, start: (0, 0), end: (0, 1), text: `1`\n    pattern:  0, capture: 0 - number, start: (0, 4), end: (0, 5), text: `2`\n    pattern:  0, capture: 0 - number, start: (1, 6), end: (1, 7), text: `3`\n    pattern:  1, capture: 1 - callee, start: (2, 0), end: (2, 1), text: `f`\n    pattern:  1, capture: 1 - callee, start: (2, 2), end: (2, 3), text: `x`",
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "parenthesised",
+     "sum and product"
+    ]
+   }
+  },
+  {
+   "id": "g04_extras_alias_inline_unicode",
+   "stage": {
+    "s04/gmisc": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "input": "in.gmisc"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [4, 0]\n  (decl [0, 0] - [0, 6]\n    name: (id [0, 4] - [0, 5]))\n  (comment [0, 7] - [0, 13])\n  (decl [1, 0] - [1, 6]\n    name: (varname [1, 4] - [1, 5]))\n  (glued [2, 0] - [2, 2]\n    (id [2, 0] - [2, 1]))\n  (word [3, 0] - [3, 6])\n  (word [3, 7] - [3, 11]))"
+   }
+  },
+  {
+   "id": "g04_recovery_missing_and_error",
+   "stage": {
+    "s04/gmisc": "."
+   },
+   "write": {
+    "miss.gmisc": "let a\n",
+    "inv.gmisc": "let a; @ let b;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "parse",
+     "prefix": "missing_",
+     "input": "miss.gmisc"
+    },
+    {
+     "kind": "parse",
+     "prefix": "error_",
+     "input": "inv.gmisc"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "missing_parse_exit_zero": false,
+    "missing_tree": "(source_file [0, 0] - [1, 0]\n  (decl [0, 0] - [0, 5]\n    name: (id [0, 4] - [0, 5])))",
+    "error_parse_exit_zero": false,
+    "error_tree": "(source_file [0, 0] - [1, 0]\n  (decl [0, 0] - [0, 6]\n    name: (id [0, 4] - [0, 5]))\n  (ERROR [0, 7] - [0, 8]\n    (ERROR [0, 7] - [0, 8]))\n  (decl [0, 9] - [0, 15]\n    name: (id [0, 13] - [0, 14])))"
+   }
+  },
+  {
+   "id": "g04_query_predicates_fields_quantifiers",
+   "stage": {
+    "s04/gmisc": "gm",
+    "s04/gexpr": "ge"
+   },
+   "write": {
+    "gm/qg.scm": "(decl name: (id) @n)\n((id) @i (#any-of? @i \"a\" \"zz\"))\n(glued !name) @g\n",
+    "ge/qq.scm": "(source_file (bin)+ @runs)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "gm"
+    },
+    {
+     "kind": "cli",
+     "cwd": "gm",
+     "prefix": "warmgm_",
+     "args": [
+      "query",
+      "qg.scm",
+      "in.gmisc"
+     ]
+    },
+    {
+     "kind": "cli",
+     "cwd": "gm",
+     "prefix": "pred_",
+     "stream": "stdout",
+     "args": [
+      "query",
+      "qg.scm",
+      "in.gmisc"
+     ],
+     "contains": {
+      "path_line": "in.gmisc",
+      "field_capture": "pattern: 0\n    capture: 0 - n, start: (0, 4), end: (0, 5), text: `a`",
+      "predicate_capture": "pattern: 1\n    capture: 1 - i, start: (0, 4), end: (0, 5), text: `a`",
+      "negated_field_capture": "pattern: 2\n    capture: 2 - g, start: (2, 0), end: (2, 2), text: `c!`"
+     }
+    },
+    {
+     "kind": "generate",
+     "cwd": "ge",
+     "prefix": "ge_"
+    },
+    {
+     "kind": "cli",
+     "cwd": "ge",
+     "prefix": "warmge_",
+     "args": [
+      "query",
+      "qq.scm",
+      "in.gexpr"
+     ]
+    },
+    {
+     "kind": "query",
+     "cwd": "ge",
+     "prefix": "quant_",
+     "query": "qq.scm",
+     "input": "in.gexpr"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "ge_generate_exit_zero": true,
+    "pred_cli_exit_code": 0,
+    "pred_cli_exit_zero": true,
+    "pred_contains:path_line": true,
+    "pred_contains:field_capture": true,
+    "pred_contains:predicate_capture": true,
+    "pred_contains:negated_field_capture": true,
+    "quant_query_exit_zero": true,
+    "quant_captures": "in.gexpr\n  pattern: 0\n    capture: 0 - runs, start: (0, 0), end: (0, 9), text: `1 + 2 * x`",
+    "warmgm_cli_exit_code": 0,
+    "warmgm_cli_exit_zero": true,
+    "warmge_cli_exit_code": 0,
+    "warmge_cli_exit_zero": true
+   }
+  },
+  {
+   "id": "g04_external_scanner_serialization",
+   "stage": {
+    "s04/gscan": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    },
+    {
+     "kind": "parse",
+     "input": "in.gscan"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "one heredoc",
+     "two heredocs with different tags"
+    ],
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [5, 2]\n  (heredoc [0, 0] - [2, 3]\n    (heredoc_start [0, 0] - [0, 5])\n    (heredoc_body [0, 5] - [2, 3]))\n  (heredoc [3, 0] - [5, 2]\n    (heredoc_start [3, 0] - [3, 4])\n    (heredoc_body [3, 4] - [5, 2])))"
+   }
+  },
+  {
+   "id": "g04_no_language_exit_zero",
+   "write": {
+    "x.unclaimed": "zz\n"
+   },
+   "steps": [
+    {
+     "kind": "cli",
+     "prefix": "hl_",
+     "args": [
+      "highlight",
+      "x.unclaimed"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "tags_",
+     "args": [
+      "tags",
+      "x.unclaimed"
+     ]
+    }
+   ],
+   "expect": {
+    "hl_cli_exit_code": 0,
+    "hl_cli_exit_zero": true,
+    "tags_cli_exit_code": 0,
+    "tags_cli_exit_zero": true
+   }
+  },
+  {
+   "id": "g04_generated_artifacts",
+   "stage": {
+    "s04/sel": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "files",
+     "expect_files": [
+      "src/parser.c",
+      "src/node-types.json",
+      "src/grammar.json",
+      "src/tree_sitter/parser.h",
+      "binding.gyp",
+      "bindings/node/index.js",
+      "bindings/rust/lib.rs",
+      "Cargo.toml"
+     ],
+     "expect_absent": [
+      "src/nonexistent.c"
+     ]
+    },
+    {
+     "kind": "artifact",
+     "probes": [
+      {
+       "name": "abi",
+       "file": "src/parser.c",
+       "regex": "#define LANGUAGE_VERSION (\\d+)"
+      },
+      {
+       "name": "symbol",
+       "file": "src/parser.c",
+       "contains": "tree_sitter_sel"
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "abi": "14",
+    "absent:src/nonexistent.c": true,
+    "file:Cargo.toml": true,
+    "file:binding.gyp": true,
+    "file:bindings/node/index.js": true,
+    "file:bindings/rust/lib.rs": true,
+    "file:src/grammar.json": true,
+    "file:src/node-types.json": true,
+    "file:src/parser.c": true,
+    "file:src/tree_sitter/parser.h": true,
+    "generate_exit_zero": true,
+    "symbol": true
+   }
+  },
+  {
+   "id": "g04_corpus_filter",
+   "stage": {
+    "s04/sel": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--filter",
+      "beta"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "beta two"
+    ]
+   }
+  },
+  {
+   "id": "g04_highlight_test_baseline",
+   "stage": {
+    "s04/hlx": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "captures.hlx (2 assertions)"
+    ]
+   }
+  },
+  {
+   "id": "g04_token_single_argument",
+   "write": {
+    "grammar.js": "module.exports = grammar({ name: 'tok1', extras: $ => [/\\s/],\n  rules: { source_file: $ => repeat($.a), a: $ => token(seq('x', 'y')) }});\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "files",
+     "expect_files": [
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "file:src/parser.c": true,
+    "generate_exit_zero": true
+   }
+  },
+  {
+   "id": "s04_lastwins_specific_pattern_last",
+   "stage": {
+    "s04/hlx": "."
+   },
+   "write": {
+    "queries/highlights.scm": "(id) @variable\n(kw) @keyword\n(item (id) @function)\n",
+    "test/highlight/captures.hlx": "let foo;\n// <- keyword\n//  ^ function\nlet bar;\nlet baz;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "captures.hlx (2 assertions)"
+    ]
+   }
+  },
+  {
+   "id": "s04_lastwins_general_pattern_last",
+   "stage": {
+    "s04/hlx": "."
+   },
+   "write": {
+    "queries/highlights.scm": "(item (id) @function)\n(kw) @keyword\n(id) @variable\n",
+    "test/highlight/captures.hlx": "let foo;\n// <- keyword\n//  ^ variable\nlet bar;\nlet baz;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "captures.hlx (2 assertions)"
+    ]
+   }
+  },
+  {
+   "id": "s04_lastwins_three_patterns",
+   "stage": {
+    "s04/hlx": "."
+   },
+   "write": {
+    "queries/highlights.scm": "(kw) @keyword\n(id) @variable\n(item (id) @function)\n(id) @constant\n",
+    "test/highlight/captures.hlx": "let foo;\n// <- keyword\n//  ^ constant\nlet bar;\nlet baz;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "captures.hlx (2 assertions)"
+    ]
+   }
+  },
+  {
+   "id": "s04_lastwins_keyword_token",
+   "stage": {
+    "s04/hlx": "."
+   },
+   "write": {
+    "queries/highlights.scm": "(kw) @keyword\n(id) @variable\n(item (kw) @operator)\n",
+    "test/highlight/captures.hlx": "let foo;\n// <- operator\n//  ^ variable\nlet bar;\nlet baz;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "captures.hlx (2 assertions)"
+    ]
+   }
+  },
+  {
+   "id": "s04_lastwins_highlight_html",
+   "stage": {
+    "s04/hlx": "tree-sitter-hlx"
+   },
+   "write": {
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"#0000ff\", \"variable\": \"#ff00ff\", \"function\": \"#00ff00\"}}\n",
+    "in.hlx": "let foo;\n",
+    "tree-sitter-hlx/queries/highlights.scm": "(id) @variable\n(kw) @keyword\n(item (id) @function)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "tree-sitter-hlx"
+    },
+    {
+     "kind": "cli",
+     "stream": "stdout",
+     "args": [
+      "highlight",
+      "--config-path",
+      "cfg.json",
+      "--html",
+      "in.hlx"
+     ],
+     "contains": {
+      "function_colour": "#00ff00",
+      "variable_colour": "#ff00ff",
+      "keyword_colour": "#0000ff"
+     }
+    },
+    {
+     "kind": "cli",
+     "prefix": "term_",
+     "args": [
+      "highlight",
+      "--config-path",
+      "cfg.json",
+      "in.hlx"
+     ],
+     "stream": "stdout",
+     "capture": "exact"
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "contains:function_colour": true,
+    "contains:keyword_colour": true,
+    "contains:variable_colour": false,
+    "generate_exit_zero": true,
+    "term_cli_exit_code": 0,
+    "term_cli_exit_zero": true,
+    "term_cli_output": "let foo;"
+   }
+  },
+  {
+   "id": "s04_extras_empty_string_rejected",
+   "write": {
+    "grammar.js": "module.exports = grammar({ name: 'badx', extras: $ => [/\\s/, ''],\n  rules: { source_file: $ => repeat($.a), a: $ => 'a' }});\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "capture_generate_stderr_class": true
+    },
+    {
+     "kind": "cli",
+     "prefix": "status_",
+     "args": [
+      "generate"
+     ]
+    },
+    {
+     "kind": "files",
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "absent:src/parser.c": true,
+    "generate_exit_zero": false,
+    "generate_reports_a_diagnostic": true,
+    "status_cli_exit_code": 1,
+    "status_cli_exit_zero": false
+   }
+  },
+  {
+   "id": "s04_token_multiple_arguments_rejected",
+   "write": {
+    "grammar.js": "module.exports = grammar({ name: 'badt', extras: $ => [/\\s/],\n  rules: { source_file: $ => repeat($.a), a: $ => token('p', 'q') }});\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "capture_generate_stderr_class": true
+    },
+    {
+     "kind": "cli",
+     "prefix": "status_",
+     "args": [
+      "generate"
+     ]
+    },
+    {
+     "kind": "files",
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "absent:src/parser.c": true,
+    "generate_exit_zero": false,
+    "generate_reports_a_diagnostic": true,
+    "status_cli_exit_code": 1,
+    "status_cli_exit_zero": false
+   }
+  },
+  {
+   "id": "s04_token_immediate_multiple_arguments_rejected",
+   "write": {
+    "grammar.js": "module.exports = grammar({ name: 'badti', extras: $ => [/\\s/],\n  rules: { source_file: $ => repeat($.a),\n           a: $ => seq('p', token.immediate('q', 'r')) }});\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "capture_generate_stderr_class": true
+    },
+    {
+     "kind": "cli",
+     "prefix": "status_",
+     "args": [
+      "generate"
+     ]
+    },
+    {
+     "kind": "files",
+     "expect_absent": [
+      "src/parser.c"
+     ]
+    }
+   ],
+   "expect": {
+    "absent:src/parser.c": true,
+    "generate_exit_zero": false,
+    "generate_reports_a_diagnostic": true,
+    "status_cli_exit_code": 1,
+    "status_cli_exit_zero": false
+   }
+  },
+  {
+   "id": "s04_test_include_by_name",
+   "stage": {
+    "s04/sel": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--include",
+      "beta"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "beta two"
+    ]
+   }
+  },
+  {
+   "id": "s04_test_exclude_by_name",
+   "stage": {
+    "s04/sel": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--exclude",
+      "beta"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "alpha one",
+     "gamma three"
+    ]
+   }
+  },
+  {
+   "id": "s04_test_include_regex_alternation",
+   "stage": {
+    "s04/sel": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--include",
+      "^(alpha|gamma)"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "test_exit_zero": true,
+    "tests_failed": [],
+    "tests_passed": [
+     "alpha one",
+     "gamma three"
+    ]
+   }
+  },
+  {
+   "id": "s04_test_filter_selects_nothing",
+   "stage": {
+    "s04/sel": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "prefix": "anchor_",
+     "test_args": [
+      "--include",
+      "three$"
+     ]
+    },
+    {
+     "kind": "test",
+     "prefix": "none_",
+     "test_args": [
+      "--include",
+      "zzz"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "filtergroup_",
+     "args": [
+      "test",
+      "--filter",
+      "zzz"
+     ],
+     "stream": "stdout",
+     "contains": {
+      "group": "basic:"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "anchor_test_exit_zero": true,
+    "anchor_tests_failed": [],
+    "anchor_tests_passed": [
+     "gamma three"
+    ],
+    "none_test_exit_zero": true,
+    "none_tests_failed": [],
+    "none_tests_passed": [],
+    "filtergroup_cli_exit_code": 0,
+    "filtergroup_cli_exit_zero": true,
+    "filtergroup_contains:group": false
+   }
+  },
+  {
+   "id": "s04_apply_all_captures_removed",
+   "stage": {
+    "s04/sel": "."
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "test",
+     "prefix": "plain_"
+    },
+    {
+     "kind": "test",
+     "test_args": [
+      "--apply-all-captures"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "status_",
+     "args": [
+      "test",
+      "--apply-all-captures"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "hl_",
+     "args": [
+      "highlight",
+      "--apply-all-captures",
+      "in.sel"
+     ]
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "plain_test_exit_zero": true,
+    "plain_tests_failed": [],
+    "plain_tests_passed": [
+     "alpha one",
+     "beta two",
+     "gamma three"
+    ],
+    "test_exit_zero": false,
+    "tests_failed": [],
+    "tests_passed": [],
+    "status_cli_exit_code": 2,
+    "status_cli_exit_zero": false,
+    "hl_cli_exit_code": 2,
+    "hl_cli_exit_zero": false
+   },
+   "write": {
+    "in.sel": "alpha;\n"
+   }
+  },
+  {
+   "id": "s04_parse_edits_option",
+   "stage": {
+    "s04/sel": "."
+   },
+   "write": {
+    "in.sel": "alpha;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "args": [
+      "parse",
+      "in.sel",
+      "--edits",
+      "0 0 x"
+     ],
+     "stream": "stdout",
+     "contains": {
+      "edited_id": "(id [0, 0] - [0, 6])"
+     }
+    },
+    {
+     "kind": "cli",
+     "prefix": "old_",
+     "args": [
+      "parse",
+      "in.sel",
+      "--edit",
+      "0 0 x"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "short_",
+     "args": [
+      "parse",
+      "in.sel",
+      "-e",
+      "0 0 x"
+     ]
+    }
+   ],
+   "expect": {
+    "cli_exit_code": 0,
+    "cli_exit_zero": true,
+    "contains:edited_id": true,
+    "generate_exit_zero": true,
+    "old_cli_exit_code": 2,
+    "old_cli_exit_zero": false,
+    "short_cli_exit_code": 2,
+    "short_cli_exit_zero": false
+   }
+  },
+  {
+   "id": "s04_unrecognised_argument_status",
+   "stage": {
+    "s04/sel": "."
+   },
+   "write": {
+    "in.sel": "alpha;\n",
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"blue\", \"variable\": \"red\", \"function\": \"green\"}}\n"
+   },
+   "steps": [
+    {
+     "kind": "generate"
+    },
+    {
+     "kind": "cli",
+     "prefix": "flag_",
+     "args": [
+      "parse",
+      "in.sel",
+      "--no-such-option"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "sub_",
+     "args": [
+      "no-such-subcommand"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "bare_",
+     "args": []
+    },
+    {
+     "kind": "cli",
+     "prefix": "gencfg_",
+     "args": [
+      "generate",
+      "--config-path",
+      "cfg.json"
+     ]
+    }
+   ],
+   "expect": {
+    "flag_cli_exit_code": 2,
+    "flag_cli_exit_zero": false,
+    "generate_exit_zero": true,
+    "sub_cli_exit_code": 2,
+    "sub_cli_exit_zero": false,
+    "bare_cli_exit_code": 2,
+    "bare_cli_exit_zero": false,
+    "gencfg_cli_exit_code": 2,
+    "gencfg_cli_exit_zero": false
+   }
+  },
+  {
+   "id": "s04_config_path_parse",
+   "stage": {
+    "s04/hlx": "tree-sitter-hlx"
+   },
+   "write": {
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"blue\", \"variable\": \"red\", \"function\": \"green\"}}\n",
+    "in.hlx": "let foo;\n",
+    "q.scm": "(kw) @keyword\n(id) @variable\n(item (id) @function)\n",
+    "tree-sitter-hlx/in.hlx": "let foo;\n",
+    "tree-sitter-hlx/queries/highlights.scm": "(kw) @keyword\n(id) @variable\n(item (id) @function)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "tree-sitter-hlx"
+    },
+    {
+     "kind": "parse",
+     "parse_args": [
+      "--config-path",
+      "cfg.json"
+     ],
+     "input": "in.hlx"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "parse_exit_zero": true,
+    "tree": "(source_file [0, 0] - [1, 0]\n  (item [0, 0] - [0, 8]\n    (kw [0, 0] - [0, 3])\n    (id [0, 4] - [0, 7])))"
+   }
+  },
+  {
+   "id": "s04_config_path_query",
+   "stage": {
+    "s04/hlx": "tree-sitter-hlx"
+   },
+   "write": {
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"blue\", \"variable\": \"red\", \"function\": \"green\"}}\n",
+    "in.hlx": "let foo;\n",
+    "q.scm": "(kw) @keyword\n(id) @variable\n",
+    "tree-sitter-hlx/in.hlx": "let foo;\n",
+    "tree-sitter-hlx/queries/highlights.scm": "(kw) @keyword\n(id) @variable\n(item (id) @function)\n",
+    "q2.scm": "(id) @variable\n(item (id) @function)\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "tree-sitter-hlx"
+    },
+    {
+     "kind": "parse",
+     "cwd": "tree-sitter-hlx",
+     "prefix": "warm_",
+     "input": "in.hlx"
+    },
+    {
+     "kind": "query",
+     "query_args": [
+      "--config-path",
+      "cfg.json",
+      "--captures"
+     ],
+     "query": "q.scm",
+     "input": "in.hlx"
+    },
+    {
+     "kind": "cli",
+     "prefix": "overlap_",
+     "args": [
+      "query",
+      "--config-path",
+      "cfg.json",
+      "--captures",
+      "q2.scm",
+      "in.hlx"
+     ],
+     "stream": "stdout",
+     "contains": {
+      "variable": "pattern:  0, capture: 0 - variable, start: (0, 4), end: (0, 7), text: `foo`",
+      "function": "pattern:  1, capture: 1 - function, start: (0, 4), end: (0, 7), text: `foo`"
+     }
+    }
+   ],
+   "expect": {
+    "captures": "in.hlx\n    pattern:  0, capture: 0 - keyword, start: (0, 0), end: (0, 3), text: `let`\n    pattern:  1, capture: 1 - variable, start: (0, 4), end: (0, 7), text: `foo`",
+    "generate_exit_zero": true,
+    "query_exit_zero": true,
+    "warm_parse_exit_zero": true,
+    "warm_tree": "(source_file [0, 0] - [1, 0]\n  (item [0, 0] - [0, 8]\n    (kw [0, 0] - [0, 3])\n    (id [0, 4] - [0, 7])))",
+    "overlap_cli_exit_code": 0,
+    "overlap_cli_exit_zero": true,
+    "overlap_contains:variable": true,
+    "overlap_contains:function": true
+   }
+  },
+  {
+   "id": "s04_config_path_scope",
+   "stage": {
+    "s04/hlx": "tree-sitter-hlx"
+   },
+   "write": {
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"blue\", \"variable\": \"red\", \"function\": \"green\"}}\n",
+    "in.hlx": "let foo;\n",
+    "q.scm": "(kw) @keyword\n(id) @variable\n(item (id) @function)\n",
+    "tree-sitter-hlx/in.hlx": "let foo;\n",
+    "tree-sitter-hlx/queries/highlights.scm": "(kw) @keyword\n(id) @variable\n(item (id) @function)\n",
+    "sample.unclaimed": "let qux;\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "tree-sitter-hlx"
+    },
+    {
+     "kind": "parse",
+     "prefix": "scope_",
+     "parse_args": [
+      "--config-path",
+      "cfg.json",
+      "--scope",
+      "source.hlx"
+     ],
+     "input": "sample.unclaimed"
+    },
+    {
+     "kind": "cli",
+     "prefix": "unclaimed_",
+     "args": [
+      "parse",
+      "--config-path",
+      "cfg.json",
+      "sample.unclaimed"
+     ],
+     "stream": "stdout",
+     "contains": {
+      "tree": "(source_file"
+     }
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "scope_parse_exit_zero": true,
+    "scope_tree": "(source_file [0, 0] - [1, 0]\n  (item [0, 0] - [0, 8]\n    (kw [0, 0] - [0, 3])\n    (id [0, 4] - [0, 7])))",
+    "unclaimed_cli_exit_code": 1,
+    "unclaimed_cli_exit_zero": false,
+    "unclaimed_contains:tree": false
+   }
+  },
+  {
+   "id": "s04_config_path_test_and_tags",
+   "stage": {
+    "s04/hlx": "tree-sitter-hlx"
+   },
+   "write": {
+    "cfg.json": "{\"parser-directories\": [\".\"],\n \"theme\": {\"keyword\": \"blue\", \"variable\": \"red\", \"function\": \"green\"}}\n",
+    "in.hlx": "let foo;\n",
+    "tree-sitter-hlx/package.json": "{\n  \"name\": \"tree-sitter-hlx\",\n  \"version\": \"0.0.1\",\n  \"tree-sitter\": [\n    {\n      \"scope\": \"source.hlx\",\n      \"path\": \".\",\n      \"file-types\": [\"hlx\"],\n      \"highlights\": \"queries/highlights.scm\",\n      \"tags\": \"queries/tags.scm\"\n    }\n  ]\n}\n",
+    "tree-sitter-hlx/queries/tags.scm": "(item (id) @name) @definition.variable\n"
+   },
+   "steps": [
+    {
+     "kind": "generate",
+     "cwd": "tree-sitter-hlx"
+    },
+    {
+     "kind": "cli",
+     "prefix": "test_",
+     "cwd": "tree-sitter-hlx",
+     "args": [
+      "test",
+      "--config-path",
+      "../cfg.json"
+     ]
+    },
+    {
+     "kind": "cli",
+     "prefix": "tags_",
+     "args": [
+      "tags",
+      "--config-path",
+      "cfg.json",
+      "in.hlx"
+     ],
+     "stream": "stdout",
+     "capture": "exact"
+    }
+   ],
+   "expect": {
+    "generate_exit_zero": true,
+    "tags_cli_exit_code": 0,
+    "tags_cli_exit_zero": true,
+    "tags_cli_output": "foo       \t | variable\tdef (0, 4) - (0, 7) `let foo;`",
+    "test_cli_exit_code": 0,
+    "test_cli_exit_zero": true
+   }
+  },
+   {
+    "id": "s04_version_reports_the_milestone_release",
+    "steps": [
+     {
+      "kind": "cli",
+      "args": [
+       "--version"
+      ],
+      "stream": "stdout",
+      "contains": {
+       "release": "0.21.0"
+      }
+     }
+    ],
+    "expect": {
+     "cli_exit_code": 0,
+     "cli_exit_zero": true,
+     "contains:release": true
+    }
+   }
+ ]
+}

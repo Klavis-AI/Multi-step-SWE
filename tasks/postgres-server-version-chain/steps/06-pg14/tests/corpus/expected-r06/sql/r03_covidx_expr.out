@@ -1,0 +1,24 @@
+CREATE TABLE q3_cve(a int, b text);
+CREATE INDEX q3_cve_i ON q3_cve (a) INCLUDE ((b || 'x'));
+ERROR:  expressions are not supported in included columns
+CREATE INDEX q3_cve_j ON q3_cve ((a + 1)) INCLUDE (b);
+SELECT indexdef FROM pg_indexes WHERE indexname = 'q3_cve_j';
+                                  indexdef                                  
+----------------------------------------------------------------------------
+ CREATE INDEX q3_cve_j ON public.q3_cve USING btree (((a + 1))) INCLUDE (b)
+(1 row)
+
+SELECT indnatts, indnkeyatts FROM pg_index WHERE indexrelid = 'q3_cve_j'::regclass;
+ indnatts | indnkeyatts 
+----------+-------------
+        2 |           1
+(1 row)
+
+INSERT INTO q3_cve VALUES (1,'p'),(2,'q');
+SELECT a, b FROM q3_cve WHERE a + 1 = 3;
+ a | b 
+---+---
+ 2 | q
+(1 row)
+
+DROP TABLE q3_cve;

@@ -1,0 +1,52 @@
+How environment/docs/ was produced: the build stage below fetched each
+document from its official source, checked it against the pinned sha256,
+and made the text conversions. The resulting files are stored in docs/
+and copied into the image directly. Re-run these steps to refresh a
+document.
+
+# Reference documents for the agent, whose phase has no network, fetched here
+# at build time and pinned by sha256 (git commits pinned too). The specification
+# releases themselves ship per step under /spec/<release>/; what they lack is
+# each release's changelog, which the instructions cite, and MSC4186 (simplified
+# sliding sync), which is in no numbered release. Only /opt/docs leaves this
+# stage. Documents only -- no homeserver and no test suite.
+FROM debian:bookworm-slim AS docs
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    fetch() { curl -fsSL --retry 3 --max-time 600 -o "$2" "$1"; echo "$3  $2" | sha256sum -c -; }; \
+    D=/opt/docs; \
+    SPEC=https://raw.githubusercontent.com/matrix-org/matrix-spec/40065811a143cd3175f5ccfeff87e926c6f0e452; \
+    MSC=https://raw.githubusercontent.com/matrix-org/matrix-spec-proposals/ffc54bc05c827edfb9791cfd7c154837c8487204; \
+    mkdir -p $D/matrix-spec/changelog $D/matrix-spec-proposals; \
+    for p in \
+        v1.1:7a94a815c54378f66dc7cd13ffd36238c533fe7da10b5cf1d43b58c4b7aa6c55 \
+        v1.2:15861112634907acd480c8383afa320a11d6241b73c7b83a4beabbe41187b22e \
+        v1.3:a35d79ec5c5f30ae186169a6baa459146248447bd416736cdd7813b361c51a40 \
+        v1.4:9363c1ba0f4d90760d91a2452a172c227a0c306d09fba0a5448e6880bbe9f5e5 \
+        v1.5:b19760cbde107aa35922e3b3963dd457b59dae0cb04b8aef0877173024e67ce0 \
+        v1.6:ea8c2baa4104110fbc41173fee05dc56512d67e6740aa5e0df790c7e77047939 \
+        v1.7:fcad2ba54f6ef1707291d30010ca0c9f5b14a634745dff396bea6752de09431f \
+        v1.8:15343bbe22e7f587aaca8f2d01e18b3c95b0778421bd5278e98ef0c45da105c1 \
+        v1.9:ca23fc2475892982c3b30950aa18e5c19f5f9c40add5b2ff95c567feda9d0391 \
+        v1.10:5864f101d8475fbc2db435849dd0e28c21b6653a23f5625fd53f9f8e8a725edd \
+        v1.11:7101b6347f906d08d190850a465fb3a310c04386bf8f887a521115a49729fd87 \
+        v1.12:77652a0ca95cd76bac157f13fea74781804ff0a98d885c2b52b33f2ef0a05ef3 \
+        v1.13:4c6aeaee73918dfe3352a4d37f898ded3fc38584504899ec94d845a5feb564bb \
+        v1.14:1f8650255b51a51cce2670dcd0bffdbeb3f59108ca911227df563f08b763925c \
+        v1.15:3c4f93b776b0f2bf26d895c77162cdd86ddd999d631537ffbbb876bf39661a29; do \
+      v=${p%%:*}; fetch "$SPEC/content/changelog/$v.md" "$D/matrix-spec/changelog/$v.md" "${p#*:}"; \
+    done; \
+    fetch $SPEC/LICENSE $D/matrix-spec/LICENSE \
+          0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594; \
+    fetch $MSC/proposals/4186-simplified-sliding-sync.md \
+          $D/matrix-spec-proposals/4186-simplified-sliding-sync.md \
+          e70260c91b648f57d7c6565ef1fbc59e11e5c2c4876f67dce1857833f5aded4f; \
+    fetch $MSC/LICENSE $D/matrix-spec-proposals/LICENSE \
+          0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594; \
+    chmod -R a+rX,go-w $D; \
+    find $D -type f -empty | { ! grep .; }; \
+    (cd $D && find . -type f ! -name SHA256SUMS | sort | xargs sha256sum > /tmp/SHA256SUMS) \
+        && mv /tmp/SHA256SUMS $D/SHA256SUMS; \
+    du -sh $D

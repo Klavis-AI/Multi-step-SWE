@@ -1,0 +1,62 @@
+# arch: x86_64
+# DWARF survives the link: a .debug_info relocation against a live section gets
+# that section's final address, while one against a garbage-collected section is
+# tombstoned rather than left pointing into live code. Retaining the same input
+# with --no-gc-sections makes the very same slot resolve normally.
+wre() { ASSERTS_RUN=$((ASSERTS_RUN + 1)); grep -qE -- "$3" <<<"$2" || die "$1: no /$3/ in ${2:0:400}"; }
+secbytes() { local o s
+  o=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+3) } }' | sed -n 1p)
+  s=$(sections "$1" | awk -v n="$2" '{ for (i=1;i<=NF;i++) if ($i==n) { print $(i+4) } }' | sed -n 1p)
+  [ -n "$o" ] || die "output has no $2 section: $(sections "$1")"
+  dd if="$1" of="$3" bs=1 skip=$(( 16#$o )) count=$(( 16#$s )) status=none
+}
+u64at() { od -An -tx8 -j "$2" -N 8 "$1" | tr -d ' \n'; }
+rt_obj rt.o
+cat > d.s <<'S'
+        .section .text.dead,"ax",@progbits
+        .globl deadfn
+deadfn: ret
+        .text
+        .globl livefn
+livefn: ret
+        .globl entry
+entry:  call    livefn
+        xor     %eax, %eax
+        ret
+        .section .debug_info,"",@progbits
+        .quad   deadfn
+        .quad   livefn
+        .section .debug_ranges,"",@progbits
+        .quad   livefn
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d.o d.s
+link_ok gc rt.o d.o
+wre ".debug_info survives" "$(sections gc)" '[[:space:]]\.debug_info[[:space:]]'
+wre ".debug_ranges survives" "$(sections gc)" '[[:space:]]\.debug_ranges[[:space:]]'
+secbytes gc .debug_info di.bin
+want ".debug_info size" "$(wc -c < di.bin)" "16"
+live=$(sym_value gc livefn)
+[ -n "$live" ] || die "livefn was dropped"
+want "live reference resolved" "$(u64at di.bin 8)" "$live"
+dead=$(u64at di.bin 0)
+want "GCed reference is tombstoned" "$(( 16#$dead ))" "0"
+# The tombstone must not alias any live text.
+tbeg=$(( 16#$(sec_addr gc .text) )); tend=$(( tbeg + 16#$(sec_size gc .text) ))
+[ "$(( 16#$dead ))" -lt "$tbeg" ] || [ "$(( 16#$dead ))" -ge "$tend" ] \
+  || die "tombstone 0x$dead points into live .text"
+secbytes gc .debug_ranges dr.bin
+want ".debug_ranges live reference" "$(u64at dr.bin 0)" "$live"
+# With the section retained the same slot must resolve to a real address.
+link_ok keep --no-gc-sections rt.o d.o
+secbytes keep .debug_info di2.bin
+kd=$(sym_value keep deadfn)
+[ -n "$kd" ] || die "deadfn missing from the retained link"
+want "retained reference resolved" "$(u64at di2.bin 0)" "$kd"
+[ "$(( 16#$kd ))" -ne 0 ] || die "deadfn was placed at address 0"
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 7

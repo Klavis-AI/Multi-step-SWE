@@ -1,0 +1,126 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Build products are excluded: the verifier rebuilds the toolchain from source
+# with `make`, so shipping object files and the linked binary only makes the
+# artifact round trip larger and slower.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [
+      "*.o", "*.a", "*.so", "./goroot/bin", "./goroot/pkg", "./.git",
+  ] },
+]
+
+[task]
+name = "harbor/go-compiler-version-chain"
+version = "1.0.0"
+description = "Build a Go toolchain in C and carry it from the Go 1.0 language through Go 1.25, one release train per step."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["compiler", "go", "multi-step", "version-upgrade"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["compiler", "runtime", "garbage-collection", "generics", "multi-step"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Public only for image setup: Harbor installs the agent harness under this
+# baseline. The agent phase has no network; see [agent].
+network_mode = "public"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 1800.0
+cpus = 7
+memory_mb = 16384
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# no-network (user decision 2026-10-13, reviews/2026-10-12-fix-review/NETWORK.md,
+# applied in wave F to close the network half of GC-C1): the graded build is
+# `make` over a source-only /app with the image's C toolchain and dead proxy
+# variables, every case is local (module cases resolve through replace/vendor),
+# and test.sh / runner.py fetch nothing, so the verifier needs no network. The
+# agent's [environment] stays public.
+network_mode = "no-network"
+
+# No network while the agent works (the oracle's solve.sh runs in this phase
+# too): everything a solution needs is installed in environment/Dockerfile.
+# Runs must let the agent reach its model API: `--allow-agent-host <api host>`.
+[agent]
+network_mode = "no-network"
+
+[[steps]]
+name = "01-go10-14"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "02-go15-16"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "03-go17-110"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "04-go111-113"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "05-go114-116"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "06-go117-118"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "07-go119-121"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "08-go122-123"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "09-go124-125"
+[steps.agent]
+timeout_sec = 7200.0
+[steps.verifier]
+timeout_sec = 2700.0
+

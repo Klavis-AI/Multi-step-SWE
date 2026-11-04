@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Copyright (C) 2009 The Android Open Source Project
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.madgag</groupId>
+    <artifactId>mini-git-server-parent</artifactId>
+    <version>0.5-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>mini-git-server-war</artifactId>
+  <name>mini-git-server - WAR</name>
+  <packaging>war</packaging>
+
+  <description>
+    Gerrit packaged as a standard web application archive
+  </description>
+
+  <dependencies>
+    <!-- log4j is declared once, below, and takes its version and its four
+         exclusions from the parent's dependencyManagement. This module used to
+         declare it twice: once with an inline 1.2.16 and the exclusions
+         repeated, once bare. Maven 3.9 reports that as a malformed model
+         ("must be unique") and later Maven versions may refuse it. -->
+    <dependency>
+      <!-- provided, not compile: the servlet container owns this API, and a
+           second copy inside WEB-INF/lib is what a container is entitled to
+           reject. -->
+      <groupId>javax.servlet</groupId>
+      <artifactId>javax.servlet-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>bouncycastle</groupId>
+      <artifactId>bcprov-jdk15</artifactId>
+      <version>140</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>bouncycastle</groupId>
+      <artifactId>bcpg-jdk15</artifactId>
+      <version>140</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-log4j12</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>log4j</groupId>
+      <artifactId>log4j</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.madgag</groupId>
+      <artifactId>mini-git-server-sshd</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.madgag</groupId>
+      <artifactId>mini-git-server-httpd</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+
+  <profiles>
+    <profile>
+      <id>include-documentation-profile</id>
+      <activation>
+        <property>
+          <name>gerrit.include-documentation</name>
+        </property>
+      </activation>
+    </profile>
+  </profiles>
+
+  <build>
+    <!-- Was <warName> in the war plugin's configuration; the plugin has made
+         that parameter read-only (it is an alias for build/finalName) and
+         warns when it is set. Same war name, declared where the plugin now
+         reads it from. -->
+    <finalName>mini-git-server-${project.version}</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-war-plugin</artifactId>
+        <configuration>
+          <!-- There is no WEB-INF/web.xml any more: the application declares
+               its own filters and servlets from a WebApplicationInitializer
+               the container finds at startup. -->
+          <failOnMissingWebXml>false</failOnMissingWebXml>
+          <archiveClasses>true</archiveClasses>
+          <attachClasses>true</attachClasses>
+          <archive>
+            <addMavenDescriptor>false</addMavenDescriptor>
+            <manifestEntries>
+              <Implementation-Title>mini-git-server</Implementation-Title>
+              <Implementation-Version>${project.version}</Implementation-Version>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

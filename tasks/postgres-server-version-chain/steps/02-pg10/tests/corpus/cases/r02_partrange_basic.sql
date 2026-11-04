@@ -1,0 +1,9 @@
+CREATE TABLE q2_prb(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE q2_prb_lo PARTITION OF q2_prb FOR VALUES FROM (1) TO (10);
+CREATE TABLE q2_prb_hi PARTITION OF q2_prb FOR VALUES FROM (10) TO (20);
+INSERT INTO q2_prb VALUES (1,'one'),(9,'nine'),(10,'ten'),(19,'nineteen');
+SELECT a, b FROM q2_prb ORDER BY a;
+SELECT count(*) FROM q2_prb_lo;
+SELECT count(*) FROM q2_prb_hi;
+SELECT a FROM q2_prb WHERE a >= 10 ORDER BY a;
+DROP TABLE q2_prb;

@@ -1,0 +1,226 @@
+schema_version = "1.4"
+
+# Trial reward = the mean of each step's `reward`. There is no min_reward gate,
+# so every step runs and each verifier reports a step-local score.
+multi_step_reward_strategy = "mean"
+
+# Required with a separate verifier: the only way the cumulative /app reaches
+# the verifier container. `exclude` is empty: the gates scan the whole tree,
+# and the verifier rebuilds the package from the source it is handed rather
+# than trusting anything the agent built.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [] },
+]
+
+[task]
+name = "harbor/pandas-numpy-modernization"
+version = "1.0.0"
+description = "Migrate the skutil scientific-Python library from pandas 0.23 / NumPy 1.14 / scikit-learn 0.20 on Python 3.7 to pandas 3.0 / NumPy 2.3 / scikit-learn 1.7 on Python 3.12, one toolchain at a time, preserving its recorded behaviour at every step."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["migration", "python", "pandas", "numpy", "scikit-learn", "multi-step"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["migration", "python", "pandas", "numpy", "scikit-learn", "multi-step"]
+
+# Agent environment. One long-lived container for the whole trial: Harbor has
+# no per-step agent environment, so the image ships step 1's toolchain and each
+# later step's workdir/setup.sh rebuilds /opt/venv for that step.
+[environment]
+# The image installs step 1's stack from PyPI and carries no other interpreter;
+# on a cold cache that install is the bulk of the time. A step that needs a
+# newer CPython fetches it in its own workdir/setup.sh, so that `ls /opt` does
+# not show a step-1 agent the shape of the ladder.
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 16384
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# Open internet, matching Terminal-Bench: every step after the first installs
+# its own toolchain from PyPI.
+network_mode = "public"
+
+# Grade each step in its own container, built from steps/<name>/tests/Dockerfile
+# with steps/<name>/tests/ as the build context. Each verifier image carries the
+# toolchain its step ends on and nothing from a later one.
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 3600.0
+cpus = 7
+memory_mb = 8192
+storage_mb = 16384
+gpus = 0
+workdir = "/app"
+network_mode = "public"
+
+# Each verifier writes {"reward": <step-local 0–1>} to reward.json and exits 0.
+# No min_reward: a zero or partial score never stops the trial.
+[[steps]]
+name = "01-baseline-goldens"
+[steps.agent]
+# Keep synchronized with environment/timer.sh.
+timeout_sec = 7200.0
+[steps.verifier]
+# Scoring measures at ~1 min on 7 vCPU; the budget covers the verifier image
+# build and the /app artifact round trip as well.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "02-pandas1-numpy12"
+[steps.agent]
+# The same budget step 1 gets, and for a different reason. Step 1's work is
+# concentrated in one property across a whole tree; this step's is spread over
+# 477 findings in nine families, and it begins with the agent rebuilding
+# /opt/venv on a CPython it has to fetch first. Keep synchronized with
+# environment/timer.sh.
+timeout_sec = 7200.0
+[steps.verifier]
+# Measured: 112 s for the golden and 32 s for the tree as handed over, on
+# 7 vCPU. The budget covers the verifier image build -- which fetches its own
+# interpreter and installs eleven pins plus their pinned transitive closure --
+# and the /app artifact round trip as well. Through Harbor, steps 1-2 together
+# take about 6 minutes for the reference solution and 3.5 minutes for an
+# unchanged tree, so each step's verifier stays an order of magnitude inside
+# this budget.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "03-sklearn1"
+[steps.agent]
+# The same budget steps 1 and 2 get. The interpreter does not move at this step;
+# the whole scientific stack does (scikit-learn 0.24 -> 1.6.1 chief among it),
+# and the work is spread over a fresh batch of removed / re-signed scikit-learn
+# API, the set_output surface on every transformer, and a flake8-bugbear pass --
+# on top of rebuilding /opt/venv against the new NumPy. Keep synchronized with
+# environment/timer.sh.
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier image fetches the step-3 stack (NumPy 1.26.4 / SciPy 1.13.1 /
+# pandas 1.5.3 / scikit-learn 1.6.1 / Matplotlib 3.8.4 / seaborn 0.13.2 /
+# Cython 3.0.11) and its pinned transitive closure, builds the two compiled
+# extensions, and runs the corpus, inherited suite, and gate battery. Measured
+# well inside this budget on 7 vCPU. Keep at parity with steps 1-2.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "04-pandas2"
+[steps.agent]
+# The same budget the earlier steps get. The interpreter does not move at this
+# step; pandas does (1.5.3 -> 2.2.3, with pyarrow 17.0.0 arriving alongside it),
+# and the work is the pandas-2 migration: the widened pandas-vet pass (PD011,
+# `.values` -> `.to_numpy()`), `observed=` on every groupby, Copy-on-Write-safe
+# access, and the handful of reduction / from_dict / value_counts behaviours that
+# move -- on top of rebuilding /opt/venv against the new pandas. Keep
+# synchronized with environment/timer.sh.
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier image fetches the step-4 stack (pandas 2.2.3 / pyarrow 17.0.0 /
+# NumPy 1.26.4 / SciPy 1.13.1 / scikit-learn 1.6.1 / Matplotlib 3.8.4 / seaborn
+# 0.13.2 / Cython 3.0.11) and its pinned transitive closure, builds the two
+# compiled extensions, and runs the corpus, inherited suite, and gate battery.
+# Measured well inside this budget on 7 vCPU. Keep at parity with steps 1-3.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "05-numpy2"
+[steps.agent]
+# The same budget the earlier steps get. The interpreter does not move at this
+# step; NumPy does (1.26.4 -> 2.0.2), and with it the build system: numpy.distutils
+# is gone at NumPy 2.0, so skutil's four setup.py and skutil/_build_utils no longer
+# build and the tree must move onto a meson-python backend (a pyproject.toml and a
+# meson.build compiling _kernel_fast through Cython and dqrsl through f2py's meson
+# custom-target path) before the extensions compile again -- on top of rebuilding
+# /opt/venv against the new NumPy. The 166 NEP 50 / NEP 51 / numpy.bool / linalg
+# behaviour flips come from the stack once the tree builds. Keep synchronized with
+# environment/timer.sh.
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier image fetches the step-5 stack (NumPy 2.0.2 / SciPy 1.13.1 /
+# pandas 2.2.3 / pyarrow 17.0.0 / scikit-learn 1.6.1 / Matplotlib 3.8.4 / seaborn
+# 0.13.2 / Cython 3.0.11) with meson-python / meson / ninja for the build, and its
+# pinned transitive closure, builds the two compiled extensions through the
+# meson-python backend, and runs the corpus, inherited suite, and gate battery.
+# Measured well inside this budget on 7 vCPU. Keep at parity with steps 1-4.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "06-pandas3"
+[steps.agent]
+# The largest single move on the stack: pandas 3.0.5 pulls NumPy 2.3.5 and the
+# interpreter from Python 3.9 to 3.12.11 (pandas 3 requires 3.10+), with SciPy
+# 1.16.3, scikit-learn 1.7.2, Matplotlib 3.9.4, pyarrow 21.0.0 and Cython 3.1.6
+# alongside; seaborn stays 0.13.2. The build survives untouched -- the meson-python
+# backend is already in the tree -- so the work is the runtime migration (the
+# PDEP-14 default string dtype recognised wherever 'object' was, no stdlib
+# distutils, no inplace= kwarg, explicit zip(strict=) on Python 3.12) on top of
+# rebuilding /opt/venv against the new stack and fetching the pinned 3.12.11
+# interpreter. Keep synchronized with environment/timer.sh.
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier image fetches the pinned python-build-standalone 3.12.11 and the
+# step-6 stack (pandas 3.0.5 / NumPy 2.3.5 / SciPy 1.16.3 / scikit-learn 1.7.2 /
+# Matplotlib 3.9.4 / seaborn 0.13.2 / pyarrow 21.0.0 / Cython 3.1.6) with
+# meson-python / meson / ninja for the build, and its pinned transitive closure,
+# builds the two compiled extensions through the meson-python backend, and runs
+# the corpus (1236 values through 318 flips), inherited suite, and gate battery.
+# Measured well inside this budget on 7 vCPU. Keep at parity with steps 1-5.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "07-matplotlib-figures"
+[steps.agent]
+# The same budget the earlier steps get, for the smallest move on the stack:
+# Matplotlib alone goes 3.9.4 -> 3.10.9 and everything else holds where the
+# pandas-3 step left it (pandas 3.0.5 / NumPy 2.3.5 / SciPy 1.16.3 /
+# scikit-learn 1.7.2 / pyarrow 21.0.0 / seaborn 0.13.2 on Python 3.12.11). The
+# build survives untouched. The work is a runtime migration confined to the two
+# charting helpers in skutil/utils/util.py: they must build a figure and return
+# it rather than drawing onto Matplotlib's implicit global figure and calling
+# plt.show(). Keep synchronized with environment/timer.sh.
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier image holds the pinned python-build-standalone 3.12.11 the
+# previous step introduced and fetches the step-7 stack (Matplotlib 3.10.9 the
+# only pin that moves, over pandas 3.0.5 / NumPy 2.3.5 / SciPy 1.16.3 /
+# scikit-learn 1.7.2 / seaborn 0.13.2 / pyarrow 21.0.0 / Cython 3.1.6) with
+# meson-python / meson / ninja for the build, and its pinned transitive closure,
+# builds the two compiled extensions through the meson-python backend, and runs
+# the corpus (1236 values through 318 flips), inherited suite, and gate battery.
+# Measured well inside this budget on 7 vCPU. Keep at parity with steps 1-6.
+timeout_sec = 1800.0
+
+[[steps]]
+name = "08-performance-lock"
+[steps.agent]
+# The same budget the earlier steps get, and nothing on the stack moves at all:
+# Matplotlib holds at 3.10.9, pandas at 3.0.5, NumPy at 2.3.5, SciPy at 1.16.3,
+# scikit-learn at 1.7.2, pyarrow at 21.0.0 and seaborn at 0.13.2 on Python
+# 3.12.11 -- character for character step 7's stack -- and the build survives
+# untouched. The work is a performance lock: three interpreter-level hot paths
+# (filter_collinearity, InteractionTermTransformer.transform,
+# GainsStatisticalReport.as_data_frame) are taken off row-at-a-time iteration
+# and vectorised, changing no recorded answer within tolerance. The step-08
+# workdir/setup.sh adds polars, duckdb, nbclient, nbformat and ipykernel to
+# /opt/venv (the columnar-engine and notebook toolchain) on top of rebuilding it
+# against the unchanged stack. Keep synchronized with environment/timer.sh.
+timeout_sec = 7200.0
+[steps.verifier]
+# The verifier image holds the pinned python-build-standalone 3.12.11 and fetches
+# the step-8 stack -- identical to step 7's (Matplotlib 3.10.9 / pandas 3.0.5 /
+# NumPy 2.3.5 / SciPy 1.16.3 / scikit-learn 1.7.2 / seaborn 0.13.2 / pyarrow
+# 21.0.0 / Cython 3.1.6) with meson-python / meson / ninja for the build --
+# plus polars 1.35.1 and duckdb 1.4.4, the two engines the instruction leaves
+# open for vectorisation, so the scorer can import a candidate skutil that
+# reaches for either, and skops 0.13.0. nbclient/nbformat/ipykernel are NOT
+# installed: the two example notebooks that run as tests are executed as plain
+# scripts by the image's own interpreter. It builds the two
+# compiled extensions through the meson-python backend and runs the corpus (1236
+# values through 318 flips, carried verbatim from step 7), inherited suite, and
+# gate battery (hot-path-row-iteration 5 -> 0). Measured well inside this budget
+# on 7 vCPU. Keep at parity with steps 1-7.
+timeout_sec = 1800.0

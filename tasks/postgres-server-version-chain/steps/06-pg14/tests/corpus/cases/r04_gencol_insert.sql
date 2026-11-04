@@ -1,0 +1,7 @@
+CREATE TABLE q4_gci(a int, b int GENERATED ALWAYS AS (a * 2) STORED);
+INSERT INTO q4_gci(a, b) VALUES (1, 99);
+INSERT INTO q4_gci VALUES (1, 99);
+INSERT INTO q4_gci(a, b) VALUES (1, DEFAULT);
+INSERT INTO q4_gci(a) VALUES (2);
+SELECT a, b FROM q4_gci ORDER BY a;
+DROP TABLE q4_gci;

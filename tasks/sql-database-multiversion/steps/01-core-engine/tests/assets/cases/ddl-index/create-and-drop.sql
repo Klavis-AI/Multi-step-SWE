@@ -1,0 +1,10 @@
+CREATE TABLE t(a, b, c);
+CREATE INDEX i1 ON t(a);
+CREATE INDEX IF NOT EXISTS i1 ON t(b);
+CREATE INDEX i2 ON t(b DESC, c COLLATE NOCASE);
+SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type = 'index' ORDER BY name;
+DROP INDEX i1;
+DROP INDEX IF EXISTS nosuch;
+SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name;
+INSERT INTO t VALUES(1,'x',2);
+SELECT a, b, c FROM t ORDER BY a;

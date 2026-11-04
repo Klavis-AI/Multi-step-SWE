@@ -1,0 +1,720 @@
+{
+ "step": "07-py314-deferred-annotations",
+ "why": "The last rung, and the one that makes the annotations rung 05 wrote into objects that resolve.\n\n3.14 implements PEP 649 and PEP 749: an annotation is no longer evaluated when the `def` executes, and no longer frozen into a string by `from __future__ import annotations` either. It is compiled into a function on the object and run the first time something reads `__annotations__`, in the module's own globals, at that moment. That single change turns two things rung 05 did into defects. The 156 `from __future__ import annotations` lines now do nothing but keep every annotation a `str` forever -- the deprecated PEP 563 semantics, which 3.14 still honours when the import is present and which no caller can undo. And the 29 module-level `if TYPE_CHECKING:` blocks -- 60 import statements binding 81 names, seven `Protocol`/`TypedDict` classes and four PEP 695 aliases, across 11 modules of the vendored client and 18 of the plugin -- were correct exactly while nothing evaluated an annotation; they become a `NameError` waiting for the first reader.\n\nFamily 2 is three owned cases and four new gates, and the split is the usual one: the gates say the construct is gone, the cases say the result is right. Neither half stands alone. Two of the gates are satisfied by a tree that deletes 156 lines and breaks the library -- `no-future-annotations` and `no-type-checking-imports` both go quiet the moment the text is gone, whether or not anything still imports -- which is why the fourth, `annotation-names-bound`, asks the complementary question over the whole tree: is every name an annotation is built from still bound by something that runs. The cases are satisfied by a tree that quotes its way out, which the inherited `no-quoted-annotations` guard closes. And the cases read the sixteen public `elasticsearch.*` modules, which is the library: measured, a tree that hoists the library's eleven blocks properly and deletes the plugin's eighteen scored 0.997619 with three gates and nothing else noticing (`work/calib07.sh`'s `plugin-deleted` arm, NOTES section 14.6).\n\nOne place the rung cannot be mechanical, and it is priced here rather than gated. `client/utils.py`'s block imports `Elasticsearch` from the package root, and at the moment that module executes the package is half-built: `elasticsearch/__init__.py` imports `.client`, `client/__init__.py` imports `.utils`, and the name `Elasticsearch` is not on the package yet. Hoisting that import is an `ImportError`, not a slow import, and both annotation cases report the module `unreadable` when it is done that way. The answer is to import the module rather than the name and annotate `elasticsearch.Elasticsearch`, so that the attribute lookup happens when the annotation is read and not when it is written -- which is the whole of what PEP 649 changed, applied to the one import that needs it.\n\nThe third case is a different subject that the same interpreter forces. PEP 765 makes `return` in a `finally` a compile-time warning, and `analytics/consumer.py` has one; it is the only such statement in the tree, measured. Its behaviour -- a `BaseException` swallowed by the `return` -- is recorded on 3.8 and flips here.\n\nEligibility is measured rather than asserted. On the untouched rung-06 golden at 3.14.7 all three cases fail and `work/calib07.sh`'s `nop` arm reports it; the same arm reports that the predecessor still passes 541 of 541 inherited cases and clears 21 of 21 inherited gates, which is what puts this rung in `NARROW_F1` alongside 05 and 06.",
+ "cases": {
+  "analytics.consumer-finally-return-swallows": {
+   "expect": {
+    "logs": [],
+    "result": {
+     "__dict__": [
+      [
+       "swallowed",
+       {
+        "__dict__": [
+         [
+          "upload",
+          null
+         ],
+         [
+          "escaped",
+          "Abandoned: worker abandoned"
+         ],
+         [
+          "sent",
+          [
+           [
+            {
+             "__dict__": [
+              [
+               "i",
+               0
+              ]
+             ]
+            }
+           ]
+          ]
+         ],
+         [
+          "unfinished",
+          0
+         ]
+        ]
+       }
+      ],
+      [
+       "propagated",
+       {
+        "__dict__": [
+         [
+          "upload",
+          null
+         ],
+         [
+          "escaped",
+          "RuntimeError: task_done exploded"
+         ],
+         [
+          "sent",
+          [
+           [
+            {
+             "__dict__": [
+              [
+               "i",
+               0
+              ]
+             ]
+            }
+           ]
+          ]
+         ]
+        ]
+       }
+      ]
+     ]
+    },
+    "stderr": "",
+    "stdout": "",
+    "warnings": [],
+    "wire": []
+   },
+   "reason": "`Consumer.upload` ends in `try/except Exception/finally`, and the `finally` block's last statement is `return success`. A `return` in a `finally` discards whatever was propagating -- including what the `except Exception` deliberately did not catch -- so a `KeyboardInterrupt`, a `SystemExit` or any other `BaseException` raised while the batch was being marked done vanishes and the method reports the upload's result instead. PEP 765 makes 3.14 warn about exactly this at compile time, which is what the `no-finally-control-flow` gate and the inherited `compiles-without-warnings` guard read statically; this case is the behaviour behind the warning. The case drives two halves: `swallowed` raises a `BaseException` subclass from `queue.task_done` and `propagated` raises a `RuntimeError` from it. Measured on the golden at 3.14.7, only the first half moves -- `upload` goes `false` -> `null` and `escaped` goes `null` -> `\"Abandoned: worker abandoned\"`, the exception now leaving the method instead of being eaten -- while `propagated`, `sent` and `unfinished` are byte-identical. That asymmetry is the point of the case: the `except Exception` clause still catches what it always caught, and a rung that \"fixed\" this by widening the handler, deleting the `finally` or returning from the `except` would change the second half too."
+  },
+  "annotations.public-surface-is-objects": {
+   "expect": {
+    "logs": [],
+    "result": {
+     "__dict__": [
+      [
+       "elasticsearch",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.client.utils",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.compat",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.base",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.http_requests",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.http_urllib3",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.memcached",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.pooling",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.thrift",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection_pool",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.exceptions",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.helpers",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.helpers.test",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.serializer",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.transport",
+       {
+        "__dict__": [
+         [
+          "fully_annotated",
+          true
+         ],
+         [
+          "stringised",
+          []
+         ],
+         [
+          "unreadable",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ]
+     ]
+    },
+    "stderr": "",
+    "stdout": "",
+    "warnings": [],
+    "wire": []
+   },
+   "reason": "Retired at rung 05 (`build/flips/05-typed-client-surface.json`) and un-retired here at a new answer. It reads `__annotations__` off every public def of the sixteen public modules and records three things per module: whether every def that ought to be annotated holds any annotation at all, which defs came back holding a `str`, and which objects raise on the attribute. On the pinned tree twelve of the sixteen are not fully annotated, because nothing is annotated and the other four have no public def to judge; on the rung-05 and rung-06 goldens all sixteen are fully annotated and `stringised` holds every annotated name, because `from __future__ import annotations` stores the source text of the annotation and nothing ever evaluates it. Measured on this rung's golden: all sixteen fully annotated, `stringised` empty in all sixteen and `unreadable` empty in all sixteen. Deleting the future import is what moves `stringised` to empty; PEP 649 storing the annotation lazily rather than eagerly is what keeps `unreadable` empty, because an annotation naming something the run time does not bind does not raise until it is read. What the case deliberately does not record is *which* keys each def's `__annotations__` holds. It did until the rung-07 blind run, and those key lists are the author's own rung-05 signatures: a lineage that writes `-> None` on `__init__` or names the parameters `http_urllib3.Urllib3HttpConnection.__init__` takes instead of forwarding `**kwargs` satisfies rung 05 in full, is scored right there, and then cannot reproduce them here. That was a verifier bug and it is fixed rather than tolerated (NOTES-authoring.md section 14.11); deleting part of a def's annotations is held by the inherited `public-surface-annotated` gate, which reads the parameter list itself."
+  },
+  "annotations.public-surface-resolves": {
+   "expect": {
+    "logs": [],
+    "result": {
+     "__dict__": [
+      [
+       "elasticsearch",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.client.utils",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.compat",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.base",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.http_requests",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.http_urllib3",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.memcached",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.pooling",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection.thrift",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.connection_pool",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.exceptions",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.helpers",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.helpers.test",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.serializer",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ],
+      [
+       "elasticsearch.transport",
+       {
+        "__dict__": [
+         [
+          "fully_hinted",
+          true
+         ],
+         [
+          "unresolved",
+          {
+           "__dict__": []
+          }
+         ]
+        ]
+       }
+      ]
+     ]
+    },
+    "stderr": "",
+    "stdout": "",
+    "warnings": [],
+    "wire": []
+   },
+   "reason": "The other half of the same subject, and the half a deletion alone does not buy. `typing.get_type_hints` evaluates every annotation in the module's own globals, so this case says which names fail to resolve there and whether every def resolves to anything at all. Rung 05 put 60 import statements, binding 81 names, inside module-level `if TYPE_CHECKING:` blocks -- correct under PEP 563, where the annotation is text forever -- and under PEP 649 each of those is a `NameError` the moment anything reads an annotation built from one: a framework calling `inspect.signature(..., eval_str=True)`, a `dataclasses.fields`, a documentation generator, `get_type_hints` itself. Measured on this rung's golden, `unresolved` is empty in all sixteen modules and all sixteen are fully hinted; on the pinned tree twelve are not. The classes the case also walks are there for the exceptions `get_type_hints` raises on them and not for their hints, so a class with nothing annotated is not a finding. The two cases are complementary rather than duplicated: a tree that deletes the future import and leaves the blocks alone passes neither, a tree that hoists the blocks and keeps the import passes neither, and a tree that quotes the annotations instead of fixing the imports fails this one while the `no-quoted-annotations` guard names why."
+  }
+ }
+}

@@ -1,0 +1,38 @@
+# C-4: every ThreadLocal field in this rung's seed, and whether a ScopedValue
+# can replace it.
+#
+#   <file> field=<name> verdict=<convert|hold> why=<token>
+#
+# One converts. Seven do not, and each of the seven fails a different way:
+#
+#   debug-only     created on demand inside debug(); there is no enclosing
+#                  extent to bind it in.
+#   spi-boundary   the right extent, the wrong shape: activate/deactivate are
+#                  Context SPI methods and the extent is between two calls a
+#                  third party makes.
+#   tccl-register  a save-register for Thread.setContextClassLoader. The reader
+#                  is third-party code calling getContextClassLoader(), which a
+#                  ScopedValue is invisible to.
+#   public-static  writer and reader share no extent, and the field is part of
+#                  the published surface.
+#   ctor-set       written by a constructor, read by something that does not
+#                  enclose it.
+#   callback-span  the lifetime spans JUnit (and TestNG) callbacks: separate
+#                  invocations by the framework, not a nested region of one.
+#
+# THE ONE THAT CONVERTS HAS A RIGHT AND A WRONG WAY. fire() re-enters on every
+# Event.fire an observer makes, and it CLEARS the shared set at entry. Binding a
+# fresh set per entry hides an inner handler's record from the outer catch and
+# re-fires an exception the tree's own comment says must be re-thrown; family A
+# is what charges for that. Bind once at the outermost entry, keep the clear.
+# And bind WITHOUT SPLITTING THE METHOD: three inherited legs key populations by
+# <file>#<method> and all three of their sites live in fire(), so moving the body
+# to a helper reads as a loss on gates this rung is not about. NOTES 16.61.
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ManagerImpl.java field=handledThrowables verdict=convert why=extent-is-fire
+impl-base/src/main/java/org/jboss/arquillian/impl/core/ManagerImpl.java field=eventStack verdict=hold why=debug-only
+impl-base/src/main/java/org/jboss/arquillian/impl/core/context/AbstractContext.java field=activeStore verdict=hold why=spi-boundary
+impl-base/src/main/java/org/jboss/arquillian/impl/ThreadContext.java field=previousClassloader verdict=hold why=tccl-register
+junit/src/main/java/org/jboss/arquillian/junit/Arquillian.java field=caughtTestException verdict=hold why=public-static
+junit/src/main/java/org/jboss/arquillian/junit/Arquillian.java field=lastCreatedRunner verdict=hold why=ctor-set
+junit/src/main/java/org/jboss/arquillian/junit/Arquillian.java field=deployableTest verdict=hold why=callback-span
+testng/src/main/java/org/jboss/arquillian/testng/Arquillian.java field=deployableTest verdict=hold why=callback-span

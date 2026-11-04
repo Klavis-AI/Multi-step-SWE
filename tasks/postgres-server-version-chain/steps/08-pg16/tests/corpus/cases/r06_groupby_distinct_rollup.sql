@@ -1,0 +1,4 @@
+SELECT g, count(*) FROM (VALUES (1),(1),(2)) v(g)
+  GROUP BY DISTINCT ROLLUP(g) ORDER BY g NULLS LAST;
+SELECT g, count(*) FROM (VALUES (1),(1),(2)) v(g)
+  GROUP BY ROLLUP(g) ORDER BY g NULLS LAST;

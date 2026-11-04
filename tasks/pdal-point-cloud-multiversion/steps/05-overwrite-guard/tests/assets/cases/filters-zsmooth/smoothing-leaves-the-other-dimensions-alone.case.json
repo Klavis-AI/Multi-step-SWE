@@ -1,0 +1,16 @@
+{
+  "doc": "stages/filters.zsmooth.rst: 'The **Zsmooth Filter** computes a new Z value as another dimension that is based on the Z values of neighboring points.' -- the smoothed value goes into the named dimension only. With medianpercent 0 every Z becomes 0 once assigned, while X, Y, Intensity, Classification and PointSourceId come through point for point unchanged.",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "ref.las": {"fixture": "grid.las"},
+    "p.json": {"text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"filters.zsmooth\",\"radius\":2,\"medianpercent\":0,\"dim\":\"Zadj\"},{\"type\":\"filters.assign\",\"value\":\"Z = Zadj\"},{\"type\":\"writers.las\",\"filename\":\"out.las\"}]}"}
+  },
+  "run": [{"argv": ["pipeline", "p.json"]}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "las", "file": "out.las", "header": {"point_count": 1000},
+     "dims": {"Z": {"min": {"equals": 0.0}, "max": {"equals": 0.0}}}},
+    {"kind": "las_compare", "a": "out.las", "b": "ref.las",
+     "dims": ["X", "Y", "Intensity", "Classification", "PointSourceId"]}
+  ]
+}

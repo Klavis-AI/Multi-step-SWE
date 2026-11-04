@@ -1,0 +1,38 @@
+# (?aD), (?aS), (?aW), (?aP) and (?aT) set the ASCII restrictions from inside
+# a pattern and the (?-a...) forms clear them; (?aP) implies (?aT).
+# ChangeLog 10.43 items 9b and 36; pcre2pattern.3, "INTERNAL OPTION SETTING".
+
+/^(?aW)\w+$/utf,ucp
+    caf\x{e9}
+    cafes
+
+/^\w(?-aW)\w$/utf,ucp,ascii_bsw
+    x\x{e9}
+    \x{e9}x
+
+/^(?aD)\d\d$/utf,ucp
+    \x{966}\x{967}
+    58
+
+/^\d(?-aD)\d$/utf,ucp,ascii_bsd
+    7\x{967}
+    \x{967}7
+
+/^(?aS)\s\s$/utf,ucp
+    \x{a0}\x{a0}
+    \x{09}\x{20}
+
+/^(?aP)[[:alpha:]][[:xdigit:]]$/utf,ucp
+    \x{e9}c
+    zc
+    z\x{ff23}
+
+# (?-aP) clears the restriction on the POSIX classes including [:xdigit:].
+/^[[:alpha:]](?-aP)[[:xdigit:]]$/utf,ucp,ascii_posix
+    z\x{ff23}
+    \x{e9}c
+
+# (?aT) restricts only [:digit:] and [:xdigit:].
+/^(?aT)[[:xdigit:]][[:alpha:]]$/utf,ucp
+    \x{ff23}z
+    c\x{e9}

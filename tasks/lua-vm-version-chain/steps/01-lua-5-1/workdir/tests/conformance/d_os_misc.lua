@@ -1,0 +1,5 @@
+print(type(os.getenv("PATH")), tostring(os.getenv("NO_SUCH_VAR_HOPEFULLY")))
+print(os.remove("nosuchfile.nothing"))
+print(os.rename("nosuchfile.nothing", "x.nothing"))
+print(type(os.tmpname()))
+print(os.setlocale("C"))

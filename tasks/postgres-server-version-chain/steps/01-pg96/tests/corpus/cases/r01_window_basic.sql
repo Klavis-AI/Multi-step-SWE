@@ -1,0 +1,10 @@
+CREATE TABLE wb(g int, v int);
+INSERT INTO wb VALUES (1,10),(1,20),(1,20),(2,5),(2,7);
+SELECT g,v,row_number() OVER w, rank() OVER w, dense_rank() OVER w
+  FROM wb WINDOW w AS (PARTITION BY g ORDER BY v) ORDER BY g,v,row_number() OVER w;
+SELECT g,v,sum(v) OVER (PARTITION BY g ORDER BY v), count(*) OVER (PARTITION BY g) FROM wb ORDER BY g,v;
+SELECT g,v,lag(v) OVER w, lead(v) OVER w, first_value(v) OVER w
+  FROM wb WINDOW w AS (PARTITION BY g ORDER BY v) ORDER BY g,v;
+SELECT v, sum(v) OVER (ORDER BY v ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM wb ORDER BY v;
+SELECT v, sum(v) OVER (ORDER BY v ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM wb ORDER BY v;
+DROP TABLE wb;

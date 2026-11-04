@@ -1,0 +1,10 @@
+CREATE TABLE df(i int, t text DEFAULT 'dflt', n numeric);
+INSERT INTO df VALUES (1,'a',1.5);
+INSERT INTO df(i) VALUES (2);
+INSERT INTO df VALUES (3, DEFAULT, DEFAULT);
+INSERT INTO df DEFAULT VALUES;
+INSERT INTO df(i,t) SELECT g, 'g'||g FROM generate_series(4,5) g;
+INSERT INTO df VALUES (6,'f',1),(7,'g',2);
+SELECT * FROM df ORDER BY i NULLS LAST;
+INSERT INTO df(i) VALUES (8) RETURNING i, t;
+DROP TABLE df;

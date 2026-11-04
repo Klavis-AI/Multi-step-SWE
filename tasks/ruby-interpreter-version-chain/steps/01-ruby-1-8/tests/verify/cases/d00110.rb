@@ -1,0 +1,1 @@
+p [nil, true].inspect

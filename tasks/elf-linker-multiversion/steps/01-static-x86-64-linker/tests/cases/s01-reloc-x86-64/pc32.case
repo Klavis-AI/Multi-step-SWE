@@ -1,0 +1,52 @@
+# arch: x86_64
+# R_X86_64_PC32 computes S+A-P: the stored displacement is relative to the
+# address of the field itself, so field_address + stored == symbol address.
+rt_obj rt.o
+cat > t.s <<'S'
+        .data
+        .globl  target
+target: .quad   0xabcd
+        .quad   0x1234
+        .section .note.GNU-stack,"",@progbits
+S
+cat > r.s <<'S'
+        .data
+        .globl  slot
+slot:   .long   target - slot           # S + A - P, A = 0
+        .globl  slot2
+slot2:  .long   target + 8 - slot2      # S + A - P, A = 8
+        .text
+        .globl  ripaddr
+ripaddr:
+        leaq    target(%rip), %rax      # PC32 inside an instruction
+        ret
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj t.o t.s; as_obj r.o r.s
+ri=$(relocs r.o)
+want_has "input has data R_X86_64_PC32" "$ri" "R_X86_64_PC32 +[0-9a-f]+ +target \+ 0"
+want_has "input has R_X86_64_PC32 + A"  "$ri" "R_X86_64_PC32 +[0-9a-f]+ +target \+ 8"
+cat > m.c <<'C'
+#include "rt.h"
+extern int slot, slot2;
+extern unsigned long target;
+unsigned long *ripaddr(void);
+int entry(void) {
+  int ok = 0;
+  if ((char *)&slot  + slot  == (char *)&target)     ok |= 1;
+  if ((char *)&slot2 + slot2 == (char *)&target + 8) ok |= 2;
+  if (ripaddr() == &target)                          ok |= 4;
+  if (*ripaddr() == 0xabcdUL)                        ok |= 8;
+  putdec(ok); print("\n");
+  return ok;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o t.o r.o m.o
+run_expect out "15" 15
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 2

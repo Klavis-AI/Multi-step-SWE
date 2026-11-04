@@ -1,0 +1,318 @@
+Table of contents 
+
+ Exit editor mode
+
+ Ask Learn
+
+ Ask Learn
+
+ Reading mode
+
+ Table of contents
+
+ Read in English
+
+ Add
+
+ Add to Plans
+
+ Edit
+
+ Copy Markdown
+
+ Print
+
+ Note
+
+ Access to this page requires authorization. You can try signing in or changing directories.
+
+ Access to this page requires authorization. You can try changing directories.
+
+ Developing OpenType Fonts for Lao Script
+
+ Feedback
+
+ Summarize this article for me
+
+This document presents information that will help font developers create or support OpenType fonts for Lao script languages covered by the Unicode Standard.
+
+Introduction
+
+Font developers will learn how to encode script features in their fonts, choose character sets, organize font information, and use existing tools to produce Lao script fonts. Registered features of Lao scripts are defined and illustrated, encodings are listed, and templates are included for compiling layout tables for OpenType fonts.
+
+This document also presents information about the Lao OpenType shaping engine of Uniscribe, an operating system component responsible for text layout.
+
+In addition to being a primer and specification for the creation and support of Lao script fonts, this document is intended to more broadly illustrate the OpenType Layout architecture, feature schemes, and operating system support for shaping and positioning text.
+
+Glossary
+
+The following terms are useful for understanding the layout features and script rules discussed in this document.
+
+Base Glyph - Any glyph that can have a diacritic mark above or below it. Layout operations are defined in terms of a base glyph, not a base character, as a ligature may act as the base.
+
+Character - Each character represents a Unicode character code point. For example, the 'ko' character is U+0E81.
+
+Glyph - A glyph represents the displayed form of one or more characters.
+
+Combining Mark - A vowel sign or tone mark positioned above or below a character to provide pronunciation guidance.
+
+Cluster - The effective "unit" of Lao writing systems, consisting of a consonant, vowel signs and combining tone marks, or independent vowel letters.
+
+Shaping Engine
+
+Analyze Characters
+
+Shape Glyphs with OTLS
+
+Position Glyphs with OTLS
+
+Invalid Combining Marks
+
+The Uniscribe Lao shaping engine processes text in stages. The stages are:
+
+Analyze characters for valid diacritic combinations
+
+Shape (substitute) glyphs with OTLS (OpenType Library Services)
+
+Position glyphs with OTLS
+
+The following sections will help font developers understand the rationale for the Lao feature encoding model, and help application developers better understand how layout clients can divide responsibilities with operating system functions.
+
+Analyze Characters
+
+The unit that the shaping engine receives for the purpose of shaping is a string of Unicode characters, in a sequence. The contextual analysis engine verifies valid diacritic combinations. For additional information, see Invalid Combining Marks.
+
+The handling of the AM in the analysis phase is special. In the case where an above mark does not exist on the preceding base consonant, the 'ccmp' feature will be used to decompose the AM into the NIGGAHITA and AA glyphs. This allows the NIGGAHITA glyph to be positioned correctly above the preceding base consonant. If there is a tone mark on the base consonant already, the analysis engine will decompose the AM and reorder the NIGGAHITA to between the base consonant and the tone mark. This allows the NIGGAHITA glyph to be positioned correctly above the base consonant, and the tone mark to be positioned correctly above the NIGGAHITA. This behavior cannot be tested in VOLT, as this logic is not in VOLT.
+
+Shape Glyphs with OTLS
+
+The first step Uniscribe takes in shaping the character string is to map all characters to their nominal form glyphs.
+
+Next, Uniscribe calls OTLS to apply the features. All OTL processing is divided into a set of predefined features (described and illustrated in the Features section). Each feature is applied, one by one, to the appropriate glyphs in the syllable and OTLS processes them. Uniscribe makes as many calls to the OTL Services as there are features. This ensures that the features are executed in the desired order.
+
+The steps of the shaping process are outlined below.
+
+Shaping features:
+
+Language forms
+
+Apply feature 'ccmp' to preprocess any glyphs that require composition or decomposition
+
+Position Glyphs with OTLS
+
+Uniscribe next applies features concerned with positioning, calling functions of OTLS to position glyphs.
+
+Positioning features:
+
+Kerning
+
+Apply feature 'kern' to provide pair kerning between base glyphs requiring adjustment for better typographical quality
+
+Mark to base
+
+Apply feature 'mark' to position diacritic glyphs to the base glyph
+
+Mark to Mark
+
+Apply feature 'mkmk' to position diacritic glyphs to other diacritic glyphs
+
+Invalid Combining Marks
+
+Combining marks and signs that appear in text not in conjunction with a valid consonant base are considered invalid. Uniscribe displays these marks using the fallback rendering mechanism defined in the Unicode Standard (section 5.12, 'Rendering Non-Spacing Marks' of the Unicode Standard 3.0), i.e. positioned on a dotted circle.
+
+For the fallback mechanism to work properly, a Lao OTL font should contain a glyph for the dotted circle (U+25CC). In case this glyph is missing from the font, the invalid signs will be displayed on the missing glyph shape (white box).
+
+In addition to the 'dotted circle', other Unicode code points that are recommended for inclusion in any Lao font is the ZWSP (zero width space; U+200B). Lao words are not separated by spaces, so the ZWSP can be used for word boundaries since it will allow for word wrapping at the end of a line. Some applications will use a lexical lookup to do word wrapping without needing ZWSP characters.
+
+If an invalid combination is found, the diacritic that causes the invalid state is placed on a dotted circle to indicate to the user the invalid combination. The shaping engine for non-OpenType fonts will cause invalid mark combinations to overstrike. This is the problem that inserting the dotted circle for the invalid base solves. It should also be noted that the dotted circle is not inserted into the application's backing store; this is a run-time insertion into the glyph array that is returned from the ScriptShape function.
+
+The invalid diacritic logic for Lao is based on the classes listed below. There is a check to make sure more than one mark of a class is not placed on the same base.
+
+ROW 
+Class | 
+Description | 
+Code points | 
+
+ROW 
+ABOVE1 | 
+Above mark closest to base | 
+U+0EB1, U+0EB4, U+0EB5, U+0EB6, U+0EB7, U+0EBB, U+0ECD | 
+
+ROW 
+ABOVE2 | 
+Second level above mark | 
+U+0EC8, U+0EC9, U+0ECA, U+0ECB, U+0ECC | 
+
+ROW 
+BELOW1 | 
+Below mark closest to base | 
+U+0EBC | 
+
+ROW 
+BELOW2 | 
+Second level below mark | 
+U+0EB8, U+0EB9 | 
+
+ROW 
+AM | 
+The AM character is decomposed into two glyphs (NIGGAHITA and AA). The NIGGAHITA is of class ABOVE1. | 
+U+0EB3 | 
+
+Features
+
+The features listed below have been defined to create the basic forms for the languages that are supported on Lao systems. Regardless of the model an application chooses for supporting layout of complex scripts, Uniscribe requires a fixed order for executing features within a run of text to consistently obtain the proper basic form. This is achieved by calling features one-by-one in the standard order listed below.
+
+The order of the lookups within each feature is also very important. For more information on lookups and defining features in OpenType fonts, see the Encoding section of the OpenType Font Development document.
+
+The standard order for applying Lao features encoded in OpenType fonts:
+
+ROW 
+Feature | 
+Feature function | 
+Layout operation | 
+Required | 
+
+ROW 
+Language based forms: | 
+ | 
+ | 
+
+ROW 
+ccmp | 
+Character composition/decomposition substitution | 
+GSUB | 
+X | 
+
+ROW 
+Positioning features: | 
+ | 
+ | 
+
+ROW 
+kern | 
+Pair kerning | 
+GPOS | 
+ | 
+
+ROW 
+mark | 
+Mark to base positioning | 
+GPOS | 
+X | 
+
+ROW 
+mkmk | 
+Mark to mark positioning | 
+GPOS | 
+X | 
+
+ROW 
+ 
+[GSUB = glyph substitution, GPOS = glyph positioning] | 
+
+Feature examples
+
+Character composition (and decomposition)
+
+Feature Tag: "ccmp"
+
+The 'ccmp' feature is used to compose a number of glyphs into one glyph, or decompose one glyph into a number of glyphs. This feature is implemented before any other features because there may be times when a font vender wants to control certain shaping of glyphs. An example of using this table is seen below. The 'ccmp' table maps default alphabetic forms to both a composed form (essentially a ligature, GSUB lookup type 4), and decomposed forms (GSUB lookup type 2).
+
+Example: use the 'ccmp' feature to decompose the Sara Am for correct mark positioning.
+
+Kerning
+
+Feature Tag: "kern"
+
+The 'kern' feature is used to adjust amount of space between glyphs, generally to provide optically consistent spacing between glyphs. Although a well-designed typeface has consistent inter-glyph spacing overall, some glyph combinations require adjustment for improved legibility. Besides standard adjustment in either horizontal or vertical direction, this feature can supply size-dependent kerning data via device tables, "cross-stream" kerning in the Y text direction, and adjustment of glyph placement independent of the advance adjustment. Note that this feature would not be used in monospaced fonts.
+
+The font stores a set of adjustments for pairs of glyphs (GPOS lookup type 2 or 8). These may be stored as one or more tables matching left and right classes, and/or as individual pairs. If both forms are used, the classes should be listed last, so as to provide a means to replace any non-ideal values that may result from the class tables. Additional adjustments may be provided for larger sets of glyphs (e.g., triplets, quadruplets, etc.) to overwrite the results of pair kerns in particular combinations. These should precede the pairs.
+
+Kerning by pair adjustment using Microsoft VOLT
+
+Mark to base positioning
+
+Feature Tag: "mark"
+
+The 'mark' feature positions mark glyphs in relation to a base glyph, or a ligature glyph. This feature may be implemented as a MarkToBase Attachment lookup (GPOS LookupType = 4) or a MarkToLigature Attachment lookup (GPOS LookupType = 5).
+
+Positioning mark to base using Microsoft VOLT
+
+Mark to mark positioning
+
+Feature Tag: "mkmk"
+
+The 'mkmk' feature feature positions mark glyphs in relation to another mark glyph. This feature may be implemented as a MarkToMark Attachment lookup (GPOS LookupType = 6).
+
+Positioning mark to mark using Microsoft VOLT
+
+Appendix
+
+Appendix A: Writing System Tags
+
+Features are encoded according to both a designated script and language system. The language system tag specifies a typographic convention associated with a language or linguistic subgroup.
+
+Currently, the Uniscribe engine only supports the "default" language for each script. However, font developers may want to build language specific features which are supported in other applications and will be supported in future Microsoft OpenType implementations.
+
+NOTE: It is strongly recommended to include the "dflt" language tag in all OpenType fonts because it defines the basic script handling for a font. The "dflt" language system is used as the default if no other language specific features are defined or if the application does not support that particular language. If the "dflt" tag is not present for the script being used, the font may not work in some applications.
+
+The following tables list the registered tag names for scripts and language systems.
+
+ROW 
+Registered tags for the Lao script | 
+Registered tags for Lao language systems | 
+
+ROW 
+Script tag | 
+Script | 
+Language system tag | 
+Language | 
+
+ROW 
+"lao " | 
+Lao | 
+"dflt" | 
+*default script handling | 
+
+ROW 
+ | 
+ | 
+"LAO " | 
+Lao | 
+
+Note: both the script and language tags are case sensitive (script tags should be lowercase, language tags are all caps) and must contain four characters (ie. you must add a space to the three character language tags).
+
+ Collaborate with us on GitHub
+
+ The source for this content can be found on GitHub, where you can also create and review issues and pull requests. For more information, see our contributor guide.
+
+ Script development specifications
+
+ Open a documentation issue
+
+ Provide product feedback
+
+ Feedback
+
+ Was this page helpful?
+
+ Yes
+
+ No
+
+ No
+
+ Need help with this topic?
+
+ Want to try using Ask Learn to clarify or guide you through this topic?
+
+ Ask Learn
+
+ Ask Learn
+
+ Suggest a fix? 
+
+ Additional resources
+
+ Last updated on 
+ 2022-06-11

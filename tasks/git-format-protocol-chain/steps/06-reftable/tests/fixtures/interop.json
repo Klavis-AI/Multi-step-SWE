@@ -1,0 +1,32 @@
+[
+ {
+  "name": "reftable-peer-reads",
+  "peers": [
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q --ref-format=reftable -b main . &&\nprintf 'alpha\\n' > a.txt && mkdir -p d && printf 'beta\\n' > d/b.txt &&\ngit add -A && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m 'initial' &&\nprintf 'alpha2\\n' >> a.txt && git add a.txt &&\nGIT_AUTHOR_DATE='@1112912000 +0000' GIT_COMMITTER_DATE='@1112912000 +0000' git commit -q -m 'second' &&\ngit tag -a v1.0 -m 'release' && git tag light HEAD~1 && git branch topic HEAD~1\n",
+  "probes": [
+   "git -C @REPO@ show-ref",
+   "git -C @REPO@ for-each-ref --format='%(refname) %(objecttype) %(objectname)'",
+   "git -C @REPO@ rev-parse HEAD main topic",
+   "git -C @REPO@ log --oneline --format='%H %s'",
+   "git -C @REPO@ cat-file -p refs/tags/v1.0 | sed -n '1,3p'",
+   "git -C @REPO@ fsck --strict 2>&1 | tail -2; echo exit=$?",
+   "git -C @REPO@ symbolic-ref HEAD"
+  ]
+ },
+ {
+  "name": "reftable-peer-clones",
+  "peers": [
+   "v2.39.5",
+   "v2.51.0"
+  ],
+  "build": "\ngit init -q --ref-format=reftable -b main . &&\nprintf 'x\\n' > f && git add f && GIT_AUTHOR_DATE='@1112911993 +0000' GIT_COMMITTER_DATE='@1112911993 +0000' git commit -q -m c1 &&\ngit branch dev && git tag rel\n",
+  "probes": [
+   "git clone -q @REPO@ @WORK@/clone && git -C @WORK@/clone show-ref | grep -v refs/remotes",
+   "git clone -q @REPO@ @WORK@/clone2 && git -C @WORK@/clone2 rev-parse HEAD",
+   "git clone -q --bare @REPO@ @WORK@/bare.git && git -C @WORK@/bare.git for-each-ref --format='%(refname)'"
+  ]
+ }
+]

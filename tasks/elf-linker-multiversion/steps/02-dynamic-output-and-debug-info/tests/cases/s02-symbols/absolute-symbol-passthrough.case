@@ -1,0 +1,30 @@
+# arch: x86_64
+# An SHN_ABS symbol (defined with .set/.equ, not tied to any section) keeps
+# its numeric value unchanged through the link, independent of where any
+# section ends up being placed.
+rt_obj rt.o
+cat > abs.s <<'S'
+        .globl  abs_sym
+        .set    abs_sym, 0x1234
+S
+as_obj abs.o abs.s
+want_has "fixture symbol really is SHN_ABS" "$(symbols abs.o)" '\babs_sym\b.*ABS|ABS.*\babs_sym\b'
+cat > m.c <<'C'
+#include "rt.h"
+extern char abs_sym;
+int entry(void) {
+  if ((long)&abs_sym == 0x1234) { print("abs-ok"); return 0; }
+  print("abs-bad"); return 1;
+}
+C
+cc_obj m.o m.c
+link_ok out rt.o abs.o m.o
+want "abs_sym keeps its absolute value in the output" \
+     "$(sym_value out abs_sym)" "0000000000001234"
+run_expect out "abs-ok" 0
+# Assertion floor: the number of assertions this case actually executed on
+# the reference, measured at every checkpoint from this milestone up. A
+# `want` whose arguments hit an arithmetic or expansion error is aborted by
+# the shell and never runs -- it does not fail, it vanishes. Without this
+# line such a case reports `ok` having checked nothing.
+asserts_at_least 2

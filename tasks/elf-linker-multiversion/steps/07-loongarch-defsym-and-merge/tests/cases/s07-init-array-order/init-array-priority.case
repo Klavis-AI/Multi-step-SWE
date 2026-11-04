@@ -1,0 +1,65 @@
+# arch: x86_64
+# .init_array.NNNNN sections must be ordered by their numeric priority, with
+# unsuffixed .init_array last, and the resulting pointer array must actually
+# call them in that order.
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+extern void (*__init_array_start[])(void);
+extern void (*__init_array_end[])(void);
+int entry(void) {
+    long n = __init_array_end - __init_array_start;
+    for (long i = 0; i < n; i++) __init_array_start[i]();
+    print("\n");
+    return (int)n;
+}
+C
+cc_obj m.o m.c
+cat > i.s <<'S'
+        .text
+        .globl f1
+f1:     mov $0x41, %edi
+        jmp pr
+        .globl f2
+f2:     mov $0x42, %edi
+        jmp pr
+        .globl f3
+f3:     mov $0x43, %edi
+        jmp pr
+        .globl f4
+f4:     mov $0x44, %edi
+        jmp pr
+pr:     mov %edi, ch(%rip)
+        lea ch(%rip), %rsi
+        mov $1, %edi
+        mov $1, %edx
+        jmp sys_write
+        .data
+ch:     .byte 0
+        .section .init_array.00500,"aw",@init_array
+        .quad f3
+        .section .init_array.00100,"aw",@init_array
+        .quad f2
+        .section .init_array.00001,"aw",@init_array
+        .quad f1
+        .section .init_array,"aw",@init_array
+        .quad f4
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj i.o i.s
+link_ok out --no-gc-sections rt.o m.o i.o
+want "four entries" "$(( 0x$(sec_size out .init_array) ))" "32"
+# The stored pointers, in order, must be f1 f2 f3 f4.
+$OBJDUMP -s -j .init_array out > d.txt
+words=$(awk '/^ [0-9a-f]+ /{ printf "%s%s%s%s", $2, $3, $4, $5 }' d.txt)
+le64() { # le64 <index> -> the index'th little-endian 8-byte word, as hex
+  local h=${words:$(( $1 * 16 )):16} r=""
+  local i; for ((i = 14; i >= 0; i -= 2)); do r="$r${h:$i:2}"; done
+  printf '%016s\n' "$r" | tr ' ' '0'
+}
+for k in 0 1 2 3; do
+  want "init_array[$k]" "$(le64 $k)" "$(sym_value out f$((k + 1)))"
+done
+run_expect out "ABCD" 4
+
+asserts_at_least 5

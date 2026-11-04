@@ -1,0 +1,47 @@
+CREATE TABLE ag(g int, v int, n numeric, f float8, t text);
+INSERT INTO ag VALUES (1,10,1.5,1.5,'a'),(1,20,2.5,2.5,'b'),(2,5,NULL,NULL,NULL),(2,NULL,3.5,3.5,'c');
+SELECT count(*), count(v), count(DISTINCT g), sum(v), avg(v), min(v), max(v) FROM ag;
+ count | count | count | sum |         avg         | min | max 
+-------+-------+-------+-----+---------------------+-----+-----
+     4 |     3 |     2 |  35 | 11.6666666666666667 |   5 |  20
+(1 row)
+
+SELECT sum(n), avg(n), sum(f), avg(f) FROM ag;
+ sum |        avg         | sum | avg 
+-----+--------------------+-----+-----
+ 7.5 | 2.5000000000000000 | 7.5 | 2.5
+(1 row)
+
+SELECT g, count(*), sum(v) FROM ag GROUP BY g ORDER BY g;
+ g | count | sum 
+---+-------+-----
+ 1 |     2 |  30
+ 2 |     2 |   5
+(2 rows)
+
+SELECT g, count(*) FROM ag GROUP BY g HAVING count(*)>1 ORDER BY g;
+ g | count 
+---+-------
+ 1 |     2
+ 2 |     2
+(2 rows)
+
+SELECT string_agg(t,',' ORDER BY t) FROM ag;
+ string_agg 
+------------
+ a,b,c
+(1 row)
+
+SELECT array_agg(v ORDER BY v NULLS LAST) FROM ag;
+   array_agg    
+----------------
+ {5,10,20,NULL}
+(1 row)
+
+SELECT bool_and(v>1), bool_or(v>15) FROM ag;
+ bool_and | bool_or 
+----------+---------
+ t        | t
+(1 row)
+
+DROP TABLE ag;

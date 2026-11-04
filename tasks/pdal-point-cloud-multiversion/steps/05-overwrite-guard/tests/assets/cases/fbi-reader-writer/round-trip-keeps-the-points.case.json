@@ -1,0 +1,14 @@
+{
+  "doc": "stages/readers.fbi.rst: 'The **FBI Reader** supports reading from `FastBinary format` files.' -- a grid.las -> out.fbi -> back.las round trip returns all 1000 points, so the format carries the point count and the reader and writer agree on the record layout.",
+  "files": {
+    "in.las": {"fixture": "grid.las"},
+    "w.json": {"text": "{\"pipeline\":[{\"type\":\"readers.las\",\"filename\":\"in.las\"},{\"type\":\"writers.fbi\",\"filename\":\"mid.fbi\"}]}"},
+    "r.json": {"text": "{\"pipeline\":[{\"type\":\"readers.fbi\",\"filename\":\"mid.fbi\"},{\"type\":\"writers.las\",\"filename\":\"back.las\"}]}"}
+  },
+  "run": [{"argv": ["pipeline", "w.json"]}, {"argv": ["pipeline", "r.json"]}],
+  "checks": [
+    {"kind": "exit", "run": 0, "equals": 0},
+    {"kind": "exit", "run": 1, "equals": 0},
+    {"kind": "las", "file": "back.las", "header": {"point_count": 1000}}
+  ]
+}

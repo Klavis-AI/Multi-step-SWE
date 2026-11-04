@@ -1,0 +1,7 @@
+CREATE TABLE sm(i int primary key, v int);
+INSERT INTO sm VALUES (1,1);
+MERGE INTO sm t USING (VALUES (1,9),(2,8)) s(i,v) ON t.i=s.i
+  WHEN MATCHED THEN UPDATE SET v=s.v
+  WHEN NOT MATCHED THEN INSERT VALUES (s.i,s.v);
+SELECT * FROM sm ORDER BY i;
+DROP TABLE sm;

@@ -1,0 +1,47 @@
+# CVE-2025-58050: (*ACCEPT) inside a scan substring assertion left the
+# temporarily reset end of subject in place, so matching after the assertion
+# ran against the wrong buffer end.  ChangeLog 10.46 item 1; pcre2pattern.3,
+# "SCAN SUBSTRING ASSERTIONS".
+
+# After the assertion succeeds the rest of the pattern must see the whole
+# subject again.
+/(a+)(*scs:(1)a(*ACCEPT))b+/
+    aaabbb
+ 0: aaabbb
+ 1: aaa
+
+/(a+)(*scs:(1)a(*ACCEPT))b\z/
+    aaab
+ 0: aaab
+ 1: aaa
+
+/(a+)(*scs:(1)a(*ACCEPT)).+/
+    aaaZZZZ
+ 0: aaaZZZZ
+ 1: aaa
+
+/(a+)(*scs:(1)(*ACCEPT))b/
+    aaab
+ 0: aaab
+ 1: aaa
+
+# $ and \z must refer to the end of the real subject once the scan is over.
+/(a+)(*scs:(1)a(*ACCEPT))$/
+    aaabbb
+No match
+
+/(a+)(*scs:(1)a(*ACCEPT))\z/
+    aaa
+ 0: aaa
+ 1: aaa
+
+# (*ACCEPT) inside the scan still makes the assertion succeed.
+/(\w+)-(\w+)(*scs:(2)q(*ACCEPT)zzz)/
+    id-quay
+ 0: id-quay
+ 1: id
+ 2: quay
+
+/(\w+)-(\w+)(*scs:(2)w(*ACCEPT)zzz)/
+    id-quay
+No match

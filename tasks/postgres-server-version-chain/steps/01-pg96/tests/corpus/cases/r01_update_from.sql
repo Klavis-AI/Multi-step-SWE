@@ -1,0 +1,9 @@
+CREATE TABLE uf1(i int primary key, v int);
+CREATE TABLE uf2(i int, add int);
+INSERT INTO uf1 VALUES (1,10),(2,20),(3,30);
+INSERT INTO uf2 VALUES (1,1),(2,2);
+UPDATE uf1 SET v = uf1.v + uf2.add FROM uf2 WHERE uf1.i = uf2.i;
+SELECT * FROM uf1 ORDER BY i;
+DELETE FROM uf1 USING uf2 WHERE uf1.i=uf2.i AND uf2.add=1;
+SELECT * FROM uf1 ORDER BY i;
+DROP TABLE uf1, uf2;

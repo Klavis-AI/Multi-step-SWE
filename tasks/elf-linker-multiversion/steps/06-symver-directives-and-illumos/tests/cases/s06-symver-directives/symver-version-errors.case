@@ -1,0 +1,129 @@
+# arch: x86_64
+# The two rejections spec 13 section 1 states as MUSTs, each against a control
+# link that must succeed on the same fixture shape:
+#   * a .symver naming a version the version script in effect does not define
+#     fails, and the diagnostic names both the symbol and the missing version;
+#   * two `@@` (default) definitions of one base name fail, because at most one
+#     default may exist per base name.
+# Only a non-zero status and the offending token are graded; the wording is not.
+
+# --- control: a .symver whose version the script does define links cleanly ---
+cat > ok.s <<'S'
+        .text
+        .globl ok_impl
+ok_impl:
+        mov     $7, %eax
+        ret
+        .symver ok_impl, okfn@@VERS_1.0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj ok.o ok.s
+cat > vs.txt <<'V'
+VERS_1.0 { global: okfn; local: *; };
+V
+link_ok libok.so -shared -soname libok.so --version-script=vs.txt ok.o
+want_has "the control export carries its version" \
+         "$(dynsyms libok.so)" 'GLOBAL DEFAULT +[0-9]+ okfn@@VERS_1\.0$'
+want_has "the control defines the node" "$(vernum libok.so)" 'Name: VERS_1\.0'
+
+# --- rejection 1: the named version is not defined by the script in effect ---
+cat > undef.s <<'S'
+        .text
+        .globl ver_impl
+ver_impl:
+        mov     $3, %eax
+        ret
+        .symver ver_impl, ver@VERS_9.9
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj undef.o undef.s
+cat > vs2.txt <<'V'
+VERS_1.0 { global: ver; local: *; };
+V
+link_fails undef.so -shared -soname libu.so --version-script=vs2.txt undef.o
+want_has "the diagnostic names the symbol"  "$LINK_ERR" '\bver\b'
+want_has "the diagnostic names the version" "$LINK_ERR" 'VERS_9\.9'
+
+# The very same object links once the script defines the version it asked for,
+# so the failure above is about the missing node and nothing else.
+cat > vs3.txt <<'V'
+VERS_1.0 { global: ver; local: *; };
+VERS_9.9 { global: ver; local: *; } VERS_1.0;
+V
+link_ok fixed.so -shared -soname libu.so --version-script=vs3.txt undef.o
+want_has "the same object exports once the node exists" \
+         "$(dynsyms fixed.so)" 'GLOBAL DEFAULT +[0-9]+ ver@VERS_9\.9$'
+
+# --- rejection 2: two default (`@@`) definitions of one base name ----------
+# Same base name `dup`, two different nodes, both marked default. One object
+# first, then the same clash spread across two objects.
+cat > dup.s <<'S'
+        .text
+        .globl impl_a
+impl_a: mov     $1, %eax
+        ret
+        .globl impl_b
+impl_b: mov     $2, %eax
+        ret
+        .symver impl_a, dup@@VERS_1.0
+        .symver impl_b, dup@@VERS_2.0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj dup.o dup.s
+cat > vs4.txt <<'V'
+VERS_1.0 { global: dup; local: *; };
+VERS_2.0 { global: dup; local: *; } VERS_1.0;
+V
+link_fails dup.so -shared -soname libd.so --version-script=vs4.txt dup.o
+want_has "the second default definition is diagnosed on stderr" "$LINK_ERR" '.'
+
+cat > d1.s <<'S'
+        .text
+        .globl da
+da:     mov     $1, %eax
+        ret
+        .symver da, dd@@VERS_1.0
+        .section .note.GNU-stack,"",@progbits
+S
+cat > d2.s <<'S'
+        .text
+        .globl db
+db:     mov     $2, %eax
+        ret
+        .symver db, dd@@VERS_2.0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d1.o d1.s
+as_obj d2.o d2.s
+cat > vs5.txt <<'V'
+VERS_1.0 { global: dd; local: *; };
+VERS_2.0 { global: dd; local: *; } VERS_1.0;
+V
+link_fails dd.so -shared -soname libdd.so --version-script=vs5.txt d1.o d2.o
+want_has "the cross-object clash is diagnosed on stderr" "$LINK_ERR" '.'
+
+# One default plus one non-default of the same base name is legal, so the
+# rejection above is about the second *default*, not about the shared name.
+cat > mix.s <<'S'
+        .text
+        .globl ma
+ma:     mov     $1, %eax
+        ret
+        .globl mb
+mb:     mov     $2, %eax
+        ret
+        .symver ma, mixed@VERS_1.0
+        .symver mb, mixed@@VERS_2.0
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj mix.o mix.s
+cat > vs6.txt <<'V'
+VERS_1.0 { global: mixed; local: *; };
+VERS_2.0 { global: mixed; local: *; } VERS_1.0;
+V
+link_ok mixed.so -shared -soname libm.so --version-script=vs6.txt mix.o
+mds=$(dynsyms mixed.so)
+want_has "the non-default survives" "$mds" 'GLOBAL DEFAULT +[0-9]+ mixed@VERS_1\.0$'
+want_has "the default survives"     "$mds" 'GLOBAL DEFAULT +[0-9]+ mixed@@VERS_2\.0$'
+
+asserts_at_least 9

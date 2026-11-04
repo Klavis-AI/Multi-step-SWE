@@ -1,0 +1,51 @@
+# arch: x86_64
+# what: the -Bsymbolic family decides which of a shared object's own
+# definitions stay interposable -- all of them, only data, or everything that
+# is not weak -- which is visible as the set of surviving dynamic relocations.
+cat > bs.c <<'C'
+int gfun(void) { return 1; }
+__attribute__((weak)) int wfun(void) { return 2; }
+int gvar = 7;
+int callw(void) { return wfun(); }
+int *addrv(void) { return &gvar; }
+C
+cc_obj bs.o bs.c -fPIC
+# The symbols the relocations are allowed to name, as a sorted set.
+bound() { relocs "$1" > rr.txt; awk '$3 ~ /GLOB_DAT|JUMP_SLOT/ {print $5}' rr.txt | sort -u | tr '\n' ' '; }
+link_ok plain.so -shared bs.o
+want "by default both are interposable" "$(bound plain.so)" "gvar wfun "
+link_ok sym.so -shared -Bsymbolic bs.o
+want "-Bsymbolic binds everything internally" "$(bound sym.so)" ""
+# The flag chooses a binding scope; it does not set DF_SYMBOLIC, and
+# neither does the default (TEST_INTERFACE.md, step 5 table).
+want_not "a plain -shared link sets no DF_SYMBOLIC" "$(dynamic plain.so)" 'SYMBOLIC'
+want_not "-Bsymbolic sets no DF_SYMBOLIC"           "$(dynamic sym.so)"   'SYMBOLIC'
+link_ok fun.so -shared -Bsymbolic-functions bs.o
+want "-Bsymbolic-functions leaves data interposable" "$(bound fun.so)" "gvar "
+link_ok nw.so -shared -Bsymbolic-non-weak bs.o
+want "-Bsymbolic-non-weak leaves the weak function interposable" "$(bound nw.so)" "wfun "
+# Whatever the binding, the library still exports the same names.
+for f in plain.so sym.so fun.so nw.so; do
+  dynsyms "$f" > d.txt
+  want "$f exports gvar" "$(awk '$8 == "gvar"' d.txt | wc -l)" "1"
+  want "$f exports wfun" "$(awk '$8 == "wfun"' d.txt | wc -l)" "1"
+  want "$f is ET_DYN"    "$(hdr "$f" | awk '/^ *Type:/{print $2}')" "DYN"
+done
+# Protected visibility reaches the same end by a different route: a protected
+# definition is not interposable, so it must lose its GLOB_DAT/JUMP_SLOT even
+# without -Bsymbolic, while staying exported with STV_PROTECTED in .dynsym.
+cat > pv.c <<'C'
+__attribute__((visibility("protected"))) int pvar = 7;
+__attribute__((visibility("protected"))) int pfun(void) { return 1; }
+int usep(void) { return pfun() + pvar; }
+int *addrp(void) { return &pvar; }
+C
+cc_obj pv.o pv.c -fPIC
+link_ok prot.so -shared pv.o
+want "protected symbols are bound internally" "$(bound prot.so)" ""
+dynsyms prot.so > pd.txt
+want "pvar is exported PROTECTED" "$(awk '$8 == "pvar" {print $6}' pd.txt)" "PROTECTED"
+want "pfun is exported PROTECTED" "$(awk '$8 == "pfun" {print $6}' pd.txt)" "PROTECTED"
+# 21 assertions run against the reference at 0.6.0 and 0.10.0 (19 counted here
+# before the two DF_SYMBOLIC negatives were added).
+asserts_at_least 19

@@ -1,0 +1,75 @@
+# arch: x86_64
+# spec/10 s.7: "Moving `.` backwards MUST be an error." Only the failure is
+# graded, not the wording or the exit value.
+#
+# The construction matters. A trailing output section whose only input is
+# garbage-collected contributes nothing, the counter never actually reaches the
+# lower address, and the link succeeds at every tag. KEEP() is what makes it
+# bite: it forces the section to exist, so the counter really does move back.
+# See TEST_INTERFACE.md, "Step 9's in-scope surface".
+rt_obj rt.o
+cat > m.c <<'C'
+#include "rt.h"
+const char msg[] = "dot";
+int g = 7;
+int entry(void) { print(msg); print("\n"); return g; }
+C
+cc_obj m.o m.c
+cat > d.s <<'S'
+        .section .mydata,"a",@progbits
+        .4byte 0x11223344
+        .section .other,"a",@progbits
+        .4byte 0x55667788
+        .section .note.GNU-stack,"",@progbits
+S
+as_obj d.o d.s
+
+# Control: the identical script moving the counter FORWARD. It links at every
+# tag, so the failures below are the direction of the move and nothing else.
+cat > c.ld <<'L'
+SECTIONS {
+  . = 0x600000;
+  .text : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  . = 0x700000;
+  .mydata : { KEEP(*(.mydata)) }
+}
+L
+link_ok ctl -T c.ld rt.o m.o d.o
+want "the forward move placed .mydata" "$(( 16#$(sec_addr ctl .mydata) ))" "$(( 0x700000 ))"
+# spec/10 s.7, last bullet: assigning to `.` must not create a symbol named `.`.
+want_not "no symbol named '.' was created" "$(symbols ctl)" '[[:space:]]\.$'
+run_expect ctl "dot" 7
+
+# A backwards jump between output-section descriptions.
+sed 's/^  \. = 0x700000;/  . = 0x500000;/' c.ld > b1.ld
+grep -q '0x500000' b1.ld || die "fixture edit did not produce a backwards move"
+link_fails back1 -T b1.ld rt.o m.o d.o
+
+# The same thing by a much smaller amount: it is the direction that is an
+# error, not the distance.
+cat > b2.ld <<'L'
+SECTIONS {
+  . = 0x600000;
+  .text : { *(.text .text.*) }
+  .rodata : { *(.rodata .rodata.*) }
+  .mydata : { KEEP(*(.mydata)) }
+  . = 0x600000;
+  .other : { KEEP(*(.other)) }
+}
+L
+link_fails back2 -T b2.ld rt.o m.o d.o
+
+# And the forward-moving version of that second script still links, so what
+# back2 reported is the rewind and not the extra output section.
+awk '/^  \. = 0x600000;$/ && ++n == 2 { print "  . = 0x680000;"; next } { print }' b2.ld > b3.ld
+grep -q '0x680000' b3.ld || die "fixture edit did not produce a forward move"
+link_ok fwd2 -T b3.ld rt.o m.o d.o
+want "the second forward move placed .other" "$(( 16#$(sec_addr fwd2 .other) ))" "$(( 0x680000 ))"
+run_expect fwd2 "dot" 7
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 3

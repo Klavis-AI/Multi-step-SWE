@@ -1,0 +1,41 @@
+# A recursion or subroutine call may be followed by a parenthesised list of
+# capture groups to retain when the call returns.  ChangeLog 10.47 item 9;
+# pcre2pattern.3, "Recursion and subroutines with returned capture groups".
+
+# (?&name(grouplist)) with the retained group used afterwards.
+/(?(DEFINE)(?<coin>(?|(?<face>hea)ds|(?<face>tai)ls)))^(?&coin(<face>)):\k<face>$/
+    heads:hea
+    tails:tai
+    heads:tai
+
+# Without the list the group reverts to the calling context's value.
+/(?(DEFINE)(?<coin>(?|(?<face>hea)ds|(?<face>tai)ls)))^(?&coin):\k<face>$/
+    heads:hea
+
+# Names in single quotes and plain group numbers work too.
+/(?(DEFINE)(?<coin>(?|(?<face>hea)ds|(?<face>tai)ls)))^(?&coin('face')):\k<face>$/
+    tails:tai
+
+/(?(DEFINE)(?<coin>(?|(?<face>hea)ds|(?<face>tai)ls)))^(?&coin(2)):\k<face>$/
+    heads:hea
+
+# (?P>name(grouplist)) is the same call in Python syntax.
+/(?(DEFINE)(?<coin>(?|(?<face>hea)ds|(?<face>tai)ls)))^(?P>coin(<face>)):\k<face>$/
+    tails:tai
+
+# Only the listed groups are retained.
+/(?(DEFINE)(?<rt>(?<alpha>x)(?<num>\d)))^(?&rt(<num>,<alpha>))$/
+    x7
+
+/(?(DEFINE)(?<rt>(?<alpha>x)(?<num>\d)))^(?&rt(<num>))$/
+    x7
+
+/(?(DEFINE)(?<rt>(?<alpha>x)(?<num>\d)))^(?&rt(2))$/
+    x7
+
+# A relative call with a returned group list.
+/^\[(?<body>\w+)\]-(?-1(<body>))?$/
+    [ab]-
+
+# The Oniguruma \g<...> syntax does not offer the feature.
+/(?(DEFINE)(?<rt>(?<num>\d)))^\g<rt(<num>)>/

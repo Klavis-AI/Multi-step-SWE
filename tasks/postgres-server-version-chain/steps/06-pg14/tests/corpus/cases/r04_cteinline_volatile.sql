@@ -1,0 +1,8 @@
+CREATE SEQUENCE q4_civ_seq;
+CREATE FUNCTION q4_civ_tick(x int) RETURNS int LANGUAGE plpgsql VOLATILE AS $$
+BEGIN PERFORM nextval('q4_civ_seq'); RETURN x; END $$;
+WITH w AS NOT MATERIALIZED (SELECT q4_civ_tick(g) AS n FROM generate_series(1,4) g)
+  SELECT count(*) FROM w;
+SELECT last_value, is_called FROM q4_civ_seq;
+DROP FUNCTION q4_civ_tick(int);
+DROP SEQUENCE q4_civ_seq;

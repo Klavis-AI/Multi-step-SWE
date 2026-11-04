@@ -1,0 +1,127 @@
+# Step 06 -- what the migrated tree must reach, measured on the golden solution
+# and frozen here.
+#
+# baseline/source.txt says where the tree starts -- it is the step-05 GOLDEN,
+# re-measured with the gate that ships HERE, because step 05's SourceScan
+# cannot see newinstance, boxedctor, factory, legacycoll, accessible,
+# getpackage or var at all. This file says where the tree has to get to. Both
+# are shipped and the scorer reads both, rather than deriving either from the
+# tree it is grading: a threshold computed at grading time from the candidate's
+# own tree is a threshold the candidate sets.
+#
+# THE KEYS ARE EXACTLY THE KEYS test.sh READS. A frozen number nothing divides
+# by is a number nobody notices going wrong. Measured figures that are context
+# rather than gate input appear below as comments, not as keys.
+#
+# authoring/verify-baseline-step06.sh re-derives every one of them from the
+# reports the authoring notes point at and fails on any drift.
+
+# --- what step 03 won and must not lose, B-10 -------------------------------
+#
+# The two diamond keys are different numbers, as they were at step 05:
+#
+#   target.diamond      73   how many diamonds the tree must still HOLD
+#   target.b10.diamond  93   how many explicit-type-argument sites step 03 MOVED
+#
+# 19 of the 93 went at step 05 -- they were the sink constructions of the 23
+# accumulate buckets, and collect(Collectors.toList()) constructs nothing for a
+# diamond to sit on. THE TWENTIETH GOES HERE, and it is the only B-10 figure
+# this step moves:
+#
+#   testenrichers/cdi/.../MethodParameterInjectionPoint.java:162
+#       return new HashSet<>(Arrays.asList(method.getParameterAnnotations()[position]));
+#   ->  return Set.of(method.getParameterAnnotations()[position]);
+#
+# C-5 requires that site to become a factory call and no factory form has a
+# type-argument position for a diamond to occupy, so the two requirements
+# cannot both be satisfied and this one yields. 74 -> 73, once, named.
+#
+# C-7 does NOT move it again. Exactly one of the 81 `var` candidates has a
+# diamond initialiser -- DynamicServiceLoader.java:196,
+# `LinkedHashSet<Class<? extends T>> providers = new LinkedHashSet<>();` -- and
+# converting it means writing the type argument on the right, which turns a
+# diamond back into an explicit type-argument site and undoes a step-03 gain
+# for a 1/81 slice of a 0.10 leg. That site is therefore EXEMPT from C-7:
+# target.c7.want is 80 against a population of 81. Converting it anyway costs
+# the candidate nothing (the departure half is clamped) and gains nothing.
+target.diamond=73
+target.explicit.nonanon=23
+target.try.resources=9
+target.iofile=2
+target.b10.diamond=93
+target.b10.close=11
+target.b10.nio=11
+
+# --- what step 04 won and must not lose, B-11 -------------------------------
+#
+# Denominators, unchanged from step 05's target.txt. The golden ADDS lambdas at
+# this rung -- C-6's three rewrites introduce five, two of them in
+# ContainerRegistryCreator's ifPresentOrElse -- and adds them to files that
+# already had some, so no frozen file list shrinks and every gate here is
+# clamped above.
+target.b11.lambdafiles=20
+target.b11.sam=24
+target.b11.collectmethods=24
+target.anonfn=12
+
+# --- what step 05 won and must not lose, B-12 (new at this rung) ------------
+#
+# Step 05's four library legs, renamed from target.<leg> to target.b12.<leg> so
+# that a reader of this file can tell at a glance which rung a number came
+# from. The values are step 05's own, unchanged: these are the same
+# measurements, read from the same four frozen population files
+# (baseline/optbuckets.txt, sinks.txt, valuetypes.txt, timesites.txt), now as a
+# regression gate rather than as this step's work.
+target.b12.optbuckets=16
+target.b12.sinks=23
+target.b12.valuetypes=3
+target.b12.timesites=4
+target.b12.optional.floor=5
+target.b12.collectors.floor=6
+target.b12.objects.floor=2
+target.b12.jtime.floor=2
+
+# --- this step's own work, family C -----------------------------------------
+#
+# Every one of these is a population measured on the tree this step is handed,
+# not a target chosen for its shape. The population files name the sites;
+# these are the denominators the scorer divides by.
+#
+# C-2. 2 `Class.newInstance()` calls to move, and a FLOOR of 13
+# `Constructor.newInstance` calls afterwards -- the 11 that were already there
+# plus the 2 that moved. Without the floor, deleting the reflection outscores
+# migrating it.
+target.c2.legacy=2
+target.c2.ctor.floor=13
+
+# C-3. 12 `AccessibleObject.isAccessible()` guards to remove, and all 14
+# `setAccessible` calls still there afterwards. Same shape as C-2 and the same
+# reason.
+target.c3.guards=12
+target.c3.setacc=14
+
+# C-4. 12 wrapper-constructor sites, scored as a count reaching 0. No floor:
+# there is no way to "delete" a boxing expression that leaves the code
+# compiling and the tests passing, so the count cannot be gamed downward.
+target.c4.boxed=12
+
+# C-5. 7 constructions to convert and 7 views to hold, both from src/main and
+# both frozen by <file>#<method> bucket in baseline/builds.txt and
+# baseline/views.txt. The hold half is not a formality: EXP-06D measured that
+# converting the views is observable, and on ServiceLoader observable
+# differently on different JVM runs.
+target.c5.builds=7
+target.c5.views=7
+
+# C-6. 6 `Optional.isPresent()` sites in 3 methods, scored PER METHOD because
+# two of the three hold sites that are not independently convertible.
+target.c6.methods=3
+
+# C-7. 81 declarations of the form `Foo x = new Foo(...)`, of which 80 are
+# asked for (see the B-10 note above for the exempt one). Scored on the
+# departure and the arrival together: (81 - var.candidatenew)/80 clamped, and
+# min(1, var.size/80). The departure half alone would pay a candidate for
+# DELETING declarations; the arrival half alone would pay one for sprinkling
+# `var` over the other 415 candidates the population does not name.
+target.c7.candidatenew=81
+target.c7.want=80

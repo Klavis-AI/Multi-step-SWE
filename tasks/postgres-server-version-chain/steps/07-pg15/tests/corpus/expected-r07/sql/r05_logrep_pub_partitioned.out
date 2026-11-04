@@ -1,0 +1,22 @@
+CREATE TABLE x05_10a(a int, b text) PARTITION BY RANGE (a);
+CREATE TABLE x05_10a1 PARTITION OF x05_10a FOR VALUES FROM (0) TO (10);
+CREATE TABLE x05_10a2 PARTITION OF x05_10a FOR VALUES FROM (10) TO (20);
+CREATE PUBLICATION x05_10p FOR TABLE x05_10a;
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+SELECT pubname, pubviaroot FROM pg_publication WHERE pubname='x05_10p';
+ pubname | pubviaroot 
+---------+------------
+ x05_10p | f
+(1 row)
+
+SELECT pubname, schemaname, tablename FROM pg_publication_tables
+  WHERE pubname='x05_10p' ORDER BY tablename;
+ pubname | schemaname | tablename 
+---------+------------+-----------
+ x05_10p | public     | x05_10a1
+ x05_10p | public     | x05_10a2
+(2 rows)
+
+DROP PUBLICATION x05_10p;
+DROP TABLE x05_10a;

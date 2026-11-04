@@ -1,0 +1,167 @@
+schema_version = "1.4"
+
+# Task reward = the mean of the eleven steps' own rewards. There is no
+# min_reward on any step, so no step can stop the run and no step inherits or
+# pads credit for another: each verifier reports only its own milestone, as 1
+# when that step's gate holds and all of its scored groups pass, and 0
+# otherwise.
+multi_step_reward_strategy = "mean"
+
+# A separate verifier receives the cumulative source only through this declared
+# artifact. The verifier configures, builds and installs the project from
+# source into its own staging prefix, so no agent build output belongs in the
+# snapshot.
+artifacts = [
+  { source = "/app", destination = "workspace", exclude = [".git", ".git/**", "build", "build/**", "_build", "_build/**"] },
+]
+
+[task]
+name = "harbor/srt-live-transport-multiversion"
+version = "1.0.0"
+description = "Implement the SRT secure reliable live transport across eleven public release milestones of Haivision/srt, graded against the pinned SRT and UDT protocol drafts and the upstream API documentation through the installed public C API."
+authors = [{ name = "Klavis AI", email = "connect@klavis.ai" }]
+keywords = ["srt", "udt", "live-video", "transport-protocol", "multi-step", "conformance"]
+
+[metadata]
+difficulty = "very hard"
+category = "programming"
+tags = ["srt", "c++", "network-protocol", "arq", "encryption", "conformance", "multi-step"]
+
+[environment]
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+mcp_servers = []
+workdir = "/app"
+# The agent may use the network for official documentation and dependencies.
+network_mode = "public"
+
+# Grade each step in an isolated verifier container built from that step's
+# tests/Dockerfile. The cumulative /app artifact is restored at /app inside the
+# image before /tests/test.sh runs. Every verifier writes
+# {"reward": <step-local 0 or 1>} and exits 0; reward_details.json carries the
+# fractional score and the per-group breakdown.
+
+[agent]
+# The agent phase runs against an allowlist: only the inference API endpoint
+# the runner adds is reachable at the network layer, so an upstream copy
+# cannot be fetched by any route -- git, release tarball, package registry or
+# docs mirror.
+network_mode = "allowlist"
+
+[verifier]
+environment_mode = "separate"
+
+[verifier.environment]
+# The image build installs a C toolchain and OpenSSL headers and nothing else;
+# the candidate's library is built at grade time, inside test.sh, under its own
+# timeout. Size this for the apt layer, not for the test run.
+build_timeout_sec = 1800.0
+cpus = 4
+memory_mb = 8192
+storage_mb = 20480
+gpus = 0
+workdir = "/app"
+# Grading does not use the network: the drivers speak only to the loopback
+# interface, and every fixture is a literal inside a driver source file.
+network_mode = "public"
+
+# Every step gets the same budget. [steps.agent].timeout_sec is mirrored by
+# environment/timer.sh, which the instruction tells the agent to run.
+#
+# [steps.verifier].timeout_sec = 2700 is the sum test.sh budgets its work to
+# fit into: 900 s to configure, build and install whatever is in /app, 300 s to
+# compile this step's drivers against it, 1200 s of aggregate case budget, and
+# the few seconds of fixture hashing and scorecard writing around them. The
+# Oracle needs a small fraction of that; the budget binds only on a pathological
+# candidate.
+
+[[steps]]
+name = "01-udt-core-and-srt-extensions"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "02-hsv5-streamid-and-apps"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "03-strict-encryption-and-km-state"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "04-cryspr-and-congctl"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "05-packet-filter-and-fec"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "06-srctime-and-access-control"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "07-declarative-socket-options"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "08-main-backup-bonding-and-timing"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "09-group-api-and-receiver-buffer"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "10-aead-and-sender-buffer"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0
+
+[[steps]]
+name = "11-rexmit-shaping-and-hardening"
+[steps.agent]
+# Keep synchronized with environment/timer.sh and this step's instruction.
+timeout_sec = 10800.0
+[steps.verifier]
+timeout_sec = 2700.0

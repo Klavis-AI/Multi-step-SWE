@@ -1,0 +1,10 @@
+CREATE TABLE ag(g int, v int, n numeric, f float8, t text);
+INSERT INTO ag VALUES (1,10,1.5,1.5,'a'),(1,20,2.5,2.5,'b'),(2,5,NULL,NULL,NULL),(2,NULL,3.5,3.5,'c');
+SELECT count(*), count(v), count(DISTINCT g), sum(v), avg(v), min(v), max(v) FROM ag;
+SELECT sum(n), avg(n), sum(f), avg(f) FROM ag;
+SELECT g, count(*), sum(v) FROM ag GROUP BY g ORDER BY g;
+SELECT g, count(*) FROM ag GROUP BY g HAVING count(*)>1 ORDER BY g;
+SELECT string_agg(t,',' ORDER BY t) FROM ag;
+SELECT array_agg(v ORDER BY v NULLS LAST) FROM ag;
+SELECT bool_and(v>1), bool_or(v>15) FROM ag;
+DROP TABLE ag;

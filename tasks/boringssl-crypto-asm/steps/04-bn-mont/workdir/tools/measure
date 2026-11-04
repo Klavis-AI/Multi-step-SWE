@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Build the per-function harness against a build of the workspace tree and run
+# it. The harness links the library you built, so it measures the implementation
+# your tree installed.
+#
+#   tools/measure /app/build              all entry points for this milestone
+#   tools/measure /app/build <fnid>       one of them
+#   tools/measure /app/build --check      structural self-checks
+set -u
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+build=${1:-/app/build}
+shift || true
+src=/app/boringssl
+
+if [ ! -f "$build/libcrypto.a" ]; then
+    echo "no libcrypto.a in $build -- build the tree first:" >&2
+    echo "  cmake -S /app/boringssl -B /app/build -G Ninja -DCMAKE_BUILD_TYPE=Release" >&2
+    echo "  cmake --build /app/build -j\"\$(nproc)\" --target crypto" >&2
+    exit 1
+fi
+
+gcc -O2 -std=c11 -I "$src/include" -c "$here/measure.c" -o /tmp/measure.o || exit 1
+g++ -o /tmp/measure /tmp/measure.o "$build/libcrypto.a" -lpthread || exit 1
+
+if [ "$#" -eq 0 ]; then
+    taskset -c 0 /tmp/measure --list | while read -r fn; do
+        taskset -c 0 /tmp/measure "$fn"
+    done
+else
+    taskset -c 0 /tmp/measure "$@"
+fi

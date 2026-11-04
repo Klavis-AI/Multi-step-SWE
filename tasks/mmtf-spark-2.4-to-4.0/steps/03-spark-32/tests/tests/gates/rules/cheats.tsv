@@ -1,0 +1,99 @@
+# Step 2: the nine ways to fake this step, priced at the whole of it.
+#
+# These are standing rules -- no id begins `m<digit>-`, so score.py reads them
+# as preconditions rather than as a share of the reward -- and they are the only
+# standing rules whose failure costs *both* families. That is what the file is
+# for: score.py reads the ids out of this file by name, so "which reds zero the
+# whole step" is the contents of one file rather than a list in the scorer that
+# can drift away from the rules it names.
+#
+# `Encoders.kryo` is the reason the file exists. Handing an opaque
+# `StructureDataInterface` to the SQL engine through a Kryo encoder produces a
+# Dataset, a terminal action, and a real SQL execution id on the job --
+# measured, not supposed (NOTES 6.2.5, the seventh shape). Every job rule of
+# m02.tsv goes green on it, and so does the `-rdd-gone` half, because the RDD
+# count really is gone. What it does not produce is a migration: the engine sees
+# one black-box column, no plan is possible over it, and the tree is an RDD
+# pipeline wearing a Dataset as a hat. Priced as a requirement it would cost a
+# share and keep the rest; priced here it takes the whole step, which is what a
+# tree that faked it is worth. The instruction says so in as many words, so the
+# cliff is not a surprise to anyone who read it.
+#
+# `setLocalProperty("spark.sql.execution.id", ...)` is the same argument one
+# line shorter: it puts an execution id on a pure-RDD job and buys every job
+# rule outright. It is prohibited twice, in the source and in the artifact,
+# and caught a third time at runtime by a counter the cheat does not touch --
+# an execution id that never had an execution. The three fail independently.
+#
+# The two `-reflect` rules are the round-1 review's finding, and they are the
+# reason a source rule and an artifact rule are not two readings of one claim.
+# `Encoders.class.getMethod("kryo", Class.class).invoke(...)` is an opaque
+# encoder that the AST rule cannot see (the call is `getMethod`) and the
+# artifact rule cannot see either (the reference is to `java.lang.Class`). What
+# neither spelling can avoid is the name itself: the method has to be named
+# somewhere, and a string constant is a fact the class file carries. Neither
+# constant appears anywhere in this repository's own 230 sources, measured on
+# the golden jar, so the rules cost an honest candidate nothing.
+#
+# The last two are the same argument turned on the instrument rather than on
+# the step. Every job row this gate reads is written by a SparkListener the
+# verifier installs on the submit line, into a file named by an environment
+# variable, and the driver JVM that listener runs in is the candidate's own
+# process: nothing written from inside it is unforgeable. So the runtime half
+# of every requirement rests on the candidate not having replaced the listener
+# or written its file, and the artifact half -- three rules per class, read out
+# of the constant pool of a jar that is built before any of it runs -- is what
+# carries the claim on a tree where they did. These two are the cheap half of
+# that defence: a jar naming `spark.extraListeners`, this probe's own class, or
+# one of its `GATE_PROBE_*` variables has reached for the instrument, and there
+# is no honest reason for any of those names to be in it. Measured on the
+# golden jar, as the two above were: not one of them appears in this
+# repository's 230 sources or in the jar they build. The constant pool is where
+# they are caught for the reason the `-reflect` pair is caught there -- a
+# config key, a class name and a path all have to be spelled, and a spelled
+# string is a fact the class file carries.
+#
+# id	mode	selector	counterexample	reason
+no-opaque-encoder	absent	ast.call\t*\t*\t(kryo|javaSerialization)\tEncoders	ast-kryo.tsv	the source hands a value to the SQL engine through an opaque encoder (Encoders.kryo / Encoders.javaSerialization); the engine gets a black box and the step is faked
+no-opaque-encoder-jar	absent	bytecode.ref\t*\torg/apache/spark/sql/Encoders\t(kryo|javaSerialization)\t*	bytecode-kryo.tsv	the artifact references Encoders.kryo or Encoders.javaSerialization; the engine gets a black box and the step is faked
+no-opaque-encoder-reflect	absent	bytecode.strconst\t(kryo|javaSerialization)\t*	bytecode-kryo-reflect.tsv	the artifact carries the constant "kryo" or "javaSerialization"; the opaque encoder was named as a string and called by reflection, which is the same black box spelled so the two rules above cannot see it
+no-set-execution-id	absent	ast.call\t*\t*\tsetLocalProperty\t*	ast-forge.tsv	the source sets a local property by hand; spark.sql.execution.id is writable and setting it puts an execution id on a job that never ran in an execution
+no-set-execution-id-jar	absent	bytecode.ref\t*\t*\tsetLocalProperty\t*	bytecode-forge.tsv	the artifact calls setLocalProperty; spark.sql.execution.id is writable and setting it puts an execution id on a job that never ran in an execution
+no-set-execution-id-reflect	absent	bytecode.strconst\tsetLocalProperty\t*	bytecode-forge-reflect.tsv	the artifact carries the constant "setLocalProperty"; the forgery was named as a string and called by reflection, which is the same one-line cheat spelled so the two rules above cannot see it
+no-forged-execution-id	absent	probe.job\t*\tforged:.*	probe-forged.tsv	a job carried a SQL execution id that no SQL execution ever started: the id was set on the job rather than earned by it
+no-replaced-listener	absent	bytecode.strconst\tspark\.extraListeners\t*	bytecode-listener-swap.tsv	the artifact carries the constant "spark.extraListeners"; that key is how this verifier installs the listener every job row it reads comes from, and a jar that sets it has replaced the instrument with one the candidate wrote
+no-probe-tampering	absent	bytecode.strconst\t(GATE_PROBE_[A-Z_]*|gate\.GateProbe)\t*	bytecode-probe-env.tsv	the artifact names this verifier's probe -- its listener class, or one of the GATE_PROBE_* environment variables that tell it where to write; the job rows this gate reads are that probe's output, and a jar that can name where they go can write them itself
+#
+# The three below are round 3's finding, and they move from naming the cheat to
+# naming the mechanism. Every rule above that reads a constant pool asks whether
+# a *name* is in the jar -- "kryo", "setLocalProperty", "spark.extraListeners" --
+# and a name can be built out of pieces at run time. `"de" + "scribe"` is folded
+# by javac and caught, but `new String(new char[]{'d','e',...})` carries no string
+# constant at all, so a rule that reads only constants has a floor it cannot go
+# below. What the assembled name is *for* is the other half of the cheat, and
+# that half cannot be assembled: a method looked up by name has to be looked up
+# through java.lang.Class and called through java.lang.reflect, and both are
+# references the class file carries whatever the name was spelled like.
+#
+# Measured on this repository: not one of the 230 sources and neither built jar
+# -- handed or golden, at 3.2.4 -- makes a single reference into
+# java.lang.reflect, and the only java.lang.Class member any of them uses is
+# getSimpleName (twelve classes, all `getClass().getSimpleName()` in a usage
+# message). So the pair costs an honest candidate nothing, and a candidate who
+# needs reflection to migrate a Spark API has not migrated it.
+#
+# `com/databricks` is exempt because it is in the scan for one reason only --
+# m2-no-xml-in-jar in m01.tsv asks whether spark-xml's 158 classes are still in
+# the artifact -- and those are somebody else's classes, whose constant pools
+# are not a statement about what this candidate wrote. Everything else the scan
+# reaches is a class this build compiled, in whatever package it was put.
+#
+# no-probe-impersonation is the third road round 3 found into the instrument,
+# after replacing the listener and writing its file: leave the listener
+# installed and shadow the class, with spark.driver.userClassPathFirst and a
+# class of this probe's own name in the uber jar. The name is a CONSTANT_Class
+# and a Utf8, never a CONSTANT_String, so no-probe-tampering above cannot see
+# it; what it cannot avoid is being a class in the jar under test.
+no-reflective-dispatch	absent	bytecode.ref\t(?!com/databricks/).*\tjava/lang/reflect/.*\t*\t*	bytecode-kryo-reflect.tsv	a class this build compiled calls into java.lang.reflect; a Spark method reached by reflection is a method the source and artifact rules cannot see being called, and no migration of this repository needs one
+no-reflective-lookup	absent	bytecode.ref\t(?!com/databricks/).*\tjava/lang/Class\t(getMethod|getDeclaredMethod|getMethods|getDeclaredMethods|getConstructor|getDeclaredConstructor|forName)\t*	bytecode-kryo-reflect.tsv	a class this build compiled looks a member or a type up by name at run time; that is how a prohibited call is made without the call appearing in the source or in the constant pool, and the only java.lang.Class member this repository uses is getSimpleName
+no-probe-impersonation	absent	bytecode.class\tgate/.*\t*	bytecode-probe-class.tsv	the jar under test carries a class in this verifier's own `gate` package; with spark.driver.userClassPathFirst that class is loaded in place of the observer, and every job row this gate reads would then be the candidate's own output

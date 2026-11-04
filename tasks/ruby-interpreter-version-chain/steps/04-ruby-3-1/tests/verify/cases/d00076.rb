@@ -1,0 +1,1 @@
+p "naïve".reverse

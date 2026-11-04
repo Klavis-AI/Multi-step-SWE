@@ -1,0 +1,11 @@
+CREATE TABLE tb(i int);
+BEGIN;
+INSERT INTO tb VALUES (1);
+SELECT count(*) FROM tb;
+ROLLBACK;
+SELECT count(*) FROM tb;
+BEGIN;
+INSERT INTO tb VALUES (2);
+COMMIT;
+SELECT count(*) FROM tb;
+DROP TABLE tb;

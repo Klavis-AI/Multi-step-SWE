@@ -1,0 +1,134 @@
+source 'https://rubygems.org'
+
+ruby '2.7.8'
+
+# Versions move only where the framework or the interpreter forces them to.
+# Everything else stays where the 4.2 lockfile had it, because a gem that
+# changes under a migration changes the application's output for reasons the
+# migration did not ask for -- the markdown renderer, the analytics snippet
+# and the TwiML builder all emit bytes this application serves.
+#
+# This step moves two pins at once because it has to: Rails 6.0 does not
+# install on Ruby 2.4, and 2.7 is the last interpreter 6.0 supports.  The
+# `ruby` directive above, `.ruby-version` and the lockfile's RUBY VERSION all
+# have to name the same 2.7.8 -- whichever two of them disagree, something
+# downstream picks the interpreter the third one named.
+#
+# `bundle lock` against those two pins -- not `bundle update`, which floats
+# seventy-odd gems -- moves 23, adds 13 and drops 6.  Most of that is the
+# framework's own list: arel goes because Active Record 6.0 absorbed it,
+# actionmailbox, actiontext and zeitwerk arrive as members of Rails 6.0's, and
+# mail 2.9 brings the four net-* gems that have left the standard library (and
+# with them date, logger and timeout, which are gems now too).  The rest are
+# floors, taken one gem at a time: a pinned version that will not load or will
+# not build here, moved up to the first release that does and no further.
+#
+# nokogiri is the one transitive pin that had to be named on the command line.
+# Ruby 2.4 capped it at 1.10, which is why an earlier step pinned it and loofah
+# and rails-html-sanitizer with it; 2.7 lifts that cap, so those three lines
+# are gone from this file.  But a conservative `bundle lock` keeps a version it
+# is not asked to move, and 1.10.10 does not compile against this interpreter's
+# headers -- `bundle lock --update nokogiri` takes it to 1.15.7, and racc comes
+# with it.  loofah stays at 2.2.3, because now nothing asks it to move.
+gem 'pg', '~> 0.21'                 # 0.17 does not build against a current libpq
+gem 'rails', '6.0.6.1'
+gem 'unicorn', '4.8.2'
+
+# Bootsnap caches the load path and the compiled bytecode of everything the
+# application requires; Rails 5.2 generates a `config/boot.rb` that enables it
+# and lists it here.  Both versions are pinned because both have a Ruby floor
+# above this interpreter within one minor release: bootsnap 1.5 wants Ruby 2.5
+# and so does msgpack 1.5, and bundler resolves msgpack from bootsnap's
+# unbounded `~> 1.0` unless it is told otherwise.
+gem 'bootsnap', '1.4.9', require: false
+gem 'msgpack', '1.4.2'
+
+gem 'high_voltage', '3.0.0'         # 2.x's StaticPage concern calls hide_action
+gem 'jbuilder', '~> 2.0'            # 1.x is Rails 4.0 only
+gem 'redcarpet', '3.1.1'
+gem 'will_paginate', '~> 3.1'       # 3.0.5 predates Rails 4.1's AR changes
+
+gem 'backbone-rails', '1.1.0'
+gem 'foundation-rails', '5.2.2.0'
+gem 'jquery-rails', '~> 4.0'   # 3.1 caps railties below 5.0
+gem 'leaflet-rails', '0.7.2'
+gem 'sass-rails', '~> 5.0.7'   # 5.0.4 caps railties below 5.0
+gem 'twitter-typeahead-rails', '0.10.2'
+gem 'uglifier', '2.5.0'
+
+gem 'google-analytics-rails', '0.0.5'
+gem 'soda-ruby', '0.2.12', require: 'soda'
+gem 'twilio-ruby', '3.11.5'
+
+# Two caps on gems nothing in this file used to have to name, both of them
+# holding a dependency on the last release that works under Rails 6.0.
+#
+# concurrent-ruby 1.3.5 dropped the `require "logger"` it had always carried,
+# and activesupport 6.0's LoggerThreadSafeLevel reads ::Logger at load time --
+# on 1.3.5 the framework does not finish loading.
+gem 'concurrent-ruby', '1.3.4'
+
+# json is a default gem and the lockfile takes whatever teaspoon's `>= 1.8.0`
+# resolves to.  activesupport 6.0's JSON encoder calls `JSON.generate(value,
+# quirks_mode: true, max_nesting: false)` and json 3.0 removed `quirks_mode`,
+# so a resolution that floats json turns every `to_json` this application
+# serves into an ArgumentError.  The cap holds it on the 2.x line it is on.
+gem 'json', '~> 2.7'
+
+# sass-rails 5.0.7 asks only for `sass ~> 3.1`, so dropping the 4.x sass-rails
+# floats sass from 3.2.19 to 3.7.4 -- and foundation-rails 5.2.2.0 guards every
+# one of its modules with `@if (index($modules, $name) == false)`, which sass 3.3
+# broke by returning `null` rather than `false` for a miss.  Under 3.7.4 the
+# framework emits nothing and `application.css` dies on `failed to @extend
+# ".left"`.  Holding sass where the application already had it keeps the
+# stylesheet the migration was not asked to change.
+gem 'sass', '3.2.19'
+
+group :test do
+  # 2.8.0 calls `BigDecimal.new` at load time, in
+  # validate_inclusion_of_matcher.rb:251, and Ruby 2.7 removed it.
+  gem 'shoulda-matchers', '~> 4.5'
+  gem 'timecop'
+  gem 'vcr'
+  gem 'webmock', '~> 2.3'
+end
+
+group :development, :test do
+  gem 'annotate'
+  gem 'capybara', '~> 2.18'
+  # teaspoon ships its runner as 20 .coffee sources and puts `teaspoon/*.js` on
+  # config.assets.precompile.  sprockets-rails 3 resolves that whole list the
+  # first time any *_path helper runs, so the CoffeeScript compiler stops being
+  # lazy the way sprockets 2 had it; without this every asset helper raises
+  # `LoadError: cannot load such file -- coffee_script`.
+  gem 'coffee-rails', '~> 5.0'   # 4.2's TemplateHandler.call takes one argument
+  gem 'dotenv-rails', '~> 2.7'
+  # factory_girl has printed its own deprecation on every boot since the
+  # 4.9 release; factory_bot 5 is the same library under its current name.
+  gem 'factory_bot_rails', '~> 5.2'
+  gem 'ffaker', '2.11.0'
+  gem 'launchy'
+  gem 'pry'
+  gem 'rails-controller-testing'    # `assigns` left ActionPack in 5.0
+  gem 'rspec-its'                   # `its(...)` left rspec-core in 3.0
+  gem 'rspec-rails', '~> 4.0'       # 3.9's EmptyTemplateHandler.call takes one argument
+  gem 'teaspoon'
+end
+
+group :development do
+  gem 'foreman'
+  gem 'guard-teaspoon', '~> 0.8'
+  gem 'guard-livereload'
+  gem 'rack-livereload'
+end
+
+group :production do
+  gem 'newrelic_rpm'
+  # rails_12factor is gone, and what its two gems set is set directly in
+  # config/environments/production.rb instead.  rails_serve_static_assets
+  # turns the file server on, which that file has always done for itself;
+  # rails_stdout_logging hands Rails a logger writing to STDOUT, and it builds
+  # that logger with `include ::LoggerSilence`, which Rails 6.0 deprecates on
+  # every boot.  Neither gem has had a release since 2016, so there is no
+  # version of this to upgrade to.
+end

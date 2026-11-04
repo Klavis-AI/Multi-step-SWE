@@ -1,0 +1,68 @@
+# A class holding just the two cases of one character is now a single caseless
+# character, so the first code unit optimisation applies to it.
+/[Aa]bc/I
+Capture group count = 0
+First code unit = 'A' (caseless)
+Last code unit = 'c'
+Subject length lower bound = 3
+    xxabc
+ 0: abc
+    xxAbc
+ 0: Abc
+
+# A starting bitmap with only two bits that are case partners becomes a single
+# caseless starting code unit.
+/(word|WORD)/I
+Capture group count = 1
+First code unit = 'W' (caseless)
+Subject length lower bound = 4
+    my WORD
+ 0: WORD
+ 1: WORD
+
+# For a positive class of wide characters in UTF-8 mode, only the bytes that
+# actually start those characters are set in the starting bitmap.
+/[\x{120}\x{250}]z/I,utf
+Capture group count = 0
+Options: utf
+Starting code units: \xc4 \xc9 
+Last code unit = 'z'
+Subject length lower bound = 2
+    \x{250}z
+ 0: \x{250}z
+
+# No minimum subject length is computed when start-up optimisations are off.
+/pqr/I,no_start_optimize
+Capture group count = 0
+Options: no_start_optimize
+    pqr
+ 0: pqr
+
+# (*ACCEPT) suppresses the minimum length scan ...
+/pq(?:(*ACCEPT))?rs/I
+Capture group count = 0
+First code unit = 'p'
+Subject length lower bound = 1
+    pqrs
+ 0: pq
+
+# ... and a branch that starts with (*ACCEPT) can match an empty string.
+/(*ACCEPT)pq/I
+Capture group count = 0
+May match empty string
+Subject length lower bound = 0
+    zz
+ 0: 
+
+/(*ACCEPT)|pq/I
+Capture group count = 0
+May match empty string
+Subject length lower bound = 0
+    zz
+ 0: 
+
+# Characters inspected in a trailing negative lookahead are consulted text.
+/pq(?!rs)/
+    pqrt\=allusedtext
+ 0: pqrt
+      >>

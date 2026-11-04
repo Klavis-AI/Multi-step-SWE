@@ -1,0 +1,480 @@
+diff --git a/Source/Lib/Encoder/ASM_AVX2/NltEnc_avx2.c b/Source/Lib/Encoder/ASM_AVX2/NltEnc_avx2.c
+new file mode 100644
+index 0000000..63cfb7b
+--- /dev/null
++++ b/Source/Lib/Encoder/ASM_AVX2/NltEnc_avx2.c
+@@ -0,0 +1,146 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#include <immintrin.h>
++#include "Codestream.h"
++#include "NltEnc_avx2.h"
++
++void image_shift_avx2(uint16_t* out_coeff_16bit, int32_t* in_coeff_32bit, uint32_t width, int32_t shift, int32_t offset) {
++    int32_t* in_ptr_line = in_coeff_32bit;
++    uint16_t* out_ptr_line = out_coeff_16bit;
++
++    const __m256i offset_avx2 = _mm256_set1_epi32(offset);
++    const __m256i sign_mask_epi32 = _mm256_set1_epi32(/*BITSTREAM_MASK_SIGN*/ (-2147483647 - 1));
++    const __m256i zero = _mm256_setzero_si256();
++
++    const uint32_t simd_batch = width / 16;
++    uint32_t remaining = width % 16;
++
++    for (uint32_t i = 0; i < simd_batch; i++) {
++        __m256i data1 = _mm256_loadu_si256((__m256i*)(in_ptr_line));
++        __m256i sign1 = _mm256_and_si256(data1, sign_mask_epi32);
++        sign1 = _mm256_srli_epi32(sign1, 16);
++
++        __m256i data2 = _mm256_loadu_si256((__m256i*)(in_ptr_line + 8));
++        __m256i sign2 = _mm256_and_si256(data2, sign_mask_epi32);
++        sign2 = _mm256_srli_epi32(sign2, 16);
++
++        data1 = _mm256_abs_epi32(data1);
++        data1 = _mm256_add_epi32(data1, offset_avx2);
++        data1 = _mm256_srli_epi32(data1, shift);
++        sign1 = _mm256_and_si256(sign1, _mm256_cmpgt_epi32(data1, zero));
++        data1 = _mm256_or_si256(data1, sign1);
++
++        data2 = _mm256_abs_epi32(data2);
++        data2 = _mm256_add_epi32(data2, offset_avx2);
++        data2 = _mm256_srli_epi32(data2, shift);
++        sign2 = _mm256_and_si256(sign2, _mm256_cmpgt_epi32(data2, zero));
++        data2 = _mm256_or_si256(data2, sign2);
++
++        data1 = _mm256_packus_epi32(data1, data2);
++        data1 = _mm256_permute4x64_epi64(data1, 0xd8);
++
++        _mm256_storeu_si256((__m256i*)out_ptr_line, data1);
++
++        in_ptr_line += 16;
++        out_ptr_line += 16;
++    }
++
++    if (remaining >= 8) {
++        __m256i data = _mm256_loadu_si256((__m256i*)(in_ptr_line));
++        __m256i sign = _mm256_and_si256(data, sign_mask_epi32);
++        sign = _mm256_srli_epi32(sign, 16);
++
++        data = _mm256_abs_epi32(data);
++        data = _mm256_add_epi32(data, offset_avx2);
++        data = _mm256_srli_epi32(data, shift);
++        sign = _mm256_and_si256(sign, _mm256_cmpgt_epi32(data, zero));
++        data = _mm256_or_si256(data, sign);
++        data = _mm256_packus_epi32(data, data);
++        _mm_storel_epi64((__m128i*)out_ptr_line, _mm256_castsi256_si128(data));
++        _mm_storel_epi64((__m128i*)(out_ptr_line + 4), _mm256_extracti128_si256(data, 0x1));
++
++        remaining -= 8;
++        in_ptr_line += 8;
++        out_ptr_line += 8;
++    }
++
++    for (uint32_t i = 0; i < remaining; i++) {
++        int32_t val = in_ptr_line[i];
++        if (val >= 0) {
++            val = (val + offset) >> shift;
++        }
++        else {
++            val = ((-val + offset) >> shift);
++            if (val) {
++                val |= BITSTREAM_MASK_SIGN;
++            }
++        }
++        out_ptr_line[i] = val;
++    }
++}
++
++void linear_input_scaling_line_8bit_avx2(const uint8_t* src, int32_t* dst, uint32_t w, uint8_t shift, int32_t offset) {
++    const __m256i offset_avx2 = _mm256_set1_epi32(offset);
++    const uint32_t simd_batch = w / 8;
++    const uint32_t remaining = w % 8;
++
++    for (uint32_t j = 0; j < simd_batch; j++) {
++        __m128i temp_data = _mm_loadl_epi64((const __m128i*)src);
++        __m256i data = _mm256_cvtepu8_epi32(temp_data);
++
++        data = _mm256_slli_epi32(data, shift);
++        data = _mm256_sub_epi32(data, offset_avx2);
++
++        _mm256_storeu_si256((__m256i*)dst, data);
++
++        src += 8;
++        dst += 8;
++    }
++    for (uint32_t j = 0; j < remaining; j++) {
++        dst[j] = (int32_t)((uint32_t)src[j] << shift) - (int32_t)offset;
++    }
++}
++
++void linear_input_scaling_line_16bit_avx2(const uint16_t* src, int32_t* dst, uint32_t w, uint8_t shift, int32_t offset,
++                                          uint8_t bit_depth) {
++    /* each __m512i has 16 int32_t(int32_t) */
++    const uint32_t simd_batch = w / 8;
++    const uint32_t remaining = w % 8;
++    const uint16_t input_mask = (1 << bit_depth) - 1;
++
++    const __m256i offset_avx2 = _mm256_set1_epi32(offset);
++    const __m128i input_mask_epi16 = _mm_set1_epi16(input_mask);
++    for (uint32_t i = 0; i < simd_batch; i++) {
++        __m256i reg = _mm256_cvtepi16_epi32(_mm_and_si128(_mm_loadu_si128((__m128i*)src), input_mask_epi16));
++        __m256i result = _mm256_sub_epi32(_mm256_slli_epi32(reg, shift), offset_avx2);
++        _mm256_storeu_si256((__m256i*)dst, result);
++        src += 8;
++        dst += 8;
++    }
++    for (uint32_t i = 0; i < remaining; i++) {
++        dst[i] = ((src[i] & input_mask) << shift) - offset;
++    }
++}
++
++/* MSB-aligned: no masking needed, values use the full 16-bit range so zero-extend (not sign-extend). */
++void linear_input_scaling_line_16bit_msb_avx2(const uint16_t* src, int32_t* dst, uint32_t w, uint8_t shift, int32_t offset,
++                                              uint8_t bit_depth) {
++    (void)bit_depth;
++    const uint32_t simd_batch = w / 8;
++    const uint32_t remaining = w % 8;
++    const __m256i offset_avx2 = _mm256_set1_epi32(offset);
++
++    for (uint32_t i = 0; i < simd_batch; i++) {
++        __m256i reg = _mm256_cvtepu16_epi32(_mm_loadu_si128((__m128i*)src));
++        __m256i result = _mm256_sub_epi32(_mm256_slli_epi32(reg, shift), offset_avx2);
++        _mm256_storeu_si256((__m256i*)dst, result);
++        src += 8;
++        dst += 8;
++    }
++    for (uint32_t i = 0; i < remaining; i++) {
++        dst[i] = ((uint32_t)src[i] << shift) - offset;
++    }
++}
+diff --git a/Source/Lib/Encoder/ASM_AVX2/NltEnc_avx2.h b/Source/Lib/Encoder/ASM_AVX2/NltEnc_avx2.h
+new file mode 100644
+index 0000000..6607570
+--- /dev/null
++++ b/Source/Lib/Encoder/ASM_AVX2/NltEnc_avx2.h
+@@ -0,0 +1,26 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#ifndef __ENCODER_NLT_AVX2_H__
++#define __ENCODER_NLT_AVX2_H__
++
++#include "Definitions.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++void image_shift_avx2(uint16_t* out_coeff_16bit, int32_t* in_coeff_32bit, uint32_t width, int32_t shift, int32_t offset);
++void linear_input_scaling_line_8bit_avx2(const uint8_t* src, int32_t* dst, uint32_t w, uint8_t shift, int32_t offset);
++void linear_input_scaling_line_16bit_avx2(const uint16_t* src, int32_t* dst, uint32_t w, uint8_t shift, int32_t offset,
++                                          uint8_t bit_depth);
++void linear_input_scaling_line_16bit_msb_avx2(const uint16_t* src, int32_t* dst, uint32_t w, uint8_t shift, int32_t offset,
++                                              uint8_t bit_depth);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /*__ENCODER_NLT_AVX2_H__*/
+diff --git a/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c b/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c
+new file mode 100644
+index 0000000..7c1dbb6
+--- /dev/null
++++ b/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.c
+@@ -0,0 +1,202 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#include <immintrin.h>
++#include "RateControl_avx2.h"
++#include "encoder_dsp_rtcd.h"
++#include "EncDec.h"
++#include <string.h>
++
++
++
++
++
++void convert_packed_to_planar_rgb_8bit_avx2(const void *in_rgb, void *out_comp1, void *out_comp2, void *out_comp3,
++                                            uint32_t line_width) {
++    const uint8_t *in = in_rgb;
++    uint8_t *out_c1 = out_comp1;
++    uint8_t *out_c2 = out_comp2;
++    uint8_t *out_c3 = out_comp3;
++
++    const uint8_t mask[] = {0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11, 12, 13, 14, 15,
++                            0, 3, 6, 9, 1, 4, 7, 10, 2, 5, 8, 11, 12, 13, 14, 15};
++    __m256i shuffle_mask = _mm256_loadu_si256((__m256i *)mask);
++    __m128i shuffle_mask_sse = _mm_loadu_si128((__m128i *)mask);
++
++    uint32_t pix = 0;
++    for (; (pix + 32) < line_width; pix += 32) {
++        __m128i rgb_t1 = _mm_loadu_si128((__m128i *)(in));
++        __m128i rgb_t2 = _mm_loadu_si128((__m128i *)(in + 48));
++        __m256i rgb1 = _mm256_inserti128_si256(_mm256_castsi128_si256(rgb_t1), (rgb_t2), 0x1);
++
++        rgb_t1 = _mm_loadu_si128((__m128i *)(in + 16));
++        rgb_t2 = _mm_loadu_si128((__m128i *)(in + 64));
++        __m256i rgb2 = _mm256_inserti128_si256(_mm256_castsi128_si256(rgb_t1), (rgb_t2), 0x1);
++
++        rgb_t1 = _mm_loadu_si128((__m128i *)(in + 32));
++        rgb_t2 = _mm_loadu_si128((__m128i *)(in + 80));
++        __m256i rgb3 = _mm256_inserti128_si256(_mm256_castsi128_si256(rgb_t1), (rgb_t2), 0x1);
++
++        __m256i pack_lo = _mm256_shuffle_epi8(rgb1, shuffle_mask);
++        rgb1 = _mm256_alignr_epi8(rgb2, rgb1, 12);
++        __m256i pack_hi = _mm256_shuffle_epi8(rgb1, shuffle_mask);
++        rgb2 = _mm256_alignr_epi8(rgb3, rgb2, 8);
++        __m256i pack_lo2 = _mm256_shuffle_epi8(rgb2, shuffle_mask);
++        rgb3 = _mm256_srli_si256(rgb3, 4);
++        __m256i pack_hi2 = _mm256_shuffle_epi8(rgb3, shuffle_mask);
++
++        __m256i tmp1 = _mm256_unpacklo_epi32(pack_lo, pack_hi);
++        __m256i tmp2 = _mm256_unpacklo_epi32(pack_lo2, pack_hi2);
++        _mm256_storeu_si256((__m256i *)out_c1, _mm256_unpacklo_epi64(tmp1, tmp2));
++        _mm256_storeu_si256((__m256i *)out_c2, _mm256_unpackhi_epi64(tmp1, tmp2));
++
++        tmp1 = _mm256_unpackhi_epi32(pack_lo, pack_hi);
++        tmp2 = _mm256_unpackhi_epi32(pack_lo2, pack_hi2);
++        _mm256_storeu_si256((__m256i *)out_c3, _mm256_unpacklo_epi64(tmp1, tmp2));
++
++        out_c1 += 32;
++        out_c2 += 32;
++        out_c3 += 32;
++        in += 96;
++    }
++    for (; (pix + 4) < line_width; pix += 4) {
++        __m128i input = _mm_loadu_si128((__m128i *)in);
++        input = _mm_shuffle_epi8(input, shuffle_mask_sse);
++
++        (void)(*(int *)(out_c1) = _mm_cvtsi128_si32(input));
++        input = _mm_srli_si128(input, 4);
++        (void)(*(int *)(out_c2) = _mm_cvtsi128_si32(input));
++        input = _mm_srli_si128(input, 4);
++        (void)(*(int *)(out_c3) = _mm_cvtsi128_si32(input));
++
++        out_c1 += 4;
++        out_c2 += 4;
++        out_c3 += 4;
++        in += 12;
++    }
++    for (; pix < line_width; pix++) {
++        out_c1[0] = in[0];
++        out_c2[0] = in[1];
++        out_c3[0] = in[2];
++        out_c1++;
++        out_c2++;
++        out_c3++;
++        in += 3;
++    }
++}
++
++void convert_packed_to_planar_rgb_16bit_avx2(const void *in_rgb, void *out_comp1, void *out_comp2, void *out_comp3,
++                                             uint32_t line_width) {
++    const uint16_t *in = in_rgb;
++    uint16_t *out_c1 = out_comp1;
++    uint16_t *out_c2 = out_comp2;
++    uint16_t *out_c3 = out_comp3;
++
++    const uint8_t mask[] = {0, 1, 6, 7, 2, 3, 8, 9, 4, 5, 10, 11, 12, 13, 14, 15,
++                            0, 1, 6, 7, 2, 3, 8, 9, 4, 5, 10, 11, 12, 13, 14, 15};
++    __m256i shuffle_mask = _mm256_loadu_si256((__m256i *)mask);
++
++    uint32_t pix = 0;
++    for (; (pix + 16) < line_width; pix += 16) {
++        __m128i rgb_t1 = _mm_loadu_si128((__m128i *)(in));
++        __m128i rgb_t2 = _mm_loadu_si128((__m128i *)(in + 24));
++        __m256i rgb1 = _mm256_inserti128_si256(_mm256_castsi128_si256(rgb_t1), (rgb_t2), 0x1);
++
++        rgb_t1 = _mm_loadu_si128((__m128i *)(in + 8));
++        rgb_t2 = _mm_loadu_si128((__m128i *)(in + 32));
++        __m256i rgb2 = _mm256_inserti128_si256(_mm256_castsi128_si256(rgb_t1), (rgb_t2), 0x1);
++
++        rgb_t1 = _mm_loadu_si128((__m128i *)(in + 16));
++        rgb_t2 = _mm_loadu_si128((__m128i *)(in + 40));
++        __m256i rgb3 = _mm256_inserti128_si256(_mm256_castsi128_si256(rgb_t1), (rgb_t2), 0x1);
++
++        __m256i pack_lo = _mm256_shuffle_epi8(rgb1, shuffle_mask);
++        rgb1 = _mm256_alignr_epi8(rgb2, rgb1, 12);
++        __m256i pack_hi = _mm256_shuffle_epi8(rgb1, shuffle_mask);
++        rgb2 = _mm256_alignr_epi8(rgb3, rgb2, 8);
++        __m256i pack_lo2 = _mm256_shuffle_epi8(rgb2, shuffle_mask);
++        rgb3 = _mm256_srli_si256(rgb3, 4);
++        __m256i pack_hi2 = _mm256_shuffle_epi8(rgb3, shuffle_mask);
++
++        __m256i tmp1 = _mm256_unpacklo_epi32(pack_lo, pack_hi);
++        __m256i tmp2 = _mm256_unpacklo_epi32(pack_lo2, pack_hi2);
++        _mm256_storeu_si256((__m256i *)out_c1, _mm256_unpacklo_epi64(tmp1, tmp2));
++        _mm256_storeu_si256((__m256i *)out_c2, _mm256_unpackhi_epi64(tmp1, tmp2));
++
++        tmp1 = _mm256_unpackhi_epi32(pack_lo, pack_hi);
++        tmp2 = _mm256_unpackhi_epi32(pack_lo2, pack_hi2);
++        _mm256_storeu_si256((__m256i *)out_c3, _mm256_unpacklo_epi64(tmp1, tmp2));
++
++        out_c1 += 16;
++        out_c2 += 16;
++        out_c3 += 16;
++        in += 48;
++    }
++    for (; pix < line_width; pix++) {
++        out_c1[0] = in[0];
++        out_c2[0] = in[1];
++        out_c3[0] = in[2];
++        out_c1++;
++        out_c2++;
++        out_c3++;
++        in += 3;
++    }
++}
++
++/* Histogram of sixteen bins over bytes from [0, TRUNCATION_MAX].
++ *
++ * Every bin is counted as the population of a compare mask. This variant was
++ * chosen not for peak throughput on long lines but because it has neither a
++ * prologue nor an epilogue: sixteen byte accumulators would have to be cleared
++ * and folded, which is some fifty extra operations per call. Meanwhile on a
++ * 1080p422 frame more than half of the calls arrive with a width below sixteen
++ * (bands of the upper decomposition levels are narrow), and there the fixed
++ * cost decides everything.
++ *
++ * The tail is copied into a buffer padded with 0xFF: that value matches no bin,
++ * so the extra bytes land nowhere and no separate scalar tail is needed - which
++ * is essential for narrow bands, where the whole array is the tail. */
++#define GC_HIST_BIN_AVX2(v, K) \
++    total[K] += (uint32_t)_mm_popcnt_u32((uint32_t)_mm256_movemask_epi8(_mm256_cmpeq_epi8((v), _mm256_set1_epi8((char)(K)))))
++
++#define GC_HIST_ALL_AVX2(v)      \
++    do {                         \
++        GC_HIST_BIN_AVX2(v, 0);  \
++        GC_HIST_BIN_AVX2(v, 1);  \
++        GC_HIST_BIN_AVX2(v, 2);  \
++        GC_HIST_BIN_AVX2(v, 3);  \
++        GC_HIST_BIN_AVX2(v, 4);  \
++        GC_HIST_BIN_AVX2(v, 5);  \
++        GC_HIST_BIN_AVX2(v, 6);  \
++        GC_HIST_BIN_AVX2(v, 7);  \
++        GC_HIST_BIN_AVX2(v, 8);  \
++        GC_HIST_BIN_AVX2(v, 9);  \
++        GC_HIST_BIN_AVX2(v, 10); \
++        GC_HIST_BIN_AVX2(v, 11); \
++        GC_HIST_BIN_AVX2(v, 12); \
++        GC_HIST_BIN_AVX2(v, 13); \
++        GC_HIST_BIN_AVX2(v, 14); \
++        GC_HIST_BIN_AVX2(v, 15); \
++    } while (0)
++
++void gc_histogram_16_avx2(const uint8_t *data, uint32_t width, uint16_t *hist) {
++    uint32_t total[TRUNCATION_MAX + 1] = {0};
++    uint32_t i = 0;
++
++    for (; i + 32 <= width; i += 32) {
++        const __m256i v = _mm256_loadu_si256((const __m256i *)(data + i));
++        GC_HIST_ALL_AVX2(v);
++    }
++    if (i < width) {
++        uint8_t tail[32];
++        memset(tail, 0xFF, sizeof(tail));
++        memcpy(tail, data + i, width - i);
++        const __m256i v = _mm256_loadu_si256((const __m256i *)tail);
++        GC_HIST_ALL_AVX2(v);
++    }
++    for (uint32_t k = 0; k <= TRUNCATION_MAX; ++k) {
++        hist[k] = (uint16_t)total[k];
++    }
++}
+diff --git a/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.h b/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.h
+new file mode 100644
+index 0000000..d937258
+--- /dev/null
++++ b/Source/Lib/Encoder/ASM_AVX2/RateControl_avx2.h
+@@ -0,0 +1,31 @@
++/*
++* Copyright(c) 2024 Intel Corporation
++* SPDX - License - Identifier: BSD - 2 - Clause - Patent
++*/
++
++#ifndef __RATE_CONTROL_AVX2_H__
++#define __RATE_CONTROL_AVX2_H__
++
++#include "Definitions.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++uint32_t rate_control_calc_vpred_cost_nosigf_avx2(uint32_t gcli_width, uint8_t* gcli_data_top_ptr, uint8_t* gcli_data_ptr,
++                                                  uint8_t* vpred_bits_pack, uint8_t gtli, uint8_t gtli_max);
++
++void gc_histogram_16_avx2(const uint8_t* data, uint32_t width, uint16_t* hist);
++
++void gc_precinct_stage_scalar_avx2(uint8_t* gcli_data_ptr, uint16_t* coeff_data_ptr_16bit, uint32_t group_size, uint32_t width);
++
++void convert_packed_to_planar_rgb_8bit_avx2(const void* in_rgb, void* out_comp1, void* out_comp2, void* out_comp3,
++                                            uint32_t line_width);
++void convert_packed_to_planar_rgb_16bit_avx2(const void* in_rgb, void* out_comp1, void* out_comp2, void* out_comp3,
++                                             uint32_t line_width);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /*__RATE_CONTROL_AVX2_H__*/
+diff --git a/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c b/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
+index 3ab1530..6dd7b96 100644
+--- a/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
++++ b/Source/Lib/Encoder/Codec/encoder_dsp_rtcd.c
+@@ -6,6 +6,7 @@
+ #define ENCODER_RTCD_C
+ #include "encoder_dsp_rtcd.h"
+ #include "GcStageProcess.h"
++#include "NltEnc_avx2.h"
+ #include "DwtStageProcess.h"
+ #include "GcStageProcess.h"
+ #include "Dwt.h"
+@@ -13,6 +14,7 @@
+ #include "Quant.h"
+ #include "PackPrecinct.h"
+ #include "RateControl.h"
++#include "RateControl_avx2.h"
+ 
+ /**************************************
+  * Instruction Set Support
+@@ -107,7 +109,7 @@ void setup_encoder_rtcd_internal(CPU_FLAGS flags) {
+ #endif
+ 
+     //SET_AVX2(get_sigflags_gc, get_sigflags_gc_c, get_sigflags_gc_avx2);
+-    SET_ONLY_C(image_shift, image_shift_c);
++    SET_AVX2_AVX512(image_shift, image_shift_c, image_shift_avx2, NULL);
+     SET_ONLY_C(dwt_horizontal_line, dwt_horizontal_line_c);
+ 
+     SET_ONLY_C(transform_V1_Hx_precinct_recalc_HF_prev, transform_V1_Hx_precinct_recalc_HF_prev_c);
+@@ -120,9 +122,9 @@ void setup_encoder_rtcd_internal(CPU_FLAGS flags) {
+ 
+     SET_ONLY_C(gc_precinct_stage_scalar, gc_precinct_stage_scalar_c);
+     SET_ONLY_C(quantization, quantization_c);
+-    SET_ONLY_C(linear_input_scaling_line_8bit, linear_input_scaling_line_8bit_c);
+-    SET_ONLY_C(linear_input_scaling_line_16bit, linear_input_scaling_line_16bit_c);
+-    SET_ONLY_C(linear_input_scaling_line_16bit_msb, linear_input_scaling_line_16bit_msb_c);
++    SET_AVX2_AVX512(linear_input_scaling_line_8bit, linear_input_scaling_line_8bit_c, linear_input_scaling_line_8bit_avx2, NULL);
++    SET_AVX2_AVX512(linear_input_scaling_line_16bit, linear_input_scaling_line_16bit_c, linear_input_scaling_line_16bit_avx2, NULL);
++    SET_AVX2_AVX512(linear_input_scaling_line_16bit_msb, linear_input_scaling_line_16bit_msb_c, linear_input_scaling_line_16bit_msb_avx2, NULL);
+ 
+     SET_ONLY_C(pack_data_single_group, pack_data_single_group_c);
+     SET_ONLY_C(gc_precinct_stage_scalar_loop, gc_precinct_stage_scalar_loop_c);
+@@ -138,6 +140,6 @@ void setup_encoder_rtcd_internal(CPU_FLAGS flags) {
+     SET_ONLY_C(rate_control_calc_vpred_cost_nosigf, rate_control_calc_vpred_cost_nosigf_c);
+     SET_ONLY_C(rate_control_calc_vpred_cost_sigf_nosigf, rate_control_calc_vpred_cost_sigf_nosigf_c);
+ 
+-    SET_ONLY_C(convert_packed_to_planar_rgb_8bit, convert_packed_to_planar_rgb_8bit_c);
+-    SET_ONLY_C(convert_packed_to_planar_rgb_16bit, convert_packed_to_planar_rgb_16bit_c);
++    SET_AVX2_AVX512(convert_packed_to_planar_rgb_8bit, convert_packed_to_planar_rgb_8bit_c, convert_packed_to_planar_rgb_8bit_avx2, NULL);
++    SET_AVX2_AVX512(convert_packed_to_planar_rgb_16bit, convert_packed_to_planar_rgb_16bit_c, convert_packed_to_planar_rgb_16bit_avx2, NULL);
+ }

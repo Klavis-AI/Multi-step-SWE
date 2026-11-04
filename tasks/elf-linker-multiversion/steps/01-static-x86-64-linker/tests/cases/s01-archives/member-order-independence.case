@@ -1,0 +1,39 @@
+# arch: x86_64
+# The order of the members inside an archive does not change which members
+# are extracted or what the program does.
+rt_obj rt.o
+cat > f1.c <<'C'
+#include "rt.h"
+int one(void) { print("1"); return 1; }
+C
+cat > f2.c <<'C'
+#include "rt.h"
+int one(void);
+int two(void) { print("2"); return one() + 1; }
+C
+cat > f3.c <<'C'
+#include "rt.h"
+int never_used_member(void) { print("3"); return 3; }
+C
+cat > m.c <<'C'
+int two(void);
+int entry(void) { return two() + 40; }
+C
+cc_obj f1.o f1.c; cc_obj f2.o f2.c; cc_obj f3.o f3.c; cc_obj m.o m.c
+mkar fwd.a f1.o f2.o f3.o
+mkar rev.a f3.o f2.o f1.o
+link_ok ofwd rt.o m.o fwd.a
+link_ok orev rt.o m.o rev.a
+run_expect ofwd "21" 42
+run_expect orev "21" 42
+for o in ofwd orev; do
+  want_not "$o: unused member stayed out" "$(symbols $o)" "never_used_member"
+  want "$o: both needed members extracted" \
+       "$(symbols $o | awk '$8=="one" || $8=="two"' | grep -c .)" "2"
+done
+
+# Backstop: every assertion above must have executed. A skipped assertion is
+# not a passing one -- see caselib.sh. The floor is the number of counted
+# assertions measured on the reference linker at every tag where this case
+# passes; it was identical at all of them.
+asserts_at_least 4

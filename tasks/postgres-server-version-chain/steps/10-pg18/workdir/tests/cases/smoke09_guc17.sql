@@ -1,0 +1,1 @@
+SHOW old_snapshot_threshold;

@@ -1,0 +1,45 @@
+{
+ "doc": "stages/writers.copc.rst, Options: extra_dims 'Extra dimensions to be written as part of each point beyond those specified by the LAS point format.  The format of the option is ``<dimension_name>=<type> [, ...]``.  Any valid PDAL :ref:`type <types>` can be specified.  The special value ``all`` can be used in place of a dimension/type list to request that all dimensions that can't be stored in the predefined LAS point record get added as extra data at the end of each point record.'  The option is opt-in: the same pipeline without it writes a COPC file carrying only the point-format dimensions.  Here the created dimension is deliberately left out of ``extra_dims``: the cloud still writes as COPC with every point, and the dimension that the format cannot hold is not carried into the file.  The extra-dimension NAMES are asserted through the `las` check's `header` block, which is where the driver implements `extra_dimension_names`; the `copc` check kind does not read that key, so stating it there would never have run.",
+ "files": {
+  "in.las": {
+   "fixture": "grid.las"
+  },
+  "p.json": {
+   "text": "[{\"type\": \"readers.las\", \"filename\": \"in.las\"}, {\"type\": \"filters.assign\", \"value\": \"MyDim=7.5\"}, {\"type\": \"writers.copc\", \"filename\": \"out.copc.laz\"}]"
+  }
+ },
+ "run": [
+  {
+   "argv": [
+    "pipeline",
+    "p.json"
+   ]
+  }
+ ],
+ "checks": [
+  {
+   "kind": "exit",
+   "run": 0,
+   "equals": 0
+  },
+  {
+   "kind": "copc",
+   "file": "out.copc.laz",
+   "point_count": {
+    "equals": 1000
+   }
+  },
+  {
+   "kind": "las",
+   "file": "out.copc.laz",
+   "header": {
+    "point_count": {
+     "equals": 1000
+    },
+    "extra_dimension_names": {
+     "equals": []
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,4051 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 873f869..5446e44 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -100,17 +100,54 @@ foreach(source
+   set_property(SOURCE ${source} APPEND_STRING PROPERTY COMPILE_FLAGS " ${UVG_CFLAGS_GENERIC} ${CFLAGS_GENERIC} $ENV{CFLAGS_GENERIC}")
+ endforeach()
+ 
++if(UVG_HAVE_POWERPC_ALTIVEC)
++  foreach(source
++    strategies/altivec/picture-altivec.c
++  )
++    target_sources(libuvg266 PRIVATE ${source})
++    set_property(SOURCE ${source} APPEND_STRING PROPERTY COMPILE_FLAGS " ${UVG_CFLAGS_ALTIVEC} ${CFLAGS_ALTIVEC} $ENV{CFLAGS_ALTIVEC}")
++  endforeach()
++endif()
++
+ if(UVG_HAVE_X86_64_AVX2)
+   foreach(source
+     strategies/avx2/dct-avx2.c
+     # FIXME: Not yet converted to VVC and fails to build.
+     #strategies/avx2/encode_coding_tree-avx2.c
++    strategies/avx2/picture-avx2.c
+   )
+     target_sources(libuvg266 PRIVATE ${source})
+     set_property(SOURCE ${source} APPEND_STRING PROPERTY COMPILE_FLAGS " ${UVG_CFLAGS_AVX2} ${CFLAGS_AVX2} $ENV{CFLAGS_AVX2}")
+   endforeach()
+ endif()
+ 
++if(UVG_HAVE_X86_64_SSE2)
++  foreach(source
++    strategies/sse2/picture-sse2.c
++  )
++    target_sources(libuvg266 PRIVATE ${source})
++    set_property(SOURCE ${source} APPEND_STRING PROPERTY COMPILE_FLAGS " ${UVG_CFLAGS_SSE2} ${CFLAGS_SSE2} $ENV{CFLAGS_SSE2}")
++  endforeach()
++endif()
++
++if(UVG_HAVE_X86_64_SSE41)
++  foreach(source
++    strategies/sse41/picture-sse41.c
++  )
++    target_sources(libuvg266 PRIVATE ${source})
++    set_property(SOURCE ${source} APPEND_STRING PROPERTY COMPILE_FLAGS " ${UVG_CFLAGS_SSE41} ${CFLAGS_SSE41} $ENV{CFLAGS_SSE41}")
++  endforeach()
++endif()
++
++if(UVG_HAVE_X86_64_SSE42)
++  foreach(source
++    strategies/sse42/picture-sse42.c
++  )
++    target_sources(libuvg266 PRIVATE ${source})
++    set_property(SOURCE ${source} APPEND_STRING PROPERTY COMPILE_FLAGS " ${UVG_CFLAGS_SSE42} ${CFLAGS_SSE42} $ENV{CFLAGS_SSE42}")
++  endforeach()
++endif()
++
+ if(MSVC)
+   foreach(source
+     threadwrapper/src/pthread.cpp
+diff --git a/src/strategies/altivec/picture-altivec.c b/src/strategies/altivec/picture-altivec.c
+new file mode 100644
+index 0000000..024e1a9
+--- /dev/null
++++ b/src/strategies/altivec/picture-altivec.c
+@@ -0,0 +1,96 @@
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++#include "strategies/altivec/picture-altivec.h"
++
++#undef bool
++#include <altivec.h>
++#define bool _Bool
++#include <stdlib.h>
++
++#include "uvg266.h"
++#include "strategyselector.h"
++
++
++static unsigned reg_sad_altivec(const uvg_pixel * const data1, const uvg_pixel * const data2,
++                        const int width, const int height, const unsigned stride1, const unsigned stride2)
++{
++  vector unsigned int vsad = {0,0,0,0}, vzero = {0,0,0,0}; 
++  vector signed int sumdiffs;
++  int tmpsad, sad = 0;
++  
++  int y, x;
++  
++  for (y = 0; y < height; ++y) {
++    vector unsigned char perm1, perm2;
++    
++    perm1 = vec_lvsl(0, &data1[y * stride1]);
++    perm2 = vec_lvsl(0, &data2[y * stride2]);
++    
++    for (x = 0; x <= width-16; x+=16) {
++      vector unsigned char t1, t2, t3, t4, t5;
++      vector unsigned char *current, *previous;
++      
++      current = (vector unsigned char *) &data1[y * stride1 + x];
++      previous = (vector unsigned char *) &data2[y * stride2 + x];
++      
++      t1  = vec_perm(current[0], current[1], perm1 );  /* align current vector  */ 
++      t2  = vec_perm(previous[0], previous[1], perm2 );/* align previous vector */ 
++      t3  = vec_max(t1, t2 );      /* find largest of two           */ 
++      t4  = vec_min(t1, t2 );      /* find smaller of two           */ 
++      t5  = vec_sub(t3, t4);       /* find absolute difference      */ 
++      vsad = vec_sum4s(t5, vsad);    /* accumulate sum of differences */
++    }
++
++    for (; x < width; ++x) {
++      sad += abs(data1[y * stride1 + x] - data2[y * stride2 + x]);
++    }
++  }
++  
++  sumdiffs = vec_sums((vector signed int) vsad, (vector signed int) vzero);
++  /* copy vector sum into unaligned result */
++  sumdiffs = vec_splat( sumdiffs, 3);
++  vec_ste( sumdiffs, 0, &tmpsad );
++  sad += tmpsad;
++  
++  return sad;
++}
++
++int uvg_strategy_register_picture_altivec(void* opaque, uint8_t bitdepth) {
++  bool success = true;
++
++  if(bitdepth == 8){
++    success &= uvg_strategyselector_register(opaque, "reg_sad", "altivec", 10, &reg_sad_altivec);
++  }
++
++  return success;
++}
+diff --git a/src/strategies/altivec/picture-altivec.h b/src/strategies/altivec/picture-altivec.h
+new file mode 100644
+index 0000000..6368abe
+--- /dev/null
++++ b/src/strategies/altivec/picture-altivec.h
+@@ -0,0 +1,46 @@
++#ifndef STRATEGIES_PICTURE_ALTIVEC_H_
++#define STRATEGIES_PICTURE_ALTIVEC_H_
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++/**
++ * \ingroup Optimization
++ * \file
++ * Optimizations for Altivec.
++ */
++
++#include  "global.h" // IWYU pragma: keep
++
++
++int uvg_strategy_register_picture_altivec(void* opaque, uint8_t bitdepth);
++
++#endif //STRATEGIES_PICTURE_ALTIVEC_H_
+diff --git a/src/strategies/avx2/picture-avx2.c b/src/strategies/avx2/picture-avx2.c
+new file mode 100644
+index 0000000..69d33fc
+--- /dev/null
++++ b/src/strategies/avx2/picture-avx2.c
+@@ -0,0 +1,1832 @@
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++/*
++ * \file
++ */
++
++#include "global.h"
++
++#include "uvg266.h"
++#if UVG_BIT_DEPTH == 8
++#include "strategies/avx2/picture-avx2.h"
++#include "strategies/avx2/reg_sad_pow2_widths-avx2.h"
++
++#include <immintrin.h>
++#include <emmintrin.h>
++#include <mmintrin.h>
++#include <xmmintrin.h>
++#include <string.h>
++#include "strategies/strategies-picture.h"
++#include "strategyselector.h"
++#include "strategies/generic/picture-generic.h"
++
++/**
++ * \brief Calculate Sum of Absolute Differences (SAD)
++ *
++ * Calculate Sum of Absolute Differences (SAD) between two rectangular regions
++ * located in arbitrary points in the picture.
++ *
++ * \param data1   Starting point of the first picture.
++ * \param data2   Starting point of the second picture.
++ * \param width   Width of the region for which SAD is calculated.
++ * \param height  Height of the region for which SAD is calculated.
++ * \param stride  Width of the pixel array.
++ *
++ * \returns Sum of Absolute Differences
++ */
++uint32_t uvg_reg_sad_avx2(const uint8_t * const data1, const uint8_t * const data2,
++                          const int width, const int height, const unsigned stride1, const unsigned stride2)
++{
++  if (width == 0)
++    return 0;
++  if (width == 4)
++    return reg_sad_w4(data1, data2, height, stride1, stride2);
++  if (width == 8)
++    return reg_sad_w8(data1, data2, height, stride1, stride2);
++  if (width == 12)
++    return reg_sad_w12(data1, data2, height, stride1, stride2);
++  if (width == 16)
++    return reg_sad_w16(data1, data2, height, stride1, stride2);
++  if (width == 24)
++    return reg_sad_w24(data1, data2, height, stride1, stride2);
++  if (width == 32)
++    return reg_sad_w32(data1, data2, height, stride1, stride2);
++  if (width == 64)
++    return reg_sad_w64(data1, data2, height, stride1, stride2);
++  else
++    return reg_sad_arbitrary(data1, data2, width, height, stride1, stride2);
++}
++
++/**
++* \brief Calculate SAD for 8x8 bytes in continuous memory.
++*/
++static INLINE __m256i inline_8bit_sad_8x8_avx2(const __m256i *const a, const __m256i *const b)
++{
++  __m256i sum0, sum1;
++  sum0 = _mm256_sad_epu8(_mm256_load_si256(a + 0), _mm256_load_si256(b + 0));
++  sum1 = _mm256_sad_epu8(_mm256_load_si256(a + 1), _mm256_load_si256(b + 1));
++
++  return _mm256_add_epi32(sum0, sum1);
++}
++
++
++/**
++* \brief Calculate SAD for 16x16 bytes in continuous memory.
++*/
++static INLINE __m256i inline_8bit_sad_16x16_avx2(const __m256i *const a, const __m256i *const b)
++{
++  const unsigned size_of_8x8 = 8 * 8 / sizeof(__m256i);
++
++  // Calculate in 4 chunks of 16x4.
++  __m256i sum0, sum1, sum2, sum3;
++  sum0 = inline_8bit_sad_8x8_avx2(a + 0 * size_of_8x8, b + 0 * size_of_8x8);
++  sum1 = inline_8bit_sad_8x8_avx2(a + 1 * size_of_8x8, b + 1 * size_of_8x8);
++  sum2 = inline_8bit_sad_8x8_avx2(a + 2 * size_of_8x8, b + 2 * size_of_8x8);
++  sum3 = inline_8bit_sad_8x8_avx2(a + 3 * size_of_8x8, b + 3 * size_of_8x8);
++
++  sum0 = _mm256_add_epi32(sum0, sum1);
++  sum2 = _mm256_add_epi32(sum2, sum3);
++
++  return _mm256_add_epi32(sum0, sum2);
++}
++
++
++/**
++* \brief Get sum of the low 32 bits of four 64 bit numbers from __m256i as uint32_t.
++*/
++static INLINE uint32_t m256i_horizontal_sum(const __m256i sum)
++{
++  // Add the high 128 bits to low 128 bits.
++  __m128i mm128_result = _mm_add_epi32(_mm256_castsi256_si128(sum), _mm256_extractf128_si256(sum, 1));
++  // Add the high 64 bits  to low 64 bits.
++  uint32_t result[4];
++  _mm_storeu_si128((__m128i*)result, mm128_result);
++  return result[0] + result[2];
++}
++
++
++static unsigned sad_8bit_8x8_avx2(const uint8_t *buf1, const uint8_t *buf2)
++{
++  const __m256i *const a = (const __m256i *)buf1;
++  const __m256i *const b = (const __m256i *)buf2;
++  __m256i sum = inline_8bit_sad_8x8_avx2(a, b);
++
++  return m256i_horizontal_sum(sum);
++}
++
++
++static unsigned sad_8bit_16x16_avx2(const uint8_t *buf1, const uint8_t *buf2)
++{
++  const __m256i *const a = (const __m256i *)buf1;
++  const __m256i *const b = (const __m256i *)buf2;
++  __m256i sum = inline_8bit_sad_16x16_avx2(a, b);
++
++  return m256i_horizontal_sum(sum);
++}
++
++
++static unsigned sad_8bit_32x32_avx2(const uint8_t *buf1, const uint8_t *buf2)
++{
++  const __m256i *const a = (const __m256i *)buf1;
++  const __m256i *const b = (const __m256i *)buf2;
++
++  const unsigned size_of_8x8 = 8 * 8 / sizeof(__m256i);
++  const unsigned size_of_32x32 = 32 * 32 / sizeof(__m256i);
++
++  // Looping 512 bytes at a time seems faster than letting VC figure it out
++  // through inlining, like inline_8bit_sad_16x16_avx2 does.
++  __m256i sum0 = inline_8bit_sad_8x8_avx2(a, b);
++  for (unsigned i = size_of_8x8; i < size_of_32x32; i += size_of_8x8) {
++    __m256i sum1 = inline_8bit_sad_8x8_avx2(a + i, b + i);
++    sum0 = _mm256_add_epi32(sum0, sum1);
++  }
++
++  return m256i_horizontal_sum(sum0);
++}
++
++
++static unsigned sad_8bit_64x64_avx2(const uint8_t * buf1, const uint8_t * buf2)
++{
++  const __m256i *const a = (const __m256i *)buf1;
++  const __m256i *const b = (const __m256i *)buf2;
++
++  const unsigned size_of_8x8 = 8 * 8 / sizeof(__m256i);
++  const unsigned size_of_64x64 = 64 * 64 / sizeof(__m256i);
++
++  // Looping 512 bytes at a time seems faster than letting VC figure it out
++  // through inlining, like inline_8bit_sad_16x16_avx2 does.
++  __m256i sum0 = inline_8bit_sad_8x8_avx2(a, b);
++  for (unsigned i = size_of_8x8; i < size_of_64x64; i += size_of_8x8) {
++    __m256i sum1 = inline_8bit_sad_8x8_avx2(a + i, b + i);
++    sum0 = _mm256_add_epi32(sum0, sum1);
++  }
++
++  return m256i_horizontal_sum(sum0);
++}
++
++static unsigned satd_4x4_8bit_avx2(const uint8_t *org, const uint8_t *cur)
++{
++
++  __m128i original = _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)org));
++  __m128i current = _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)cur));
++
++  __m128i diff_lo = _mm_sub_epi16(current, original);
++
++  original = _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(org + 8)));
++  current = _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(cur + 8)));
++
++  __m128i diff_hi = _mm_sub_epi16(current, original);
++
++
++  //Hor
++  __m128i row0 = _mm_hadd_epi16(diff_lo, diff_hi);
++  __m128i row1 = _mm_hsub_epi16(diff_lo, diff_hi);
++
++  __m128i row2 = _mm_hadd_epi16(row0, row1);
++  __m128i row3 = _mm_hsub_epi16(row0, row1);
++
++  //Ver
++  row0 = _mm_hadd_epi16(row2, row3);
++  row1 = _mm_hsub_epi16(row2, row3);
++
++  row2 = _mm_hadd_epi16(row0, row1);
++  row3 = _mm_hsub_epi16(row0, row1);
++
++  //Abs and sum
++  row2 = _mm_abs_epi16(row2);
++  row3 = _mm_abs_epi16(row3);
++
++  row3 = _mm_add_epi16(row2, row3);
++
++  row3 = _mm_add_epi16(row3, _mm_shuffle_epi32(row3, _MM_SHUFFLE(1, 0, 3, 2) ));
++  row3 = _mm_add_epi16(row3, _mm_shuffle_epi32(row3, _MM_SHUFFLE(0, 1, 0, 1) ));
++  row3 = _mm_add_epi16(row3, _mm_shufflelo_epi16(row3, _MM_SHUFFLE(0, 1, 0, 1) ));
++
++  const int16_t temp1 = _mm_extract_epi16(row2, 0);
++  const int dc1 = abs(temp1);
++  unsigned sum = _mm_extract_epi16(row3, 0);
++  sum -= dc1 - (dc1 >> 2);
++  unsigned satd = (sum + 1) >> 1;
++
++  return satd;
++}
++
++
++static void satd_8bit_4x4_dual_avx2(
++  const pred_buffer preds, const uint8_t * const orig, unsigned num_modes, unsigned *satds_out) 
++{
++
++  __m256i original = _mm256_broadcastsi128_si256(_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)orig)));
++  __m256i pred = _mm256_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)preds[0]));
++  pred = _mm256_inserti128_si256(pred, _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)preds[1])), 1);
++
++  __m256i diff_lo = _mm256_sub_epi16(pred, original);
++
++  original = _mm256_broadcastsi128_si256(_mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(orig + 8))));
++  pred = _mm256_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(preds[0] + 8)));
++  pred = _mm256_inserti128_si256(pred, _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)(preds[1] + 8))), 1);
++
++  __m256i diff_hi = _mm256_sub_epi16(pred, original);
++
++  //Hor
++  __m256i row0 = _mm256_hadd_epi16(diff_lo, diff_hi);
++  __m256i row1 = _mm256_hsub_epi16(diff_lo, diff_hi);
++
++  __m256i row2 = _mm256_hadd_epi16(row0, row1);
++  __m256i row3 = _mm256_hsub_epi16(row0, row1);
++
++  //Ver
++  row0 = _mm256_hadd_epi16(row2, row3);
++  row1 = _mm256_hsub_epi16(row2, row3);
++
++  row2 = _mm256_hadd_epi16(row0, row1);
++  row3 = _mm256_hsub_epi16(row0, row1);
++
++  //Abs and sum
++  row2 = _mm256_abs_epi16(row2);
++  row3 = _mm256_abs_epi16(row3);
++
++  row3 = _mm256_add_epi16(row2, row3);
++
++  row3 = _mm256_add_epi16(row3, _mm256_shuffle_epi32(row3, _MM_SHUFFLE(1, 0, 3, 2) ));
++  row3 = _mm256_add_epi16(row3, _mm256_shuffle_epi32(row3, _MM_SHUFFLE(0, 1, 0, 1) ));
++  row3 = _mm256_add_epi16(row3, _mm256_shufflelo_epi16(row3, _MM_SHUFFLE(0, 1, 0, 1) ));
++
++  const int16_t temp2 = _mm256_extract_epi16(row2, 0);
++  const int dc1 = abs(temp2);
++  unsigned sum1 = _mm_extract_epi16(_mm256_castsi256_si128(row3), 0);
++  sum1 -= dc1 - (dc1 >> 2);
++  sum1 = (sum1 + 1) >> 1;
++
++  const int16_t temp3 = _mm256_extract_epi16(row2, 8);
++  const int dc2 = abs(temp3);
++  unsigned sum2 = _mm_extract_epi16(_mm256_extracti128_si256(row3, 1), 0);
++  sum2 -= dc2 - (dc2 >> 2);
++  sum2 = (sum2 + 1) >> 1;
++
++  satds_out[0] = sum1;
++  satds_out[1] = sum2;
++}
++
++static INLINE void hor_transform_row_avx2(__m128i* row){
++  
++  __m128i mask_pos = _mm_set1_epi16(1);
++  __m128i mask_neg = _mm_set1_epi16(-1);
++  __m128i sign_mask = _mm_unpacklo_epi64(mask_pos, mask_neg);
++  __m128i temp = _mm_shuffle_epi32(*row, _MM_SHUFFLE(1, 0, 3, 2));
++  *row = _mm_sign_epi16(*row, sign_mask);
++  *row = _mm_add_epi16(*row, temp);
++
++  sign_mask = _mm_unpacklo_epi32(mask_pos, mask_neg);
++  temp = _mm_shuffle_epi32(*row, _MM_SHUFFLE(2, 3, 0, 1));
++  *row = _mm_sign_epi16(*row, sign_mask);
++  *row = _mm_add_epi16(*row, temp);
++
++  sign_mask = _mm_unpacklo_epi16(mask_pos, mask_neg);
++  temp = _mm_shufflelo_epi16(*row, _MM_SHUFFLE(2,3,0,1));
++  temp = _mm_shufflehi_epi16(temp, _MM_SHUFFLE(2,3,0,1));
++  *row = _mm_sign_epi16(*row, sign_mask);
++  *row = _mm_add_epi16(*row, temp);
++}
++
++static INLINE void hor_transform_row_dual_avx2(__m256i* row){
++  
++  __m256i mask_pos = _mm256_set1_epi16(1);
++  __m256i mask_neg = _mm256_set1_epi16(-1);
++  __m256i sign_mask = _mm256_unpacklo_epi64(mask_pos, mask_neg);
++  __m256i temp = _mm256_shuffle_epi32(*row, _MM_SHUFFLE(1, 0, 3, 2));
++  *row = _mm256_sign_epi16(*row, sign_mask);
++  *row = _mm256_add_epi16(*row, temp);
++
++  sign_mask = _mm256_unpacklo_epi32(mask_pos, mask_neg);
++  temp = _mm256_shuffle_epi32(*row, _MM_SHUFFLE(2, 3, 0, 1));
++  *row = _mm256_sign_epi16(*row, sign_mask);
++  *row = _mm256_add_epi16(*row, temp);
++
++  sign_mask = _mm256_unpacklo_epi16(mask_pos, mask_neg);
++  temp = _mm256_shufflelo_epi16(*row, _MM_SHUFFLE(2,3,0,1));
++  temp = _mm256_shufflehi_epi16(temp, _MM_SHUFFLE(2,3,0,1));
++  *row = _mm256_sign_epi16(*row, sign_mask);
++  *row = _mm256_add_epi16(*row, temp);
++}
++
++static INLINE void add_sub_avx2(__m128i *out, __m128i *in, unsigned out_idx0, unsigned out_idx1, unsigned in_idx0, unsigned in_idx1)
++{
++  out[out_idx0] = _mm_add_epi16(in[in_idx0], in[in_idx1]);
++  out[out_idx1] = _mm_sub_epi16(in[in_idx0], in[in_idx1]);
++}
++
++static INLINE void ver_transform_block_avx2(__m128i (*rows)[8]){
++
++  __m128i temp0[8];
++  add_sub_avx2(temp0, (*rows), 0, 1, 0, 1);
++  add_sub_avx2(temp0, (*rows), 2, 3, 2, 3);
++  add_sub_avx2(temp0, (*rows), 4, 5, 4, 5);
++  add_sub_avx2(temp0, (*rows), 6, 7, 6, 7);
++
++  __m128i temp1[8];
++  add_sub_avx2(temp1, temp0, 0, 1, 0, 2);
++  add_sub_avx2(temp1, temp0, 2, 3, 1, 3);
++  add_sub_avx2(temp1, temp0, 4, 5, 4, 6);
++  add_sub_avx2(temp1, temp0, 6, 7, 5, 7);
++
++  add_sub_avx2((*rows), temp1, 0, 1, 0, 4);
++  add_sub_avx2((*rows), temp1, 2, 3, 1, 5);
++  add_sub_avx2((*rows), temp1, 4, 5, 2, 6);
++  add_sub_avx2((*rows), temp1, 6, 7, 3, 7);
++  
++}
++
++static INLINE void add_sub_dual_avx2(__m256i *out, __m256i *in, unsigned out_idx0, unsigned out_idx1, unsigned in_idx0, unsigned in_idx1)
++{
++  out[out_idx0] = _mm256_add_epi16(in[in_idx0], in[in_idx1]);
++  out[out_idx1] = _mm256_sub_epi16(in[in_idx0], in[in_idx1]);
++}
++
++
++static INLINE void ver_transform_block_dual_avx2(__m256i (*rows)[8]){
++
++  __m256i temp0[8];
++  add_sub_dual_avx2(temp0, (*rows), 0, 1, 0, 1);
++  add_sub_dual_avx2(temp0, (*rows), 2, 3, 2, 3);
++  add_sub_dual_avx2(temp0, (*rows), 4, 5, 4, 5);
++  add_sub_dual_avx2(temp0, (*rows), 6, 7, 6, 7);
++
++  __m256i temp1[8];
++  add_sub_dual_avx2(temp1, temp0, 0, 1, 0, 2);
++  add_sub_dual_avx2(temp1, temp0, 2, 3, 1, 3);
++  add_sub_dual_avx2(temp1, temp0, 4, 5, 4, 6);
++  add_sub_dual_avx2(temp1, temp0, 6, 7, 5, 7);
++
++  add_sub_dual_avx2((*rows), temp1, 0, 1, 0, 4);
++  add_sub_dual_avx2((*rows), temp1, 2, 3, 1, 5);
++  add_sub_dual_avx2((*rows), temp1, 4, 5, 2, 6);
++  add_sub_dual_avx2((*rows), temp1, 6, 7, 3, 7);
++  
++}
++
++INLINE static void haddwd_accumulate_avx2(__m128i *accumulate, __m128i *ver_row)
++{
++  __m128i abs_value = _mm_abs_epi16(*ver_row);
++  *accumulate = _mm_add_epi32(*accumulate, _mm_madd_epi16(abs_value, _mm_set1_epi16(1)));
++}
++
++INLINE static void haddwd_accumulate_dual_avx2(__m256i *accumulate, __m256i *ver_row)
++{
++  __m256i abs_value = _mm256_abs_epi16(*ver_row);
++  *accumulate = _mm256_add_epi32(*accumulate, _mm256_madd_epi16(abs_value, _mm256_set1_epi16(1)));
++}
++
++INLINE static unsigned sum_block_avx2(__m128i *ver_row)
++{
++  __m128i sad = _mm_setzero_si128();
++  haddwd_accumulate_avx2(&sad, ver_row + 0);
++  haddwd_accumulate_avx2(&sad, ver_row + 1);
++  haddwd_accumulate_avx2(&sad, ver_row + 2);
++  haddwd_accumulate_avx2(&sad, ver_row + 3); 
++  haddwd_accumulate_avx2(&sad, ver_row + 4);
++  haddwd_accumulate_avx2(&sad, ver_row + 5);
++  haddwd_accumulate_avx2(&sad, ver_row + 6);
++  haddwd_accumulate_avx2(&sad, ver_row + 7);
++
++  sad = _mm_add_epi32(sad, _mm_shuffle_epi32(sad, _MM_SHUFFLE(1, 0, 3, 2)));
++  sad = _mm_add_epi32(sad, _mm_shuffle_epi32(sad, _MM_SHUFFLE(0, 1, 0, 1)));
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++INLINE static void sum_block_dual_avx2(__m256i *ver_row, unsigned *sum0, unsigned *sum1)
++{
++  __m256i sad = _mm256_setzero_si256();
++  haddwd_accumulate_dual_avx2(&sad, ver_row + 0);
++  haddwd_accumulate_dual_avx2(&sad, ver_row + 1);
++  haddwd_accumulate_dual_avx2(&sad, ver_row + 2);
++  haddwd_accumulate_dual_avx2(&sad, ver_row + 3); 
++  haddwd_accumulate_dual_avx2(&sad, ver_row + 4);
++  haddwd_accumulate_dual_avx2(&sad, ver_row + 5);
++  haddwd_accumulate_dual_avx2(&sad, ver_row + 6);
++  haddwd_accumulate_dual_avx2(&sad, ver_row + 7);
++
++  sad = _mm256_add_epi32(sad, _mm256_shuffle_epi32(sad, _MM_SHUFFLE(1, 0, 3, 2)));
++  sad = _mm256_add_epi32(sad, _mm256_shuffle_epi32(sad, _MM_SHUFFLE(0, 1, 0, 1)));
++
++  *sum0 = _mm_cvtsi128_si32(_mm256_extracti128_si256(sad, 0));
++  *sum1 = _mm_cvtsi128_si32(_mm256_extracti128_si256(sad, 1));
++}
++
++INLINE static __m128i diff_row_avx2(const uint8_t *buf1, const uint8_t *buf2)
++{
++  __m128i buf1_row = _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)buf1));
++  __m128i buf2_row = _mm_cvtepu8_epi16(_mm_loadl_epi64((__m128i*)buf2));
++  return _mm_sub_epi16(buf1_row, buf2_row);
++}
++
++INLINE static __m256i diff_row_dual_avx2(const uint8_t *buf1, const uint8_t *buf2, const uint8_t *orig)
++{
++  __m128i temp1 = _mm_loadl_epi64((__m128i*)buf1);
++  __m128i temp2 = _mm_loadl_epi64((__m128i*)buf2);
++  __m128i temp3 = _mm_loadl_epi64((__m128i*)orig);
++  __m256i buf1_row = _mm256_cvtepu8_epi16(_mm_unpacklo_epi64(temp1, temp2));
++  __m256i buf2_row = _mm256_cvtepu8_epi16(_mm_broadcastq_epi64(temp3));
++
++  return _mm256_sub_epi16(buf1_row, buf2_row);
++}
++
++INLINE static void diff_blocks_avx2(__m128i (*row_diff)[8],
++                                                           const uint8_t * buf1, unsigned stride1,
++                                                           const uint8_t * orig, unsigned stride_orig)
++{
++  (*row_diff)[0] = diff_row_avx2(buf1 + 0 * stride1, orig + 0 * stride_orig);
++  (*row_diff)[1] = diff_row_avx2(buf1 + 1 * stride1, orig + 1 * stride_orig);
++  (*row_diff)[2] = diff_row_avx2(buf1 + 2 * stride1, orig + 2 * stride_orig);
++  (*row_diff)[3] = diff_row_avx2(buf1 + 3 * stride1, orig + 3 * stride_orig);
++  (*row_diff)[4] = diff_row_avx2(buf1 + 4 * stride1, orig + 4 * stride_orig);
++  (*row_diff)[5] = diff_row_avx2(buf1 + 5 * stride1, orig + 5 * stride_orig);
++  (*row_diff)[6] = diff_row_avx2(buf1 + 6 * stride1, orig + 6 * stride_orig);
++  (*row_diff)[7] = diff_row_avx2(buf1 + 7 * stride1, orig + 7 * stride_orig);
++
++}
++
++INLINE static void diff_blocks_dual_avx2(__m256i (*row_diff)[8],
++                                                           const uint8_t * buf1, unsigned stride1,
++                                                           const uint8_t * buf2, unsigned stride2,
++                                                           const uint8_t * orig, unsigned stride_orig)
++{
++  (*row_diff)[0] = diff_row_dual_avx2(buf1 + 0 * stride1, buf2 + 0 * stride2, orig + 0 * stride_orig);
++  (*row_diff)[1] = diff_row_dual_avx2(buf1 + 1 * stride1, buf2 + 1 * stride2, orig + 1 * stride_orig);
++  (*row_diff)[2] = diff_row_dual_avx2(buf1 + 2 * stride1, buf2 + 2 * stride2, orig + 2 * stride_orig);
++  (*row_diff)[3] = diff_row_dual_avx2(buf1 + 3 * stride1, buf2 + 3 * stride2, orig + 3 * stride_orig);
++  (*row_diff)[4] = diff_row_dual_avx2(buf1 + 4 * stride1, buf2 + 4 * stride2, orig + 4 * stride_orig);
++  (*row_diff)[5] = diff_row_dual_avx2(buf1 + 5 * stride1, buf2 + 5 * stride2, orig + 5 * stride_orig);
++  (*row_diff)[6] = diff_row_dual_avx2(buf1 + 6 * stride1, buf2 + 6 * stride2, orig + 6 * stride_orig);
++  (*row_diff)[7] = diff_row_dual_avx2(buf1 + 7 * stride1, buf2 + 7 * stride2, orig + 7 * stride_orig);
++
++}
++
++INLINE static void hor_transform_block_avx2(__m128i (*row_diff)[8])
++{
++  hor_transform_row_avx2((*row_diff) + 0);
++  hor_transform_row_avx2((*row_diff) + 1);
++  hor_transform_row_avx2((*row_diff) + 2);
++  hor_transform_row_avx2((*row_diff) + 3);
++  hor_transform_row_avx2((*row_diff) + 4);
++  hor_transform_row_avx2((*row_diff) + 5);
++  hor_transform_row_avx2((*row_diff) + 6);
++  hor_transform_row_avx2((*row_diff) + 7);
++}
++
++INLINE static void hor_transform_block_dual_avx2(__m256i (*row_diff)[8])
++{
++  hor_transform_row_dual_avx2((*row_diff) + 0);
++  hor_transform_row_dual_avx2((*row_diff) + 1);
++  hor_transform_row_dual_avx2((*row_diff) + 2);
++  hor_transform_row_dual_avx2((*row_diff) + 3);
++  hor_transform_row_dual_avx2((*row_diff) + 4);
++  hor_transform_row_dual_avx2((*row_diff) + 5);
++  hor_transform_row_dual_avx2((*row_diff) + 6);
++  hor_transform_row_dual_avx2((*row_diff) + 7);
++}
++
++static void uvg_satd_8bit_8x8_general_dual_avx2(const uint8_t * buf1, unsigned stride1,
++                                                const uint8_t * buf2, unsigned stride2,
++                                                const uint8_t * orig, unsigned stride_orig,
++                                                unsigned *sum0, unsigned *sum1)
++{
++  __m256i temp[8];
++
++  diff_blocks_dual_avx2(&temp, buf1, stride1, buf2, stride2, orig, stride_orig);
++  hor_transform_block_dual_avx2(&temp);
++  ver_transform_block_dual_avx2(&temp);
++  
++  sum_block_dual_avx2(temp, sum0, sum1);
++
++  const int16_t temp2 = _mm256_extract_epi16(temp[0], 0);
++  const int dc1 = abs(temp2);
++  const int16_t temp3 = _mm256_extract_epi16(temp[0], 8);
++  const int dc2 = abs(temp3);
++  *sum0 -= dc1 - (dc1 >> 2);
++  *sum1 -= dc2 - (dc2 >> 2);
++
++  *sum0 = (*sum0 + 2) >> 2;
++  *sum1 = (*sum1 + 2) >> 2;
++}
++
++/**
++* \brief  Calculate SATD between two 4x4 blocks inside bigger arrays.
++*/
++static unsigned uvg_satd_4x4_subblock_8bit_avx2(const uint8_t * buf1,
++                                                const int32_t     stride1,
++                                                const uint8_t * buf2,
++                                                const int32_t     stride2)
++{
++  // TODO: AVX2 implementation
++  return uvg_satd_4x4_subblock_generic(buf1, stride1, buf2, stride2);
++}
++
++static void uvg_satd_4x4_subblock_quad_avx2(const uint8_t *preds[4],
++                                       const int stride,
++                                       const uint8_t *orig,
++                                       const int orig_stride,
++                                       unsigned costs[4])
++{
++  // TODO: AVX2 implementation
++  uvg_satd_4x4_subblock_quad_generic(preds, stride, orig, orig_stride, costs);
++}
++
++static unsigned satd_8x8_subblock_8bit_avx2(const uint8_t * buf1, unsigned stride1, const uint8_t * buf2, unsigned stride2)
++{
++  __m128i temp[8];
++
++  diff_blocks_avx2(&temp, buf1, stride1, buf2, stride2);
++  hor_transform_block_avx2(&temp);
++  ver_transform_block_avx2(&temp);
++  
++  unsigned sad = sum_block_avx2(temp);
++
++  const int16_t temp1 = _mm_extract_epi16(temp[0], 0);
++  const int dc1 = abs(temp1);
++  sad -= dc1 - (dc1 >> 2);
++
++  unsigned result = (sad + 2) >> 2;
++  return result;
++}
++
++static void satd_8x8_subblock_quad_avx2(const uint8_t **preds,
++  const int stride,
++  const uint8_t *orig,
++  const int orig_stride,
++  unsigned *costs)
++{
++  uvg_satd_8bit_8x8_general_dual_avx2(preds[0], stride, preds[1], stride, orig, orig_stride, &costs[0], &costs[1]);
++  uvg_satd_8bit_8x8_general_dual_avx2(preds[2], stride, preds[3], stride, orig, orig_stride, &costs[2], &costs[3]);
++}
++
++SATD_NxN(8bit_avx2,  8)
++SATD_NxN(8bit_avx2, 16)
++SATD_NxN(8bit_avx2, 32)
++SATD_NxN(8bit_avx2, 64)
++SATD_ANY_SIZE(8bit_avx2)
++
++// Function macro for defining hadamard calculating functions
++// for fixed size blocks. They calculate hadamard for integer
++// multiples of 8x8 with the 8x8 hadamard function.
++#define SATD_NXN_DUAL_AVX2(n) \
++static void satd_8bit_ ## n ## x ## n ## _dual_avx2( \
++  const pred_buffer preds, const uint8_t * const orig, unsigned num_modes, unsigned *satds_out)  \
++{ \
++  unsigned x, y; \
++  satds_out[0] = 0; \
++  satds_out[1] = 0; \
++  unsigned sum1 = 0; \
++  unsigned sum2 = 0; \
++  for (y = 0; y < (n); y += 8) { \
++  unsigned row = y * (n); \
++  for (x = 0; x < (n); x += 8) { \
++  uvg_satd_8bit_8x8_general_dual_avx2(&preds[0][row + x], (n), &preds[1][row + x], (n), &orig[row + x], (n), &sum1, &sum2); \
++  satds_out[0] += sum1; \
++  satds_out[1] += sum2; \
++    } \
++    } \
++  satds_out[0] >>= (UVG_BIT_DEPTH-8); \
++  satds_out[1] >>= (UVG_BIT_DEPTH-8); \
++}
++
++static void satd_8bit_8x8_dual_avx2(
++  const pred_buffer preds, const uint8_t * const orig, unsigned num_modes, unsigned *satds_out) 
++{ 
++  unsigned x, y; 
++  satds_out[0] = 0;
++  satds_out[1] = 0;
++  unsigned sum1 = 0;
++  unsigned sum2 = 0;
++  for (y = 0; y < (8); y += 8) { 
++  unsigned row = y * (8); 
++  for (x = 0; x < (8); x += 8) { 
++  uvg_satd_8bit_8x8_general_dual_avx2(&preds[0][row + x], (8), &preds[1][row + x], (8), &orig[row + x], (8), &sum1, &sum2); 
++  satds_out[0] += sum1;
++  satds_out[1] += sum2;
++      } 
++      } 
++  satds_out[0] >>= (UVG_BIT_DEPTH-8);
++  satds_out[1] >>= (UVG_BIT_DEPTH-8);
++}
++
++//SATD_NXN_DUAL_AVX2(8) //Use the non-macro version
++SATD_NXN_DUAL_AVX2(16)
++SATD_NXN_DUAL_AVX2(32)
++SATD_NXN_DUAL_AVX2(64)
++
++#define SATD_ANY_SIZE_MULTI_AVX2(suffix, num_parallel_blocks) \
++  static cost_pixel_any_size_multi_func satd_any_size_## suffix; \
++  static void satd_any_size_ ## suffix ( \
++      int width, int height, \
++      const uvg_pixel **preds, \
++      const int stride, \
++      const uvg_pixel *orig, \
++      const int orig_stride, \
++      unsigned num_modes, \
++      unsigned *costs_out, \
++      int8_t *valid) \
++  { \
++    unsigned sums[num_parallel_blocks] = { 0 }; \
++    const uvg_pixel *pred_ptrs[4] = { preds[0], preds[1], preds[2], preds[3] };\
++    const uvg_pixel *orig_ptr = orig; \
++    costs_out[0] = 0; costs_out[1] = 0; costs_out[2] = 0; costs_out[3] = 0; \
++    const int width_mod_8 = width % 8; \
++    if (width_mod_8 != 0) { \
++      const uvg_pixel *pred_ptrs_tmp[4] = { preds[0], preds[1], preds[2], preds[3] };\
++      /* Process the first column using 4x4 blocks. */ \
++      for (int y = 0; y < height; y += 4) { \
++        uvg_satd_4x4_subblock_ ## suffix(pred_ptrs_tmp, stride, &orig[y*orig_stride], orig_stride, sums); \
++        for(int blk = 0; blk < num_parallel_blocks; ++blk){ pred_ptrs_tmp[blk] += 4*stride; costs_out[blk] += sums[blk]; }\
++      } \
++      for(int blk = 0; blk < num_parallel_blocks; ++blk){\
++        pred_ptrs[blk] += 4; \
++      }\
++      width -= 4; \
++    } \
++    if (height % 8 != 0) { \
++      const uvg_pixel *pred_ptrs_tmp[4] = { preds[0], preds[1], preds[2], preds[3] };\
++      /* Process the first row using 4x4 blocks. */ \
++      for (int x = 0; x < width; x += 4 ) { \
++        uvg_satd_4x4_subblock_ ## suffix(pred_ptrs_tmp, stride, &orig_ptr[x], orig_stride, sums); \
++        for(int blk = 0; blk < num_parallel_blocks; ++blk){ pred_ptrs_tmp[blk] += 4;  costs_out[blk] += sums[blk]; }\
++      } \
++      for(int blk = 0; blk < num_parallel_blocks; ++blk){\
++        pred_ptrs[blk] += 4 * stride; \
++      }\
++      height -= 4; \
++    } \
++    /* The rest can now be processed with 8x8 blocks. */ \
++    for (int y = height % 8; y < height; y += 8) { \
++      orig_ptr = &orig[y * orig_stride + width_mod_8]; \
++      pred_ptrs[0] = &preds[0][y * stride + width_mod_8]; \
++      pred_ptrs[1] = &preds[1][y * stride + width_mod_8]; \
++      pred_ptrs[2] = &preds[2][y * stride + width_mod_8]; \
++      pred_ptrs[3] = &preds[3][y * stride + width_mod_8]; \
++      for (int x = width_mod_8; x < width; x += 8) { \
++        satd_8x8_subblock_ ## suffix(pred_ptrs, stride, orig_ptr, orig_stride, sums); \
++        orig_ptr += 8; \
++        pred_ptrs[0] += 8; \
++        pred_ptrs[1] += 8; \
++        pred_ptrs[2] += 8; \
++        pred_ptrs[3] += 8; \
++        costs_out[0] += sums[0]; \
++        costs_out[1] += sums[1]; \
++        costs_out[2] += sums[2]; \
++        costs_out[3] += sums[3]; \
++      } \
++    } \
++    for(int i = 0; i < num_parallel_blocks; ++i){\
++      costs_out[i] = costs_out[i] >> (UVG_BIT_DEPTH - 8);\
++    } \
++    return; \
++  }
++
++SATD_ANY_SIZE_MULTI_AVX2(quad_avx2, 4)
++
++
++static unsigned pixels_calc_ssd_avx2(const uint8_t *const ref, const uint8_t *const rec,
++                 const int ref_stride, const int rec_stride,
++                 const int width, const int height)
++{
++  assert(width == height && "Non square not yet implemented");
++  __m256i ssd_part;
++  __m256i diff = _mm256_setzero_si256();
++  __m128i sum;
++
++  __m256i ref_epi16;
++  __m256i rec_epi16;
++
++  __m128i ref_row0, ref_row1, ref_row2, ref_row3;
++  __m128i rec_row0, rec_row1, rec_row2, rec_row3;
++
++  int ssd;
++
++  switch (width) {
++
++  case 4:
++
++    ref_row0 = _mm_cvtsi32_si128(*(int32_t*)&(ref[0 * ref_stride]));
++    ref_row1 = _mm_cvtsi32_si128(*(int32_t*)&(ref[1 * ref_stride]));
++    ref_row2 = _mm_cvtsi32_si128(*(int32_t*)&(ref[2 * ref_stride]));
++    ref_row3 = _mm_cvtsi32_si128(*(int32_t*)&(ref[3 * ref_stride]));
++
++    ref_row0 = _mm_unpacklo_epi32(ref_row0, ref_row1);
++    ref_row1 = _mm_unpacklo_epi32(ref_row2, ref_row3);
++    ref_epi16 = _mm256_cvtepu8_epi16(_mm_unpacklo_epi64(ref_row0, ref_row1) );
++
++    rec_row0 = _mm_cvtsi32_si128(*(int32_t*)&(rec[0 * rec_stride]));
++    rec_row1 = _mm_cvtsi32_si128(*(int32_t*)&(rec[1 * rec_stride]));
++    rec_row2 = _mm_cvtsi32_si128(*(int32_t*)&(rec[2 * rec_stride]));
++    rec_row3 = _mm_cvtsi32_si128(*(int32_t*)&(rec[3 * rec_stride]));
++
++    rec_row0 = _mm_unpacklo_epi32(rec_row0, rec_row1);
++    rec_row1 = _mm_unpacklo_epi32(rec_row2, rec_row3);
++    rec_epi16 = _mm256_cvtepu8_epi16(_mm_unpacklo_epi64(rec_row0, rec_row1) );
++
++    diff = _mm256_sub_epi16(ref_epi16, rec_epi16);
++    ssd_part =  _mm256_madd_epi16(diff, diff);
++
++    sum = _mm_add_epi32(_mm256_castsi256_si128(ssd_part), _mm256_extracti128_si256(ssd_part, 1));
++    sum = _mm_add_epi32(sum, _mm_shuffle_epi32(sum, _MM_SHUFFLE(1, 0, 3, 2)));
++    sum = _mm_add_epi32(sum, _mm_shuffle_epi32(sum, _MM_SHUFFLE(0, 1, 0, 1)));
++
++    ssd = _mm_cvtsi128_si32(sum);
++
++    return ssd >> (2*(UVG_BIT_DEPTH-8));
++    break;
++
++  default:
++
++    ssd_part = _mm256_setzero_si256();
++    for (int y = 0; y < width; y += 8) {
++      for (int x = 0; x < width; x += 8) {
++        for (int i = 0; i < 8; i += 2) {
++          ref_epi16 = _mm256_cvtepu8_epi16(_mm_unpacklo_epi64(_mm_loadl_epi64((__m128i*)&(ref[x + (y + i) * ref_stride])), _mm_loadl_epi64((__m128i*)&(ref[x + (y + i + 1) * ref_stride]))));
++          rec_epi16 = _mm256_cvtepu8_epi16(_mm_unpacklo_epi64(_mm_loadl_epi64((__m128i*)&(rec[x + (y + i) * rec_stride])), _mm_loadl_epi64((__m128i*)&(rec[x + (y + i + 1) * rec_stride]))));
++          diff = _mm256_sub_epi16(ref_epi16, rec_epi16);
++          ssd_part = _mm256_add_epi32(ssd_part, _mm256_madd_epi16(diff, diff));
++        }
++      }
++    }
++
++    sum = _mm_add_epi32(_mm256_castsi256_si128(ssd_part), _mm256_extracti128_si256(ssd_part, 1));
++    sum = _mm_add_epi32(sum, _mm_shuffle_epi32(sum, _MM_SHUFFLE(1, 0, 3, 2)));
++    sum = _mm_add_epi32(sum, _mm_shuffle_epi32(sum, _MM_SHUFFLE(0, 1, 0, 1)));
++
++    ssd = _mm_cvtsi128_si32(sum);
++
++    return ssd >> (2*(UVG_BIT_DEPTH-8));
++    break;
++  }
++}
++
++static INLINE void scatter_ymm_4x8_8bit(uvg_pixel * dst, __m256i ymm, unsigned dst_stride)
++{
++  __m128i ymm_lo = _mm256_castsi256_si128(ymm);
++  __m128i ymm_hi = _mm256_extracti128_si256(ymm, 1);
++  *(uint32_t *)dst = _mm_cvtsi128_si32(ymm_lo); dst += dst_stride;
++  *(uint32_t *)dst = _mm_extract_epi32(ymm_lo, 1); dst += dst_stride;
++  *(uint32_t *)dst = _mm_extract_epi32(ymm_lo, 2); dst += dst_stride;
++  *(uint32_t *)dst = _mm_extract_epi32(ymm_lo, 3); dst += dst_stride;
++  *(uint32_t *)dst = _mm_cvtsi128_si32(ymm_hi); dst += dst_stride;
++  *(uint32_t *)dst = _mm_extract_epi32(ymm_hi, 1); dst += dst_stride;
++  *(uint32_t *)dst = _mm_extract_epi32(ymm_hi, 2); dst += dst_stride;
++  *(uint32_t *)dst = _mm_extract_epi32(ymm_hi, 3);
++}
++
++static INLINE void scatter_ymm_8x4_8bit(uvg_pixel *dst, __m256i ymm, unsigned dst_stride)
++{
++  __m256d ymm_as_m256d = _mm256_castsi256_pd(ymm);
++  __m128d ymm_lo = _mm256_castpd256_pd128(ymm_as_m256d);
++  __m128d ymm_hi = _mm256_extractf128_pd(ymm_as_m256d, 1);
++  _mm_storel_pd((double*)dst, ymm_lo); dst += dst_stride;
++  _mm_storeh_pd((double*)dst, ymm_lo); dst += dst_stride;
++  _mm_storel_pd((double*)dst, ymm_hi); dst += dst_stride;
++  _mm_storeh_pd((double*)dst, ymm_hi);
++}
++
++static INLINE void scatter_ymm_16x2_8bit(uvg_pixel *dst, __m256i ymm, unsigned dst_stride)
++{
++  __m128i ymm_lo = _mm256_castsi256_si128(ymm);
++  __m128i ymm_hi = _mm256_extracti128_si256(ymm, 1);
++  _mm_storeu_si128((__m128i *)dst, ymm_lo); dst += dst_stride;
++  _mm_storeu_si128((__m128i *)dst, ymm_hi);
++}
++
++static INLINE void scatter_ymm_12x2_8bit(uvg_pixel *dst, __m256i ymm, unsigned dst_stride)
++{
++  __m256i mask_a = _mm256_setr_epi32(-1, -1, -1, 0, 0, 0, 0, 0);
++  __m256i mask_b = _mm256_setr_epi32(0, 0, 0, -1, -1, -1, 0, 0);
++  _mm256_maskstore_epi32((int32_t*)dst, mask_a, ymm); dst += dst_stride - 3 * 4;
++  _mm256_maskstore_epi32((int32_t*)dst, mask_b, ymm);
++}
++
++static INLINE void bipred_average_px_px_template_avx2(uvg_pixel *dst,
++  uvg_pixel *px_L0,
++  uvg_pixel *px_L1,
++  unsigned pu_w,
++  unsigned pu_h,
++  unsigned dst_stride)
++{
++  bool has_pow2_width = _mm_popcnt_u32(pu_w) == 1;
++  bool area_mod_32 = (pu_w * pu_h) % 32;
++  assert(!(pu_w == 4 && pu_h == 4) && "Branch for 4x4 not yet implemented.");
++  assert(!(pu_w == 2 && pu_h == 8) && "Branch for 2x8 not yet implemented.");
++
++  if (has_pow2_width && area_mod_32 == 0) {
++    for (uint32_t i = 0; i < pu_w * pu_h; i += 32) {
++
++      int y = i / pu_w;
++      int x = i % pu_w;
++
++      __m256i sample_L0 = _mm256_loadu_si256((__m256i*)&px_L0[i]);
++      __m256i sample_L1 = _mm256_loadu_si256((__m256i*)&px_L1[i]);
++      __m256i avg       = _mm256_avg_epu8(sample_L0, sample_L1);
++
++      switch (pu_w) {
++        case  4: scatter_ymm_4x8_8bit( &dst[y * dst_stride + x], avg, dst_stride); break;
++        case  8: scatter_ymm_8x4_8bit( &dst[y * dst_stride + x], avg, dst_stride); break;
++        case 16: scatter_ymm_16x2_8bit(&dst[y * dst_stride + x], avg, dst_stride); break;
++        case 32: // Same as case 64
++        case 64: _mm256_storeu_si256((__m256i *)&dst[y * dst_stride + x], avg); break;
++        default:
++          assert(0 && "Unexpected block width.");
++          break;
++      }
++    }
++  } else if (area_mod_32 == 0) {
++    for (uint32_t i = 0; i < pu_w * pu_h; i += 24) {
++
++      uint32_t y = i / pu_w;
++      uint32_t x = i % pu_w;
++
++      // Last 64 bits of the 256 are not used to simplify the loop
++      __m256i mask      = _mm256_setr_epi64x(-1, -1, -1, 0);
++      __m256i sample_L0 = _mm256_maskload_epi64((const long long*)&px_L0[i], mask);
++      __m256i sample_L1 = _mm256_maskload_epi64((const long long*)&px_L1[i], mask);
++      __m256i avg       = _mm256_avg_epu8(sample_L0, sample_L1);
++
++      switch (pu_w) {
++        case 12: scatter_ymm_12x2_8bit(&dst[y * dst_stride + x], avg, dst_stride); break;
++        case 24: // Same as case 48
++        case 48: _mm256_maskstore_epi64((long long*)&dst[y * dst_stride + x], mask, avg); break;
++        default:
++          assert(0 && "Unexpected block width.");
++          break;
++      }
++    }
++  } else {
++    // 8x2, 8x6, 6x8 blocks (and maybe 2x8 in the future)
++    switch (pu_w) {
++      __m128i sample_L0, sample_L1, avg;
++      case 8: // 8x2, 8x6
++        for (uint32_t i = 0; i < pu_w * pu_h; i += 16) {
++
++          int y = i / pu_w;
++
++          sample_L0 = _mm_loadu_si128((__m128i*)&px_L0[i]);
++          sample_L1 = _mm_loadu_si128((__m128i*)&px_L1[i]);
++          avg       = _mm_avg_epu8(sample_L0, sample_L1);
++          _mm_storel_epi64((__m128i*)&dst[y * dst_stride], avg);
++          _mm_storeh_pd((double*)&dst[(y + 1) * dst_stride], _mm_castsi128_pd(avg));
++        }
++        break;
++      case 6: // 6x8
++        for (uint32_t i = 0; i < pu_w * pu_h; i += 12) {
++
++          int y = i / pu_w;
++
++          __m128i mask      = _mm_setr_epi32(-1, -1, -1, 0);
++          __m128i sample_L0 = _mm_maskload_epi32((const int*)(&px_L0[i]), mask);
++          __m128i sample_L1 = _mm_maskload_epi32((const int*)(&px_L1[i]), mask);
++          __m128i avg       = _mm_avg_epu8(sample_L0, sample_L1);
++
++          uint32_t elements_0123 = _mm_cvtsi128_si32(avg);
++          uint16_t elements_45   = _mm_extract_epi16(avg, 2);
++          uint16_t elements_67   = _mm_extract_epi16(avg, 3);
++          uint32_t elements_89ab = _mm_extract_epi32(avg, 2);
++          *(uint32_t*)&dst[(y + 0) * dst_stride + 0] = elements_0123;
++          *(uint16_t*)&dst[(y + 0) * dst_stride + 4] = elements_45;
++          *(uint16_t*)&dst[(y + 1) * dst_stride + 0] = elements_67;
++          *(uint32_t*)&dst[(y + 1) * dst_stride + 2] = elements_89ab;
++        }
++        break;
++      default:
++        assert(0 && "Unexpected block width.");
++        break;
++    }
++  }
++}
++
++static INLINE void bipred_average_px_px_avx2(uvg_pixel *dst,
++  uvg_pixel *px_L0,
++  uvg_pixel *px_L1,
++  unsigned pu_w,
++  unsigned pu_h,
++  unsigned dst_stride)
++{
++  // Use scalar code for yet unoptimized block sizes (4x4, 2x8)
++  if (!(pu_w == 4 && pu_h == 4) && pu_w > 2) {
++    switch (pu_w) {
++      case  4: bipred_average_px_px_template_avx2(dst, px_L0, px_L1,  4, pu_h, dst_stride); break;
++      case  8: bipred_average_px_px_template_avx2(dst, px_L0, px_L1,  8, pu_h, dst_stride); break;
++      case 16: bipred_average_px_px_template_avx2(dst, px_L0, px_L1, 16, pu_h, dst_stride); break;
++      case 32: bipred_average_px_px_template_avx2(dst, px_L0, px_L1, 32, pu_h, dst_stride); break;
++      case 64: bipred_average_px_px_template_avx2(dst, px_L0, px_L1, 64, pu_h, dst_stride); break;
++
++      case  6: bipred_average_px_px_template_avx2(dst, px_L0, px_L1,  6, pu_h, dst_stride); break;
++      case 12: bipred_average_px_px_template_avx2(dst, px_L0, px_L1, 12, pu_h, dst_stride); break;
++      case 24: bipred_average_px_px_template_avx2(dst, px_L0, px_L1, 24, pu_h, dst_stride); break;
++      case 48: bipred_average_px_px_template_avx2(dst, px_L0, px_L1, 48, pu_h, dst_stride); break;
++      default:
++        assert(0 && "Unexpected block width.");
++        break;
++    }
++  } else {
++    int32_t shift = 15 - UVG_BIT_DEPTH; // TODO: defines
++    int32_t offset = 1 << (shift - 1);
++
++    for (uint32_t i = 0; i < pu_w * pu_h; ++i)
++    {
++      int y = i / pu_w;
++      int x = i % pu_w;
++      int16_t sample_L0 = px_L0[i] << (14 - UVG_BIT_DEPTH);
++      int16_t sample_L1 = px_L1[i] << (14 - UVG_BIT_DEPTH);
++      int32_t rounded = (sample_L0 + sample_L1 + offset) >> shift;
++      dst[y * dst_stride + x] = uvg_fast_clip_32bit_to_pixel(rounded);
++    }
++  }
++}
++
++static INLINE void bipred_average_im_im_template_avx2(uvg_pixel *dst,
++  uvg_pixel_im *im_L0,
++  uvg_pixel_im *im_L1,
++  unsigned pu_w,
++  unsigned pu_h,
++  unsigned dst_stride)
++{
++  int32_t shift = 15 - UVG_BIT_DEPTH; // TODO: defines
++  int32_t scalar_offset = 1 << (shift - 1);
++  __m256i offset = _mm256_set1_epi32(scalar_offset);
++
++  bool has_pow2_width = _mm_popcnt_u32(pu_w) == 1;
++  bool area_mod_32 = (pu_w * pu_h) % 32;
++  assert(!(pu_w == 4 && pu_h == 4) && "Branch for 4x4 not yet implemented.");
++  assert(!(pu_w == 2 && pu_h == 8) && "Branch for 2x8 not yet implemented.");
++
++  if (has_pow2_width && area_mod_32 == 0) {
++    for (uint32_t i = 0; i < pu_w * pu_h; i += 32) {
++      int y = i / pu_w;
++      int x = i % pu_w;
++
++      __m256i sample_L0_a_16bit = _mm256_loadu_si256((__m256i*)&im_L0[i]);
++      __m256i sample_L1_a_16bit = _mm256_loadu_si256((__m256i*)&im_L1[i]);
++      __m256i sample_L0_b_16bit = _mm256_loadu_si256((__m256i*)&im_L0[i + 16]);
++      __m256i sample_L1_b_16bit = _mm256_loadu_si256((__m256i*)&im_L1[i + 16]);
++
++      __m256i sample_L0_L1_a_lo = _mm256_unpacklo_epi16(sample_L0_a_16bit, sample_L1_a_16bit);
++      __m256i sample_L0_L1_a_hi = _mm256_unpackhi_epi16(sample_L0_a_16bit, sample_L1_a_16bit);
++      __m256i sample_L0_L1_b_lo = _mm256_unpacklo_epi16(sample_L0_b_16bit, sample_L1_b_16bit);
++      __m256i sample_L0_L1_b_hi = _mm256_unpackhi_epi16(sample_L0_b_16bit, sample_L1_b_16bit);
++
++      __m256i all_ones = _mm256_set1_epi16(1);
++      __m256i avg_a_lo = _mm256_madd_epi16(sample_L0_L1_a_lo, all_ones);
++      __m256i avg_a_hi = _mm256_madd_epi16(sample_L0_L1_a_hi, all_ones);
++      __m256i avg_b_lo = _mm256_madd_epi16(sample_L0_L1_b_lo, all_ones);
++      __m256i avg_b_hi = _mm256_madd_epi16(sample_L0_L1_b_hi, all_ones);
++
++      avg_a_lo = _mm256_add_epi32(avg_a_lo, offset);
++      avg_a_hi = _mm256_add_epi32(avg_a_hi, offset);
++      avg_b_lo = _mm256_add_epi32(avg_b_lo, offset);
++      avg_b_hi = _mm256_add_epi32(avg_b_hi, offset);
++
++      avg_a_lo = _mm256_srai_epi32(avg_a_lo, shift);
++      avg_a_hi = _mm256_srai_epi32(avg_a_hi, shift);
++      avg_b_lo = _mm256_srai_epi32(avg_b_lo, shift);
++      avg_b_hi = _mm256_srai_epi32(avg_b_hi, shift);
++
++      __m256i avg_01  = _mm256_packus_epi32(avg_a_lo, avg_a_hi);
++      __m256i avg_23  = _mm256_packus_epi32(avg_b_lo, avg_b_hi);
++      __m256i avg0213 = _mm256_packus_epi16(avg_01, avg_23);
++      __m256i avg     = _mm256_permute4x64_epi64(avg0213, _MM_SHUFFLE(3, 1, 2, 0));
++
++      switch (pu_w) {
++        case  4: scatter_ymm_4x8_8bit( &dst[y * dst_stride + x], avg, dst_stride); break;
++        case  8: scatter_ymm_8x4_8bit( &dst[y * dst_stride + x], avg, dst_stride); break;
++        case 16: scatter_ymm_16x2_8bit(&dst[y * dst_stride + x], avg, dst_stride); break;
++        case 32: // Same as case 64
++        case 64: _mm256_storeu_si256((__m256i*)&dst[y * dst_stride + x], avg); break;
++        default:
++          assert(0 && "Unexpected block width.");
++          break;
++      }
++    }
++  } else if (area_mod_32 == 0) {
++    for (uint32_t i = 0; i < pu_w * pu_h; i += 24) {
++
++      int y = i / pu_w;
++      int x = i % pu_w;
++
++      // Last 64 bits of the 256 are not used to simplify the loop
++      __m256i mask              = _mm256_setr_epi64x(-1, -1, -1, 0);
++      __m256i sample_L0_a_16bit = _mm256_loadu_si256((__m256i*)&im_L0[i]);
++      __m256i sample_L1_a_16bit = _mm256_loadu_si256((__m256i*)&im_L1[i]);
++      __m256i sample_L0_b_16bit = _mm256_castsi128_si256(_mm_loadu_si128((__m128i*)&im_L0[i + 16]));
++      __m256i sample_L1_b_16bit = _mm256_castsi128_si256(_mm_loadu_si128((__m128i*)&im_L1[i + 16]));
++
++      __m256i sample_L0_L1_a_lo = _mm256_unpacklo_epi16(sample_L0_a_16bit, sample_L1_a_16bit);
++      __m256i sample_L0_L1_a_hi = _mm256_unpackhi_epi16(sample_L0_a_16bit, sample_L1_a_16bit);
++      __m256i sample_L0_L1_b_lo = _mm256_unpacklo_epi16(sample_L0_b_16bit, sample_L1_b_16bit);
++      __m256i sample_L0_L1_b_hi = _mm256_unpackhi_epi16(sample_L0_b_16bit, sample_L1_b_16bit);
++
++      __m256i all_ones = _mm256_set1_epi16(1);
++      __m256i avg_a_lo = _mm256_madd_epi16(sample_L0_L1_a_lo, all_ones);
++      __m256i avg_a_hi = _mm256_madd_epi16(sample_L0_L1_a_hi, all_ones);
++      __m256i avg_b_lo = _mm256_madd_epi16(sample_L0_L1_b_lo, all_ones);
++      __m256i avg_b_hi = _mm256_madd_epi16(sample_L0_L1_b_hi, all_ones);
++
++      avg_a_lo = _mm256_add_epi32(avg_a_lo, offset);
++      avg_a_hi = _mm256_add_epi32(avg_a_hi, offset);
++      avg_b_lo = _mm256_add_epi32(avg_b_lo, offset);
++      avg_b_hi = _mm256_add_epi32(avg_b_hi, offset);
++
++      avg_a_lo = _mm256_srai_epi32(avg_a_lo, shift);
++      avg_a_hi = _mm256_srai_epi32(avg_a_hi, shift);
++      avg_b_lo = _mm256_srai_epi32(avg_b_lo, shift);
++      avg_b_hi = _mm256_srai_epi32(avg_b_hi, shift);
++
++      __m256i avg_01  = _mm256_packus_epi32(avg_a_lo, avg_a_hi);
++      __m256i avg_23  = _mm256_packus_epi32(avg_b_lo, avg_b_hi);
++      __m256i avg0213 = _mm256_packus_epi16(avg_01, avg_23);
++      __m256i avg     = _mm256_permute4x64_epi64(avg0213, _MM_SHUFFLE(3, 1, 2, 0));
++
++      switch (pu_w) {
++        case 12: scatter_ymm_12x2_8bit(&dst[y * dst_stride + x], avg, dst_stride); break;
++        case 24: // Same as case 48
++        case 48: _mm256_maskstore_epi64((long long*)&dst[y * dst_stride + x], mask, avg); break;
++        default:
++          assert(0 && "Unexpected block width.");
++          break;
++      }
++    }
++  } else {
++    // 8x2, 8x6, 6x8 blocks (and maybe 2x8 in the future)
++    switch (pu_w) {
++      case 8: // 8x2, 8x6
++        for (uint32_t i = 0; i < pu_w * pu_h; i += 16) {
++
++          int y = i / pu_w;
++
++          __m256i sample_L0_16bit = _mm256_loadu_si256((__m256i*)&im_L0[i]);
++          __m256i sample_L1_16bit = _mm256_loadu_si256((__m256i*)&im_L1[i]);
++
++          __m256i sample_L0_L1_lo = _mm256_unpacklo_epi16(sample_L0_16bit, sample_L1_16bit);
++          __m256i sample_L0_L1_hi = _mm256_unpackhi_epi16(sample_L0_16bit, sample_L1_16bit);
++
++          __m256i all_ones = _mm256_set1_epi16(1);
++          __m256i avg_lo   = _mm256_madd_epi16(sample_L0_L1_lo, all_ones);
++          __m256i avg_hi   = _mm256_madd_epi16(sample_L0_L1_hi, all_ones);
++
++          avg_lo = _mm256_add_epi32(avg_lo, offset);
++          avg_hi = _mm256_add_epi32(avg_hi, offset);
++
++          avg_lo = _mm256_srai_epi32(avg_lo, shift);
++          avg_hi = _mm256_srai_epi32(avg_hi, shift);
++
++          __m256i avg256 = _mm256_packus_epi32(avg_lo, avg_hi);
++          avg256         = _mm256_packus_epi16(avg256, avg256);
++          avg256         = _mm256_permute4x64_epi64(avg256, _MM_SHUFFLE(3, 1, 2, 0));
++          __m128i avg    = _mm256_castsi256_si128(avg256);
++
++          _mm_storel_epi64((__m128i*)&dst[y * dst_stride], avg);
++          _mm_storeh_pd((double*)&dst[(y + 1) * dst_stride], _mm_castsi128_pd(avg));
++        }
++        break;
++      case 6: // 6x8
++        for (uint32_t i = 0; i < pu_w * pu_h; i += 12) {
++
++          int y = i / pu_w;
++
++          __m256i mask            = _mm256_setr_epi64x(-1, -1, -1, 0);
++          __m256i sample_L0_16bit = _mm256_maskload_epi64((const long long*)(&im_L0[i]), mask);
++          __m256i sample_L1_16bit = _mm256_maskload_epi64((const long long*)(&im_L1[i]), mask);
++
++          __m256i sample_L0_L1_lo = _mm256_unpacklo_epi16(sample_L0_16bit, sample_L1_16bit);
++          __m256i sample_L0_L1_hi = _mm256_unpackhi_epi16(sample_L0_16bit, sample_L1_16bit);
++
++          __m256i all_ones = _mm256_set1_epi16(1);
++          __m256i avg_a_lo = _mm256_madd_epi16(sample_L0_L1_lo, all_ones);
++          __m256i avg_a_hi = _mm256_madd_epi16(sample_L0_L1_hi, all_ones);
++
++          avg_a_lo = _mm256_add_epi32(avg_a_lo, offset);
++          avg_a_hi = _mm256_add_epi32(avg_a_hi, offset);
++
++          avg_a_lo = _mm256_srai_epi32(avg_a_lo, shift);
++          avg_a_hi = _mm256_srai_epi32(avg_a_hi, shift);
++
++          __m256i avg256 = _mm256_packus_epi32(avg_a_lo, avg_a_hi);
++          avg256         = _mm256_packus_epi16(avg256, avg256);
++          avg256         = _mm256_permute4x64_epi64(avg256, _MM_SHUFFLE(3, 1, 2, 0));
++          __m128i avg    = _mm256_castsi256_si128(avg256);
++
++          uint32_t elements_0123 = _mm_cvtsi128_si32(avg);
++          uint16_t elements_45   = _mm_extract_epi16(avg, 2);
++          uint16_t elements_67   = _mm_extract_epi16(avg, 3);
++          uint32_t elements_89ab = _mm_extract_epi32(avg, 2);
++          *(uint32_t*)&dst[(y + 0) * dst_stride + 0] = elements_0123;
++          *(uint16_t*)&dst[(y + 0) * dst_stride + 4] = elements_45;
++          *(uint16_t*)&dst[(y + 1) * dst_stride + 0] = elements_67;
++          *(uint32_t*)&dst[(y + 1) * dst_stride + 2] = elements_89ab;
++        }
++        break;
++      default:
++        assert(0 && "Unexpected block width.");
++        break;
++    }
++  }
++}
++
++static void bipred_average_im_im_avx2(uvg_pixel *dst,
++  uvg_pixel_im *im_L0,
++  uvg_pixel_im *im_L1,
++  unsigned pu_w,
++  unsigned pu_h,
++  unsigned dst_stride)
++{
++  // Use scalar code for yet unoptimized block sizes (4x4, 2x8)
++  if (!(pu_w == 4 && pu_h == 4) && pu_w > 2) {
++    switch (pu_w) {
++      case  4: bipred_average_im_im_template_avx2(dst, im_L0, im_L1,  4, pu_h, dst_stride); break;
++      case  8: bipred_average_im_im_template_avx2(dst, im_L0, im_L1,  8, pu_h, dst_stride); break;
++      case 16: bipred_average_im_im_template_avx2(dst, im_L0, im_L1, 16, pu_h, dst_stride); break;
++      case 32: bipred_average_im_im_template_avx2(dst, im_L0, im_L1, 32, pu_h, dst_stride); break;
++      case 64: bipred_average_im_im_template_avx2(dst, im_L0, im_L1, 64, pu_h, dst_stride); break;
++
++      case  6: bipred_average_im_im_template_avx2(dst, im_L0, im_L1,  6, pu_h, dst_stride); break;
++      case 12: bipred_average_im_im_template_avx2(dst, im_L0, im_L1, 12, pu_h, dst_stride); break;
++      case 24: bipred_average_im_im_template_avx2(dst, im_L0, im_L1, 24, pu_h, dst_stride); break;
++      case 48: bipred_average_im_im_template_avx2(dst, im_L0, im_L1, 48, pu_h, dst_stride); break;
++      default:
++        assert(0 && "Unexpected block width.");
++        break;
++    }
++  } else {
++    int32_t shift = 15 - UVG_BIT_DEPTH; // TODO: defines
++    int32_t offset = 1 << (shift - 1);
++
++    for (uint32_t i = 0; i < pu_w * pu_h; ++i)
++    {
++      int y = i / pu_w;
++      int x = i % pu_w;
++      int16_t sample_L0 = im_L0[i];
++      int16_t sample_L1 = im_L1[i];
++      int32_t rounded = (sample_L0 + sample_L1 + offset) >> shift;
++      dst[y * dst_stride + x] = uvg_fast_clip_32bit_to_pixel(rounded);
++    }
++  }
++}
++
++static INLINE void bipred_average_px_im_template_avx2(uvg_pixel *dst,
++  uvg_pixel *px,
++  uvg_pixel_im *im,
++  unsigned pu_w,
++  unsigned pu_h,
++  unsigned dst_stride)
++{
++  int32_t shift = 15 - UVG_BIT_DEPTH; // TODO: defines
++  int32_t scalar_offset = 1 << (shift - 1);
++  __m256i offset = _mm256_set1_epi32(scalar_offset);
++
++  bool has_pow2_width = _mm_popcnt_u32(pu_w) == 1;
++  bool area_mod_32 = (pu_w * pu_h) % 32;
++  assert(!(pu_w == 4 && pu_h == 4) && "Branch for 4x4 not yet implemented.");
++  assert(!(pu_w == 2 && pu_h == 8) && "Branch for 2x8 not yet implemented.");
++
++  if (has_pow2_width && area_mod_32 == 0) {
++    for (uint32_t i = 0; i < pu_w * pu_h; i += 32) {
++
++      int y = i / pu_w;
++      int x = i % pu_w;
++
++      __m256i sample_px_a_16bit = _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)&px[i]));
++      __m256i sample_px_b_16bit = _mm256_cvtepu8_epi16(_mm_loadu_si128((__m128i*)&px[i + 16]));
++      sample_px_a_16bit         = _mm256_slli_epi16(sample_px_a_16bit, 14 - UVG_BIT_DEPTH);
++      sample_px_b_16bit         = _mm256_slli_epi16(sample_px_b_16bit, 14 - UVG_BIT_DEPTH);
++      __m256i sample_im_a_16bit = _mm256_loadu_si256((__m256i*)&im[i]);
++      __m256i sample_im_b_16bit = _mm256_loadu_si256((__m256i*)&im[i + 16]);
++
++      __m256i sample_px_im_a_lo = _mm256_unpacklo_epi16(sample_px_a_16bit, sample_im_a_16bit);
++      __m256i sample_px_im_a_hi = _mm256_unpackhi_epi16(sample_px_a_16bit, sample_im_a_16bit);
++      __m256i sample_px_im_b_lo = _mm256_unpacklo_epi16(sample_px_b_16bit, sample_im_b_16bit);
++      __m256i sample_px_im_b_hi = _mm256_unpackhi_epi16(sample_px_b_16bit, sample_im_b_16bit);
++
++      __m256i all_ones  = _mm256_set1_epi16(1);
++      __m256i avg_a_lo = _mm256_madd_epi16(sample_px_im_a_lo, all_ones);
++      __m256i avg_a_hi = _mm256_madd_epi16(sample_px_im_a_hi, all_ones);
++      __m256i avg_b_lo = _mm256_madd_epi16(sample_px_im_b_lo, all_ones);
++      __m256i avg_b_hi = _mm256_madd_epi16(sample_px_im_b_hi, all_ones);
++
++      avg_a_lo = _mm256_add_epi32(avg_a_lo, offset);
++      avg_a_hi = _mm256_add_epi32(avg_a_hi, offset);
++      avg_b_lo = _mm256_add_epi32(avg_b_lo, offset);
++      avg_b_hi = _mm256_add_epi32(avg_b_hi, offset);
++
++      avg_a_lo = _mm256_srai_epi32(avg_a_lo, shift);
++      avg_a_hi = _mm256_srai_epi32(avg_a_hi, shift);
++      avg_b_lo = _mm256_srai_epi32(avg_b_lo, shift);
++      avg_b_hi = _mm256_srai_epi32(avg_b_hi, shift);
++
++      __m256i avg_01  = _mm256_packus_epi32(avg_a_lo, avg_a_hi);
++      __m256i avg_23  = _mm256_packus_epi32(avg_b_lo, avg_b_hi);
++      __m256i avg0213 = _mm256_packus_epi16(avg_01, avg_23);
++      __m256i avg     = _mm256_permute4x64_epi64(avg0213, _MM_SHUFFLE(3, 1, 2, 0));
++
++      switch (pu_w) {
++        case  4: scatter_ymm_4x8_8bit( &dst[y * dst_stride + x], avg, dst_stride); break;
++        case  8: scatter_ymm_8x4_8bit( &dst[y * dst_stride + x], avg, dst_stride); break;
++        case 16: scatter_ymm_16x2_8bit(&dst[y * dst_stride + x], avg, dst_stride); break;
++        case 32: // Same as case 64
++        case 64: _mm256_storeu_si256((__m256i*)&dst[y * dst_stride + x], avg); break;
++        default:
++          assert(0 && "Unexpected block width.");
++          break;
++      }
++    }
++  } else if (area_mod_32 == 0) {
++    for (uint32_t i = 0; i < pu_w * pu_h; i += 24) {
++
++      int y = i / pu_w;
++      int x = i % pu_w;
++
++      // Last 64 bits of the 256 / 32 bits of the 128 are not used to simplify the loop
++      __m256i mask              = _mm256_setr_epi64x(-1, -1, -1, 0);
++      __m128i sample_px_a_8bit  = _mm_loadu_si128((__m128i*)&px[i]);
++      __m128i sample_px_b_8bit  = _mm_loadl_epi64((__m128i*)&px[i + 16]);
++      __m256i sample_px_a_16bit = _mm256_cvtepu8_epi16(sample_px_a_8bit);
++      __m256i sample_px_b_16bit = _mm256_cvtepu8_epi16(sample_px_b_8bit);
++      sample_px_a_16bit         = _mm256_slli_epi16(sample_px_a_16bit, 14 - UVG_BIT_DEPTH);
++      sample_px_b_16bit         = _mm256_slli_epi16(sample_px_b_16bit, 14 - UVG_BIT_DEPTH);
++      __m256i sample_im_a_16bit = _mm256_loadu_si256((__m256i*)&im[i]);
++      __m256i sample_im_b_16bit = _mm256_castsi128_si256(_mm_loadu_si128((__m128i*)&im[i + 16]));
++
++      __m256i sample_px_im_a_lo = _mm256_unpacklo_epi16(sample_px_a_16bit, sample_im_a_16bit);
++      __m256i sample_px_im_a_hi = _mm256_unpackhi_epi16(sample_px_a_16bit, sample_im_a_16bit);
++      __m256i sample_px_im_b_lo = _mm256_unpacklo_epi16(sample_px_b_16bit, sample_im_b_16bit);
++      __m256i sample_px_im_b_hi = _mm256_unpackhi_epi16(sample_px_b_16bit, sample_im_b_16bit);
++
++      __m256i all_ones = _mm256_set1_epi16(1);
++      __m256i avg_a_lo = _mm256_madd_epi16(sample_px_im_a_lo, all_ones);
++      __m256i avg_a_hi = _mm256_madd_epi16(sample_px_im_a_hi, all_ones);
++      __m256i avg_b_lo = _mm256_madd_epi16(sample_px_im_b_lo, all_ones);
++      __m256i avg_b_hi = _mm256_madd_epi16(sample_px_im_b_hi, all_ones);
++
++      avg_a_lo = _mm256_add_epi32(avg_a_lo, offset);
++      avg_a_hi = _mm256_add_epi32(avg_a_hi, offset);
++      avg_b_lo = _mm256_add_epi32(avg_b_lo, offset);
++      avg_b_hi = _mm256_add_epi32(avg_b_hi, offset);
++
++      avg_a_lo = _mm256_srai_epi32(avg_a_lo, shift);
++      avg_a_hi = _mm256_srai_epi32(avg_a_hi, shift);
++      avg_b_lo = _mm256_srai_epi32(avg_b_lo, shift);
++      avg_b_hi = _mm256_srai_epi32(avg_b_hi, shift);
++
++      __m256i avg_01  = _mm256_packus_epi32(avg_a_lo, avg_a_hi);
++      __m256i avg_23  = _mm256_packus_epi32(avg_b_lo, avg_b_hi);
++      __m256i avg0213 = _mm256_packus_epi16(avg_01, avg_23);
++      __m256i avg     = _mm256_permute4x64_epi64(avg0213, _MM_SHUFFLE(3, 1, 2, 0));
++
++      switch (pu_w) {
++        case 12: scatter_ymm_12x2_8bit(&dst[y * dst_stride + x], avg, dst_stride); break;
++        case 24: // Same as case 48
++        case 48: _mm256_maskstore_epi64((long long*)&dst[y * dst_stride + x], mask, avg); break;
++        default:
++          assert(0 && "Unexpected block width.");
++          break;
++      }
++    }
++  } else {
++    // 8x2, 8x6, 6x8 blocks (and maybe 2x8 in the future)
++    switch (pu_w) {
++      case 8: // 8x2, 8x6
++        for (uint32_t i = 0; i < pu_w * pu_h; i += 16) {
++
++          int y = i / pu_w;
++
++          __m128i sample_px_8bit  = _mm_loadu_si128((__m128i*)&px[i]);
++          __m256i sample_px_16bit = _mm256_cvtepu8_epi16(sample_px_8bit);
++          sample_px_16bit         = _mm256_slli_epi16(sample_px_16bit, 14 - UVG_BIT_DEPTH);
++          __m256i sample_im_16bit = _mm256_loadu_si256((__m256i*)&im[i]);
++
++          __m256i sample_px_im_lo = _mm256_unpacklo_epi16(sample_px_16bit, sample_im_16bit);
++          __m256i sample_px_im_hi = _mm256_unpackhi_epi16(sample_px_16bit, sample_im_16bit);
++
++          __m256i all_ones = _mm256_set1_epi16(1);
++          __m256i avg_lo   = _mm256_madd_epi16(sample_px_im_lo, all_ones);
++          __m256i avg_hi   = _mm256_madd_epi16(sample_px_im_hi, all_ones);
++
++          avg_lo = _mm256_add_epi32(avg_lo, offset);
++          avg_hi = _mm256_add_epi32(avg_hi, offset);
++
++          avg_lo = _mm256_srai_epi32(avg_lo, shift);
++          avg_hi = _mm256_srai_epi32(avg_hi, shift);
++
++          __m256i avg256 = _mm256_packus_epi32(avg_lo, avg_hi);
++          avg256         = _mm256_packus_epi16(avg256, avg256);
++          avg256         = _mm256_permute4x64_epi64(avg256, _MM_SHUFFLE(3, 1, 2, 0));
++          __m128i avg    = _mm256_castsi256_si128(avg256);
++
++          _mm_storel_epi64((__m128i*)&dst[y * dst_stride], avg);
++          _mm_storeh_pd((double*)&dst[(y + 1) * dst_stride], _mm_castsi128_pd(avg));
++        }
++        break;
++      case 6: // 6x8
++        for (uint32_t i = 0; i < pu_w * pu_h; i += 12) {
++
++          int y = i / pu_w;
++
++          __m128i mask128         = _mm_setr_epi32(-1, -1, -1, 0);
++          __m128i sample_px_8bit  = _mm_maskload_epi32((const int*)(&px[i]), mask128);
++
++          __m256i mask            = _mm256_setr_epi64x(-1, -1, -1, 0);
++          __m256i sample_px_16bit = _mm256_cvtepu8_epi16(sample_px_8bit);
++          sample_px_16bit         = _mm256_slli_epi16(sample_px_16bit, 14 - UVG_BIT_DEPTH);
++          __m256i sample_im_16bit = _mm256_maskload_epi64((const long long*)(&im[i]), mask);
++
++          __m256i sample_px_im_lo = _mm256_unpacklo_epi16(sample_px_16bit, sample_im_16bit);
++          __m256i sample_px_im_hi = _mm256_unpackhi_epi16(sample_px_16bit, sample_im_16bit);
++
++          __m256i all_ones = _mm256_set1_epi16(1);
++          __m256i avg_lo   = _mm256_madd_epi16(sample_px_im_lo, all_ones);
++          __m256i avg_hi   = _mm256_madd_epi16(sample_px_im_hi, all_ones);
++
++          avg_lo = _mm256_add_epi32(avg_lo, offset);
++          avg_hi = _mm256_add_epi32(avg_hi, offset);
++
++          avg_lo = _mm256_srai_epi32(avg_lo, shift);
++          avg_hi = _mm256_srai_epi32(avg_hi, shift);
++
++          __m256i avg256 = _mm256_packus_epi32(avg_lo, avg_hi);
++          avg256         = _mm256_packus_epi16(avg256, avg256);
++          avg256         = _mm256_permute4x64_epi64(avg256, _MM_SHUFFLE(3, 1, 2, 0));
++          __m128i avg    = _mm256_castsi256_si128(avg256);
++
++          uint32_t elements_0123 = _mm_cvtsi128_si32(avg);
++          uint16_t elements_45   = _mm_extract_epi16(avg, 2);
++          uint16_t elements_67   = _mm_extract_epi16(avg, 3);
++          uint32_t elements_89ab = _mm_extract_epi32(avg, 2);
++          *(uint32_t*)&dst[(y + 0) * dst_stride + 0] = elements_0123;
++          *(uint16_t*)&dst[(y + 0) * dst_stride + 4] = elements_45;
++          *(uint16_t*)&dst[(y + 1) * dst_stride + 0] = elements_67;
++          *(uint32_t*)&dst[(y + 1) * dst_stride + 2] = elements_89ab;
++        }
++        break;
++      default:
++        assert(0 && "Unexpected block width.");
++        break;
++    }
++  }
++}
++
++static void bipred_average_px_im_avx2(uvg_pixel *dst,
++  uvg_pixel *px,
++  uvg_pixel_im *im,
++  unsigned pu_w,
++  unsigned pu_h,
++  unsigned dst_stride)
++{
++  // Use scalar code for yet unoptimized block sizes (4x4, 2x8)
++  if (!(pu_w == 4 && pu_h == 4) && pu_w > 2) {
++    switch (pu_w) {
++      case  4: bipred_average_px_im_template_avx2(dst, px, im,  4, pu_h, dst_stride); break;
++      case  8: bipred_average_px_im_template_avx2(dst, px, im,  8, pu_h, dst_stride); break;
++      case 16: bipred_average_px_im_template_avx2(dst, px, im, 16, pu_h, dst_stride); break;
++      case 32: bipred_average_px_im_template_avx2(dst, px, im, 32, pu_h, dst_stride); break;
++      case 64: bipred_average_px_im_template_avx2(dst, px, im, 64, pu_h, dst_stride); break;
++
++      case  6: bipred_average_px_im_template_avx2(dst, px, im,  6, pu_h, dst_stride); break;
++      case 12: bipred_average_px_im_template_avx2(dst, px, im, 12, pu_h, dst_stride); break;
++      case 24: bipred_average_px_im_template_avx2(dst, px, im, 24, pu_h, dst_stride); break;
++      case 48: bipred_average_px_im_template_avx2(dst, px, im, 48, pu_h, dst_stride); break;
++      default:
++        assert(0 && "Unexpected block width.");
++        break;
++    }
++  } else {
++    int32_t shift = 15 - UVG_BIT_DEPTH; // TODO: defines
++    int32_t offset = 1 << (shift - 1);
++
++    for (uint32_t i = 0; i < pu_w * pu_h; ++i)
++    {
++      int y = i / pu_w;
++      int x = i % pu_w;
++      int16_t sample_px = px[i] << (14 - UVG_BIT_DEPTH);
++      int16_t sample_im = im[i];
++      int32_t rounded = (sample_px + sample_im + offset) >> shift;
++      dst[y * dst_stride + x] = uvg_fast_clip_32bit_to_pixel(rounded);
++    }
++  }
++}
++
++static void bipred_average_avx2(lcu_t *const lcu,
++  const yuv_t *const px_L0,
++  const yuv_t *const px_L1,
++  const yuv_im_t *const im_L0,
++  const yuv_im_t *const im_L1,
++  const unsigned pu_x,
++  const unsigned pu_y,
++  const unsigned pu_w,
++  const unsigned pu_h,
++  const unsigned im_flags_L0,
++  const unsigned im_flags_L1,
++  const bool predict_luma,
++  const bool predict_chroma) {
++
++  //After reconstruction, merge the predictors by taking an average of each pixel
++  if (predict_luma) {
++    unsigned pb_offset = SUB_SCU(pu_y) * LCU_WIDTH + SUB_SCU(pu_x);
++
++    if (!(im_flags_L0 & 1) && !(im_flags_L1 & 1)) {
++      bipred_average_px_px_avx2(lcu->rec.y + pb_offset, px_L0->y, px_L1->y, pu_w, pu_h, LCU_WIDTH);
++
++    } else if ((im_flags_L0 & 1) && (im_flags_L1 & 1)) {
++      bipred_average_im_im_avx2(lcu->rec.y + pb_offset, im_L0->y, im_L1->y, pu_w, pu_h, LCU_WIDTH);
++
++    } else {
++      uvg_pixel *src_px    = (im_flags_L0 & 1) ? px_L1->y : px_L0->y;
++      uvg_pixel_im *src_im = (im_flags_L0 & 1) ? im_L0->y : im_L1->y;
++      bipred_average_px_im_avx2(lcu->rec.y + pb_offset, src_px, src_im, pu_w, pu_h, LCU_WIDTH);
++    }
++  }
++  if (predict_chroma) {
++    unsigned pb_offset = SUB_SCU(pu_y) / 2 * LCU_WIDTH_C + SUB_SCU(pu_x) / 2;
++    unsigned pb_w = pu_w / 2;
++    unsigned pb_h = pu_h / 2;
++
++    if (!(im_flags_L0 & 2) && !(im_flags_L1 & 2)) {
++      bipred_average_px_px_avx2(lcu->rec.u + pb_offset, px_L0->u, px_L1->u, pb_w, pb_h, LCU_WIDTH_C);
++      bipred_average_px_px_avx2(lcu->rec.v + pb_offset, px_L0->v, px_L1->v, pb_w, pb_h, LCU_WIDTH_C);
++
++    } else if ((im_flags_L0 & 2) && (im_flags_L1 & 2)) {
++      bipred_average_im_im_avx2(lcu->rec.u + pb_offset, im_L0->u, im_L1->u, pb_w, pb_h, LCU_WIDTH_C);
++      bipred_average_im_im_avx2(lcu->rec.v + pb_offset, im_L0->v, im_L1->v, pb_w, pb_h, LCU_WIDTH_C);
++
++    } else {
++      uvg_pixel    *src_px_u = (im_flags_L0 & 2) ? px_L1->u : px_L0->u;
++      uvg_pixel_im *src_im_u = (im_flags_L0 & 2) ? im_L0->u : im_L1->u;
++      uvg_pixel    *src_px_v = (im_flags_L0 & 2) ? px_L1->v : px_L0->v;
++      uvg_pixel_im *src_im_v = (im_flags_L0 & 2) ? im_L0->v : im_L1->v;
++      bipred_average_px_im_avx2(lcu->rec.u + pb_offset, src_px_u, src_im_u, pb_w, pb_h, LCU_WIDTH_C);
++      bipred_average_px_im_avx2(lcu->rec.v + pb_offset, src_px_v, src_im_v, pb_w, pb_h, LCU_WIDTH_C);
++    }
++  }
++}
++
++static optimized_sad_func_ptr_t get_optimized_sad_avx2(int32_t width)
++{
++  if (width == 0)
++    return reg_sad_w0;
++  if (width == 4)
++    return reg_sad_w4;
++  if (width == 8)
++    return reg_sad_w8;
++  if (width == 12)
++    return reg_sad_w12;
++  if (width == 16)
++    return reg_sad_w16;
++  if (width == 24)
++    return reg_sad_w24;
++  if (width == 32)
++    return reg_sad_w32;
++  if (width == 64)
++    return reg_sad_w64;
++  else
++    return NULL;
++}
++
++static uint32_t ver_sad_avx2(const uint8_t *pic_data, const uint8_t *ref_data,
++                             int32_t width, int32_t height, uint32_t stride)
++{
++  if (width == 0)
++    return 0;
++  if (width == 4)
++    return ver_sad_w4(pic_data, ref_data, height, stride);
++  if (width == 8)
++    return ver_sad_w8(pic_data, ref_data, height, stride);
++  //if (width == 12)
++    //return ver_sad_w12(pic_data, ref_data, height, stride);
++  if (width == 16)
++    return ver_sad_w16(pic_data, ref_data, height, stride);
++  else
++    return ver_sad_arbitrary(pic_data, ref_data, width, height, stride);
++}
++
++static uint32_t hor_sad_avx2(const uint8_t *pic_data, const uint8_t *ref_data,
++                             int32_t width, int32_t height, uint32_t pic_stride,
++                             uint32_t ref_stride, uint32_t left, uint32_t right)
++{
++  if (width == 4)
++    return hor_sad_sse41_w4(pic_data, ref_data, height,
++                            pic_stride, ref_stride, left, right);
++  if (width == 8)
++    return hor_sad_sse41_w8(pic_data, ref_data, height,
++                            pic_stride, ref_stride, left, right);
++  if (width == 16)
++    return hor_sad_sse41_w16(pic_data, ref_data, height,
++                             pic_stride, ref_stride, left, right);
++  if (width == 32)
++    return hor_sad_avx2_w32 (pic_data, ref_data, height,
++                             pic_stride, ref_stride, left, right);
++  else
++    return hor_sad_sse41_arbitrary(pic_data, ref_data, width, height,
++                                   pic_stride, ref_stride, left, right);
++}
++
++static double pixel_var_avx2_largebuf(const uint8_t *buf, const uint32_t len)
++{
++  const float len_f  = (float)len;
++  const __m256i zero = _mm256_setzero_si256();
++
++  int64_t sum;
++  size_t i;
++  __m256i sums = zero;
++  for (i = 0; i + 31 < len; i += 32) {
++    __m256i curr = _mm256_loadu_si256((const __m256i *)(buf + i));
++    __m256i curr_sum = _mm256_sad_epu8(curr, zero);
++            sums = _mm256_add_epi64(sums, curr_sum);
++  }
++  __m128i sum_lo = _mm256_castsi256_si128  (sums);
++  __m128i sum_hi = _mm256_extracti128_si256(sums,   1);
++  __m128i sum_3  = _mm_add_epi64           (sum_lo, sum_hi);
++  __m128i sum_4  = _mm_shuffle_epi32       (sum_3,  _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sum_5  = _mm_add_epi64           (sum_3,  sum_4);
++
++  _mm_storel_epi64((__m128i *)&sum, sum_5);
++
++  // Remaining len mod 32 pixels
++  for (; i < len; ++i) {
++    sum += buf[i];
++  }
++
++  float   mean_f = (float)sum / len_f;
++  __m256  mean   = _mm256_set1_ps(mean_f);
++  __m256  accum  = _mm256_setzero_ps();
++
++  for (i = 0; i + 31 < len; i += 32) {
++    __m128i curr0    = _mm_loadl_epi64((const __m128i *)(buf + i +  0));
++    __m128i curr1    = _mm_loadl_epi64((const __m128i *)(buf + i +  8));
++    __m128i curr2    = _mm_loadl_epi64((const __m128i *)(buf + i + 16));
++    __m128i curr3    = _mm_loadl_epi64((const __m128i *)(buf + i + 24));
++
++    __m256i curr0_32 = _mm256_cvtepu8_epi32(curr0);
++    __m256i curr1_32 = _mm256_cvtepu8_epi32(curr1);
++    __m256i curr2_32 = _mm256_cvtepu8_epi32(curr2);
++    __m256i curr3_32 = _mm256_cvtepu8_epi32(curr3);
++
++    __m256  curr0_f  = _mm256_cvtepi32_ps  (curr0_32);
++    __m256  curr1_f  = _mm256_cvtepi32_ps  (curr1_32);
++    __m256  curr2_f  = _mm256_cvtepi32_ps  (curr2_32);
++    __m256  curr3_f  = _mm256_cvtepi32_ps  (curr3_32);
++
++    __m256  curr0_sd = _mm256_sub_ps       (curr0_f,  mean);
++    __m256  curr1_sd = _mm256_sub_ps       (curr1_f,  mean);
++    __m256  curr2_sd = _mm256_sub_ps       (curr2_f,  mean);
++    __m256  curr3_sd = _mm256_sub_ps       (curr3_f,  mean);
++
++    __m256  curr0_v  = _mm256_mul_ps       (curr0_sd, curr0_sd);
++    __m256  curr1_v  = _mm256_mul_ps       (curr1_sd, curr1_sd);
++    __m256  curr2_v  = _mm256_mul_ps       (curr2_sd, curr2_sd);
++    __m256  curr3_v  = _mm256_mul_ps       (curr3_sd, curr3_sd);
++
++    __m256  curr01   = _mm256_add_ps       (curr0_v,  curr1_v);
++    __m256  curr23   = _mm256_add_ps       (curr2_v,  curr3_v);
++    __m256  curr     = _mm256_add_ps       (curr01,   curr23);
++            accum    = _mm256_add_ps       (accum,    curr);
++  }
++  __m256d accum_d  = _mm256_castps_pd     (accum);
++  __m256d accum2_d = _mm256_permute4x64_pd(accum_d, _MM_SHUFFLE(1, 0, 3, 2));
++  __m256  accum2   = _mm256_castpd_ps     (accum2_d);
++
++  __m256  accum3   = _mm256_add_ps        (accum,  accum2);
++  __m256  accum4   = _mm256_permute_ps    (accum3, _MM_SHUFFLE(1, 0, 3, 2));
++  __m256  accum5   = _mm256_add_ps        (accum3, accum4);
++  __m256  accum6   = _mm256_permute_ps    (accum5, _MM_SHUFFLE(2, 3, 0, 1));
++  __m256  accum7   = _mm256_add_ps        (accum5, accum6);
++
++  __m128  accum8   = _mm256_castps256_ps128(accum7);
++  float   var_sum  = _mm_cvtss_f32         (accum8);
++
++  // Remaining len mod 32 pixels
++  for (; i < len; ++i) {
++    float diff = buf[i] - mean_f;
++    var_sum += diff * diff;
++  }
++
++  return  var_sum / len_f;
++}
++
++#ifdef INACCURATE_VARIANCE_CALCULATION
++
++// Assumes that u is a power of two
++static INLINE uint32_t ilog2(uint32_t u)
++{
++  return _tzcnt_u32(u);
++}
++
++// A B C D | E F G H (8x32b)
++//        ==>
++// A+B C+D | E+F G+H (4x64b)
++static __m256i hsum_epi32_to_epi64(const __m256i v)
++{
++  const __m256i zero    = _mm256_setzero_si256();
++        __m256i v_shufd = _mm256_shuffle_epi32(v, _MM_SHUFFLE(3, 3, 1, 1));
++        __m256i sums_32 = _mm256_add_epi32    (v, v_shufd);
++        __m256i sums_64 = _mm256_blend_epi32  (sums_32, zero, 0xaa);
++  return        sums_64;
++}
++
++static double pixel_var_avx2(const uint8_t *buf, const uint32_t len)
++{
++  assert(sizeof(*buf) == 1);
++  assert((len & 31) == 0);
++
++  // Uses Q8.7 numbers to measure mean and deviation, so variances are Q16.14
++  const uint64_t sum_maxwid     = ilog2(len) + (8 * sizeof(*buf));
++  const __m128i normalize_sum   = _mm_cvtsi32_si128(sum_maxwid - 15); // Normalize mean to [0, 32767], so signed 16-bit subtraction never overflows
++  const __m128i debias_sum      = _mm_cvtsi32_si128(1 << (sum_maxwid - 16));
++  const float varsum_to_f       = 1.0f / (float)(1 << (14 + ilog2(len)));
++
++  const bool power_of_two = (len & (len - 1)) == 0;
++  if (sum_maxwid > 32 || sum_maxwid < 15 || !power_of_two) {
++    return pixel_var_avx2_largebuf(buf, len);
++  }
++
++  const __m256i zero      = _mm256_setzero_si256();
++  const __m256i himask_15 = _mm256_set1_epi16(0x7f00);
++
++  uint64_t vars;
++  size_t i;
++  __m256i sums = zero;
++  for (i = 0; i < len; i += 32) {
++    __m256i curr = _mm256_loadu_si256((const __m256i *)(buf + i));
++    __m256i curr_sum = _mm256_sad_epu8(curr, zero);
++            sums = _mm256_add_epi64(sums, curr_sum);
++  }
++  __m128i sum_lo = _mm256_castsi256_si128  (sums);
++  __m128i sum_hi = _mm256_extracti128_si256(sums,   1);
++  __m128i sum_3  = _mm_add_epi64           (sum_lo, sum_hi);
++  __m128i sum_4  = _mm_shuffle_epi32       (sum_3,  _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sum_5  = _mm_add_epi64           (sum_3,  sum_4);
++  __m128i sum_5n = _mm_srl_epi32           (sum_5,  normalize_sum);
++          sum_5n = _mm_add_epi32           (sum_5n, debias_sum);
++
++  __m256i sum_n  = _mm256_broadcastw_epi16 (sum_5n);
++
++  __m256i accum = zero;
++  for (i = 0; i < len; i += 32) {
++    __m256i curr = _mm256_loadu_si256((const __m256i *)(buf + i));
++
++    __m256i curr0    = _mm256_slli_epi16  (curr,  7);
++    __m256i curr1    = _mm256_srli_epi16  (curr,  1);
++            curr0    = _mm256_and_si256   (curr0, himask_15);
++            curr1    = _mm256_and_si256   (curr1, himask_15);
++
++    __m256i dev0     = _mm256_sub_epi16   (curr0, sum_n);
++    __m256i dev1     = _mm256_sub_epi16   (curr1, sum_n);
++
++    __m256i vars0    = _mm256_madd_epi16  (dev0,  dev0);
++    __m256i vars1    = _mm256_madd_epi16  (dev1,  dev1);
++
++    __m256i varsum   = _mm256_add_epi32   (vars0, vars1);
++            varsum   = hsum_epi32_to_epi64(varsum);
++            accum    = _mm256_add_epi64   (accum, varsum);
++  }
++  __m256i accum2 = _mm256_permute4x64_epi64(accum,  _MM_SHUFFLE(1, 0, 3, 2));
++  __m256i accum3 = _mm256_add_epi64        (accum,  accum2);
++  __m256i accum4 = _mm256_permute4x64_epi64(accum3, _MM_SHUFFLE(2, 3, 1, 0));
++  __m256i v_tot  = _mm256_add_epi64        (accum3, accum4);
++  __m128i vt128  = _mm256_castsi256_si128  (v_tot);
++
++  _mm_storel_epi64((__m128i *)&vars, vt128);
++
++  return (float)vars * varsum_to_f;
++}
++
++#else // INACCURATE_VARIANCE_CALCULATION
++
++static double pixel_var_avx2(const uint8_t *buf, const uint32_t len)
++{
++  return pixel_var_avx2_largebuf(buf, len);
++}
++#endif // !INACCURATE_VARIANCE_CALCULATION
++
++
++static INLINE __m128i get_residual_4x1_avx2(const uint8_t* a_in, const uint8_t* b_in) {
++  __m128i a = _mm_cvtsi32_si128(*(int32_t*)a_in);
++  __m128i b = _mm_cvtsi32_si128(*(int32_t*)b_in);
++  __m128i diff = _mm_sub_epi16(_mm_cvtepu8_epi16(a), _mm_cvtepu8_epi16(b));
++  return diff;
++}
++
++static INLINE __m128i get_residual_8x1_avx2(const uint8_t* a_in, const uint8_t* b_in) {
++  __m128i a = _mm_cvtsi64_si128(*(int64_t*)a_in);
++  __m128i b = _mm_cvtsi64_si128(*(int64_t*)b_in);
++  __m128i diff = _mm_sub_epi16(_mm_cvtepu8_epi16(a), _mm_cvtepu8_epi16(b));
++  return diff;
++}
++
++static void generate_residual_avx2(const uint8_t* ref_in, const uint8_t* pred_in, int16_t* residual, int width, int height, int ref_stride, int pred_stride) {
++  // ISP_TODO: non-square block implementation, height is passed but not used
++  __m128i diff = _mm_setzero_si128();
++  switch (width) {
++  case 4:
++    for (int y = 0; y < height; y+=4) {
++      diff = get_residual_4x1_avx2(ref_in + y * ref_stride, pred_in + y * pred_stride);
++      _mm_storel_epi64((__m128i*) & (residual[y * 4]), diff);
++      diff = get_residual_4x1_avx2(ref_in + (y + 1) * ref_stride, pred_in + (y + 1) * pred_stride);
++      _mm_storel_epi64((__m128i*) & (residual[y * 4 + 4]), diff);
++      diff = get_residual_4x1_avx2(ref_in + (y + 2) * ref_stride, pred_in + (y + 2) * pred_stride);
++      _mm_storel_epi64((__m128i*) & (residual[y * 4 + 8]), diff);
++      diff = get_residual_4x1_avx2(ref_in + (y + 3) * ref_stride, pred_in + (y + 3) * pred_stride);
++      _mm_storel_epi64((__m128i*) & (residual[y * 4 + 12]), diff);
++    }
++    break;
++  case 8:
++    for (int y = 0; y < height; y += 2) {
++      diff = get_residual_8x1_avx2(&ref_in[y * ref_stride], &pred_in[y * pred_stride]);
++      _mm_storeu_si128((__m128i*) & (residual[y * 8]), diff);
++      diff = get_residual_8x1_avx2(&ref_in[(y + 1) * ref_stride], &pred_in[(y + 1) * pred_stride]);
++      _mm_storeu_si128((__m128i*) & (residual[y*8 + 8]), diff);
++    }
++    break;
++  default:
++    for (int y = 0; y < height; ++y) {
++      for (int x = 0; x < width; x += 16) {
++        diff = get_residual_8x1_avx2(&ref_in[x + y * ref_stride], &pred_in[x + y * pred_stride]);
++        _mm_storeu_si128((__m128i*) & residual[x + y * width], diff);
++        diff = get_residual_8x1_avx2(&ref_in[(x + 8) + y * ref_stride], &pred_in[(x + 8) + y * pred_stride]);
++        _mm_storeu_si128((__m128i*) & residual[(x + 8) + y * width], diff);
++      }
++    }
++    break;
++  }
++}
++
++
++#endif // KVZ_BIT_DEPTH == 8
++
++int uvg_strategy_register_picture_avx2(void* opaque, uint8_t bitdepth)
++{
++  bool success = true;
++#if UVG_BIT_DEPTH == 8
++  // We don't actually use SAD for intra right now, other than 4x4 for
++  // transform skip, but we might again one day and this is some of the
++  // simplest code to look at for anyone interested in doing more
++  // optimizations, so it's worth it to keep this maintained.
++  if (bitdepth == 8){
++
++    success &= uvg_strategyselector_register(opaque, "reg_sad", "avx2", 40, &uvg_reg_sad_avx2);
++    success &= uvg_strategyselector_register(opaque, "sad_8x8", "avx2", 40, &sad_8bit_8x8_avx2);
++    success &= uvg_strategyselector_register(opaque, "sad_16x16", "avx2", 40, &sad_8bit_16x16_avx2);
++    success &= uvg_strategyselector_register(opaque, "sad_32x32", "avx2", 40, &sad_8bit_32x32_avx2);
++    success &= uvg_strategyselector_register(opaque, "sad_64x64", "avx2", 40, &sad_8bit_64x64_avx2);
++
++    success &= uvg_strategyselector_register(opaque, "satd_4x4", "avx2", 40, &satd_4x4_8bit_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_8x8", "avx2", 40, &satd_8x8_8bit_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_16x16", "avx2", 40, &satd_16x16_8bit_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_32x32", "avx2", 40, &satd_32x32_8bit_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_64x64", "avx2", 40, &satd_64x64_8bit_avx2);
++
++    success &= uvg_strategyselector_register(opaque, "satd_4x4_dual", "avx2", 40, &satd_8bit_4x4_dual_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_8x8_dual", "avx2", 40, &satd_8bit_8x8_dual_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_16x16_dual", "avx2", 40, &satd_8bit_16x16_dual_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_32x32_dual", "avx2", 40, &satd_8bit_32x32_dual_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_64x64_dual", "avx2", 40, &satd_8bit_64x64_dual_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_any_size", "avx2", 40, &satd_any_size_8bit_avx2);
++    success &= uvg_strategyselector_register(opaque, "satd_any_size_quad", "avx2", 40, &satd_any_size_quad_avx2);
++
++    success &= uvg_strategyselector_register(opaque, "pixels_calc_ssd", "avx2", 40, &pixels_calc_ssd_avx2);
++    success &= uvg_strategyselector_register(opaque, "bipred_average", "avx2", 40, &bipred_average_avx2);
++    success &= uvg_strategyselector_register(opaque, "get_optimized_sad", "avx2", 40, &get_optimized_sad_avx2);
++    success &= uvg_strategyselector_register(opaque, "ver_sad", "avx2", 40, &ver_sad_avx2);
++    success &= uvg_strategyselector_register(opaque, "hor_sad", "avx2", 40, &hor_sad_avx2);
++
++    success &= uvg_strategyselector_register(opaque, "pixel_var", "avx2", 40, &pixel_var_avx2);
++
++    success &= uvg_strategyselector_register(opaque, "generate_residual", "avx2", 0, &generate_residual_avx2);
++
++  }
++#endif // UVG_BIT_DEPTH == 8
++  return success;
++}
+diff --git a/src/strategies/avx2/picture-avx2.h b/src/strategies/avx2/picture-avx2.h
+new file mode 100644
+index 0000000..da979a4
+--- /dev/null
++++ b/src/strategies/avx2/picture-avx2.h
+@@ -0,0 +1,46 @@
++#ifndef STRATEGIES_PICTURE_AVX2_H_
++#define STRATEGIES_PICTURE_AVX2_H_
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++/**
++ * \ingroup Optimization
++ * \file
++ * Optimizations for AVX2.
++ */
++
++#include  "global.h" // IWYU pragma: keep
++
++
++int uvg_strategy_register_picture_avx2(void* opaque, uint8_t bitdepth);
++
++#endif //STRATEGIES_PICTURE_AVX2_H_
+diff --git a/src/strategies/avx2/reg_sad_pow2_widths-avx2.h b/src/strategies/avx2/reg_sad_pow2_widths-avx2.h
+new file mode 100644
+index 0000000..5c41caf
+--- /dev/null
++++ b/src/strategies/avx2/reg_sad_pow2_widths-avx2.h
+@@ -0,0 +1,226 @@
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++#ifndef REG_SAD_POW2_WIDTHS_AVX2_H_
++#define REG_SAD_POW2_WIDTHS_AVX2_H_
++
++#include "uvg266.h"
++
++#if UVG_BIT_DEPTH == 8
++
++#include "strategies/sse41/reg_sad_pow2_widths-sse41.h"
++
++static INLINE uint32_t reg_sad_w32(const uint8_t * const data1, const uint8_t * const data2,
++                            const int32_t height, const uint32_t stride1,
++                            const uint32_t stride2)
++{
++  __m256i avx_inc = _mm256_setzero_si256();
++  int32_t y;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m256i a = _mm256_loadu_si256((const __m256i *)(data1 + (y + 0) * stride1));
++    __m256i b = _mm256_loadu_si256((const __m256i *)(data2 + (y + 0) * stride2));
++    __m256i c = _mm256_loadu_si256((const __m256i *)(data1 + (y + 1) * stride1));
++    __m256i d = _mm256_loadu_si256((const __m256i *)(data2 + (y + 1) * stride2));
++    __m256i e = _mm256_loadu_si256((const __m256i *)(data1 + (y + 2) * stride1));
++    __m256i f = _mm256_loadu_si256((const __m256i *)(data2 + (y + 2) * stride2));
++    __m256i g = _mm256_loadu_si256((const __m256i *)(data1 + (y + 3) * stride1));
++    __m256i h = _mm256_loadu_si256((const __m256i *)(data2 + (y + 3) * stride2));
++
++    __m256i curr_sads_ab = _mm256_sad_epu8(a, b);
++    __m256i curr_sads_cd = _mm256_sad_epu8(c, d);
++    __m256i curr_sads_ef = _mm256_sad_epu8(e, f);
++    __m256i curr_sads_gh = _mm256_sad_epu8(g, h);
++
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_ab);
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_cd);
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_ef);
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_gh);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m256i a = _mm256_loadu_si256((const __m256i *)(data1 + (y + 0) * stride1));
++      __m256i b = _mm256_loadu_si256((const __m256i *)(data2 + (y + 0) * stride2));
++
++      __m256i curr_sads = _mm256_sad_epu8(a, b);
++      avx_inc = _mm256_add_epi64(avx_inc, curr_sads);
++    }
++  }
++
++  __m128i inchi = _mm256_extracti128_si256(avx_inc, 1);
++  __m128i inclo = _mm256_castsi256_si128  (avx_inc);
++
++  __m128i sum_1 = _mm_add_epi64    (inclo, inchi);
++  __m128i sum_2 = _mm_shuffle_epi32(sum_1, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad   = _mm_add_epi64    (sum_1, sum_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static INLINE uint32_t reg_sad_w64(const uint8_t * const data1, const uint8_t * const data2,
++                            const int32_t height, const uint32_t stride1,
++                            const uint32_t stride2)
++{
++  __m256i avx_inc = _mm256_setzero_si256();
++  int32_t y;
++
++  const int32_t height_twoline_groups = height & ~1;
++  const int32_t height_residual_lines = height &  1;
++
++  for (y = 0; y < height_twoline_groups; y += 2) {
++    __m256i a = _mm256_loadu_si256((const __m256i *)(data1 + (y + 0) * stride1));
++    __m256i b = _mm256_loadu_si256((const __m256i *)(data2 + (y + 0) * stride2));
++    __m256i c = _mm256_loadu_si256((const __m256i *)(data1 + (y + 0) * stride1 + 32));
++    __m256i d = _mm256_loadu_si256((const __m256i *)(data2 + (y + 0) * stride2 + 32));
++
++    __m256i e = _mm256_loadu_si256((const __m256i *)(data1 + (y + 1) * stride1));
++    __m256i f = _mm256_loadu_si256((const __m256i *)(data2 + (y + 1) * stride2));
++    __m256i g = _mm256_loadu_si256((const __m256i *)(data1 + (y + 1) * stride1 + 32));
++    __m256i h = _mm256_loadu_si256((const __m256i *)(data2 + (y + 1) * stride2 + 32));
++
++    __m256i curr_sads_ab = _mm256_sad_epu8(a, b);
++    __m256i curr_sads_cd = _mm256_sad_epu8(c, d);
++    __m256i curr_sads_ef = _mm256_sad_epu8(e, f);
++    __m256i curr_sads_gh = _mm256_sad_epu8(g, h);
++
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_ab);
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_cd);
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_ef);
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_gh);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m256i a = _mm256_loadu_si256((const __m256i *)(data1 + (y + 0) * stride1));
++      __m256i b = _mm256_loadu_si256((const __m256i *)(data2 + (y + 0) * stride2));
++      __m256i c = _mm256_loadu_si256((const __m256i *)(data1 + (y + 0) * stride1 + 32));
++      __m256i d = _mm256_loadu_si256((const __m256i *)(data2 + (y + 0) * stride2 + 32));
++
++      __m256i curr_sads_ab = _mm256_sad_epu8(a, b);
++      __m256i curr_sads_cd = _mm256_sad_epu8(c, d);
++      avx_inc = _mm256_add_epi64(avx_inc, curr_sads_ab);
++      avx_inc = _mm256_add_epi64(avx_inc, curr_sads_cd);
++    }
++  }
++
++  __m128i inchi = _mm256_extracti128_si256(avx_inc, 1);
++  __m128i inclo = _mm256_castsi256_si128  (avx_inc);
++
++  __m128i sum_1 = _mm_add_epi64    (inclo, inchi);
++  __m128i sum_2 = _mm_shuffle_epi32(sum_1, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad   = _mm_add_epi64    (sum_1, sum_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static uint32_t hor_sad_avx2_w32(const uint8_t *pic_data, const uint8_t *ref_data,
++                                 int32_t height, uint32_t pic_stride, uint32_t ref_stride,
++                                 const uint32_t left, const uint32_t right)
++{
++  __m256i avx_inc = _mm256_setzero_si256();
++
++  const size_t block_width      = 32;
++  const size_t block_width_log2 = 5;
++  const size_t lane_width       = 16;
++
++  const int32_t left_eq_wid     = left  >> block_width_log2;
++  const int32_t left_clamped    = left  -  left_eq_wid;
++  const int32_t right_eq_wid    = right >> block_width_log2;
++  const int32_t right_clamped   = right -  right_eq_wid;
++
++  const __m256i zero        = _mm256_setzero_si256();
++  const __m256i lane_widths = _mm256_set1_epi8((uint8_t)lane_width);
++  const __m256i lefts       = _mm256_set1_epi8((uint8_t)left_clamped);
++  const __m256i rights      = _mm256_set1_epi8((uint8_t)right_clamped);
++  const __m256i unsign_mask = _mm256_set1_epi8(0x7f);
++  const __m256i ns          = _mm256_setr_epi8(0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15,
++                                               16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31);
++
++  const __m256i rightmost_good_idx = _mm256_set1_epi8((uint8_t)(block_width - right - 1));
++
++  const __m256i shufmask1_l    = _mm256_sub_epi8  (ns,          lefts);
++  const __m256i shufmask1_r    = _mm256_add_epi8  (shufmask1_l, rights);
++  const __m256i shufmask1      = _mm256_and_si256 (shufmask1_r, unsign_mask);
++
++  const __m256i epol_mask_r    = _mm256_min_epi8  (ns,    rightmost_good_idx);
++  const __m256i epol_mask      = _mm256_max_epi8  (lefts, epol_mask_r);
++
++  const __m256i mlo2hi_mask_l  = _mm256_cmpgt_epi8(lefts, ns);
++  const __m256i mlo2hi_imask_r = _mm256_cmpgt_epi8(lane_widths, shufmask1);
++  const __m256i mlo2hi_mask_r  = _mm256_cmpeq_epi8(mlo2hi_imask_r, zero);
++
++  // For left != 0,  use low lane of mlo2hi_mask_l as blend mask for high lane.
++  // For right != 0, use low lane of mlo2hi_mask_r as blend mask for low lane.
++  const __m256i xchg_mask1     = _mm256_permute2x128_si256(mlo2hi_mask_l, mlo2hi_mask_r, 0x02);
++
++  // If left != 0 (ie. right == 0), the xchg should only affect high lane,
++  // if right != 0 (ie. left == 0), the low lane. Set bits on the lane that
++  // the xchg should affect. left == right == 0 should never happen, this'll
++  // break if it does.
++  const __m256i lanes_llo_rhi  = _mm256_blend_epi32(lefts, rights, 0xf0);
++  const __m256i xchg_lane_mask = _mm256_cmpeq_epi32(lanes_llo_rhi, zero);
++
++  const __m256i xchg_data_mask = _mm256_and_si256(xchg_mask1, xchg_lane_mask);
++
++  // If we're straddling the left border, start from the left border instead,
++  // and if right border, end on the border
++  const int32_t ld_offset = left - right;
++
++  int32_t y;
++  for (y = 0; y < height; y++) {
++    __m256i a = _mm256_loadu_si256((__m256i *)(pic_data + (y + 0) * pic_stride + 0));
++    __m256i b = _mm256_loadu_si256((__m256i *)(ref_data + (y + 0) * ref_stride + 0  + ld_offset));
++
++    __m256i b_shifted            = _mm256_shuffle_epi8     (b, shufmask1);
++    __m256i b_lanes_reversed     = _mm256_permute4x64_epi64(b_shifted,   _MM_SHUFFLE(1, 0, 3, 2));
++    __m256i b_data_transfered    = _mm256_blendv_epi8      (b_shifted, b_lanes_reversed, xchg_data_mask);
++    __m256i b_epoled             = _mm256_shuffle_epi8     (b_data_transfered, epol_mask);
++
++    __m256i curr_sads_ab         = _mm256_sad_epu8(a, b_epoled);
++
++    avx_inc = _mm256_add_epi64(avx_inc, curr_sads_ab);
++  }
++  __m128i inchi = _mm256_extracti128_si256(avx_inc, 1);
++  __m128i inclo = _mm256_castsi256_si128  (avx_inc);
++
++  __m128i sum_1 = _mm_add_epi64    (inclo, inchi);
++  __m128i sum_2 = _mm_shuffle_epi32(sum_1, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad   = _mm_add_epi64    (sum_1, sum_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++#endif // UVG_BIT_DEPTH == 8
++
++#endif
+diff --git a/src/strategies/sse2/picture-sse2.c b/src/strategies/sse2/picture-sse2.c
+new file mode 100644
+index 0000000..afcacab
+--- /dev/null
++++ b/src/strategies/sse2/picture-sse2.c
+@@ -0,0 +1,93 @@
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++#include "strategies/sse2/picture-sse2.h"
++
++#include "uvg266.h"
++#if UVG_BIT_DEPTH == 8
++#include <immintrin.h>
++#include <stdlib.h>
++
++#include "strategyselector.h"
++
++
++static unsigned reg_sad_sse2(const uint8_t * const data1, const uint8_t * const data2,
++                        const int width, const int height, const unsigned stride1, const unsigned stride2)
++{
++  int y, x;
++  unsigned sad = 0;
++  __m128i sse_inc = _mm_setzero_si128 ();
++  long long int sse_inc_array[2];
++  
++  for (y = 0; y < height; ++y) {
++    for (x = 0; x <= width-16; x+=16) {
++      const __m128i a = _mm_loadu_si128((__m128i const*) &data1[y * stride1 + x]);
++      const __m128i b = _mm_loadu_si128((__m128i const*) &data2[y * stride2 + x]);
++      sse_inc = _mm_add_epi32(sse_inc, _mm_sad_epu8(a,b));
++    }
++
++    for (; x < width; ++x) {
++      sad += abs(data1[y * stride1 + x] - data2[y * stride2 + x]);
++    }
++  }
++  _mm_storeu_si128((__m128i*) sse_inc_array, sse_inc);
++  sad += (uint32_t)(sse_inc_array[0] + sse_inc_array[1]);
++
++  return sad;
++}
++
++static unsigned sad_8bit_4x4_sse2(const uint8_t *buf1, const uint8_t *buf2)
++{
++  const __m128i *const mbuf1 = (const __m128i *)buf1;
++  const __m128i *const mbuf2 = (const __m128i *)buf2;
++
++  __m128i sum = _mm_sad_epu8(_mm_load_si128(mbuf1), _mm_load_si128(mbuf2));
++
++  uint32_t result[4];
++  _mm_storeu_si128((__m128i*)result, sum);
++  return result[0] + result[2];
++}
++
++#endif // UVG_BIT_DEPTH == 8
++
++int uvg_strategy_register_picture_sse2(void* opaque, uint8_t bitdepth) {
++  bool success = true;
++#if UVG_BIT_DEPTH == 8
++  if (bitdepth == 8){
++    success &= uvg_strategyselector_register(opaque, "reg_sad", "sse2", 10, &reg_sad_sse2);
++    success &= uvg_strategyselector_register(opaque, "sad_4x4", "sse2", 10, &sad_8bit_4x4_sse2);
++  }
++#endif // UVG_BIT_DEPTH == 8
++  return success;
++}
++
++
+diff --git a/src/strategies/sse2/picture-sse2.h b/src/strategies/sse2/picture-sse2.h
+new file mode 100644
+index 0000000..afe4e85
+--- /dev/null
++++ b/src/strategies/sse2/picture-sse2.h
+@@ -0,0 +1,46 @@
++#ifndef STRATEGIES_PICTURE_SSE2_H_
++#define STRATEGIES_PICTURE_SSE2_H_
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++/**
++* \ingroup Optimization
++* \file
++* Optimizations for SSE2.
++*/
++
++#include "global.h" // IWYU pragma: keep
++
++
++int uvg_strategy_register_picture_sse2(void* opaque, unsigned char bitdepth);
++
++#endif //STRATEGIES_PICTURE_SSE2_H_
+diff --git a/src/strategies/sse41/picture-sse41.c b/src/strategies/sse41/picture-sse41.c
+new file mode 100644
+index 0000000..efd4750
+--- /dev/null
++++ b/src/strategies/sse41/picture-sse41.c
+@@ -0,0 +1,244 @@
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++#include "global.h"
++
++#include "uvg266.h"
++#if UVG_BIT_DEPTH == 8
++#include "strategies/sse41/picture-sse41.h"
++#include "strategies/sse41/reg_sad_pow2_widths-sse41.h"
++
++#include <immintrin.h>
++#include <stdlib.h>
++
++#include "strategyselector.h"
++
++uint32_t uvg_reg_sad_sse41(const uint8_t * const data1, const uint8_t * const data2,
++                           const int32_t width, const int32_t height, const uint32_t stride1,
++                           const uint32_t stride2)
++{
++  if (width == 0)
++    return 0;
++  if (width == 4)
++    return reg_sad_w4(data1, data2, height, stride1, stride2);
++  if (width == 8)
++    return reg_sad_w8(data1, data2, height, stride1, stride2);
++  if (width == 12)
++    return reg_sad_w12(data1, data2, height, stride1, stride2);
++  if (width == 16)
++    return reg_sad_w16(data1, data2, height, stride1, stride2);
++  if (width == 24)
++    return reg_sad_w24(data1, data2, height, stride1, stride2);
++  else
++    return reg_sad_arbitrary(data1, data2, width, height, stride1, stride2);
++}
++
++static optimized_sad_func_ptr_t get_optimized_sad_sse41(int32_t width)
++{
++  if (width == 0)
++    return reg_sad_w0;
++  if (width == 4)
++    return reg_sad_w4;
++  if (width == 8)
++    return reg_sad_w8;
++  if (width == 12)
++    return reg_sad_w12;
++  if (width == 16)
++    return reg_sad_w16;
++  if (width == 24)
++    return reg_sad_w24;
++  else
++    return NULL;
++}
++
++static uint32_t ver_sad_sse41(const uint8_t *pic_data, const uint8_t *ref_data,
++                              int32_t width, int32_t height, uint32_t stride)
++{
++  if (width == 0)
++    return 0;
++  if (width == 4)
++    return ver_sad_w4(pic_data, ref_data, height, stride);
++  if (width == 8)
++    return ver_sad_w8(pic_data, ref_data, height, stride);
++  //if (width == 12)
++    //return ver_sad_w12(pic_data, ref_data, height, stride);
++  if (width == 16)
++    return ver_sad_w16(pic_data, ref_data, height, stride);
++  else
++    return ver_sad_arbitrary(pic_data, ref_data, width, height, stride);
++}
++
++static uint32_t hor_sad_sse41_w32(const uint8_t *pic_data, const uint8_t *ref_data,
++                                  int32_t height, uint32_t pic_stride, uint32_t ref_stride,
++                                  uint32_t left, uint32_t right)
++{
++  const size_t vec_width       = 16;
++  const uint32_t blkwidth_log2 = 5;
++  const uint32_t left_eq_wid   = left  >> blkwidth_log2;
++  const uint32_t right_eq_wid  = right >> blkwidth_log2;
++  const int32_t  left_clamped  = left  - left_eq_wid;
++  const int32_t  right_clamped = right - right_eq_wid;
++
++  const int32_t height_twoline_groups = height & ~1;
++  const int32_t height_residual_lines = height &  1;
++
++  const __m128i zero       = _mm_setzero_si128();
++  const __m128i vec_widths = _mm_set1_epi8((uint8_t)vec_width);
++  const __m128i lefts      = _mm_set1_epi8((uint8_t)left_clamped);
++  const __m128i rights     = _mm_set1_epi8((uint8_t)right_clamped);
++  const __m128i nslo       = _mm_setr_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
++  const __m128i nshi       = _mm_add_epi8 (nslo, vec_widths);
++
++  const __m128i rightmost_good_idx = _mm_set1_epi8((uint8_t)((vec_width << 1) - right - 1));
++
++  const __m128i epol_mask_right_lo = _mm_min_epi8  (nslo,            rightmost_good_idx);
++  const __m128i epol_mask_right_hi = _mm_min_epi8  (nshi,            rightmost_good_idx);
++  const __m128i epol_mask_lo       = _mm_max_epi8  (lefts,           epol_mask_right_lo);
++  const __m128i epol_mask_hi       = _mm_max_epi8  (lefts,           epol_mask_right_hi);
++
++  const __m128i is_left            = _mm_cmpeq_epi8(rights,          zero);
++  const __m128i vecwid_for_left    = _mm_and_si128 (is_left,         vec_widths);
++  const __m128i ns_for_shufmask    = _mm_or_si128  (nslo,            vecwid_for_left);
++
++  const __m128i shufmask1_right    = _mm_add_epi8  (ns_for_shufmask, rights);
++  const __m128i shufmask1          = _mm_sub_epi8  (shufmask1_right, lefts);
++
++  const __m128i md2bimask          = _mm_cmpgt_epi8(vec_widths,      shufmask1);
++  const __m128i move_d_to_b_imask  = _mm_or_si128  (is_left,         md2bimask);
++  const __m128i move_b_to_d_mask   = _mm_cmpgt_epi8(lefts,           nslo);
++
++  // If we're straddling the left border, start from the left border instead,
++  // and if right border, end on the border
++  const int32_t ld_offset = left - right;
++
++  int32_t y;
++  __m128i sse_inc = _mm_setzero_si128();
++  for (y = 0; y < height_twoline_groups; y += 2) {
++    __m128i a = _mm_loadu_si128((__m128i *)(pic_data + (y + 0) * pic_stride + 0));
++    __m128i b = _mm_loadu_si128((__m128i *)(ref_data + (y + 0) * ref_stride + 0  + ld_offset));
++    __m128i c = _mm_loadu_si128((__m128i *)(pic_data + (y + 0) * pic_stride + 16));
++    __m128i d = _mm_loadu_si128((__m128i *)(ref_data + (y + 0) * ref_stride + 16 + ld_offset));
++    __m128i e = _mm_loadu_si128((__m128i *)(pic_data + (y + 1) * pic_stride + 0));
++    __m128i f = _mm_loadu_si128((__m128i *)(ref_data + (y + 1) * ref_stride + 0  + ld_offset));
++    __m128i g = _mm_loadu_si128((__m128i *)(pic_data + (y + 1) * pic_stride + 16));
++    __m128i h = _mm_loadu_si128((__m128i *)(ref_data + (y + 1) * ref_stride + 16 + ld_offset));
++
++    __m128i b_shifted         = _mm_shuffle_epi8(b, shufmask1);
++    __m128i d_shifted         = _mm_shuffle_epi8(d, shufmask1);
++    __m128i f_shifted         = _mm_shuffle_epi8(f, shufmask1);
++    __m128i h_shifted         = _mm_shuffle_epi8(h, shufmask1);
++
++    // TODO: could these be optimized for two-operand efficiency? Only one of
++    // these ever does useful work, the other should leave the vector untouched,
++    // so could the first result be used in the second calculation or something?
++    __m128i b_with_d_data     = _mm_blendv_epi8(d_shifted, b_shifted, move_d_to_b_imask);
++    __m128i d_with_b_data     = _mm_blendv_epi8(d_shifted, b_shifted, move_b_to_d_mask);
++    __m128i f_with_h_data     = _mm_blendv_epi8(h_shifted, f_shifted, move_d_to_b_imask);
++    __m128i h_with_f_data     = _mm_blendv_epi8(h_shifted, f_shifted, move_b_to_d_mask);
++
++    __m128i b_final           = _mm_shuffle_epi8(b_with_d_data, epol_mask_lo);
++    __m128i d_final           = _mm_shuffle_epi8(d_with_b_data, epol_mask_hi);
++    __m128i f_final           = _mm_shuffle_epi8(f_with_h_data, epol_mask_lo);
++    __m128i h_final           = _mm_shuffle_epi8(h_with_f_data, epol_mask_hi);
++
++    __m128i curr_sads_ab      = _mm_sad_epu8    (a, b_final);
++    __m128i curr_sads_cd      = _mm_sad_epu8    (c, d_final);
++    __m128i curr_sads_ef      = _mm_sad_epu8    (e, f_final);
++    __m128i curr_sads_gh      = _mm_sad_epu8    (g, h_final);
++
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ef);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_gh);
++  }
++  if (height_residual_lines) {
++    __m128i a = _mm_loadu_si128((__m128i *)(pic_data + (y + 0) * pic_stride + 0));
++    __m128i b = _mm_loadu_si128((__m128i *)(ref_data + (y + 0) * ref_stride + 0  + ld_offset));
++    __m128i c = _mm_loadu_si128((__m128i *)(pic_data + (y + 0) * pic_stride + 16));
++    __m128i d = _mm_loadu_si128((__m128i *)(ref_data + (y + 0) * ref_stride + 16 + ld_offset));
++
++    __m128i b_shifted         = _mm_shuffle_epi8(b, shufmask1);
++    __m128i d_shifted         = _mm_shuffle_epi8(d, shufmask1);
++
++    __m128i b_with_d_data     = _mm_blendv_epi8(d_shifted, b_shifted, move_d_to_b_imask);
++    __m128i d_with_b_data     = _mm_blendv_epi8(d_shifted, b_shifted, move_b_to_d_mask);
++
++    __m128i b_final           = _mm_shuffle_epi8(b_with_d_data, epol_mask_lo);
++    __m128i d_final           = _mm_shuffle_epi8(d_with_b_data, epol_mask_hi);
++
++    __m128i curr_sads_ab      = _mm_sad_epu8    (a, b_final);
++    __m128i curr_sads_cd      = _mm_sad_epu8    (c, d_final);
++
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++  return _mm_cvtsi128_si32(sad);
++}
++
++static uint32_t hor_sad_sse41(const uint8_t *pic_data, const uint8_t *ref_data,
++                              int32_t width, int32_t height, uint32_t pic_stride,
++                              uint32_t ref_stride, uint32_t left, uint32_t right)
++{
++  if (width == 4)
++    return hor_sad_sse41_w4(pic_data, ref_data, height,
++                            pic_stride, ref_stride, left, right);
++  if (width == 8)
++    return hor_sad_sse41_w8(pic_data, ref_data, height,
++                            pic_stride, ref_stride, left, right);
++  if (width == 16)
++    return hor_sad_sse41_w16(pic_data, ref_data, height,
++                             pic_stride, ref_stride, left, right);
++  if (width == 32)
++    return hor_sad_sse41_w32(pic_data, ref_data, height,
++                             pic_stride, ref_stride, left, right);
++  else
++    return hor_sad_sse41_arbitrary(pic_data, ref_data, width, height,
++                                   pic_stride, ref_stride, left, right);
++}
++
++#endif // UVG_BIT_DEPTH == 8
++
++
++int uvg_strategy_register_picture_sse41(void* opaque, uint8_t bitdepth) {
++  bool success = true;
++#if UVG_BIT_DEPTH == 8
++  if (bitdepth == 8){
++    success &= uvg_strategyselector_register(opaque, "reg_sad", "sse41", 20, &uvg_reg_sad_sse41);
++    success &= uvg_strategyselector_register(opaque, "get_optimized_sad", "sse41", 20, &get_optimized_sad_sse41);
++    success &= uvg_strategyselector_register(opaque, "ver_sad", "sse41", 20, &ver_sad_sse41);
++    success &= uvg_strategyselector_register(opaque, "hor_sad", "sse41", 20, &hor_sad_sse41);
++  }
++#endif // UVG_BIT_DEPTH == 8
++  return success;
++}
+diff --git a/src/strategies/sse41/picture-sse41.h b/src/strategies/sse41/picture-sse41.h
+new file mode 100644
+index 0000000..c6b208c
+--- /dev/null
++++ b/src/strategies/sse41/picture-sse41.h
+@@ -0,0 +1,49 @@
++#ifndef STRATEGIES_PICTURE_SSE41_H_
++#define STRATEGIES_PICTURE_SSE41_H_
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++/**
++ * \ingroup Optimization
++ * \file
++ * Optimizations for SSE4.1.
++ */
++
++#include "global.h" // IWYU pragma: keep
++#include "uvg266.h"
++
++unsigned uvg_reg_sad_sse41(const uvg_pixel * const data1, const uvg_pixel * const data2,
++                           const int width, const int height, const unsigned stride1, const unsigned stride2);
++
++int uvg_strategy_register_picture_sse41(void* opaque, uint8_t bitdepth);
++
++#endif //STRATEGIES_PICTURE_SSE41_H_
+diff --git a/src/strategies/sse41/reg_sad_pow2_widths-sse41.h b/src/strategies/sse41/reg_sad_pow2_widths-sse41.h
+new file mode 100644
+index 0000000..720f7ca
+--- /dev/null
++++ b/src/strategies/sse41/reg_sad_pow2_widths-sse41.h
+@@ -0,0 +1,1046 @@
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2021, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++#ifndef REG_SAD_POW2_WIDTHS_SSE41_H_
++#define REG_SAD_POW2_WIDTHS_SSE41_H_
++
++#include "uvg266.h"
++
++#if UVG_BIT_DEPTH == 8
++
++#include "strategies/missing-intel-intrinsics.h"
++#include <immintrin.h>
++
++static INLINE uint32_t reg_sad_w0(const uint8_t * const data1, const uint8_t * const data2,
++                           const int32_t height, const uint32_t stride1,
++                           const uint32_t stride2)
++{
++  return 0;
++}
++
++static INLINE uint32_t reg_sad_w4(const uint8_t * const data1, const uint8_t * const data2,
++                           const int32_t height, const uint32_t stride1,
++                           const uint32_t stride2)
++{
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128i a = _mm_cvtsi32_si128(*(uint32_t *)(data1 + y * stride1));
++    __m128i b = _mm_cvtsi32_si128(*(uint32_t *)(data2 + y * stride2));
++
++    a = _mm_insert_epi32(a, *(const uint32_t *)(data1 + (y + 1) * stride1), 1);
++    b = _mm_insert_epi32(b, *(const uint32_t *)(data2 + (y + 1) * stride2), 1);
++    a = _mm_insert_epi32(a, *(const uint32_t *)(data1 + (y + 2) * stride1), 2);
++    b = _mm_insert_epi32(b, *(const uint32_t *)(data2 + (y + 2) * stride2), 2);
++    a = _mm_insert_epi32(a, *(const uint32_t *)(data1 + (y + 3) * stride1), 3);
++    b = _mm_insert_epi32(b, *(const uint32_t *)(data2 + (y + 3) * stride2), 3);
++
++    __m128i curr_sads = _mm_sad_epu8(a, b);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m128i a = _mm_cvtsi32_si128(*(const uint32_t *)(data1 + y * stride1));
++      __m128i b = _mm_cvtsi32_si128(*(const uint32_t *)(data2 + y * stride2));
++
++      __m128i curr_sads = _mm_sad_epu8(a, b);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static INLINE uint32_t reg_sad_w8(const uint8_t * const data1, const uint8_t * const data2,
++                           const int32_t height, const uint32_t stride1,
++                           const uint32_t stride2)
++{
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128d a_d = _mm_setzero_pd();
++    __m128d b_d = _mm_setzero_pd();
++    __m128d c_d = _mm_setzero_pd();
++    __m128d d_d = _mm_setzero_pd();
++
++    a_d = _mm_loadl_pd(a_d, (const double *)(data1 + (y + 0) * stride1));
++    b_d = _mm_loadl_pd(b_d, (const double *)(data2 + (y + 0) * stride2));
++    a_d = _mm_loadh_pd(a_d, (const double *)(data1 + (y + 1) * stride1));
++    b_d = _mm_loadh_pd(b_d, (const double *)(data2 + (y + 1) * stride2));
++
++    c_d = _mm_loadl_pd(c_d, (const double *)(data1 + (y + 2) * stride1));
++    d_d = _mm_loadl_pd(d_d, (const double *)(data2 + (y + 2) * stride2));
++    c_d = _mm_loadh_pd(c_d, (const double *)(data1 + (y + 3) * stride1));
++    d_d = _mm_loadh_pd(d_d, (const double *)(data2 + (y + 3) * stride2));
++
++    __m128i a = _mm_castpd_si128(a_d);
++    __m128i b = _mm_castpd_si128(b_d);
++    __m128i c = _mm_castpd_si128(c_d);
++    __m128i d = _mm_castpd_si128(d_d);
++
++    __m128i curr_sads_ab = _mm_sad_epu8(a, b);
++    __m128i curr_sads_cd = _mm_sad_epu8(c, d);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m128i a = _mm_loadl_epi64((__m128i *)(data1 + y * stride1));
++      __m128i b = _mm_loadl_epi64((__m128i *)(data2 + y * stride2));
++
++      __m128i curr_sads_ab = _mm_sad_epu8(a, b);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static INLINE uint32_t reg_sad_w12(const uint8_t * const data1, const uint8_t * const data2,
++                            const int32_t height, const uint32_t stride1,
++                            const uint32_t stride2)
++{
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++  for (y = 0; y < height; y++) {
++    __m128i a = _mm_loadu_si128((const __m128i *)(data1 + y * stride1));
++    __m128i b = _mm_loadu_si128((const __m128i *)(data2 + y * stride2));
++
++    __m128i b_masked  = _mm_blend_epi16(a, b, 0x3f);
++    __m128i curr_sads = _mm_sad_epu8   (a, b_masked);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++  return _mm_cvtsi128_si32(sad);
++}
++
++static INLINE uint32_t reg_sad_w16(const uint8_t * const data1, const uint8_t * const data2,
++                            const int32_t height, const uint32_t stride1,
++                            const uint32_t stride2)
++{
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128i a = _mm_loadu_si128((const __m128i *)(data1 + (y + 0) * stride1));
++    __m128i b = _mm_loadu_si128((const __m128i *)(data2 + (y + 0) * stride2));
++    __m128i c = _mm_loadu_si128((const __m128i *)(data1 + (y + 1) * stride1));
++    __m128i d = _mm_loadu_si128((const __m128i *)(data2 + (y + 1) * stride2));
++    __m128i e = _mm_loadu_si128((const __m128i *)(data1 + (y + 2) * stride1));
++    __m128i f = _mm_loadu_si128((const __m128i *)(data2 + (y + 2) * stride2));
++    __m128i g = _mm_loadu_si128((const __m128i *)(data1 + (y + 3) * stride1));
++    __m128i h = _mm_loadu_si128((const __m128i *)(data2 + (y + 3) * stride2));
++
++    __m128i curr_sads_ab = _mm_sad_epu8(a, b);
++    __m128i curr_sads_cd = _mm_sad_epu8(c, d);
++    __m128i curr_sads_ef = _mm_sad_epu8(e, f);
++    __m128i curr_sads_gh = _mm_sad_epu8(g, h);
++
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ef);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_gh);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m128i a = _mm_loadu_si128((const __m128i *)(data1 + (y + 0) * stride1));
++      __m128i b = _mm_loadu_si128((const __m128i *)(data2 + (y + 0) * stride2));
++
++      __m128i curr_sads = _mm_sad_epu8(a, b);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++    }
++  }
++
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++  return _mm_cvtsi128_si32(sad);
++}
++
++static INLINE uint32_t reg_sad_w24(const uint8_t * const data1, const uint8_t * const data2,
++                            const int32_t height, const uint32_t stride1,
++                            const uint32_t stride2)
++{
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++
++  const int32_t height_doublelines = height & ~1;
++  const int32_t height_parity      = height &  1;
++
++  for (y = 0; y < height_doublelines; y += 2) {
++    __m128i a = _mm_loadu_si128((const __m128i *)(data1 + (y + 0) * stride1));
++    __m128i b = _mm_loadu_si128((const __m128i *)(data2 + (y + 0) * stride2));
++    __m128i c = _mm_loadu_si128((const __m128i *)(data1 + (y + 1) * stride1));
++    __m128i d = _mm_loadu_si128((const __m128i *)(data2 + (y + 1) * stride2));
++
++    __m128d e_d = _mm_setzero_pd();
++    __m128d f_d = _mm_setzero_pd();
++
++    e_d = _mm_loadl_pd(e_d, (const double *)(data1 + (y + 0) * stride1 + 16));
++    f_d = _mm_loadl_pd(f_d, (const double *)(data2 + (y + 0) * stride2 + 16));
++    e_d = _mm_loadh_pd(e_d, (const double *)(data1 + (y + 1) * stride1 + 16));
++    f_d = _mm_loadh_pd(f_d, (const double *)(data2 + (y + 1) * stride2 + 16));
++
++    __m128i e = _mm_castpd_si128(e_d);
++    __m128i f = _mm_castpd_si128(f_d);
++
++    __m128i curr_sads_1 = _mm_sad_epu8(a, b);
++    __m128i curr_sads_2 = _mm_sad_epu8(c, d);
++    __m128i curr_sads_3 = _mm_sad_epu8(e, f);
++
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_1);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_2);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_3);
++  }
++  if (height_parity) {
++    __m128i a = _mm_loadu_si128   ((const __m128i *)(data1 + y * stride1));
++    __m128i b = _mm_loadu_si128   ((const __m128i *)(data2 + y * stride2));
++    __m128i c = _mm_loadl_epi64   ((const __m128i *)(data1 + y * stride1 + 16));
++    __m128i d = _mm_loadl_epi64   ((const __m128i *)(data2 + y * stride2 + 16));
++
++    __m128i curr_sads_1 = _mm_sad_epu8(a, b);
++    __m128i curr_sads_2 = _mm_sad_epu8(c, d);
++
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_1);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_2);
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++  return _mm_cvtsi128_si32(sad);
++}
++
++static INLINE uint32_t reg_sad_arbitrary(const uint8_t * const data1, const uint8_t * const data2,
++                                  const int32_t width, const int32_t height, const uint32_t stride1,
++                                  const uint32_t stride2)
++{
++  int32_t y, x;
++  __m128i sse_inc = _mm_setzero_si128();
++  
++  // Bytes in block in 128-bit blocks per each scanline, and remainder
++  const int32_t width_xmms             = width  & ~15;
++  const int32_t width_residual_pixels  = width  &  15;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  const __m128i rds    = _mm_set1_epi8 (width_residual_pixels);
++  const __m128i ns     = _mm_setr_epi8 (0,  1,  2,  3,  4,  5,  6,  7,
++                                        8,  9,  10, 11, 12, 13, 14, 15);
++  const __m128i rdmask = _mm_cmpgt_epi8(rds, ns);
++
++  for (x = 0; x < width_xmms; x += 16) {
++    for (y = 0; y < height_fourline_groups; y += 4) {
++      __m128i a = _mm_loadu_si128((const __m128i *)(data1 + (y + 0) * stride1 + x));
++      __m128i b = _mm_loadu_si128((const __m128i *)(data2 + (y + 0) * stride2 + x));
++      __m128i c = _mm_loadu_si128((const __m128i *)(data1 + (y + 1) * stride1 + x));
++      __m128i d = _mm_loadu_si128((const __m128i *)(data2 + (y + 1) * stride2 + x));
++      __m128i e = _mm_loadu_si128((const __m128i *)(data1 + (y + 2) * stride1 + x));
++      __m128i f = _mm_loadu_si128((const __m128i *)(data2 + (y + 2) * stride2 + x));
++      __m128i g = _mm_loadu_si128((const __m128i *)(data1 + (y + 3) * stride1 + x));
++      __m128i h = _mm_loadu_si128((const __m128i *)(data2 + (y + 3) * stride2 + x));
++
++      __m128i curr_sads_ab = _mm_sad_epu8(a, b);
++      __m128i curr_sads_cd = _mm_sad_epu8(c, d);
++      __m128i curr_sads_ef = _mm_sad_epu8(e, f);
++      __m128i curr_sads_gh = _mm_sad_epu8(g, h);
++
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ef);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_gh);
++    }
++    if (height_residual_lines) {
++      for (; y < height; y++) {
++        __m128i a = _mm_loadu_si128((const __m128i *)(data1 + y * stride1 + x));
++        __m128i b = _mm_loadu_si128((const __m128i *)(data2 + y * stride2 + x));
++
++        __m128i curr_sads = _mm_sad_epu8(a, b);
++
++        sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++      }
++    }
++  }
++
++  if (width_residual_pixels) {
++    for (y = 0; y < height_fourline_groups; y += 4) {
++      __m128i a = _mm_loadu_si128((const __m128i *)(data1 + (y + 0) * stride1 + x));
++      __m128i b = _mm_loadu_si128((const __m128i *)(data2 + (y + 0) * stride2 + x));
++      __m128i c = _mm_loadu_si128((const __m128i *)(data1 + (y + 1) * stride1 + x));
++      __m128i d = _mm_loadu_si128((const __m128i *)(data2 + (y + 1) * stride2 + x));
++      __m128i e = _mm_loadu_si128((const __m128i *)(data1 + (y + 2) * stride1 + x));
++      __m128i f = _mm_loadu_si128((const __m128i *)(data2 + (y + 2) * stride2 + x));
++      __m128i g = _mm_loadu_si128((const __m128i *)(data1 + (y + 3) * stride1 + x));
++      __m128i h = _mm_loadu_si128((const __m128i *)(data2 + (y + 3) * stride2 + x));
++
++      __m128i b_masked     = _mm_blendv_epi8(a, b, rdmask);
++      __m128i d_masked     = _mm_blendv_epi8(c, d, rdmask);
++      __m128i f_masked     = _mm_blendv_epi8(e, f, rdmask);
++      __m128i h_masked     = _mm_blendv_epi8(g, h, rdmask);
++
++      __m128i curr_sads_ab = _mm_sad_epu8   (a, b_masked);
++      __m128i curr_sads_cd = _mm_sad_epu8   (c, d_masked);
++      __m128i curr_sads_ef = _mm_sad_epu8   (e, f_masked);
++      __m128i curr_sads_gh = _mm_sad_epu8   (g, h_masked);
++
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ef);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_gh);
++    }
++    if (height_residual_lines) {
++      for (; y < height; y++) {
++        __m128i a = _mm_loadu_si128((const __m128i *)(data1 + y * stride1 + x));
++        __m128i b = _mm_loadu_si128((const __m128i *)(data2 + y * stride2 + x));
++
++        __m128i b_masked  = _mm_blendv_epi8(a, b, rdmask);
++        __m128i curr_sads = _mm_sad_epu8   (a, b_masked);
++
++        sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++      }
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static uint32_t ver_sad_w4(const uint8_t *pic_data, const uint8_t *ref_data,
++                           int32_t height, uint32_t stride)
++{
++  __m128i ref_row = _mm_set1_epi32(*(const uint32_t *)ref_data);
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128i a = _mm_cvtsi32_si128(*(uint32_t *)(pic_data + y * stride));
++
++    a = _mm_insert_epi32(a, *(const uint32_t *)(pic_data + (y + 1) * stride), 1);
++    a = _mm_insert_epi32(a, *(const uint32_t *)(pic_data + (y + 2) * stride), 2);
++    a = _mm_insert_epi32(a, *(const uint32_t *)(pic_data + (y + 3) * stride), 3);
++
++    __m128i curr_sads = _mm_sad_epu8(a, ref_row);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++  }
++  if (height_residual_lines) {
++    // Only pick the last dword, because we're comparing single dwords (lines)
++    ref_row = _mm_bsrli_si128(ref_row, 12);
++
++    for (; y < height; y++) {
++      __m128i a = _mm_cvtsi32_si128(*(const uint32_t *)(pic_data + y * stride));
++
++      __m128i curr_sads = _mm_sad_epu8(a, ref_row);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static uint32_t ver_sad_w8(const uint8_t *pic_data, const uint8_t *ref_data,
++                           int32_t height, uint32_t stride)
++{
++  const __m128i ref_row = _mm_set1_epi64x(*(const uint64_t *)ref_data);
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128d a_d = _mm_setzero_pd();
++    __m128d c_d = _mm_setzero_pd();
++
++    a_d = _mm_loadl_pd(a_d, (const double *)(pic_data + (y + 0) * stride));
++    a_d = _mm_loadh_pd(a_d, (const double *)(pic_data + (y + 1) * stride));
++
++    c_d = _mm_loadl_pd(c_d, (const double *)(pic_data + (y + 2) * stride));
++    c_d = _mm_loadh_pd(c_d, (const double *)(pic_data + (y + 3) * stride));
++
++    __m128i a = _mm_castpd_si128(a_d);
++    __m128i c = _mm_castpd_si128(c_d);
++
++    __m128i curr_sads_ab = _mm_sad_epu8(a, ref_row);
++    __m128i curr_sads_cd = _mm_sad_epu8(c, ref_row);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++  }
++  if (height_residual_lines) {
++    __m128i b = _mm_move_epi64(ref_row);
++
++    for (; y < height; y++) {
++      __m128i a = _mm_loadl_epi64((__m128i *)(pic_data + y * stride));
++
++      __m128i curr_sads_ab = _mm_sad_epu8(a, b);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++/*
++static uint32_t ver_sad_w12(const uint8_t *pic_data, const uint8_t *ref_data,
++                            int32_t height, uint32_t stride)
++{
++  const __m128i ref_row = _mm_loadu_si128((__m128i *)ref_data);
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++
++  for (y = 0; y < height; y++) {
++    __m128i a = _mm_loadu_si128((const __m128i *)(pic_data + y * stride));
++
++    __m128i a_masked  = _mm_blend_epi16(ref_row, a, 0x3f);
++    __m128i curr_sads = _mm_sad_epu8   (ref_row, a_masked);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++  return _mm_cvtsi128_si32(sad);
++}
++*/
++static uint32_t ver_sad_w16(const uint8_t *pic_data, const uint8_t *ref_data,
++                            int32_t height, uint32_t stride)
++{
++  const __m128i ref_row = _mm_loadu_si128((__m128i *)ref_data);
++  __m128i sse_inc       = _mm_setzero_si128();
++  int32_t y;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128i pic_row_1   = _mm_loadu_si128((__m128i *)(pic_data + (y + 0) * stride));
++    __m128i pic_row_2   = _mm_loadu_si128((__m128i *)(pic_data + (y + 1) * stride));
++    __m128i pic_row_3   = _mm_loadu_si128((__m128i *)(pic_data + (y + 2) * stride));
++    __m128i pic_row_4   = _mm_loadu_si128((__m128i *)(pic_data + (y + 3) * stride));
++
++    __m128i curr_sads_1 = _mm_sad_epu8   (pic_row_1, ref_row);
++    __m128i curr_sads_2 = _mm_sad_epu8   (pic_row_2, ref_row);
++    __m128i curr_sads_3 = _mm_sad_epu8   (pic_row_3, ref_row);
++    __m128i curr_sads_4 = _mm_sad_epu8   (pic_row_4, ref_row);
++
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_1);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_2);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_3);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_4);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m128i pic_row   = _mm_loadu_si128((__m128i *)(pic_data + (y + 0) * stride));
++      __m128i curr_sads = _mm_sad_epu8   (pic_row, ref_row);
++
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static uint32_t ver_sad_arbitrary(const uint8_t *pic_data, const uint8_t *ref_data,
++                                  int32_t width, int32_t height, uint32_t stride)
++{
++  int32_t y, x;
++  __m128i sse_inc = _mm_setzero_si128();
++
++  // Bytes in block in 128-bit blocks per each scanline, and remainder
++  const int32_t width_xmms             = width  & ~15;
++  const int32_t width_residual_pixels  = width  &  15;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  const __m128i rds    = _mm_set1_epi8 (width_residual_pixels);
++  const __m128i ns     = _mm_setr_epi8 (0,  1,  2,  3,  4,  5,  6,  7,
++                                        8,  9,  10, 11, 12, 13, 14, 15);
++  const __m128i rdmask = _mm_cmpgt_epi8(rds, ns);
++
++  for (x = 0; x < width_xmms; x += 16) {
++    const __m128i ref_row = _mm_loadu_si128((__m128i *)(ref_data + x));
++    for (y = 0; y < height_fourline_groups; y += 4) {
++      __m128i a = _mm_loadu_si128((const __m128i *)(pic_data + (y + 0) * stride + x));
++      __m128i c = _mm_loadu_si128((const __m128i *)(pic_data + (y + 1) * stride + x));
++      __m128i e = _mm_loadu_si128((const __m128i *)(pic_data + (y + 2) * stride + x));
++      __m128i g = _mm_loadu_si128((const __m128i *)(pic_data + (y + 3) * stride + x));
++
++      __m128i curr_sads_ab = _mm_sad_epu8(ref_row, a);
++      __m128i curr_sads_cd = _mm_sad_epu8(ref_row, c);
++      __m128i curr_sads_ef = _mm_sad_epu8(ref_row, e);
++      __m128i curr_sads_gh = _mm_sad_epu8(ref_row, g);
++
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ef);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_gh);
++    }
++    if (height_residual_lines) {
++      for (; y < height; y++) {
++        __m128i a = _mm_loadu_si128((const __m128i *)(pic_data + y * stride + x));
++
++        __m128i curr_sads = _mm_sad_epu8(a, ref_row);
++
++        sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++      }
++    }
++  }
++
++  if (width_residual_pixels) {
++    uvg_pixel ref_temp[16] = { 0 };
++    memcpy(ref_temp, ref_data + x, width_residual_pixels);
++    const __m128i ref_row = _mm_loadu_si128((__m128i*)(ref_temp));
++    for (y = 0; y < height_fourline_groups; y += 4) {
++      __m128i a = _mm_loadu_si128((const __m128i *)(pic_data + (y + 0) * stride + x));
++      __m128i c = _mm_loadu_si128((const __m128i *)(pic_data + (y + 1) * stride + x));
++      __m128i e = _mm_loadu_si128((const __m128i *)(pic_data + (y + 2) * stride + x));
++      __m128i g = _mm_loadu_si128((const __m128i *)(pic_data + (y + 3) * stride + x));
++
++      __m128i a_masked     = _mm_blendv_epi8(ref_row, a, rdmask);
++      __m128i c_masked     = _mm_blendv_epi8(ref_row, c, rdmask);
++      __m128i e_masked     = _mm_blendv_epi8(ref_row, e, rdmask);
++      __m128i g_masked     = _mm_blendv_epi8(ref_row, g, rdmask);
++
++      __m128i curr_sads_ab = _mm_sad_epu8   (ref_row, a_masked);
++      __m128i curr_sads_cd = _mm_sad_epu8   (ref_row, c_masked);
++      __m128i curr_sads_ef = _mm_sad_epu8   (ref_row, e_masked);
++      __m128i curr_sads_gh = _mm_sad_epu8   (ref_row, g_masked);
++
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ef);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_gh);
++    }
++    if (height_residual_lines) {
++      for (; y < height; y++) {
++        __m128i a = _mm_loadu_si128((const __m128i *)(pic_data + y * stride + x));
++
++        __m128i a_masked  = _mm_blendv_epi8(ref_row, a, rdmask);
++        __m128i curr_sads = _mm_sad_epu8   (ref_row, a_masked);
++
++        sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++      }
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static uint32_t hor_sad_sse41_w4(const uint8_t *pic_data, const uint8_t *ref_data,
++                                 int32_t height, uint32_t pic_stride, uint32_t ref_stride,
++                                 uint32_t left, uint32_t right)
++{
++  const int32_t right_border_idx = 3 - right;
++  const int32_t border_idx       = left ? left : right_border_idx;
++
++  const __m128i ns               = _mm_setr_epi8(0,  1,  2,  3,  4,  5,  6,  7,
++                                                 8,  9,  10, 11, 12, 13, 14, 15);
++
++  const int32_t border_idx_negative = border_idx >> 31;
++  const int32_t leftoff             = border_idx_negative | left;
++
++  // Dualword (ie. line) base indexes, ie. the edges the lines read will be
++  // clamped towards
++  const __m128i dwbaseids   = _mm_setr_epi8(0, 0, 0, 0, 4, 4, 4, 4,
++                                            8, 8, 8, 8, 12, 12, 12, 12);
++
++  __m128i right_border_idxs = _mm_set1_epi8((int8_t)right_border_idx);
++  __m128i left_128          = _mm_set1_epi8((int8_t)left);
++
++  right_border_idxs         = _mm_add_epi8 (right_border_idxs, dwbaseids);
++
++  __m128i mask_right        = _mm_min_epi8 (ns,         right_border_idxs);
++  __m128i mask1             = _mm_sub_epi8 (mask_right, left_128);
++
++  const __m128i epol_mask   = _mm_max_epi8(mask1, dwbaseids);
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128i a = _mm_cvtsi32_si128(*(const uint32_t *)(pic_data + y * pic_stride));
++    __m128i b = _mm_cvtsi32_si128(*(const uint32_t *)(ref_data + y * ref_stride + leftoff));
++
++    a = _mm_insert_epi32(a, *(const uint32_t *)(pic_data + (y + 1) * pic_stride),           1);
++    b = _mm_insert_epi32(b, *(const uint32_t *)(ref_data + (y + 1) * ref_stride + leftoff), 1);
++    a = _mm_insert_epi32(a, *(const uint32_t *)(pic_data + (y + 2) * pic_stride),           2);
++    b = _mm_insert_epi32(b, *(const uint32_t *)(ref_data + (y + 2) * ref_stride + leftoff), 2);
++    a = _mm_insert_epi32(a, *(const uint32_t *)(pic_data + (y + 3) * pic_stride),           3);
++    b = _mm_insert_epi32(b, *(const uint32_t *)(ref_data + (y + 3) * ref_stride + leftoff), 3);
++
++    __m128i b_epol    = _mm_shuffle_epi8(b,       epol_mask);
++    __m128i curr_sads = _mm_sad_epu8    (a,       b_epol);
++            sse_inc   = _mm_add_epi64   (sse_inc, curr_sads);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m128i a = _mm_cvtsi32_si128(*(const uint32_t *)(pic_data + y * pic_stride));
++      __m128i b = _mm_cvtsi32_si128(*(const uint32_t *)(ref_data + y * ref_stride + leftoff));
++
++      __m128i b_epol = _mm_shuffle_epi8(b, epol_mask);
++      __m128i curr_sads = _mm_sad_epu8 (a, b_epol);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++
++  return _mm_cvtsi128_si32(sad);
++}
++
++static uint32_t hor_sad_sse41_w8(const uint8_t *pic_data, const uint8_t *ref_data,
++                                 int32_t height, uint32_t pic_stride, uint32_t ref_stride,
++                                 uint32_t left, uint32_t right)
++{
++  // right is the number of overhanging pixels in the vector, so it has to be
++  // handled this way to produce the index of last valid (border) pixel
++  const int32_t right_border_idx = 7 - right;
++  const int32_t border_idx       = left ? left : right_border_idx;
++
++  const __m128i ns               = _mm_setr_epi8(0,  1,  2,  3,  4,  5,  6,  7,
++                                                 8,  9,  10, 11, 12, 13, 14, 15);
++
++  // Quadword (ie. line) base indexes, ie. the edges the lines read will be
++  // clamped towards; higher qword (lower line) bytes tend towards 8 and lower
++  // qword (higher line) bytes towards 0
++  const __m128i qwbaseids   = _mm_setr_epi8(0, 0, 0, 0, 0, 0, 0, 0,
++                                            8, 8, 8, 8, 8, 8, 8, 8);
++
++  // Dirty hack alert! If right == block_width (ie. the entire vector is
++  // outside the frame), move the block offset one pixel to the left (so
++  // that the leftmost pixel in vector is actually the valid border pixel
++  // from which we want to extrapolate), and use an epol mask that will
++  // simply stretch the pixel all over the vector.
++  //
++  // To avoid a branch here:
++  // The mask will be -1 (0xffffffff) for border_idx -1 and 0 for >= 0
++  const int32_t border_idx_negative = border_idx >> 31;
++  const int32_t leftoff             = border_idx_negative | left;
++
++  __m128i right_border_idxs = _mm_set1_epi8((int8_t)right_border_idx);
++  __m128i left_128          = _mm_set1_epi8((int8_t)left);
++
++  right_border_idxs         = _mm_add_epi8 (right_border_idxs, qwbaseids);
++
++  // If we're straddling the left border, right_border_idx is 7 and the first
++  // operation does nothing. If right border, left is 0 and the second
++  // operation does nothing.
++  __m128i mask_right        = _mm_min_epi8 (ns,         right_border_idxs);
++  __m128i mask1             = _mm_sub_epi8 (mask_right, left_128);
++
++  // If right == 8 (we're completely outside the frame), right_border_idx is
++  // -1 and so is mask1. Clamp negative values to qwbaseid and as discussed
++  // earlier, adjust the load offset instead to load the "-1'st" pixels and
++  // using qwbaseids as the shuffle mask, broadcast it all over the rows.
++  const __m128i epol_mask = _mm_max_epi8(mask1, qwbaseids);
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128d a_d = _mm_setzero_pd();
++    __m128d b_d = _mm_setzero_pd();
++    __m128d c_d = _mm_setzero_pd();
++    __m128d d_d = _mm_setzero_pd();
++
++    a_d = _mm_loadl_pd(a_d, (const double *)(pic_data + (y + 0) * pic_stride));
++    b_d = _mm_loadl_pd(b_d, (const double *)(ref_data + (y + 0) * ref_stride + leftoff));
++    a_d = _mm_loadh_pd(a_d, (const double *)(pic_data + (y + 1) * pic_stride));
++    b_d = _mm_loadh_pd(b_d, (const double *)(ref_data + (y + 1) * ref_stride + leftoff));
++
++    c_d = _mm_loadl_pd(c_d, (const double *)(pic_data + (y + 2) * pic_stride));
++    d_d = _mm_loadl_pd(d_d, (const double *)(ref_data + (y + 2) * ref_stride + leftoff));
++    c_d = _mm_loadh_pd(c_d, (const double *)(pic_data + (y + 3) * pic_stride));
++    d_d = _mm_loadh_pd(d_d, (const double *)(ref_data + (y + 3) * ref_stride + leftoff));
++
++    __m128i a = _mm_castpd_si128(a_d);
++    __m128i b = _mm_castpd_si128(b_d);
++    __m128i c = _mm_castpd_si128(c_d);
++    __m128i d = _mm_castpd_si128(d_d);
++
++    __m128i b_epol = _mm_shuffle_epi8(b, epol_mask);
++    __m128i d_epol = _mm_shuffle_epi8(d, epol_mask);
++
++    __m128i curr_sads_ab = _mm_sad_epu8(a, b_epol);
++    __m128i curr_sads_cd = _mm_sad_epu8(c, d_epol);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m128i a = _mm_loadl_epi64((__m128i *)(pic_data + y * pic_stride));
++      __m128i b = _mm_loadl_epi64((__m128i *)(ref_data + y * ref_stride + leftoff));
++
++      __m128i b_epol = _mm_shuffle_epi8(b, epol_mask);
++
++      __m128i curr_sads_ab = _mm_sad_epu8(a, b_epol);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++  return _mm_cvtsi128_si32(sad);
++}
++
++/*
++ * left and right measure how many pixels of one horizontal scanline will be
++ * outside either the left or the right screen border. For blocks straddling
++ * the left border, read the scanlines starting from the left border instead,
++ * and use the extrapolation mask to essentially move the pixels right while
++ * copying the left border pixel to the vector positions that logically point
++ * outside of the buffer.
++ *
++ * For blocks straddling the right border, just read over the right border,
++ * and extrapolate all pixels beyond the border idx to copy the value of the
++ * border pixel. An exception is right == width (leftmost reference pixel is
++ * one place right from the right border, it's ugly because the pixel to
++ * extrapolate from is located at relative X offset -1), abuse the left border
++ * aligning functionality instead to actually read starting from the valid
++ * border pixel, and use a suitable mask to fill all the other pixels with
++ * that value.
++ */
++static uint32_t hor_sad_sse41_w16(const uint8_t *pic_data, const uint8_t *ref_data,
++                                  int32_t height, uint32_t pic_stride, uint32_t ref_stride,
++                                  const uint32_t left, const uint32_t right)
++{
++  // right is the number of overhanging pixels in the vector, so it has to be
++  // handled this way to produce the index of last valid (border) pixel
++  const int32_t right_border_idx = 15 - right;
++  const int32_t border_idx       = left ? left : right_border_idx;
++
++  const __m128i ns               = _mm_setr_epi8(0,  1,  2,  3,  4,  5,  6,  7,
++                                                 8,  9,  10, 11, 12, 13, 14, 15);
++  const __m128i zero             = _mm_setzero_si128();
++
++  // Dirty hack alert! If right == block_width (ie. the entire vector is
++  // outside the frame), move the block offset one pixel to the left (so
++  // that the leftmost pixel in vector is actually the valid border pixel
++  // from which we want to extrapolate), and use an epol mask that will
++  // simply stretch the pixel all over the vector.
++  //
++  // To avoid a branch here:
++  // The mask will be -1 (0xffffffff) for border_idx -1 and 0 for >= 0
++  const int32_t border_idx_negative = border_idx >> 31;
++  const int32_t leftoff             = border_idx_negative | left;
++
++  __m128i right_border_idxs = _mm_set1_epi8((int8_t)right_border_idx);
++  __m128i left_128          = _mm_set1_epi8((int8_t)left);
++
++  // If we're straddling the left border, right_border_idx is 15 and the first
++  // operation does nothing. If right border, left is 0 and the second
++  // operation does nothing.
++  __m128i mask_right        = _mm_min_epi8 (ns,         right_border_idxs);
++  __m128i mask1             = _mm_sub_epi8 (mask_right, left_128);
++
++  // If right == 16 (we're completely outside the frame), right_border_idx is
++  // -1 and so is mask1. Clamp negative values to zero and as discussed
++  // earlier, adjust the load offset instead to load the "-1'st" pixel and
++  // using an all-zero shuffle mask, broadcast it all over the vector.
++  const __m128i epol_mask = _mm_max_epi8(mask1, zero);
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  __m128i sse_inc = _mm_setzero_si128();
++  int32_t y;
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128i a = _mm_loadu_si128((__m128i *)(pic_data + (y + 0) * pic_stride));
++    __m128i b = _mm_loadu_si128((__m128i *)(ref_data + (y + 0) * ref_stride + leftoff));
++    __m128i c = _mm_loadu_si128((__m128i *)(pic_data + (y + 1) * pic_stride));
++    __m128i d = _mm_loadu_si128((__m128i *)(ref_data + (y + 1) * ref_stride + leftoff));
++    __m128i e = _mm_loadu_si128((__m128i *)(pic_data + (y + 2) * pic_stride));
++    __m128i f = _mm_loadu_si128((__m128i *)(ref_data + (y + 2) * ref_stride + leftoff));
++    __m128i g = _mm_loadu_si128((__m128i *)(pic_data + (y + 3) * pic_stride));
++    __m128i h = _mm_loadu_si128((__m128i *)(ref_data + (y + 3) * ref_stride + leftoff));
++
++    __m128i b_epol = _mm_shuffle_epi8(b, epol_mask);
++    __m128i d_epol = _mm_shuffle_epi8(d, epol_mask);
++    __m128i f_epol = _mm_shuffle_epi8(f, epol_mask);
++    __m128i h_epol = _mm_shuffle_epi8(h, epol_mask);
++
++    __m128i curr_sads_ab = _mm_sad_epu8(a, b_epol);
++    __m128i curr_sads_cd = _mm_sad_epu8(c, d_epol);
++    __m128i curr_sads_ef = _mm_sad_epu8(e, f_epol);
++    __m128i curr_sads_gh = _mm_sad_epu8(g, h_epol);
++
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ab);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_cd);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_ef);
++    sse_inc = _mm_add_epi64(sse_inc, curr_sads_gh);
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m128i a = _mm_loadu_si128((__m128i *)(pic_data + (y + 0) * pic_stride));
++      __m128i b = _mm_loadu_si128((__m128i *)(ref_data + (y + 0) * ref_stride + leftoff));
++      __m128i b_epol = _mm_shuffle_epi8(b, epol_mask);
++      __m128i curr_sads = _mm_sad_epu8(a, b_epol);
++      sse_inc = _mm_add_epi64(sse_inc, curr_sads);
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++  return _mm_cvtsi128_si32(sad);
++}
++
++static INLINE uint32_t hor_sad_sse41_arbitrary(const uint8_t *pic_data, const uint8_t *ref_data,
++                                               int32_t width, int32_t height, uint32_t pic_stride,
++                                               uint32_t ref_stride, uint32_t left, uint32_t right)
++{
++  __m128i sse_inc = _mm_setzero_si128();
++
++  const size_t vec_width = 16;
++  const size_t vecwid_bitmask = 15;
++  const size_t vec_width_log2 = 4;
++
++  const int32_t height_fourline_groups = height & ~3;
++  const int32_t height_residual_lines  = height &  3;
++
++  const __m128i rights     = _mm_set1_epi8((uint8_t)right);
++  const __m128i blk_widths = _mm_set1_epi8((uint8_t)width);
++  const __m128i vec_widths = _mm_set1_epi8((uint8_t)vec_width);
++  const __m128i nslo       = _mm_setr_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
++
++  uint32_t outside_vecs,  inside_vecs,  left_offset, is_left_bm;
++  int32_t  outside_width, inside_width, border_off,  invec_lstart,
++           invec_lend,    invec_linc;
++  if (left) {
++    outside_vecs  =    (uint32_t)(left                                 >> vec_width_log2);
++    inside_vecs   =    (uint32_t)((( width           + vecwid_bitmask) >> vec_width_log2) - outside_vecs);
++    outside_width =    (int32_t)(outside_vecs * vec_width);
++    inside_width  =    (int32_t)(inside_vecs  * vec_width);
++    left_offset   =    left;
++    border_off    =    left;
++    invec_lstart  =    0;
++    invec_lend    =    inside_vecs;
++    invec_linc    =    1;
++    is_left_bm    =    (uint32_t)-1;
++  } else {
++    inside_vecs   =    (uint32_t)(((width - right) + vecwid_bitmask)  >> vec_width_log2);
++    outside_vecs  =    (uint32_t)((( width          + vecwid_bitmask)  >> vec_width_log2) - inside_vecs);
++    outside_width =    (uint32_t)(outside_vecs * vec_width);
++    inside_width  =    (uint32_t)(inside_vecs  * vec_width);
++    left_offset   =    right - width;
++    border_off    =    width - 1 - right;
++    invec_lstart  =    inside_vecs - 1;
++    invec_lend    =    -1;
++    invec_linc    =    -1;
++    is_left_bm    =    0;
++  }
++  left_offset &= vecwid_bitmask;
++
++  const __m128i left_offsets = _mm_set1_epi8 ((uint8_t)left_offset);
++  const __m128i is_left      = _mm_cmpeq_epi8(rights, _mm_setzero_si128());
++  const __m128i vw_for_left  = _mm_and_si128 (is_left, vec_widths);
++
++  // -x == (x ^ 0xff) + 1 = (x ^ 0xff) - 0xff. Also x == (x ^ 0x00) - 0x00.
++  // in other words, calculate inverse of left_offsets if is_left is true.
++  const __m128i offs_neg            = _mm_xor_si128 (left_offsets, is_left);
++  const __m128i offs_for_sm1        = _mm_sub_epi8  (offs_neg,     is_left);
++
++  const __m128i ns_for_sm1          = _mm_or_si128  (vw_for_left,  nslo);
++  const __m128i shufmask1           = _mm_add_epi8  (ns_for_sm1,   offs_for_sm1);
++
++  const __m128i mo2bmask_l          = _mm_cmpgt_epi8(left_offsets, nslo);
++  const __m128i mo2bimask_l         = _mm_cmpeq_epi8(mo2bmask_l,   _mm_setzero_si128());
++  const __m128i mo2bimask_r         = _mm_cmpgt_epi8(vec_widths,   shufmask1);
++  const __m128i move_old_to_b_imask = _mm_blendv_epi8(mo2bimask_r, mo2bimask_l, is_left);
++
++  const int32_t outvec_offset = (~is_left_bm) & inside_width;
++  int32_t x, y;
++  for (y = 0; y < height_fourline_groups; y += 4) {
++    __m128i borderpx_vec_b = _mm_set1_epi8(ref_data[(int32_t)((y + 0) * ref_stride + border_off)]);
++    __m128i borderpx_vec_d = _mm_set1_epi8(ref_data[(int32_t)((y + 1) * ref_stride + border_off)]);
++    __m128i borderpx_vec_f = _mm_set1_epi8(ref_data[(int32_t)((y + 2) * ref_stride + border_off)]);
++    __m128i borderpx_vec_h = _mm_set1_epi8(ref_data[(int32_t)((y + 3) * ref_stride + border_off)]);
++
++    for (x = 0; x < (int32_t)outside_vecs; x++) {
++      __m128i a = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 0) * pic_stride + outvec_offset));
++      __m128i c = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 1) * pic_stride + outvec_offset));
++      __m128i e = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 2) * pic_stride + outvec_offset));
++      __m128i g = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 3) * pic_stride + outvec_offset));
++
++      __m128i startoffs  = _mm_set1_epi8  ((x + inside_vecs) << vec_width_log2);
++      __m128i ns         = _mm_add_epi8   (startoffs, nslo);
++
++      // Unread imask is (is_left NOR unrd_imask_for_right), do the maths etc
++      __m128i unrd_imask = _mm_cmpgt_epi8 (blk_widths, ns);
++              unrd_imask = _mm_or_si128   (unrd_imask, is_left);
++      __m128i unrd_mask  = _mm_cmpeq_epi8 (unrd_imask, _mm_setzero_si128());
++
++      __m128i b_unread   = _mm_blendv_epi8(borderpx_vec_b, a, unrd_mask);
++      __m128i d_unread   = _mm_blendv_epi8(borderpx_vec_d, c, unrd_mask);
++      __m128i f_unread   = _mm_blendv_epi8(borderpx_vec_f, e, unrd_mask);
++      __m128i h_unread   = _mm_blendv_epi8(borderpx_vec_h, g, unrd_mask);
++
++      __m128i sad_ab     = _mm_sad_epu8   (a, b_unread);
++      __m128i sad_cd     = _mm_sad_epu8   (c, d_unread);
++      __m128i sad_ef     = _mm_sad_epu8   (e, f_unread);
++      __m128i sad_gh     = _mm_sad_epu8   (g, h_unread);
++
++      sse_inc = _mm_add_epi64(sse_inc, sad_ab);
++      sse_inc = _mm_add_epi64(sse_inc, sad_cd);
++      sse_inc = _mm_add_epi64(sse_inc, sad_ef);
++      sse_inc = _mm_add_epi64(sse_inc, sad_gh);
++    }
++    int32_t a_off = outside_width & is_left_bm;
++    int32_t leftoff_with_sign_neg = (left_offset ^ is_left_bm) - is_left_bm;
++
++    __m128i old_b = borderpx_vec_b;
++    __m128i old_d = borderpx_vec_d;
++    __m128i old_f = borderpx_vec_f;
++    __m128i old_h = borderpx_vec_h;
++
++    for (x = invec_lstart; x != invec_lend; x += invec_linc) {
++      __m128i a = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 0) * pic_stride + a_off));
++      __m128i c = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 1) * pic_stride + a_off));
++      __m128i e = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 2) * pic_stride + a_off));
++      __m128i g = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 3) * pic_stride + a_off));
++      __m128i b = _mm_loadu_si128((__m128i *)(ref_data + x * vec_width + (y + 0) * ref_stride + a_off - leftoff_with_sign_neg));
++      __m128i d = _mm_loadu_si128((__m128i *)(ref_data + x * vec_width + (y + 1) * ref_stride + a_off - leftoff_with_sign_neg));
++      __m128i f = _mm_loadu_si128((__m128i *)(ref_data + x * vec_width + (y + 2) * ref_stride + a_off - leftoff_with_sign_neg));
++      __m128i h = _mm_loadu_si128((__m128i *)(ref_data + x * vec_width + (y + 3) * ref_stride + a_off - leftoff_with_sign_neg));
++
++      __m128i b_shifted    = _mm_shuffle_epi8(b,     shufmask1);
++      __m128i d_shifted    = _mm_shuffle_epi8(d,     shufmask1);
++      __m128i f_shifted    = _mm_shuffle_epi8(f,     shufmask1);
++      __m128i h_shifted    = _mm_shuffle_epi8(h,     shufmask1);
++
++      __m128i b_with_old   = _mm_blendv_epi8 (old_b, b_shifted, move_old_to_b_imask);
++      __m128i d_with_old   = _mm_blendv_epi8 (old_d, d_shifted, move_old_to_b_imask);
++      __m128i f_with_old   = _mm_blendv_epi8 (old_f, f_shifted, move_old_to_b_imask);
++      __m128i h_with_old   = _mm_blendv_epi8 (old_h, h_shifted, move_old_to_b_imask);
++
++      uint8_t startoff     = (x << vec_width_log2) + a_off;
++      __m128i startoffs    = _mm_set1_epi8   (startoff);
++      __m128i curr_ns      = _mm_add_epi8    (startoffs,    nslo);
++      __m128i unrd_imask   = _mm_cmpgt_epi8  (blk_widths,   curr_ns);
++      __m128i unrd_mask    = _mm_cmpeq_epi8  (unrd_imask,   _mm_setzero_si128());
++
++      __m128i b_unread     = _mm_blendv_epi8 (b_with_old,   a, unrd_mask);
++      __m128i d_unread     = _mm_blendv_epi8 (d_with_old,   c, unrd_mask);
++      __m128i f_unread     = _mm_blendv_epi8 (f_with_old,   e, unrd_mask);
++      __m128i h_unread     = _mm_blendv_epi8 (h_with_old,   g, unrd_mask);
++
++      old_b = b_shifted;
++      old_d = d_shifted;
++      old_f = f_shifted;
++      old_h = h_shifted;
++
++      __m128i sad_ab     = _mm_sad_epu8(a, b_unread);
++      __m128i sad_cd     = _mm_sad_epu8(c, d_unread);
++      __m128i sad_ef     = _mm_sad_epu8(e, f_unread);
++      __m128i sad_gh     = _mm_sad_epu8(g, h_unread);
++
++      sse_inc = _mm_add_epi64(sse_inc, sad_ab);
++      sse_inc = _mm_add_epi64(sse_inc, sad_cd);
++      sse_inc = _mm_add_epi64(sse_inc, sad_ef);
++      sse_inc = _mm_add_epi64(sse_inc, sad_gh);
++    }
++  }
++  if (height_residual_lines) {
++    for (; y < height; y++) {
++      __m128i borderpx_vec = _mm_set1_epi8(ref_data[(int32_t)((y + 0) * ref_stride + border_off)]);
++      for (x = 0; x < (int32_t)outside_vecs; x++) {
++        __m128i a = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 0) * pic_stride + outvec_offset));
++
++        __m128i startoffs  = _mm_set1_epi8  ((x + inside_vecs) << vec_width_log2);
++        __m128i ns         = _mm_add_epi8   (startoffs, nslo);
++
++        // Unread imask is (is_left NOR unrd_imask_for_right), do the maths etc
++        __m128i unrd_imask = _mm_cmpgt_epi8 (blk_widths, ns);
++                unrd_imask = _mm_or_si128   (unrd_imask, is_left);
++        __m128i unrd_mask  = _mm_cmpeq_epi8 (unrd_imask, _mm_setzero_si128());
++        __m128i b_unread   = _mm_blendv_epi8(borderpx_vec, a, unrd_mask);
++
++        __m128i sad_ab     = _mm_sad_epu8   (a, b_unread);
++        sse_inc = _mm_add_epi64(sse_inc, sad_ab);
++      }
++      int32_t a_off = outside_width & is_left_bm;
++      int32_t leftoff_with_sign_neg = (left_offset ^ is_left_bm) - is_left_bm;
++
++      __m128i old_b = borderpx_vec;
++      for (x = invec_lstart; x != invec_lend; x += invec_linc) {
++        __m128i a = _mm_loadu_si128((__m128i *)(pic_data + x * vec_width + (y + 0) * pic_stride + a_off));
++        __m128i b = _mm_loadu_si128((__m128i *)(ref_data + x * vec_width + (y + 0) * ref_stride + a_off - leftoff_with_sign_neg));
++
++        __m128i b_shifted    = _mm_shuffle_epi8(b,     shufmask1);
++        __m128i b_with_old   = _mm_blendv_epi8 (old_b, b_shifted, move_old_to_b_imask);
++
++        uint8_t startoff     = (x << vec_width_log2) + a_off;
++        __m128i startoffs    = _mm_set1_epi8   (startoff);
++        __m128i curr_ns      = _mm_add_epi8    (startoffs,    nslo);
++        __m128i unrd_imask   = _mm_cmpgt_epi8  (blk_widths,   curr_ns);
++        __m128i unrd_mask    = _mm_cmpeq_epi8  (unrd_imask,   _mm_setzero_si128());
++        __m128i b_unread     = _mm_blendv_epi8 (b_with_old,   a, unrd_mask);
++
++        old_b = b_shifted;
++
++        __m128i sad_ab     = _mm_sad_epu8(a, b_unread);
++        sse_inc = _mm_add_epi64(sse_inc, sad_ab);
++      }
++    }
++  }
++  __m128i sse_inc_2 = _mm_shuffle_epi32(sse_inc, _MM_SHUFFLE(1, 0, 3, 2));
++  __m128i sad       = _mm_add_epi64    (sse_inc, sse_inc_2);
++  return _mm_cvtsi128_si32(sad);
++}
++
++#endif // UVG_BIT_DEPTH == 8
++
++#endif
+diff --git a/src/strategies/sse42/picture-sse42.c b/src/strategies/sse42/picture-sse42.c
+new file mode 100644
+index 0000000..6a7184e
+--- /dev/null
++++ b/src/strategies/sse42/picture-sse42.c
+@@ -0,0 +1,98 @@
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2023, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++#include "global.h"
++
++#include "uvg266.h"
++
++#include "strategies/sse42/picture-sse42.h"
++
++#include <immintrin.h>
++#include <stdlib.h>
++
++#include "strategyselector.h"
++
++
++
++static uint32_t uvg_crc32c_4x4_8bit_sse42(const uvg_pixel *buf, uint32_t pic_stride)
++{
++  uint32_t crc = 0xFFFFFFFF;
++  crc = _mm_crc32_u32(crc, *((uint32_t *)&buf[0 * pic_stride]));
++  crc = _mm_crc32_u32(crc, *((uint32_t *)&buf[1 * pic_stride]));
++  crc = _mm_crc32_u32(crc, *((uint32_t *)&buf[2 * pic_stride]));
++  crc = _mm_crc32_u32(crc, *((uint32_t *)&buf[3 * pic_stride]));
++  return crc ^ 0xFFFFFFFF;
++}
++
++static uint32_t uvg_crc32c_4x4_16bit_sse42(const uvg_pixel *buf, uint32_t pic_stride)
++{
++  uint64_t crc = 0xFFFFFFFF;
++  crc = _mm_crc32_u64(crc, *((uint64_t *)&buf[0 * pic_stride]));
++  crc = _mm_crc32_u64(crc, *((uint64_t *)&buf[1 * pic_stride]));
++  crc = _mm_crc32_u64(crc, *((uint64_t *)&buf[2 * pic_stride]));
++  crc = _mm_crc32_u64(crc, *((uint64_t *)&buf[3 * pic_stride]));
++  return (uint32_t)(crc ^ 0xFFFFFFFF);
++}
++
++static uint32_t uvg_crc32c_8x8_8bit_sse42(const uvg_pixel *buf, uint32_t pic_stride)
++{
++  uint64_t crc = 0xFFFFFFFF;
++  for (int i = 0; i < 8; i++) {
++    crc = _mm_crc32_u64(crc, *((uint64_t *)&buf[i * pic_stride]));
++  }
++  return (uint32_t)(crc ^ 0xFFFFFFFF);
++}
++
++static uint32_t uvg_crc32c_8x8_16bit_sse42(const uvg_pixel *buf, uint32_t pic_stride)
++{
++  uint64_t crc = 0xFFFFFFFF;
++  for (int i = 0; i < 8; i++) {
++    crc = _mm_crc32_u64(crc, *((uint64_t *)&buf[i * pic_stride]));
++    crc = _mm_crc32_u64(crc, *((uint64_t *)&buf[i * pic_stride + 4]));
++  }
++
++  return (uint32_t)(crc ^ 0xFFFFFFFF);
++}
++
++int uvg_strategy_register_picture_sse42(void* opaque, uint8_t bitdepth) {
++  bool success = true;
++
++  if (bitdepth == 8){
++    success &= uvg_strategyselector_register(opaque, "crc32c_4x4", "sse42", 0, &uvg_crc32c_4x4_8bit_sse42);
++    success &= uvg_strategyselector_register(opaque, "crc32c_8x8", "sse42", 0, &uvg_crc32c_8x8_8bit_sse42); 
++  } else {
++    success &= uvg_strategyselector_register(opaque, "crc32c_4x4", "sse42", 0, &uvg_crc32c_4x4_16bit_sse42); 
++    success &= uvg_strategyselector_register(opaque, "crc32c_8x8", "sse42", 0, &uvg_crc32c_8x8_16bit_sse42); 
++  }
++
++  return success;
++}
+diff --git a/src/strategies/sse42/picture-sse42.h b/src/strategies/sse42/picture-sse42.h
+new file mode 100644
+index 0000000..e1828b8
+--- /dev/null
++++ b/src/strategies/sse42/picture-sse42.h
+@@ -0,0 +1,45 @@
++#pragma once
++
++/*****************************************************************************
++ * This file is part of uvg266 VVC encoder.
++ *
++ * Copyright (c) 2022, Tampere University, ITU/ISO/IEC, project contributors
++ * All rights reserved.
++ * 
++ * Redistribution and use in source and binary forms, with or without modification,
++ * are permitted provided that the following conditions are met:
++ * 
++ * * Redistributions of source code must retain the above copyright notice, this
++ *   list of conditions and the following disclaimer.
++ * 
++ * * Redistributions in binary form must reproduce the above copyright notice, this
++ *   list of conditions and the following disclaimer in the documentation and/or
++ *   other materials provided with the distribution.
++ * 
++ * * Neither the name of the Tampere University or ITU/ISO/IEC nor the names of its
++ *   contributors may be used to endorse or promote products derived from
++ *   this software without specific prior written permission.
++ * 
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
++ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
++ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
++ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
++ * INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
++ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION HOWEVER CAUSED AND ON
++ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * INCLUDING NEGLIGENCE OR OTHERWISE ARISING IN ANY WAY OUT OF THE USE OF THIS
++ ****************************************************************************/
++
++/**
++ * \ingroup Optimization
++ * \file
++ * Optimizations for SSE4.2.
++ */
++
++#include "global.h" // IWYU pragma: keep
++#include "uvg266.h"
++
++
++int uvg_strategy_register_picture_sse42(void* opaque, uint8_t bitdepth);
+diff --git a/src/strategies/strategies-picture.c b/src/strategies/strategies-picture.c
+index eb7fb8f..25b9261 100644
+--- a/src/strategies/strategies-picture.c
++++ b/src/strategies/strategies-picture.c
+@@ -33,7 +33,12 @@
+ #include "strategies/strategies-picture.h"
+ 
+ #include "build_config.h"
++#include "strategies/altivec/picture-altivec.h"
++#include "strategies/avx2/picture-avx2.h"
+ #include "strategies/generic/picture-generic.h"
++#include "strategies/sse2/picture-sse2.h"
++#include "strategies/sse41/picture-sse41.h"
++#include "strategies/sse42/picture-sse42.h"
+ #include "strategyselector.h"
+ 
+ 
+@@ -90,10 +95,35 @@ int uvg_strategy_register_picture(void* opaque, uint8_t bitdepth) {
+ 
+   success &= uvg_strategy_register_picture_generic(opaque, bitdepth);
+ 
++#if UVG_HAVE_X86_64_SSE2
++  if (uvg_g_hardware_flags.intel_flags.sse2) {
++    success &= uvg_strategy_register_picture_sse2(opaque, bitdepth);
++  }
++#endif
+ 
++#if UVG_HAVE_X86_64_SSE41
++  if (uvg_g_hardware_flags.intel_flags.sse41) {
++    success &= uvg_strategy_register_picture_sse41(opaque, bitdepth);
++  }
++#endif
+ 
++#if UVG_HAVE_X86_64_SSE42
++  if (uvg_g_hardware_flags.intel_flags.sse42) {
++    success &= uvg_strategy_register_picture_sse42(opaque, bitdepth);
++  }
++#endif
+ 
++#if UVG_HAVE_X86_64_AVX2
++  if (uvg_g_hardware_flags.intel_flags.avx2) {
++    success &= uvg_strategy_register_picture_avx2(opaque, bitdepth);
++  }
++#endif
+ 
++#if UVG_HAVE_POWERPC_ALTIVEC
++  if (uvg_g_hardware_flags.powerpc_flags.altivec) {
++    success &= uvg_strategy_register_picture_altivec(opaque, bitdepth);
++  }
++#endif
+ 
+   return success;
+ }

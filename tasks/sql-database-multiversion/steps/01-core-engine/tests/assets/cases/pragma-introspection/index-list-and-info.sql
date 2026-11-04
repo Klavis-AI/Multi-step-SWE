@@ -1,0 +1,10 @@
+CREATE TABLE t(a, b, c);
+CREATE INDEX i1 ON t(b, a);
+PRAGMA index_list(t);
+PRAGMA index_info(i1);
+CREATE TABLE u(a, b);
+CREATE UNIQUE INDEX i2 ON u(b);
+PRAGMA index_list(u);
+PRAGMA index_info(i2);
+CREATE TABLE v(a, b);
+PRAGMA index_list(v);
